@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JedDobson" date="1110479231" format="1.0" version="1.2"}%
+%META:TOPICINFO{author="BockjooKim" date="1110902437" format="1.0" version="1.3"}%
 %META:TOPICPARENT{name="ValidationPage"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -15,15 +15,156 @@ rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
 
 
 ---++Introduction
-
-[[http://www.ivdgl.org/osg-int/gridcat/][OSG-ITB GridCat]]
-
+GridCat is a high level grid cataloging system using status dots on geographic maps as well as a catalog of participating sites. The status dots display site's health. The catalog contains information on site readiness, site problems, a brief reason for problems, number of job slots available, and disk space available with other valuable information per site to help job submission and job scheduling for application users and grid develpers. GridCat tries to present the grid-site at its simplest status representation.
+More documentation can be found from:<br/>
 [[http://www.ivdgl.org/gridcat][GridCat Home]]
 
+GridCat was started as a web page code development project within iVDGL and as a subproject for the Grid3 project to support the high level grid site status cataloging. First release was made with the version number 0.0.1 on April 2, 2004.
+Currently, GridCat is deployed for monitoring Grid3 project :
+[[http://www.ivdgl.org/grid3/catalog][Grid3 Catalog]] 
 
----++Heading 2
+OSG-ITB instance of the GridCat is deployed as:
+[[http://www.ivdgl.org/osg-int/gridcat/][OSG-ITB GridCat]]
+
+GridCat is operated by aggregating information from all participating grid sites. It uses MySQL database to store site status information. Certain site requirements should be met for a site information to be displayed correctly. 
+
+---++Site Requirements
+GridCat tests grid site status. The four fundamental GridCat tests that will determine site's Green/Red status dot are:<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[1] Authentication Test ( globusrun -a -r hostname/jobmananger-batch )<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[2] HelloWorld Test ( globus-job-run hostname /bin/echo "Hello World" )<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[3] Batch Test is a combination of Batch submission, Batch Query, and Batch Cancel<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;	 Batch submission		( globus-job-submit hostname/jobmanager-batch /bin/sleep 57 )<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;			 --> This gives jobid with the format<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;			 https://hostname:port/numeric_1/numeric_2<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;	 Batch Query ( globus-job-status jobid )<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;	 Batch Cancel ( using fork jobmanager and globus-job-clean -force -r hostname jobid )<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[4] gsiftp file transfer test out- and in-bound<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;			 (globus-url-copy file:///a/b/c gsiftp://hostname/usually_tmp/c<br/>
+ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;				 ,and if successful,<br/>
+ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;			 globus-url-copy gsiftp://hostname/usually_tmp/c file:///a/b/c<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;			 )
+
+In addition to the site status tests, GridCat obtains fundamental site information using the [[http://giis.ivdgl.org/twiki/bin/view/Integration/CoreMIS][CoreMIS (MIS-CI)]] information sensor and jobmanager-mis which is included by default beginning the OSG-ITB 0.1.4. MIS-CI's sensor collects information and puts them in SQLite database in the site. The information can be queried using the jobmanager-mis which is based on the jobmanager-fork and customized.<br/>
+
+Information collected from MIS-CI are Jobs and Disks. Jobs information is the number of available CPU slots for batch submission over total available CPU slots which could be different from the number in "CPUs" column of the GridCat display because Jobs information is obtained dynamically and from the batch system's jobs query which could provide only all the batch slots configured independently of the site's intended CPUs provision. Disks information is the number of disk space available in Gbyte for the direcotries, $app, $data, $tmp, $wntmp, and osg installation over the total disk space from which these directories are mounted.
 
 
+In order for a site to be cataloged to the OSG-ITB GridCat instance, a few requirements should be met. <br/>
+If the site is a computing service (CS in GridCat display), these requirements should be met :<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[1] [[http://giis.ivdgl.org/twiki/bin/view/Integration/OsgItbInstallation][Installation and configuration of OSG-ITB 0.1.4]]<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[2] The site's gatekeeper hostname should be sent to the OSG-ITB GridCat operator<br/>
+
+If the site is not a computing service, the service COULD BE displayed in GridCat by providing:<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[1] The site's hostname should be sent to the OSG-ITB GridCat operator<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[2] A magic file that describes the site, e.g., for a storage service site, <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;a file called the ss-info.conf may be created and placed in a known directory.<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;The content of the file MAY look like:<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;SERVICE_TYPE="SS"<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;THIS_FILE="/tmp/ss-info.conf"<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;FACILITY_NAME="OSG_ITB_FAC_SOMEWHERE"
+SITE_NAME="OSG_ITB_MY_STORAGE_SITE"<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;GSIFTP_DOOR_LIST="gsiftp://hostname:2811/,gsiftp://hostname:2812,gsiftp://hostname2:2811"<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;GSIFTP_DOOR_BASEDIR="/tmp"<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;SRM_DOOR_LIST="srm://hostname:port"<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;SRM_DOOR_BASEDIR="/tmp"<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;SITE_CONTACT_CERT_DN="/O=Anywhere/Blah=Blah/CN=Your Name 3049493203"<br/>
+
+---++Extracting GridCat Information
+GridCat provides xml-rpc service from the GridCat instance to provide collected information to grid users . The GridCat service can be accessed using GridCat client. Two versions of GridCat client are provided with python and perl languages. Perl version requires various other perl module installation and is more difficult to set up. Python version is recommended to be used. They can be obtained from:<br/>
+[[http://www.ivdgl.org/gridcat/gcatc.py][GridCat Client]] in python version<br/>
+[[http://www.ivdgl.org/gridcat/gcatc.pl][GridCat Client]] in perl version<br/>
+
+GridCat client accesses database and displays necessary information.
+The following information query are implemented and can be obtained using the client.<br/>
+&nbsp;&nbsp;&nbsp;usage: <br/>
+&nbsp;&nbsp;&nbsp;gcatc.py [--useservice= ] [OPTIONS [args]] <br/>
+&nbsp;&nbsp;&nbsp;Here an example URI can be http://www.ivdgl.org/osg-int/gridcat/services.php <br/>
+&nbsp;&nbsp;&nbsp;and <br/>
+&nbsp;&nbsp;&nbsp;OPTIONS are <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;						Top level options: <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  -h | --help | --usage <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Print help <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --useservice= <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Invoke useservice method to switch to the requested service <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  This option should be followed by one of the Method options <br/>
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  Introspect options: <br/>
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --listmethods <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  List available methods <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --methodhelp= <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Provides help for a specific method <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --methodsig= <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Provides what should be the argument for a specific method <br/>
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  Method options: <br/>
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --sitenames <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Invoke sitenames method and list all site names <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --hostnames <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Invoke hostnames method and list all gatekeeper host names <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --jobmanagers <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Invoke jobmanagers method and list jobmanagers in a site <br/>
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --sitestatus <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Invoke sitestatus method and show site status in a site <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --authstatus <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Show authorization possibility status in a site <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --batchstatus <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Show batch job accessibility status in a site <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --gsiftpstatus <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Show gsiftp accessibiltiy status in a site <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --directories <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  List grid accessible directories in a site <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --cpuslots <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Show available CPU slots in a site 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --diskspace <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Show available data directory disk space in GB in a site <br/>
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --showtables <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Invoke showtables method and list all gridcat MySQL tables <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --showfields= <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Invoke showfields method and list names of all fields in a table <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --getsiteresult <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Invoke getsiteresult method and show query result <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --getresult <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  Invoke getresult method and show query result <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;								  (This is the last resort if none of above methods get you what you want <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;									if you know what you are doing.) <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;					  --services <br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;							 Lists available services <br/>
+
+
+&nbsp;&nbsp;&nbsp;Example: Download GridCat Client and try : <br/>
+&nbsp;&nbsp;&nbsp;./gcatc.py --sitenames <br/>
+&nbsp;&nbsp;&nbsp;That's all <br/>
+
+
+---++Definition of Site, Facility, and CPUs
+Sitename is determined by the site admin during installation (See OSG-ITB installation quick guide above) . It is a desriptive short name for a collection of services within the site.
+
+Facility name in GridCat is logically chosen during GridCat instantiation.
+The convention is to take the TOP LEVEL domain (TLD) name:
+For example, ufloridaigt.phys.ufl.edu has the TLD, UFL.EDU,
+so, .EDU is remove to name it as the ufloridaigt's facility name.
+
+Facility is meant to be an administrative domain which is managed/operated by a number of site admins in the site. In other words, the facilities name is what describes the local administrative domain. For example at UF we have two clusters on grid3. One is the production cluster dedicated to CMS the is a production cluster for everyone. The policies implemented on each batch system differs in terms of what percetage CMS gets when compared to others. Our facility name describes the admin group here at UF HEP. 
+So, in gridcat, "Facility" is a level above "Site", but all displays in GridCat is arranged using the concept of "Site".
+
+CPUs are a fixed number of CPUs which the site is presumably providing. This number is taken from batch system information and this number is populated initially using this information. However, this number
+can be mostly accurately provide by the site admin only. BNL site is such an example.
+
+
+---++Interactively Updating GridCat (Will be available after OSG-ITB 0.1.4 upgrade and GridCat upgrade)
+As a site admin, GridCat information may be updated interactively. Site name, Facility name, and CPUs are three fields that can be updated by site admins.
+Also a site status test can be performed as the site admin. 
+These interactive site admin role can be activated by sending an email to GridCat operator or adding
+a line in the following format:<br/>
+SITE_CONTACT_CERT_DN="/O=Anywhere/Blah=Blah/CN=Your Name 3049493203"<br/>
+to the monitoring configuration file.
+
+---++Contacting GridCat
+(352)392-1791
 
 <!-- MAJOR UPDATES
 For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
@@ -31,6 +172,8 @@ For significant updates to the topic, consider adding your 'signature' (beneath 
 *Major updates*:%BR%
 <!--Future editors should add their signatures beneath yours!-->
 -- Main.RobGardner - 09 Mar 2005
+
+-- Main.BockjooKim - 15 Mar 2005
 
 %STOPINCLUDE%
 
