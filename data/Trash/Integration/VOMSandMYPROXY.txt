@@ -1,0 +1,180 @@
+%META:TOPICINFO{author="MarkusLorch" date="1114016023" format="1.0" version="1.1"}%
+%META:TOPICPARENT{name="IntegrationDocuments"}%
+<!-- This is the default OSG Integration template. 
+Please modify it in the sections indicated to create your topic!
+If you have any comments/complaints about this template, then please email me:
+rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
+--> 
+
+<!-- By default the title is the WikiWord used to create this topic !-->
+<!-- if you want to modify it to something more meaningful, just replace %TOPIC% below with i.e "VOMS and MyProxy Integration Testing"!-->
+
+---+!!<nop>VOMS and MyProxy Integration Testing
+%TOC%
+%STARTINCLUDE%
+
+
+---++Introduction
+
+If MyProxy is a credential repository that stores long-term proxies of end users and provides derived short-term proxyies upon request. I.e. a typical use-case is to initialize the MyProxy server with one's end-entity certificate and private key from one's own workstation, and later retrieve a delegated proxy from the MyProxy server to use on a machine where one does not have access to their own certificate and private key.
+
+The VOMS server in turn is an attribute server that provides users upon request with their attributes by embedding them in the user's proxy certificate durin proxy certificate initialization.
+
+Up Front Result: VOMS and MyProxy do not interoperate in the current versions
+included in VDT 1.3.5, reasons given below.
+
+
+There are two possible ways of how VOMS and MyProxy can be used together:
+
+ONE - long term proxy in MyProxy
+
+This is the desired operation!
+
+1. Initialize MyProxy with your end-entity credential (myproxy-init)
+
+2. retrieve a short term proxy from MyProxy (myproxy-get)
+
+3. retrieve a VOMS attribute by using the voms-proxy-init tool with 
+	your desired VO/role and using the previously retrieved proxy from 
+	MyProxy as your input to voms-proxy-init
+
+Part of this could be scripted, mainly steps 2 and 3 can be abstracted 
+and the user only needs to execute a script that does these two steps. 
+Only the MyProxy password would be required. Basically the MyProxy proxy
+would be "customized" with the appropriate attribute just before it would
+be put to use.
+
+TWO - many specialized proxies (one per VO) in MyProxy
+
+This approach would require to 
+1. get a proxy with a VOMs attribute 
+2. insert this proxy into MyProxy with a handle identifying the VO/role
+3. retrieve the proxy from MyProxy on the desired machine with a username/password
+combination that fits the VO/role
+
+If this approach is taken then the management of proxies in MyProxy becomes a
+dounting task for the user as he has to provision a proxy for every possible
+VO/role combination up front to MyProxy and have a different username/password
+for each proxy.
+
+
+---++Test Environment
+
+To test the integration between VOMS and MyProxy and the two above noted scenarios
+I installed a MyProxy server using VDT 1.3.5 on cmssrv17.fnal.gov that accepts any
+doegrids certificate and allows retrieval from any host if proper username/password are given.
+
+To install I did:
+1. upgrade to packman 1.3.1
+2. pacman -get http://www.cs.wisc.edu/vdt/vdt_135_cache:MyProxy -pretend-platform:linux-rhel
+3. modify /opt/vdt/globus/etc/myproxy-server.config to allow for doegrids certs and
+to allow retrieval from any host
+4. copy globus/share/myproxy/etc.init.d.myproxy to /etc/init.d and customize it (automatic start at boot is not activated)
+5. issue a "myproxy start"
+
+I also installed MyProxy in a VDT 1.3.3 distrib on gyoza7.fnal.gov for testing the clients from a different machine
+
+---++Scenario 1 - MyProxy before VOMS
+
+Here are the results of the scenario 1 commands as explained above:
+
+$ export MYPROXY_SERVER=cmssrv17.fnal.gov
+
+$ myproxy-init
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+Enter GRID pass phrase for this identity:
+Creating proxy ............................... Done
+Proxy Verify OK
+Your proxy is valid until: Wed Apr 27 10:16:54 2005
+Enter MyProxy pass phrase:
+Verifying - Enter MyProxy pass phrase:
+A proxy valid for 168 hours (7.0 days) for user mlorch now exists on cmssrv17.fnal.gov.
+
+$ myproxy-get-delegation -o /tmp/lorch-proxy
+Enter MyProxy pass phrase:
+A proxy has been received for user mlorch in /tmp/lorch-proxy
+
+$ voms-proxy-init -cert /tmp/lorch-proxy -key /tmp/lorch-proxy -voms uscms
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=445535163/CN=1221395140/CN=1294112888
+Creating temporary proxy .................................................. Done
+Contacting  cmssrv08.fnal.gov:15050 [/DC=org/DC=doegrids/OU=Services/CN=cmssrv08.fnal.gov] "uscms" Failed. Error: VERR_NOSOCKET
+Trying next server for uscms.
+Creating temporary proxy ........................................................... Done
+Contacting  cmssrv08.fnal.gov:15050 [/DC=org/DC=doegrids/OU=Services/CN=cmssrv08.fnal.gov] "uscms" Failed. Error: VERR_NOSOCKET
+Failed to contact servers for uscms. Exiting
+
+
+--> the VOMS proxy init with a VDT 1.3.1 voms client and server failed, while the same command without the use of the myproxy derived proxy succeeds:
+
+$voms-proxy-init -voms uscms
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+Enter GRID pass phrase:
+Creating temporary proxy ............................................... Done
+Contacting  cmssrv08.fnal.gov:15050 [/DC=org/DC=doegrids/OU=Services/CN=cmssrv08.fnal.gov] "uscms" Done
+Creating proxy ........................................................... Done
+Your proxy is valid until Wed Apr 20 22:33:59 2005
+
+
+The same problem exists if the VDT 1.3.5 VOMS client and SERVER is used. I believe the error message, undicating a socket error, is as usual misleading.  VOMS is most likely unable to process a proxy certificate as the means of authenticating the user. In a proxy certificate the DN does not identify the user directly. A system accepting a proxy certificate has to walk the chain to the end-entity certfificate to retrieve the 
+user's DN. the voms-proxy-init output of is the reason why I believe VOMS does not process
+the proxy certificate right (it expects an end-entity certificate)
+"Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=445535163/CN=1221395140/CN=1294112888"
+
+
+---++Testcase 2 VOMS before MyProxy
+
+I was unable to perform the test of this scenario as I could not find an option to myproxy-init that allows one to delegate from a proxy certificate to MyProxy.
+
+There should be a -cert and -key option for this use and there probably is, but its not documented or I overlooked it.
+
+$ myproxy-init -help
+
+Syntax: myproxy-init [-c #hours] [-t #hours] [-l username] [-r retrievers] [-w renewers] ...
+		  myproxy-init [-usage|-help] [-version]
+
+	Options
+		 -h | --help							  Displays usage
+		 -u | --usage
+
+		 -v | --verbose						  Display debugging messages
+		 -V | --version						  Displays version
+		 -l | --username		  <username> Username for the delegated proxy
+		 -c | --cred_lifetime	<hours>	 Lifetime of delegated proxy on
+													  server (default 1 week)
+		 -t | --proxy_lifetime  <hours>	 Lifetime of proxies delegated by
+													  server (default 12 hours)
+		 -s | --pshost			 <hostname> Hostname of the myproxy-server
+													  Can also set MYPROXY_SERVER env. var.
+		 -p | --psport			 <port #>	Port of the myproxy-server
+		 -a | --allow_anonymous_retrievers Allow credentials to be retrieved
+													  with just username/passphrase
+		 -A | --allow_anonymous_renewers	Allow credentials to be renewed by
+													  any client (not recommended)
+		 -x | --regex_dn_match				 Set regular expression matching mode
+													  for following policy options
+		 -X | --match_cn_only				  Set CN matching mode (default)
+													  for following policy options
+		 -r | --retrievable_by  <dn>		 Allow specified entity to retrieve
+													  credential
+		 -R | --renewable_by	 <dn>		 Allow specified entity to renew
+													  credential
+		 -S | --stdin_pass					  Read passphrase from stdin
+		 -n | --no_passphrase				  Don't prompt for passphrase
+		 -d | --dn_as_username				 Use the proxy certificate subject
+													  (DN) as the default username,
+													  instead of the LOGNAME env. var.
+		 -k | --credname		  <name>	  Specifies credential name
+		 -K | --creddesc		  <desc>	  Specifies credential description
+
+
+
+
+<!-- MAJOR UPDATES
+For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
+
+*Major updates*:%BR%
+<!--Future editors should add their signatures beneath yours!-->
+-- Main.MarkusLorch - 20 Apr 2005
+
+%STOPINCLUDE%
+
