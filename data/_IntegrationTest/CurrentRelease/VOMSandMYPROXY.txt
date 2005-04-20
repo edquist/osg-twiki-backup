@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarkusLorch" date="1114016023" format="1.0" version="1.1"}%
+%META:TOPICINFO{author="MarkusLorch" date="1114025322" format="1.0" version="1.2"}%
 %META:TOPICPARENT{name="IntegrationDocuments"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -20,20 +20,17 @@ If MyProxy is a credential repository that stores long-term proxies of end users
 
 The VOMS server in turn is an attribute server that provides users upon request with their attributes by embedding them in the user's proxy certificate durin proxy certificate initialization.
 
-Up Front Result: VOMS and MyProxy do not interoperate in the current versions
-included in VDT 1.3.5, reasons given below.
+EXECUTIVE SUMMARY: VOMS is unable to deal with proxy certificates as an input, it expects the user to have his end-entity credentials on the machine that voms-proxy-init is executed. On the other hand, MyProxy has a compatibility mode that allows it to store the old proxy format that VOMS uses. It thus is possible for a user to create a set of relatively long-lived voms proxies that are customized and provision these proxies via delegation into MyProxy using a different MyProxy-username for each proxy. On the target machine the user can then retrieve the appropriate proxy via the corresponding username/password combination from MyProxy
 
 
-There are two possible ways of how VOMS and MyProxy can be used together:
+Ok, now in more detail: there are two possible ways of how VOMS and MyProxy can be used together:
 
-ONE - long term proxy in MyProxy
+---+++ SCENARIO ONE - long term proxy in MyProxy
 
-This is the desired operation!
+This is the desired operation IMO!
 
 1. Initialize MyProxy with your end-entity credential (myproxy-init)
-
 2. retrieve a short term proxy from MyProxy (myproxy-get)
-
 3. retrieve a VOMS attribute by using the voms-proxy-init tool with 
 	your desired VO/role and using the previously retrieved proxy from 
 	MyProxy as your input to voms-proxy-init
@@ -44,7 +41,7 @@ Only the MyProxy password would be required. Basically the MyProxy proxy
 would be "customized" with the appropriate attribute just before it would
 be put to use.
 
-TWO - many specialized proxies (one per VO) in MyProxy
+---+++ SCENARIO TWO - many specialized proxies (one per VO) in MyProxy
 
 This approach would require to 
 1. get a proxy with a VOMs attribute 
@@ -55,7 +52,7 @@ combination that fits the VO/role
 If this approach is taken then the management of proxies in MyProxy becomes a
 dounting task for the user as he has to provision a proxy for every possible
 VO/role combination up front to MyProxy and have a different username/password
-for each proxy.
+for each proxy. 
 
 
 ---++Test Environment
@@ -74,10 +71,16 @@ to allow retrieval from any host
 
 I also installed MyProxy in a VDT 1.3.3 distrib on gyoza7.fnal.gov for testing the clients from a different machine
 
----++Scenario 1 - MyProxy before VOMS
+---++SCENARIO ONE - MyProxy before VOMS
 
-Here are the results of the scenario 1 commands as explained above:
+Summary: This scenario, which IMO is the desired one, fails. I believe the error message, which is indicating a socket error, is misleading.  VOMS is most likely unable to process a proxy certificate as the means of authenticating the user. The voms-proxy-init status output below is the reason why I believe voms-proxy-init is unable to retrieve the user's DN if a proxy certificate is used as input"
+"Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=445535163/CN=1221395140/CN=1294112888"
+Instead of:
+"Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196"
 
+
+Here are the results of the scenario 1 commands and the error:
+<code><pre>
 $ export MYPROXY_SERVER=cmssrv17.fnal.gov
 
 $ myproxy-init
@@ -102,10 +105,11 @@ Trying next server for uscms.
 Creating temporary proxy ........................................................... Done
 Contacting  cmssrv08.fnal.gov:15050 [/DC=org/DC=doegrids/OU=Services/CN=cmssrv08.fnal.gov] "uscms" Failed. Error: VERR_NOSOCKET
 Failed to contact servers for uscms. Exiting
+</pre></code>
 
+The VOMS proxy init with a VDT 1.3.1 voms client and server failed, while the same command without the use of the myproxy derived proxy succeeds:
 
---> the VOMS proxy init with a VDT 1.3.1 voms client and server failed, while the same command without the use of the myproxy derived proxy succeeds:
-
+<code><pre>
 $voms-proxy-init -voms uscms
 Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
 Enter GRID pass phrase:
@@ -113,66 +117,163 @@ Creating temporary proxy ............................................... Done
 Contacting  cmssrv08.fnal.gov:15050 [/DC=org/DC=doegrids/OU=Services/CN=cmssrv08.fnal.gov] "uscms" Done
 Creating proxy ........................................................... Done
 Your proxy is valid until Wed Apr 20 22:33:59 2005
+</pre></code>
+
+The same problem exists if the VDT 1.3.5 VOMS client and SERVER is used. 
 
 
-The same problem exists if the VDT 1.3.5 VOMS client and SERVER is used. I believe the error message, undicating a socket error, is as usual misleading.  VOMS is most likely unable to process a proxy certificate as the means of authenticating the user. In a proxy certificate the DN does not identify the user directly. A system accepting a proxy certificate has to walk the chain to the end-entity certfificate to retrieve the 
-user's DN. the voms-proxy-init output of is the reason why I believe VOMS does not process
-the proxy certificate right (it expects an end-entity certificate)
-"Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=445535163/CN=1221395140/CN=1294112888"
 
+---++SCENARIO TWO - VOMS before MyProxy
 
----++Testcase 2 VOMS before MyProxy
+Summary: This scenario can be made to work. MyProxy is able to accept the 
+legacy proxies from VOMS as input. However, this scenario is cumbersome to use
+as best, requires users to manage many MyProxy accounts and passwords and to
+watch over the lifetime of a large number of proxies. 
 
-I was unable to perform the test of this scenario as I could not find an option to myproxy-init that allows one to delegate from a proxy certificate to MyProxy.
+Here is the procedure I follows, I first verify that I can do a standard proxy
+<code><pre>
+$unset GT_PROXY_MODE
+$unset X509_USER_CERT
+$unset X509_USER_KEY
 
-There should be a -cert and -key option for this use and there probably is, but its not documented or I overlooked it.
+grid-proxy-init -debug -verify
 
-$ myproxy-init -help
+User Cert File: /home/mlorch/.globus/usercert.pem
+User Key File: /home/mlorch/.globus/userkey.pem
 
-Syntax: myproxy-init [-c #hours] [-t #hours] [-l username] [-r retrievers] [-w renewers] ...
-		  myproxy-init [-usage|-help] [-version]
+Trusted CA Cert Dir: /etc/grid-security/certificates
 
-	Options
-		 -h | --help							  Displays usage
-		 -u | --usage
+Output File: /tmp/x509up_u9525
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+Enter GRID pass phrase for this identity:
+Creating proxy ...++++++++++++
+.....++++++++++++
+ Done
+Proxy Verify OK
+Your proxy is valid until: Thu Apr 21 02:02:37 2005
+</pre></code>
 
-		 -v | --verbose						  Display debugging messages
-		 -V | --version						  Displays version
-		 -l | --username		  <username> Username for the delegated proxy
-		 -c | --cred_lifetime	<hours>	 Lifetime of delegated proxy on
-													  server (default 1 week)
-		 -t | --proxy_lifetime  <hours>	 Lifetime of proxies delegated by
-													  server (default 12 hours)
-		 -s | --pshost			 <hostname> Hostname of the myproxy-server
-													  Can also set MYPROXY_SERVER env. var.
-		 -p | --psport			 <port #>	Port of the myproxy-server
-		 -a | --allow_anonymous_retrievers Allow credentials to be retrieved
-													  with just username/passphrase
-		 -A | --allow_anonymous_renewers	Allow credentials to be renewed by
-													  any client (not recommended)
-		 -x | --regex_dn_match				 Set regular expression matching mode
-													  for following policy options
-		 -X | --match_cn_only				  Set CN matching mode (default)
-													  for following policy options
-		 -r | --retrievable_by  <dn>		 Allow specified entity to retrieve
-													  credential
-		 -R | --renewable_by	 <dn>		 Allow specified entity to renew
-													  credential
-		 -S | --stdin_pass					  Read passphrase from stdin
-		 -n | --no_passphrase				  Don't prompt for passphrase
-		 -d | --dn_as_username				 Use the proxy certificate subject
-													  (DN) as the default username,
-													  instead of the LOGNAME env. var.
-		 -k | --credname		  <name>	  Specifies credential name
-		 -K | --creddesc		  <desc>	  Specifies credential description
+Second, I get a VOMS proxy (overriding the first test proxy)
+<code><pre>
+$ voms-proxy-init -voms cmssrv17
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+Enter GRID pass phrase:
+Creating temporary proxy ........................................ Done
+Contacting  cmssrv17.fnal.gov:15001 [/DC=org/DC=doegrids/OU=Services/CN=cmssrv17.fnal.gov] "uscms" Done
+Creating proxy .................................................... Done
+Your proxy is valid until Thu Apr 21 02:03:07 2005
+</pre></code>
 
+Now I set the newly created proxy to be my end-entity certificate and key
+(thus from now on I am no longer using usercert.pem and userkey.pem from
+my .globus directory)
 
+<code><pre>
+$ id
+uid=9525(mlorch) gid=5063(us_cms) groups=33914,41504,5063(us_cms),5064(globus),9548(gums)
+$ export X509_USER_CERT=/tmp/x509up_u9525
+$ export X509_USER_KEY=/tmp/x509up_u9525
+$ grid-proxy-init -debug -verify
+
+User Cert File: /tmp/x509up_u9525
+User Key File: /tmp/x509up_u9525
+
+Trusted CA Cert Dir: /etc/grid-security/certificates
+
+Output File: /tmp/x509up_u9525
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy
+Creating proxy .............++++++++++++
+.....++++++++++++
+ Done
+
+ERROR: Couldn't verify the authenticity of the user's credential to generate a proxy from.
+
+grid_proxy_init.c:948:globus_gsi_cred_handle.c:globus_gsi_cred_verify_cert_chain:1679:
+Error verifying credential: Failed to verify credential
+globus_gsi_callback.c:globus_i_gsi_callback_create_proxy_callback:429:
+Could not verify credential
+globus_gsi_callback.c:globus_i_gsi_callback_cred_verify:698:
+Could not verify credential
+globus_gsi_callback.c:globus_i_gsi_callback_check_proxy:813:
+Error verifying new proxy certificate
+</pre></code>
+
+This proxy verify failed as the proxy that we got from VOMS is an old-format proxy.
+Now lets switch to old-proxy compatibility mode:
+
+<code><pre>
+$ export GT_PROXY_MODE=old
+$ grid-proxy-init -debug -verify
+
+User Cert File: /tmp/x509up_u9525
+User Key File: /tmp/x509up_u9525
+
+Trusted CA Cert Dir: /etc/grid-security/certificates
+
+Output File: /tmp/x509up_u9525
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy
+Creating proxy ...............++++++++++++
+.........++++++++++++
+ Done
+Proxy Verify OK
+
+Warning: your certificate and proxy will expire Thu Apr 21 02:03:07 2005
+ which is within the requested lifetime of the proxy
+</pre></code>
+
+Inject the old-style proxy from VOMS into myproxy via delegation:
+<code><pre>
+$ myproxy-init -c 5
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy/CN=proxy
+Creating proxy ................................... Done
+Proxy Verify OK
+Your proxy is valid until: Wed Apr 20 19:05:37 2005
+Enter MyProxy pass phrase:
+Verifying - Enter MyProxy pass phrase:
+A proxy valid for 5 hours (0.2 days) for user mlorch now exists on cmssrv17.fnal.gov.
+</pre></code>
+
+Retrieve this proxy (overriding the original one) and verify with
+voms-proxy-info -all
+
+<code><pre>
+$ myproxy-get-delegation
+Enter MyProxy pass phrase:
+A proxy has been received for user mlorch in /tmp/x509up_u9525
+
+$ voms-proxy-info -all
+error = 5025
+WARNING: Unable to verify signature!
+subject	: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy/CN=proxy/CN=proxy/CN=proxy/CN=proxy
+issuer	 : /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy/CN=proxy/CN=proxy/CN=proxy
+identity  : /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy/CN=proxy/CN=proxy/CN=proxy
+type		: unknown
+strength  : 512 bits
+path		: /tmp/x509up_u9525
+timeleft  : 4:56:16
+VO		  : uscms
+subject	: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+issuer	 : /DC=org/DC=doegrids/OU=Services/CN=cmssrv17.fnal.gov
+attribute : /uscms/Role=NULL/Capability=NULL
+attribute : /uscms/gumstest/Role=NULL/Capability=NULL
+timeleft  : 11:53:46
+
+</pre>
+</code>
+
+Voila, eventually we are back were we started ... we got a VOMS proxy that was
+delegated 5 times in the process. :)
+
+I have tested this process several times by loading different voms proxies with changing VO affiliation and lifetimes into MyProxy ... this seems to work.
 
 
 <!-- MAJOR UPDATES
 For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
 
-*Major updates*:%BR%
+*Major updates
+
+
+*:%BR%
 <!--Future editors should add their signatures beneath yours!-->
 -- Main.MarkusLorch - 20 Apr 2005
 
