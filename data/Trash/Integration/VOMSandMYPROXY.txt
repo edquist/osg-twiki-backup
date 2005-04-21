@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarkusLorch" date="1114025322" format="1.0" version="1.2"}%
+%META:TOPICINFO{author="MarkusLorch" date="1114093186" format="1.0" version="1.3"}%
 %META:TOPICPARENT{name="IntegrationDocuments"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -17,24 +17,26 @@ rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
 ---++Introduction
 
 If MyProxy is a credential repository that stores long-term proxies of end users and provides derived short-term proxyies upon request. I.e. a typical use-case is to initialize the MyProxy server with one's end-entity certificate and private key from one's own workstation, and later retrieve a delegated proxy from the MyProxy server to use on a machine where one does not have access to their own certificate and private key.
-
+<p>
 The VOMS server in turn is an attribute server that provides users upon request with their attributes by embedding them in the user's proxy certificate durin proxy certificate initialization.
+<p>
+EXECUTIVE SUMMARY (UPDATED 2005-05-21): VOMS and MyProxy can interoperate if MyProxy is instructed to only create/use legacy globus proxies (where the DN is extended with CN=proxy for every delegation step). This can be achieved by setting an environment variable of "GT_PROXY_MODE=old" in the shell where the MyProxy client tools are used. <p>
+Two general usage scenarios are possible. Scenario 1 stores a long-lived general-purpose proxy in MyProxy and the user, upon retrieval of a derived proxy, adds VOMS attributes before usage. Scenario 2 stores multiple customized VOMS proxies in MyProxy and the user retrieves a delegation of the proxy with the desired VO/role attribute.<p>
+INTEROPERABILITY WITH PRIMA:  in the current versions of PRIMA (0.2) if MyProxy is used in either scenario the PRIMA module will not validate the attribute certificate as it expects the attribute certificate to be bound to the issuer (cert) of the proxy certificate that was used for authentication. I like the VOMS solution of binding the attribute certificate to the end-entity certificate better and we will adjust the next release of PRIMA (0.3) to accomodate this use-case and accept such attribute certificates. Further more, attribute validation on the gatekeeper side is not required if the GUMS server is used as the GUMS server has a complete replica of all authorized group and role memberships from the VOMS databases. Thus this validation step may be disabled.
+<p>
 
-EXECUTIVE SUMMARY: VOMS is unable to deal with proxy certificates as an input, it expects the user to have his end-entity credentials on the machine that voms-proxy-init is executed. On the other hand, MyProxy has a compatibility mode that allows it to store the old proxy format that VOMS uses. It thus is possible for a user to create a set of relatively long-lived voms proxies that are customized and provision these proxies via delegation into MyProxy using a different MyProxy-username for each proxy. On the target machine the user can then retrieve the appropriate proxy via the corresponding username/password combination from MyProxy
+As noted above there are two possible ways of how VOMS and MyProxy can be used together:
 
+---+++ SCENARIO ONE - long term proxy in MyProxy (do MyProxy before VOMS)
 
-Ok, now in more detail: there are two possible ways of how VOMS and MyProxy can be used together:
-
----+++ SCENARIO ONE - long term proxy in MyProxy
-
-This is the desired operation IMO!
-
-1. Initialize MyProxy with your end-entity credential (myproxy-init)
-2. retrieve a short term proxy from MyProxy (myproxy-get)
+<b>This is the desired operation IMO!</b>
+<p>
+1. Initialize MyProxy with your end-entity credential (myproxy-init)<br>
+2. retrieve a short term proxy from MyProxy (myproxy-get)<br>
 3. retrieve a VOMS attribute by using the voms-proxy-init tool with 
 	your desired VO/role and using the previously retrieved proxy from 
-	MyProxy as your input to voms-proxy-init
-
+	MyProxy as your input to voms-proxy-init <br>
+<p>
 Part of this could be scripted, mainly steps 2 and 3 can be abstracted 
 and the user only needs to execute a script that does these two steps. 
 Only the MyProxy password would be required. Basically the MyProxy proxy
@@ -43,14 +45,14 @@ be put to use.
 
 ---+++ SCENARIO TWO - many specialized proxies (one per VO) in MyProxy
 
-This approach would require to 
-1. get a proxy with a VOMs attribute 
-2. insert this proxy into MyProxy with a handle identifying the VO/role
+This approach would require to <br>
+1. get a proxy with a VOMs attribute <br>
+2. insert this proxy into MyProxy with a handle identifying the VO/role <br>
 3. retrieve the proxy from MyProxy on the desired machine with a username/password
-combination that fits the VO/role
-
+combination that fits the VO/role<br>
+<p>
 If this approach is taken then the management of proxies in MyProxy becomes a
-dounting task for the user as he has to provision a proxy for every possible
+dounting (scary) task for the user as he has to provision a proxy for every possible
 VO/role combination up front to MyProxy and have a different username/password
 for each proxy. 
 
@@ -73,11 +75,77 @@ I also installed MyProxy in a VDT 1.3.3 distrib on gyoza7.fnal.gov for testing t
 
 ---++SCENARIO ONE - MyProxy before VOMS
 
-Summary: This scenario, which IMO is the desired one, fails. I believe the error message, which is indicating a socket error, is misleading.  VOMS is most likely unable to process a proxy certificate as the means of authenticating the user. The voms-proxy-init status output below is the reason why I believe voms-proxy-init is unable to retrieve the user's DN if a proxy certificate is used as input"
+UPDATE: This scenario can now be made to work if Globus and MyProxy are forced to only produce/use legacy proxies with the DN attribute CN=proxy added to the DN of the end-entity. <b>To achieve this the environment variable GT_PROXY_MODE=old needs to be
+set when the MyProxy commands are used</b>
+<p> 
+Here the procedure:
+<p>
+<code><pre>
+
+$ export GT_PROXY_MODE=old
+
+$ myproxy-init
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+Enter GRID pass phrase for this identity:
+Creating proxy ............................................................... Done
+Proxy Verify OK
+Your proxy is valid until: Thu Apr 28 08:27:11 2005
+Enter MyProxy pass phrase:
+Verifying - Enter MyProxy pass phrase:
+A proxy valid for 168 hours (7.0 days) for user mlorch now exists on cmssrv17.fnal.gov.
+[mlorch@gyoza7 globus]$ myproxy-get-delegation -o /tmp/lorch-proxy
+Enter MyProxy pass phrase:
+A proxy has been received for user mlorch in /tmp/lorch-proxy
+
+
+$ grid-proxy-info -file /tmp/lorch-proxy
+subject  : /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy/CN=proxy/CN=proxy
+issuer	: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy/CN=proxy
+identity : /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+type	  : full legacy globus proxy
+strength : 512 bits
+path	  : /tmp/lorch-proxy
+timeleft : 11:58:47
+
+$ voms-proxy-init -cert /tmp/lorch-proxy -key /tmp/lorch-proxy -voms uscms
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy/CN=proxy/CN=proxy
+Creating temporary proxy ...................................... Done
+Contacting  cmssrv08.fnal.gov:15050 [/DC=org/DC=doegrids/OU=Services/CN=cmssrv08.fnal.gov] "uscms" Done
+Creating proxy ..................................... Done
+
+Warning: your certificate and proxy will expire Thu Apr 21 20:27:33 2005
+which is within the requested lifetime of the proxy
+
+$ voms-proxy-info -all
+error = 5025
+WARNING: Unable to verify signature!
+subject	: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy/CN=proxy/CN=proxy/CN=proxy
+issuer	 : /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy/CN=proxy/CN=proxy
+identity  : /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy/CN=proxy/CN=proxy
+type		: unknown
+strength  : 512 bits
+path		: /tmp/x509up_u9525
+timeleft  : 11:59:51
+VO		  : uscms
+subject	: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+issuer	 : /DC=org/DC=doegrids/OU=Services/CN=cmssrv08.fnal.gov
+attribute : /uscms/Role=NULL/Capability=NULL
+attribute : /uscms/hipt/Role=NULL/Capability=NULL
+attribute : /uscms/production/Role=NULL/Capability=NULL
+attribute : /uscms/spectra/Role=NULL/Capability=NULL
+attribute : /uscms/gumstest/Role=NULL/Capability=NULL
+attribute : /uscms/admin/Role=NULL/Capability=NULL
+timeleft  : 11:59:51
+
+</pre></code>
+
+
+<p>
+If in this scenario we do not have legacy-compatibility mode enabled for MyProxy then the generated standard proxy cannot be processed by VOMS. The error message received indicates a socket error which is misleading.  VOMS is unable to process a new-style proxy certificate as the means of authenticating the user. The voms-proxy-init status output below shows this. Voms-proxy-init is unable to retrieve the user's DN if a new proxy certificate is used as input
 "Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=445535163/CN=1221395140/CN=1294112888"
 Instead of:
 "Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196"
-
+<p>
 
 Here are the results of the scenario 1 commands and the error:
 <code><pre>
