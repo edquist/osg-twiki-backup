@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnneHeavey" date="1114706742" format="1.0" version="1.59"}%
+%META:TOPICINFO{author="TerrenceMartin" date="1114796839" format="1.0" version="1.60"}%
 %META:TOPICPARENT{name="WebHome"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -762,6 +762,84 @@ vdt-run-gsiftf2.sh : ALL
 vdt-run-globus-gatekeeper.sh : ALL
 </verbatim>
 
+*For RH9, RHEL3 or compatible iptables systems*
+
+The default firewall configuration for Redhat's iptables sets the system up with a stateful packet filter. This is different than some legacy RH7 systems as by default no ports that are not explicitly opened by the iptables script will be open. This includes high numbered ports that are often used by grid services. 
+
+If your preference is to leave as much of the stateful packet filtering in place but enable just those grid services you want to deploy then you can use the following instructions. 
+
+Two changes need to be made to an OSG gateway with a host based iptables stateful firewall. 
+
+First is the configuration of the firewall itself. On RHEL or similar systems this is done in /etc/sysconfig/iptables
+
+The Chain RH-Firewall-1-INPUT is a default chain for RHEL3. This chain is also sometimes called INPUT. Make sure the following rules use the chain that other rules in /etc/sysconfig/iptables do. 
+
+Note: For GSISSH this port is often already open for systems. You can use either this rule or the default rule setup at install time if you selected custom firewall and enabled ssh. 
+
+<verbatim>
+# Globus: Requires addition configuration in /etc/xinetd.d/globus-gatekeeper
+# set: env = GLOBUS_TCP_PORT_RANGE=40000,50000
+# This allows up to 10,000 ports and matches the globus config.
+# How globus is configured to use these ports is subject to change in an upcoming
+# release
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 40000:50000 -j ACCEPT
+# Monalisa, grabs 3 ports from the following range
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 9000:9010 -j ACCEPT
+# Gridftp
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 2811 -j ACCEPT
+# MDS
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 2135 -j ACCEPT
+# GRAM
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 2119 -j ACCEPT
+
+# Optional Services
+# RLS Server
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 39281 -j ACCEPT
+# MyProxy
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 7512 -j ACCEPT
+# GSISSH/SSH
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 22 -j ACCEPT
+# GIIS
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 2136 -j ACCEPT
+# GUMS/VOMS
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 8443 -j ACCEPT
+</verbatim>
+
+
+Second is the configuration of globus to use the above port range. _This may change in upcoming VDT releases, see above_
+
+
+/etc/xinetd.d/globus-gatekeeper
+<verbatim>
+service globus-gatekeeper
+{
+			socket_type = stream
+			protocol = tcp
+			wait = no
+			user = root
+			instances = UNLIMITED
+			cps = 400 10
+			server = $VDT_LOCATION/vdt/sbin/vdt-run-globus-gatekeeper.sh
+			env	 = GLOBUS_TCP_PORT_RANGE=40000,50000
+			disable = no
+}
+</verbatim>
+
+_Note: $VDT_LOCATION should be set by the pacman installer_
+
+After editing the above files run the following commands
+
+<verbatim>
+# /etc/rc.d/init.d/iptables restart
+Flushing firewall rules:											  [  OK  ]
+Setting chains to policy ACCEPT: filter						  [  OK  ]
+Unloading iptables modules:										  [  OK  ]
+Applying iptables firewall rules:								  [  OK  ]
+# /etc/rc.d/init.d/xinetd reload
+Reloading configuration:											  [  OK  ]
+# 
+</verbatim>
+
 
 
 
@@ -775,6 +853,7 @@ For significant updates to the topic, consider adding your 'signature' (beneath 
 -- Main.RobQ - 15 Apr 2005
 -- Main.BockjooKim - 18 Apr 2005
 -- Main.LeighGrund - 25 Apr 2005
+-- Main.TerrenceMartin - 29 Apr 2005
 
 %STOPINCLUDE%
 
