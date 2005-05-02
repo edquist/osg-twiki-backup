@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarkusLorch" date="1114532262" format="1.0" version="1.4"}%
+%META:TOPICINFO{author="MarkusLorch" date="1115034900" format="1.0" version="1.5"}%
 %META:TOPICPARENT{name="SiteAdmins"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -13,8 +13,6 @@ rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
 %TOC%
 %STARTINCLUDE%
 
-
-<H1>I am working on this document offline, please don't edit - Markus Lorch 2005-04-26</H1>
 
 ---++Introduction
 
@@ -35,21 +33,146 @@ done. The sections below contain debugging information for the different OSG aut
 ---++General Triage
 
 There are a few things which are common to all these tests and those are prerequisites tested here:
-
+	
+	
 	* Do you have a valid grid proxy ?
-		* Issue the command "grid-proxy-info" and if you get an error, there is a basic problem with your configuration.
+		* Issue the command "grid-proxy-info -all" and if you get an error, there is a basic problem with your configuration.
 			* If you don't have grid-proxy-info in your path, there may be a problem with your environment setup. Have you done a $VDT_LOCATION/setup.sh ?
 	* Do you have a good network connection ?
 		* (** A good test to test for presence of firewall might be good here.**)
+
+	* If you as an admin just activated PRIMA on a gatekeeper: Do you have a working VDT/Globus installation on your gatekeeper?
+		* Please temporarily rename your /etc/grid-security/gsi-authz.conf file (which if present activates the PRIMA module), and try to submit a simple job to the gatekeeper. You must have a minimal /etc/grid-security/grid-mapfile in place. If it works you can put the gsi-authz.conf file back in place, if not then you need to fix your Globus/VDT setup first.
 
 ---++Full Privilege authorization mode
 
 In the full privilege mode, the following components need to work (test in the following order):
 
 ---+++VOMS server: to get an extended grid proxy
-		* Test this by using the voms-proxy-init (*need a detailed test here*)
+		* Test this by using the voms-proxy-init, for example the successful creation of a proxy certificate that has VO/role information (in this case for the uscms VO) included looks like this 
+<pre>
+[mlorch@gyoza7 mlorch]$ voms-proxy-init -voms uscms
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+Enter GRID pass phrase:
+Creating temporary proxy .................................................... Done
+Contacting  cmssrv08.fnal.gov:15050 [/DC=org/DC=doegrids/OU=Services/CN=cmssrv08.fnal.gov] "uscms" Done
+Creating proxy ............................................................................................................... Done
+Your proxy is valid until Mon May  2 18:35:34 2005
+</pre>
+You can verifiy the contents of your VOMS proxy certificate by doing
+<pre>
+[mlorch@gyoza7 mlorch]$ voms-proxy-info -all
+error = 5025
+WARNING: Unable to verify signature!
+subject	: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196/CN=proxy
+issuer	 : /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+identity  : /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+type		: proxy
+strength  : 512 bits
+path		: /tmp/x509up_u9525
+timeleft  : 11:57:37
+VO		  : uscms
+subject	: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+issuer	 : /DC=org/DC=doegrids/OU=Services/CN=cmssrv08.fnal.gov
+attribute : /uscms/Role=NULL/Capability=NULL
+attribute : /uscms/hipt/Role=NULL/Capability=NULL
+attribute : /uscms/production/Role=NULL/Capability=NULL
+attribute : /uscms/spectra/Role=NULL/Capability=NULL
+attribute : /uscms/gumstest/Role=NULL/Capability=NULL
+attribute : /uscms/admin/Role=NULL/Capability=NULL
+timeleft  : 11:57:37
+</pre>
+The warning "Unable to verify signature!" is typical as your machine will not have the certificate of the VOMS server available that issued the attributes, thats not a problem. The list of attributes shows you what the VOMS server returned. Only the first attribute in the list (i.e., /uscms/Role=NULL/Capability=NULL in this case) will be used to determine your local user account.
+
+A voms-proxy-init output like the following indicates a mismatch between voms-client and voms-server:
+<pre>
+[mlorch@gyoza7 mlorch]$ voms-proxy-init --voms cmssrv17:/uscms
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+Enter GRID pass phrase:
+Creating temporary proxy ................................................ Done
+Contacting  cmssrv17.fnal.gov:15001 [/DC=org/DC=doegrids/OU=Services/CN=cmssrv17.fnal.gov] "uscms" Done
+bad class
+Function: d2i_ASN1_SET
+nested asn1 erroraddress=134839912 offset=2
+Function: (null)
+error parsing set elementaddress=134839910 offset=940806918
+Function: d2i_ASN1_SET
+nested asn1 erroraddress=134839895 offset=15
+Function: (null)
+error parsing set elementaddress=134839892 offset=-1208586188
+Function: d2i_ASN1_SET
+nested asn1 erroraddress=134839620 offset=272
+Function: (null)
+nested asn1 erroraddress=134839616 offset=4
+Function: (null)
+Creating proxy ................................. Done
+Your proxy is valid until Mon May  2 18:48:07 2005
+</pre>
+
 ---+++PRIMA modules: on gatekeeper to parse the extended proxy and communicate with GUMS
-		* Look in the gatekeeper log for error messages. You may want to turn on verbose logging to get more clues (*how ? Need some extended debugging info here*)
+		* The gatekeeper uses the PRIMA module, an authorization plug-in, to parse the VO/role information from the extended VOMS proxy and contact a GUMS server for a local mapping. If your job submission fails after you activate PRIMA you should look in the gatekeeper log (vdt/globus/var/globus-gatekeeper) for error messages. The output of a successful authorization procedure looks like this:
+
+<pre>
+ PID: 30871 -- Notice: 0: GATEKEEPER_ACCT_FD=5 (/opt/vdt-1.3.3-test0303/globus/var/accounting.log)
+TIME: Mon May  2 06:52:28 2005
+ PID: 30871 -- Notice: 6: Got connection 131.225.206.62 at Mon May  2 06:52:28 2005
+
+TIME: Mon May  2 06:52:28 2005
+ PID: 30871 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+ PID: 30871 -- PRIMA INFO  Mapping service: "https://gyoza7.fnal.gov:8444/privilege/services/ExampleAuthorizationServicePort" returned local user: "uscms01" and local group: "uscms" (9545) for globus user: "/DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196" 
+ PID: 30871 -- PRIMA INFO  Mapping service "https://gyoza7.fnal.gov:8444/privilege/services/ExampleAuthorizationServicePort" returned local user "uscms01" for globus user "/DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196" 
+TIME: Mon May  2 06:52:30 2005
+ PID: 30871 -- Notice: 0: GRID_SECURITY_HTTP_BODY_FD=9
+TIME: Mon May  2 06:52:30 2005
+ PID: 30871 -- Notice: 5: Requested service: jobmanager 
+TIME: Mon May  2 06:52:30 2005
+ PID: 30871 -- Notice: 5: Authorized as local user: uscms01
+TIME: Mon May  2 06:52:30 2005
+ PID: 30871 -- Notice: 5: Authorized as local uid: 60076
+TIME: Mon May  2 06:52:30 2005
+ PID: 30871 -- Notice: 5:			  and local gid: 5063
+TIME: Mon May  2 06:52:30 2005
+ PID: 30871 -- Notice: 0: executing /opt/vdt-1.3.3-test0303/globus/libexec/globus-job-manager
+TIME: Mon May  2 06:52:30 2005
+ PID: 30871 -- Notice: 0: GATEKEEPER_JM_ID 2005-05-02.06:52:30.0000030871.0000000000 for /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196 on 131.225.206.62
+</pre>
+
+
+
+
+ERROR-old VOMS
+<pre>
+TIME: Mon May  2 06:44:51 2005
+ PID: 30514 -- Notice: 0: GATEKEEPER_ACCT_FD=5 (/opt/vdt-1.3.3-test0303/globus/var/accounting.log)
+TIME: Mon May  2 06:44:51 2005
+ PID: 30514 -- Notice: 6: Got connection 131.225.206.62 at Mon May  2 06:44:51 2005
+
+TIME: Mon May  2 06:44:51 2005
+ PID: 30514 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196
+ PID: 30514 -- PRIMA ERROR  prima_gss_assist.c:632  Error extracting VOMS Attribute 
+0:error:0D0680A8:asn1 encoding routines:ASN1_CHECK_TLEN:wrong tag:tasn_dec.c:946:
+0:error:0D06C03A:asn1 encoding routines:ASN1_D2I_EX_PRIMITIVE:nested asn1 error:tasn_dec.c:628:
+0:error:0D08303A:asn1 encoding routines:ASN1_TEMPLATE_D2I:nested asn1 error:tasn_dec.c:542:Field=voms_attr_values, Type=VOMS_ATTRIBUTE
+ PID: 30514 -- PRIMA INFO  Mapping service "https://gyoza7.fnal.gov:8444/privilege/services/ExampleAuthorizationServicePort" returned local user "mlorch" for globus user "/DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196" 
+TIME: Mon May  2 06:44:52 2005
+ PID: 30514 -- Notice: 0: GRID_SECURITY_HTTP_BODY_FD=9
+TIME: Mon May  2 06:44:52 2005
+ PID: 30514 -- Notice: 5: Requested service: jobmanager 
+TIME: Mon May  2 06:44:52 2005
+ PID: 30514 -- Notice: 5: Authorized as local user: mlorch
+TIME: Mon May  2 06:44:52 2005
+ PID: 30514 -- Notice: 5: Authorized as local uid: 9525
+TIME: Mon May  2 06:44:52 2005
+ PID: 30514 -- Notice: 5:			  and local gid: 5063
+TIME: Mon May  2 06:44:52 2005
+ PID: 30514 -- Notice: 0: executing /opt/vdt-1.3.3-test0303/globus/libexec/globus-job-manager
+TIME: Mon May  2 06:44:52 2005
+ PID: 30514 -- Notice: 0: GATEKEEPER_JM_ID 2005-05-02.06:44:52.0000030514.0000000000 for /DC=org/DC=doegrids/OU=People/CN=Markus Lorch 98196 on 131.225.206.62
+</pre>
+
+You may want to turn on verbose logging to get more clues (*how ? Need some extended debugging info here*)
+
+
 ---+++GUMS server: to map the DN + attributes to a local user id
 		* Do you know where your GUMS server is running ? PRIMA thinks it is running here (*pointer to configfile entry*)
 		* Test this by running XXX (*need a detailed test here*)
