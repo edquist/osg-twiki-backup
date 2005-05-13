@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnneHeavey" date="1115921282" format="1.0" version="1.3"}%
+%META:TOPICINFO{author="AnneHeavey" date="1115996157" format="1.0" version="1.4"}%
 %META:TOPICPARENT{name="VoAdmins"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -13,19 +13,129 @@ rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
 %TOC%
 %STARTINCLUDE%
 ---++Introduction
-Here we describe how to install VOMS on your linux machine, and how to create your VO to use with it.
+Here we describe how to install and configure VOMS on your linux machine, and how to create your VO to use with it.
 
----++What to expect and what you need to know
-During the VOMS installation the following things occur:
+---++Before starting the VOMS installation
 
-	1 A mysql database named voms_$VO is created (where $VO is a variable set to the VO name).
+	* Download and install Pacman (if not already available); see PacmanInfo. You will use pacman to install VOMS.
+	* Request and install a host certificate for your system
+	* Request and install an http certificate for your system
+
+---++Install VOMS
+The installation and configuration must be done as root, so su/ssh to root. Use pacman to install VOMS.
+
+Set the install location of the VOMS software (shown below as /data/osg-itb-015; put it wherever you like). 
+<verbatim>
+  VDT_LOCATION=/data/osg-itb-015
+</verbatim>
+Install VOMS:
+<verbatim>
+  cd $VDT_LOCATION <br />
+  pacman -get http://www.cs.wisc.edu/vdt/vdt_135_cache:VOMS
+</verbatim>
+When done, setup your environment. To do so, run (in same directory):
+<verbatim>
+  source setup.sh
+</verbatim>
+This installation creates a default VO called VDT and a database to go with it.  
+---++Check VOMS-Admin
+---+++Verify that it's running
+After this completes, the EDG-VOMS-Admin should be running for the VDT VO; point a certificate-enabled browser window to https://your.host.name:8443/edg-voms-admin/VDT.  You won't be able to do anything with it yet since you're not added as a user, but verify that it comes up. Click "Administrate VOMS" -- you should get "Access Denied".
+---+++Add a user as Admin
+Add yourself or someone else as the VO-Admin;
+you will need the personal certificate file to do this.
+Set the certfile variable to the path for the cert file (an example is shown), and run the command:
+<verbatim>
+	 certfile=~weigand/.globus/usercert.pem 
+	 $EDG_LOCATION/sbin/edg-voms-admin-local ${VO} --add-admin $certfile 
+</verbatim>
+(No output indicates success.)
+---+++Test VOMS-Admin again
+You should now be able to go up in your browser and navigate through the various menus without getting an "Access Denied" message. Do not add anyone else until you test the voms-proxy-init command.
+---++Test voms-proxy-init
+---+++Get a VOMS Proxy
+In order for a client voms-proxy-init to access the VO's server, you
+need a configuration file available to tell it which voms server to access.
+<verbatim>
+cp $EDG_LOCATION/var/etc/edg-voms-admin/${VO}/vomses $EDG_LOCATION/etc/vomses/${VO}
+</verbatim>
+
+As yourself, get a voms proxy; shown here for VO VDT and attribute /VDT:
+<verbatim>
+source $VDT_LOCATION/setup.sh
+voms-proxy-init --voms=VDT:/VDT
+</verbatim>
+
+Output 
+<verbatim>
+Your identity: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+Enter GRID pass phrase:
+Creating temporary proxy .................................................. Done
+Contacting  cd-94372.dhcp.fnal.gov:15007 [/DC=org/DC=doegrids/OU=Services/CN=cd-94372.dhcp.fnal.gov] "VDT" Done
+Creating proxy ........................................................... Done
+Your proxy is valid until Wed May 11 04:31:06 2005
+</verbatim>
+
+End of output
+
+Verify that you got a proxy with the attribute requested.	 
+Note the 'attribute' line below specifying the group requested.
+<verbatim>
+voms-proxy-info --all
+</verbatim>
+Output
+<verbatim>
+error = 5025
+WARNING: Unable to verify signature!
+subject	: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491/CN=proxy
+issuer	 : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+identity  : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+type		: proxy
+strength  : 512 bits
+path		: /tmp/x509up_u9789
+timeleft  : 11:58:31
+VO		  : VDT
+subject	: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+issuer	 : /DC=org/DC=doegrids/OU=Services/CN=cd-94372.dhcp.fnal.gov
+attribute : /VDT/Role=NULL/Capability=NULL
+timeleft  : 11:58:31
+</verbatim>
+End of output
+
+Now try one for a group you do not belong to, e.g., /MyGroup
+<verbatim>
+voms-proxy-init --voms=VDT:/MyGroup
+</verbatim>
+Output -----
+<verbatim>
+Your identity: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+Enter GRID pass phrase:
+Creating temporary proxy .................................... Done
+Contacting  cd-94372.dhcp.fnal.gov:15007 [/DC=org/DC=doegrids/OU=Services/CN=cd-94372.dhcp.fnal.gov] "VDT"
+Warning: VDT: Unable to satisfy G/MyGroup Request! Error: VERR_SERVERCODE Failed.
+Failed to contact servers for VDT.
+</verbatim>
+End of output
+
+Note the misleading message saying you "Failed to contact servers for TEST1."
+This is not true.
+The key to the real error is in "Warning: VDT: Unable to satisfy G/MyGroup Request!" which has your request embedded in it. 
+
+Also note that if you do a voms-proxy-init immediately after the failure, your 
+previous is proxy is still valid.
+
+---++Create a new VO
+---+++What to expect and what you need to know
+The following things occur ($VO represents your VO name):
+
+	1 A mysql database named voms_$VO is created.
 	  Four voms mysql users are created ($VO_adm, $VO_que, $VO_seq and $VO_upd)
 		 
-	1 To support the VOMS server used to process voms-proxy-init requests, 
+	2 To support the VOMS server used to process voms-proxy-init requests for this VO, 
 	  the following file are created:
 %BR%
 <verbatim>
-		$EDG_LOCATION//etc/voms/$VO
+		$EDG_LOCATION/etc/voms/$VO
 		-rw-r----- 1 root daemon 176 May 10 11:50 voms.conf
 </verbatim>
 			 contains the command line arguments for the /etc/init.d/voms script.
@@ -35,7 +145,7 @@ During the VOMS installation the following things occur:
 </verbatim>
 contains the database password for the voms server.
 
-	1 To support the maintenance of the VO in the database running under Tomcat4, 
+	3 To support the maintenance of the VO in the database running under Tomcat4, 
 	  the VOMS UI (a.k.a, edg-voms-admin) uses the following files that are created:
 %BR%
 <verbatim>
@@ -76,7 +186,7 @@ This is the directory containing the customizable email notification messages th
 			 generated by VOMS.  
 			 Refer to the README file in this directory for usage and customization.
 
-	1 To support the client side voms-proxy-init, the following are created:
+	4 To support the client side voms-proxy-init, the following are created:
 		$EDG_LOCATION/var/etc/edg-voms-admin/$VO
 <verbatim>
 		  -rw-r--r--  1 root root	108 May 10 10:40 vomses
@@ -84,12 +194,9 @@ This is the directory containing the customizable email notification messages th
 			 contains the configuration file for accessing this VOMS VO for
 			 proxy generation using voms-proxy-init.
 
----++Before starting the installation
+---+++Before creating the VO
 
-	* Download and install Pacman (if not already available); see PacmanInfo. You will use pacman to install VOMS.
-	* Request and install a host certificate for your system
-	* Request and install an http certificate for your system
-	* Define the following series of environment variables representing the arguments used on the install command line.  Note: the syntax used for defining this data is a Bourne shell format.  Depending on whether you need to change the value, you may be able to just cut/paste a lot of these
+Define the following series of environment variables representing the arguments used on the install command line.  Note: the syntax used for defining this data is a Bourne shell format.  Depending on whether you need to change the value, you may be able to just cut/paste a lot of these
 		commands during the installation process.  
 		
 	 VO=Test	<br />	  
@@ -126,26 +233,6 @@ This is the directory containing the customizable email notification messages th
 		all the CAs in this directory.  Actually, this is a link and this may
 		be the problem.
 
-
-
----++Install VOMS
-The installation and configuration must be done as root, so su/ssh to root.
-
-Set the install location of the VOMS software (shown below as /data/osg-itb-015; put it where you like). 
-
-  VDT_LOCATION=/data/osg-itb-015
-
-Install VOMS:
-
-  cd $VDT_LOCATION <br />
-  pacman -get http://www.cs.wisc.edu/vdt/vdt_135_cache:VOMS
-
-When done, setup your environment. To do so, run (in same directory):
-
-  source setup.sh
-
----++Configure VOMS-Admin
-
 You need to know your root password for the mysql database, if you have one.  If you don't, you don't need one.
 If you want to set the root password:
 <verbatim>
@@ -154,6 +241,8 @@ If you want to set the root password:
 </verbatim>
 The VDT setup script should set the EDG_LOCATION variable needed by VOMS
 if it is installed there. (Check to be sure; it should be set to $VDT_LOCATION/voms.)
+
+---+++Execute the script to create the VO
 
 Execute the $EDG_LOCATION/edg-voms-admin-configure script with the 'install' argument and
 the required set of parameters shown below (and described above). This will create a set of sql files containing the ddl and initial data for 
@@ -343,77 +432,7 @@ output (showing the VO name; yours will be different):
 <verbatim>
 Status edg-voms(Test3): (pid 7715) is running...
 </verbatim>
----+++Get a VOMS Proxy
-In order for a client voms-proxy-init to access the VO's server, you
-need a configuration file available to tell it which voms server to access.
-<verbatim>
-cp $EDG_LOCATION/var/etc/edg-voms-admin/${VO}/vomses $EDG_LOCATION/etc/vomses/${VO}
-</verbatim>
-
-As yourself, get a voms proxy; shown here for VO TEST1 and attribute /TEST1:
-<verbatim>
-source $VDT_LOCATION/setup.sh
-voms-proxy-init --voms=TEST1:/TEST1
-</verbatim>
-
-Output 
-<verbatim>
-Your identity: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
-Enter GRID pass phrase:
-Creating temporary proxy .................................................. Done
-Contacting  cd-94372.dhcp.fnal.gov:15007 [/DC=org/DC=doegrids/OU=Services/CN=cd-94372.dhcp.fnal.gov] "TEST1" Done
-Creating proxy ........................................................... Done
-Your proxy is valid until Wed May 11 04:31:06 2005
-</verbatim>
-
-End of output
-
-Verify that you got a proxy with the attribute requested.	 
-Note the 'attribute' line below specifying the group requested.
-<verbatim>
-voms-proxy-info --all
-</verbatim>
-Output
-<verbatim>
-error = 5025
-WARNING: Unable to verify signature!
-subject	: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491/CN=proxy
-issuer	 : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
-identity  : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
-type		: proxy
-strength  : 512 bits
-path		: /tmp/x509up_u9789
-timeleft  : 11:58:31
-VO		  : TEST1
-subject	: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
-issuer	 : /DC=org/DC=doegrids/OU=Services/CN=cd-94372.dhcp.fnal.gov
-attribute : /TEST1/Role=NULL/Capability=NULL
-timeleft  : 11:58:31
-</verbatim>
-End of output
-
-Now try one for a group you do not belong to, e.g., /MyGroup
-<verbatim>
-voms-proxy-init --voms=TEST1:/MyGroup
-</verbatim>
-Output -----
-<verbatim>
-Your identity: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
-Enter GRID pass phrase:
-Creating temporary proxy .................................... Done
-Contacting  cd-94372.dhcp.fnal.gov:15007 [/DC=org/DC=doegrids/OU=Services/CN=cd-94372.dhcp.fnal.gov] "TEST1"
-Warning: TEST1: Unable to satisfy G/MyGroup Request! Error: VERR_SERVERCODE Failed.
-Failed to contact servers for TEST1.
-</verbatim>
-End of output
-
-Note the misleading message saying you "Failed to contact servers for TEST1."
-This is not true.
-The key to the real error is in "Warning: TEST1: Unable to satisfy G/MyGroup Request!" which has your request embedded in it. 
-
-Also note that if you do a voms-proxy-init immediately after the failure, your 
-previous is proxy is still valid.
-
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 Now you can go back and add users to the VOMS.  You can do it from the web UI or on the command line; recall the command is:
 <verbatim>
 	 $EDG_LOCATION/sbin/edg-voms-admin-local ${VO} --add-admin $certfile 
