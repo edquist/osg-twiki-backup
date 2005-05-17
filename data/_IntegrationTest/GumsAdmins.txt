@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1116360520" format="1.0" version="1.12"}%
+%META:TOPICINFO{author="AnneHeavey" date="1116364305" format="1.0" version="1.13"}%
 %META:TOPICPARENT{name="ItbRel015"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -102,10 +102,12 @@ Start tomcat-5 and apache:
 # $VDT_LOCATION/post-install/apache start|stop
 </verbatim>
 
-Under $VDT_LOCATION, 
-	* apache/conf/httpd.conf got updated to include tomcat-5 installation of GUMS. 
+Under $VDT_LOCATION, these changes occur:
+	* If mysql, tomcat v5 and/or apache aren't already installed, it/they will get installed
+	* apache/conf/httpd.conf gets updated to include tomcat-5 installation of GUMS. 
 	* There's a gums-service directory which is for tomcat-5 services provided by gums
 	* There's a gums directory which contains the gums client and host scripts
+	* A mysql GUMS database is created, (currently) named gums_1_0
 
 If you answered "n" to the question or did the install as non-root,  you'll need to run the above 2 commands to start it up each time. 
 You'll also need to set up the services with the following commands:
@@ -114,25 +116,51 @@ You'll also need to set up the services with the following commands:
 	 vdt/setup/configure_tomcat --server y --version 5
 </verbatim>
 
-Verify you have access to your GUMS services. Go to your gums web interface at https://your-gums-server:8443/gums. You should get a screen up. You can't do anything until you configure GUMS.
+Verify you have access to your GUMS services. Go to your gums web interface (in a certificate-enabled browser) at https://your-gums-server:8443/gums. You should get a screen up. You can't do anything until you configure GUMS.
 
 ---+++ Configure GUMS
+Make sure you log into your GUMS host as root.  
 
-	* Add yourself to the list of gum admins:
+	* Add yourself to the list of gum admins. If you have a root mysql password, you'll need it for this step.  If you don't, it won't be required.
 		 
-	* Log into your gums host (as root)
-	  <verbatim>
+		 <verbatim>
+		ssh -l root your.host  #very important to be root!
 		cd $VDT_LOCATION/gums-service/sbin
-		./addAdmin "your DN" 
+		./addAdmin "your DN"	#Include the quotes 
 	  </verbatim>
 	This will give you admin access through  your gums web interface.  Note: you must run addAdmin from the sbin directory.  The VDT hopes to fix this in a future release.
+
+Output of the addAdmin command:
+<verbatim>
+WARNING: You must have created the database before running this script!
+
+Adding the following DN to the local database:
+Certificate DN for administrator: "/DC=org/DC=doegrids/OU=People/CN=Anne Heavey 830711"
+
+Is this correct? (Enter 'yes' to proceed)
+yes
+
+Adding the admin:
+Enter the root mysql password
+
+</verbatim>
+If there's no password set, it will finish by itself.  Ignore the warning; the database got created during the installation.
+
+Go to your gums web interface at https://your-gums-server:8443/gums. Click "Generate Grid Mapfile".  Enter a fake host computer just to test that the process runs.  You should get "null" as a response.  If you hadn't added yourself as an admin, you'd get:
 
 	  <verbatim>
 	  GUMS encountered an error
 	  Error Type: gov.bnl.gums.admin.AuthorizationDeniedException
 	  Error Message: Authorization denied
 	  </verbatim>	
-	* A template gums.config file is installed in $VDT_LOCATION/tomcat/v5/webapps/gums/WEB-INF/classes/gums.config.  It is very bare.  To get some instant gratification, place the following into the file:
+	* A default gums.config file is installed in 
+<verbatim>
+$VDT_LOCATION/tomcat/v5/webapps/gums/WEB-INF/classes/gums.config
+</verbatim>
+(Note that /data/osg-itb-015/tomcat/v5/webapps/gums is symlinked to /data/osg-itb-015/gums-service/var/war).
+ This file has two GroupMapping elements (with no "s" at the end), both of which need to be replaced.  They fall inside the one groupMappings element (with an "s").
+
+To get some instant gratification, replace the GroupMapping elements with the following element:
 
 <verbatim>
 		<groupMapping name='osg' accountingVo='osg' accountingDesc='OSG'>
@@ -145,8 +173,49 @@ Verify you have access to your GUMS services. Go to your gums web interface at h
 					 groupName='osg' />
 	  </groupMapping>
 </verbatim>
+Note that this sample groupMapping element points to a voms server at Indiana and to the "vos/osg" group, that it uses group account mapping (the className attribute of accountMapping), and the group account which it maps to is "osg" (the groupName attribute of accountMapping).
 
-	* Now, go back to your gums web interface at https://your-gums-server:8443/gums, click on "Generate Grid Mapfile," enter the hostname of the gums server and click "Generate grid-mapfile."  You should get the text of a grid-mapfile formatted output.  For a more complete gums.config file, refer to Appendix A, below.
+Other changes to make to the file:
+	* In the hostGroup element, change the "groups" attribute to 'osg' to match the inserted element (delete groupA and groupB)
+	* In the hostGroup element change the wildcard attribute value from '*.site.com' to the CE or gatekeeper host(s) that the group mappings apply to.  As indicated, you can use a wildcard to specify a set of hosts.
+
+	* On your GUMS web interface at https://your-gums-server:8443/gums, click Update users.
+This retrieves the members of the "vos/osg" group from the Indiana VOMS server, and inserts them into the mysql database.
+
+
+	* Still on your GUMS web interface, click on "Generate Grid Mapfile," enter the hostname of the gums server (or whatever portion of the hostname is needed for matching, according to your use of the wildcard) and click "Generate grid-mapfile."  You should get the text of a grid-mapfile formatted output (as of this writing):
+<verbatim>
+#---- members of vo: osg ----#
+"/DC=org/DC=doegrids/OU=People/CN=Alexis Rodriguez 233072" osg
+"/DC=org/DC=doegrids/OU=People/CN=Andrew Zahn 730598" osg
+"/DC=org/DC=doegrids/OU=People/CN=Craig Phillip Prescott 50911" osg
+</verbatim> 
+
+If you get errors and need to look in log files, they're kept under $VDT_LOCATION/tocmat/v5/logs.  The first one to check is the gums-service-admin.log, and second the gums-service-developer.log.
+
+	* A note about maintenance:  The gums.config needs to be maintained such that it includes mappings for all active VOs in OSG.  More on this later...
+	* Another note: You'll need to be notified of changes to the list of VOs in order to maintain this.  Go to $VDT_LOCATION/tomcat/v5/webapps/gums/WEB-INF/classes/log4j.properties and look at the bottom of the file. Here you set up notification. Edit these values for your site:
+<verbatim>
+  #log4j.appender.mail.from=gums@site.com
+  #log4j.appender.mail.subject=gums e-mail alert
+  #log4j.appender.mail.SMTPHost=smtp.site.com
+  #log4j.appender.mail.to=admin@site.com
+</verbatim>
+Towards the top of the same file (line 22), you'll see:
+<verbatim>
+  log4j.logger.gums.resourceAdmin=INFO, adminFile
+  #log4j.logger.gums.resourceAdmin=INFO, mail, adminFile
+</verbatim>
+Comment out the first, uncomment the second so that the resource info that you need to get comes to you via email in addition to going to a file.
+
+	* Yet another note: To set the time interval for GUMS to read info from VOMS and generate a grid mapfile, go to $VDT_LOCATION/gums-service/var/war/WEB-INF/web.xml. The third line from the bottom contains the interval in minutes:
+<verbatim>
+ <env-entry-value>720</env-entry-value>
+</verbatim>
+You may want to adjust the value.
+********************Anne stopped here 5/17/05 ************
+
+For a more complete gums.config file, refer to Appendix A, below.
 	* Connect your gums server to your VOMS server.  First you need to allow others (i.e., your gums server) to list the contents of your VO.  Point your browser at your VOMS server (https://your-voms:8443/edg-voms-admin/your-vo/webui/Admin/global-acl/edit.  Click on "Operation -> List", then click "Add new entry."  This will allow all outside users to view your VO.  
 	* Add an entry for your VOMS server to your gums.config like the one above, modified accordingly.  There are lots of options that can be added to the gums.config file.  For full details see the following documents:  
 
@@ -360,6 +429,8 @@ For significant updates to the topic, consider adding your 'signature' (beneath 
 *Major updates*:%BR%
 <!--Future editors should add their signatures beneath yours!-->
 -- Main.LeighGrund - 19 Apr 2005
+-- Main.AnneHeavey - 17 May 2005
+-- Main.JohnWeigand - 17 May 2005
 
 %STOPINCLUDE%
 
