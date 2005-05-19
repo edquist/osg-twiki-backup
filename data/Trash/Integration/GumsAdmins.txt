@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnneHeavey" date="1116517201" format="1.0" version="1.18"}%
+%META:TOPICINFO{author="AnneHeavey" date="1116523306" format="1.0" version="1.19"}%
 %META:TOPICPARENT{name="ItbRel015"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -277,12 +277,12 @@ So you need to:
 	* Install and configure gums-host on your gatekeeper(s)
 
 ---+++ Understanding GUMS config
-
+(Anne editing 5/19)
 GUMS uses the gums.config file in this way.
 
 A request comes in to map user DN="/DC=org/DC=doegrids/OU=People/CN=Gabriele Carcassi" FQAN="/atlas/usatlas" from gatekeeper "/DC=org/DC=doegrids/OU=Services/CN=mygk.usatlas.bnl.gov".
 
-Gums will look through the hostGroups section to find a match. Say we have:
+Gums will first look through the hostGroups section to find a match to the gatekeeper CN. Say we have:
 <verbatim>
   <hostGroups>
 	 <!-- RHIC gatekeepers -->
@@ -297,17 +297,18 @@ Gums will look through the hostGroups section to find a match. Say we have:
   </hostGroups>
 </verbatim>
 
-GUMS will go through that list *in that order*, and find the first match. In this case the match will be the third. Notice that if you put the third hostGroup last, it would never actually be used, because mygk.usatlas.bnl.gov matches also "*.usatlas.bnl.gov". This is typical when you have more broad default together with more specific cases. In this situation, the *default goes last*.
+GUMS will go through that list *in that order*, and find the first match to the "wildcard" attribute. In this case, we match the third hostGroup specification. Notice that if you put the third hostGroup last, it would never actually be used, because mygk.usatlas.bnl.gov also matches "*.usatlas.bnl.gov", which covers a broader range of hosts. If you have broader match together with more specific cases, the broader one *goes last*.
 
-Let's look more closely at the hostGroup entry. In our case it is:
+Let's look more closely at the hostGroup entry; there are additional attributes, in particular "groups".  This attribute refers to group mappings. In our case it is:
 <verbatim>
 	 <hostGroup className="gov.bnl.gums.WildcardHostGroup" wildcard='mygk.usatlas.bnl.gov' 
-groups='atlasProd,usatlasPool,ivdglPool,uscmsPool,sdssPool,grasePool,osgPool,fmriPool,cdfPool,atlasPool,gridexPool' />
+groups='atlasProd,usatlasPool,ivdglPool, ...' />
 </verbatim>
 
-GUMS will now take the list of groups, go through that list *in the order specified* and figure out if the given credential, DN="/DC=org/DC=doegrids/OU=People/CN=Gabriele Carcassi" FQAN="/atlas/usatlas", is part of that group. GUMS will check whether the credentials are part of atlasProd, if not usatlasPool, and so on, until either a match is found or the list ends. *The first match will define the map*, and the user will get mapped according to that map. As before, if you have broad default with more specific case, the *default goes last*.
+GUMS will now go through the list of groups (actually group mappings) *in the order specified* and take the first one that matches the given credentials.
+GUMS will check whether the credentials are part of atlasProd; if not, then usatlasPool, and so on, until either a match is found or the list ends. *The first match will define the map*, and the user will get mapped accordingly. As before, if you have both a broad default and a more specific case, the *default goes last*.
 
-Each group must be defined in the groupMappings section. For example, we have:
+In a correct configuration, each group must be defined in the groupMappings section in a groupMapping element. The first group mapping GUMS checks is atlasProd.  A groupMapping element contains userGroup elements.
 <verbatim>
 	 <groupMapping name='atlasProd' accountingVo='usatlas' accountingDesc='ATLAS'>
 		<userGroup className='gov.bnl.gums.VOMSGroup' url='https://vo.racf.bnl.gov:8443/edg-voms-admin/atlas/services/VOMSAdmin' persistenceFactory='mysql'
@@ -316,7 +317,9 @@ Each group must be defined in the groupMappings section. For example, we have:
 	 </groupMapping>
 </verbatim>
 
-The userGroup defines "who is going to be part of this map". In this case, it's all the people defined in the ATLAS VO server that are part of /atlas and have a role production. We are not ignoring the FQAN, therefore they need to come is as '/atlas/Role=production'. In our example, DN="/DC=org/DC=doegrids/OU=People/CN=Gabriele Carcassi" FQAN="/atlas/usatlas" does not have the correct FQAN, therefore the user doesn't match. We proceed with the next group, usatlasPool.
+The userGroup defines "who is going to be part of this map". 
+Unless the attribute 'ignoreFQAN="true"' is present, the FQAN must match a userGroup voGroup, and if defined, a voRole and/or voCapability(?). The groupMapping "atlasProd" has one userGroup, whose voGroup is "/atlas". The voRole of "production" is required. There is no attribute '"ignoreFQAN="true"', so the FQAN has to match '/atlas/Role=production'.	Our sample FQAN has only a name in it.  It doesn't match.
+ We proceed with the next group, usatlasPool.
 
 <verbatim>
 	 <groupMapping name='usatlasPool' accountingVo='usatlas' accountingDesc='ATLAS'>
@@ -329,10 +332,13 @@ The userGroup defines "who is going to be part of this map". In this case, it's 
 	 </groupMapping>
 </verbatim>
 
-This says all the people in the ATLAS VO, part of /atlas/usatlas, are part of this group. ignoreFQAN="true" means they do not need to present an FQAN to match this group. Our case, DN="/DC=org/DC=doegrids/OU=People/CN=Gabriele Carcassi" FQAN="/atlas/usatlas", is clearly part of /atlas/usatlas. Even if it came in with no FQAN, though, it would be a match.
+This says all the people in the ATLAS VO (where is this specified? userGroup name is osgusatlas -- that's different... AH), part of /atlas/usatlas, are part of this group. The attribute 'ignoreFQAN="true"' means a matching FQAN is not required. Our case, DN="/DC=org/DC=doegrids/OU=People/CN=Gabriele Carcassi" FQAN="/atlas/usatlas", is clearly part of /atlas/usatlas. Even if it came in with no FQAN, however, it would still be a match.
 
-Since there is a match, GUMS will use this map to determine the account. It looks at the account mapping, which happens to be composite: GUMS will go through the accountMapping *in that order*, until one returns a value. The first is a pool of account, which will return the already assigned account, or assign a new account. If it doesn't return any account, though, because there are no more accounts in the pool, the next accountMapping will be used, which always return the same account, usatlas1.
+Since there is a match, GUMS will use this groupMapping element to determine the account. It looks at the accountMapping, which happens to be composite (there's a pool of accounts and a group account): GUMS will go through the accountMapping elements *in the order listed*, until one returns a value. 
 
+The first is a pool of accounts; if it has any available accounts left, it will return either a previously assigned account, or it will assign a new account to this user. If its pool of accounts is exhausted, it will not return an account.  In this case, the next accountMapping element will be used; this one always maps to the same group account, usatlas1.
+
+(anne ends 5/19)
 ---+++ Troubleshooting
 
 	* PRIMA 0.2 (from ItbRel015) can not interface to a GUMS server that runs with a service (vs host) certificate.  If you will be using PRIMA you need to switch the certificate used by gums:
