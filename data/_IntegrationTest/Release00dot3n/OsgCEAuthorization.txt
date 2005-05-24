@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnneHeavey" date="1116957219" format="1.0" version="1.10"}%
+%META:TOPICINFO{author="AnneHeavey" date="1116961413" format="1.0" version="1.11"}%
 %META:TOPICPARENT{name="OSGCEInstallGuide"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -16,18 +16,22 @@ rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
 
 ---++Introduction
 
-The Authorization system determines who can access your resources and how.
+The Authorization system determines who can access your resources and how. A good description of the available authorization scenarios can be found under http://grid.racf.bnl.gov/GUMS/guide_architecture.html (see the heading "GUMS in the grid architecture").  Of those discussed, OSG supports three, namely: Grid3, Compatibility, and Full Privilege.  Here's a brief explanation of each:
 
-In the past (Grid3 and most others), authorization was performed via the grid mapfile on the gatekeeper. 
-The grid mapfile was either created manually on a gatekeeper, or created by a VOMS service.  In the latter case, the VOMS service contacted the individual VOs, updated the grid mapfile on some schedule, and the gatekeepers would download the file on their own schedule.  Synchronizing 
+---* *Grid3*: Authorization is performed via the grid mapfile on the gatekeeper. 
+The grid mapfile is either created manually on each gatekeeper, or created by a VOMS Admin installation.  GUMS is not used. Synchronizing all the grid mapfiles is difficult in this case.  You may prefer this configuration if:
+		* You are a small site (one gatekeeper) and,
+		* You deal with a small set of fairly static VOs
 
-The gatekeeper looked for an entry matching the Subject Name of the requester's grid credentials and took the first match or denied the request. As of Globus Toolkit version 2.4, there is an authorization callout allowing for external authorization decisions. OSG provides software to implement this callout and this now allows for different options. OSG supports three different modes, described below:  Grid3, Compatibility, and Full Privilege. The flowchart below will help you decide what kind of configuration you should setup.
+---* *Compatibility*: Authorization is still performed via the grid mapfile on the gatekeeper, however the file is created by GUMS. GUMS polls VOMS Admin periodically and creates/updates the grid mapfile. If the site has only one GUMS server (one communication point to VOMS) centralized mapping is enabled. Given the GUMS configuration options, account pools (many accounts, one-to-one DN-to-account mapping) can be implemented as well as group accounts (many-to-one DN-to-account mapping).  You should consider this configuration if:
+		* Your gatekeeper(s) or service must be configured through grid-mapfile (i.e. you have tools or services that manipulate this file directly, without passing through globus)
+		* You'd rather approach with caution than jump right into running GUMS 24/7.
 
-Definitions:
-(Should we collect these somewhere or does this need to be inline ?)
-	* Role-based authorization: authorization decisions based on extended proxies (roles and groups in addition to DNs) A user can get a different extended proxy from the VO VOMS server according to the role he/she is to play.  For example, the user may send a request as a member of the analysis group, and at another time may send a request as a production coordinator. Role-based authorization allows the site to map the user to a different account depending on his/her role.
-	* Account pools: Each DN is assigned a unique local account from a preallocated pool of local accounts. A particular DN always gets the same local account from then on. A site can choose to have one or more pools (for example, one pool per VO, one pool per group in a VO, one pool per role in a VO, etc...)
-	* Central management: being able to control access to a number of gatekeepers from a single file, and not having to look/change configuration on each gatekeeper. (often useful for large sites) (this is vague -- central account management? AH)
+
+
+---* *Full Privilege*: This scenario implements the PRIMA authorization module with GUMS -- no more grid mapfile.  The gatekeeper uses a callout to PRIMA upon receipt of each request, PRIMA forwards the request to the GUMS web service which performs the dynamic mapping. PRIMA can process FQANs, thus enabling mapping based on VO groups and roles as defined in VOMS.
+
+The flowchart below will help you decide what kind of configuration you should setup.
 
 <verbatim>
 				 |
@@ -56,12 +60,156 @@ Definitions:
 			 NO |
 				 |
   ----------------------- 
-  | Refer to				|
-  | Grid3					|
+  | Refer to Grid3		|
   | configuration		 |
   -----------------------
 </verbatim>
 
+We'll present the "how to" information in order of simplest (Grid3) to most sophisticated (full privilege) so that you can implement step-by-step and test as you go, if you like.
+
+---++ Grid3 configuration
+
+In this configuration, you will need the EDG mkgridmap daemon running on your gatekeeper to create the grid-mapfile (discussed below). If you followed the ITB installation instructions this configuration gets set up for you automatically.  To test it, see the instructions at OSGCEInstallGuide#Authorizing_Users_Test_Configura.
+
+---+++ Setting up edg-mkgridmap for local users
+
+You probably want to keep some portion of your current gridmapfile (at least your own entry) as locally known users so that you won't get locked out should there ever be a problem with a VOMS server.
+
+The *edg-mkgridmap* script uses a configuration file to dictate 
+  its behavior. This config file is located at
+  <tt>$VDT_LOCATION/edg/etc/edg-mkgridmap.conf</tt>.
+
+  The *edg-gridmapfile-upgrade* daemon has a similar configuration
+  file <tt>$VDT_LOCATION/edg/etc/edg-gridmapfile-upgrade.conf</tt>.
+
+  One of the parameters specifies a _local_ *grid-mapfile* that
+  will be added to the output of the *edg-mkgridmap* command (the set of DNs returned from all the VOMS)
+
+There are two steps required to make this local portion:
+
+	* Set the *GRIDMAP_LOCAL_FILE* variable in 
+	 <tt>$VDT_LOCATION/edg/etc/edg-gridmapfile-upgrade.conf</tt> as follows:
+
+		==GRIDMAP_LOCAL_FILE=$VDT_LOCATION/edg/etc/grid-mapfile-local==
+
+	* Add this new directive to the end of the *$VDT_LOCATION/edg/etc/edg-mkgridmap.conf*:
+
+<tt><b>gmf_local <i>/usr/local/grid</i>/edg/etc/grid-mapfile-local</b></tt>
+
+  Now local *grid-mapfile* entries to this file will be 
+  added every time the script is executed.
+
+---+++ Configure the list of VOs you wish to enable.
+(Is this now automatically configurable given the conventions on VO selections and the master vomses file ?)
+
+The default configuration is to all access from all OSG VOs. If that is acceptable to you, then you're done with this step.
+
+If not, then you'll need to edit the file $VDT_LOCATION/edg/etc/edg-mkgridmap.conf
+to comment out the line for each VO you wish to disable.
+
+---+++ Setup and test access to each selected VOMS service
+
+To do a "shotgun" test of them all, as root, run
+
+<pre> 
+$ cd $VDT_LOCATION/edg/sbin
+$ ./edg-mkgridmap --verbose --output=test.out
+</pre>
+	
+  The most common error is "Internal Server Error" which indicates an
+  authentication failure.  This can happen either because access to the
+  VOMS DB has not been completed, or because the local site credentials
+  (host certificate and key) are not valid.  Set the X509_USER_CERT and
+  X509_USER_KEY variables to %RED%(to what?)%ENDCOLOR% to test using a different, valid, certificate
+  and key.
+
+If the VO administrator has not enabled world read of the VO membership, then you must contact the VO
+administrator and request that your site be given access to the VOMS database. You will need to provide
+the Subject and Issuer Distinguished Names (DN) for your host certificate.  The simplest thing to do is send email
+to the VO administrator requesting access and including the output of the command
+
+<pre>
+  $ openssl x509 -in /etc/grid-security/certificates/hostcert -noout -text
+</pre>
+
+%RED%(except I'll bet the output doesn't have the DN's in the proper format. Damn. Anyone got a better way ?)%ENDCOLOR%
+
+---+++ Configure the automatic update scripts to refresh the gridmapfile
+
+Since VOs are likely adding/removing members over time, you will want to update your grid mapfile to reflect this. OSG provides some scripts (lifted from the EDG project :-) ) to do that periodically and automatically. The following commands will copy and start the daemon:
+
+<pre>
+	cp $VDT_LOCATION/post-install/edg-gridmapfile-upgraded /etc/init.d/
+	/etc/init.d/edg-gridmapfile-upgraded start
+</pre>
+
+---+++ Test configuration
+
+Run the site_verify script again locally (as a regular user) and verify that the authorization still works. If you have problems, (URL) has some debugging advice on how to identify common problems.
+
+
+---++ Compatibility configuration
+
+A couple of points to be aware of:
+	*You will not be able to provide role based authorization in this configuration. 
+	*You will introduce delays since each gatekeeper will have to regenerate the map before implementing the new policy or allowing new users. 
+
+In the compatibility configuration, you will have:
+	* One GUMS server per local account domain to manage the mapping from Grid identity (DN+attributes) to local username
+	* gums-host running via cron on your gatekeeper(s) to retrieve both the forward and inverse maps (forward is DN to account, inverse is DN to VO).
+---+++Install and Configure GUMS
+You need to:
+	* Install GUMS at your site (see GumsAdmins#Install_GUMS)
+	* Configure it, unless the default OSG policy is adequate for you (see GumsAdmins#Configure_GUMS)
+	* Install and configure gums-host on your gatekeeper(s) %RED%Where is this described?%ENDCOLOR%
+
+---+++ Identify the GUMS server to use
+
+There needs to be one GUMS server per map of 'DN to local uid'. An institution would only need one GUMS server if there is a global uid assignment (eg. a single NIS domain), but you'd need multiple GUMS to cover multiple mappings. Choose the appropriate GUMS. If you have no GUMS available, you will need to create one and load the mapping information, first. GumsAdmins contains instructions on how to setup and configure a GUMS service.
+
+Once you have identified the appropriate GUMS, continue.
+---+++ Configure the GUMS client package 
+You need to configure the file _gums-client.properties_ to point to the appropriate GUMS server
+
+<verbatim>
+# cd $VDT_LOCATION/gums/etc
+# cat gums-client.properties
+gums.location=https://localhost:8443/gums/services/GUMSAdmin
+gums.authz=https://localhost:8443/gums/services/GUMSAuthorizationServicePort
+</verbatim>
+
+Replace _localhost_ in this example to the name of the GUMS Service host.
+
+Test the service by generating a mapfile at the command line:
+
+<verbatim>
+# cd $VDT_LOCATION/gums
+# ./bin/gums generateGridMapfile 
+</verbatim>
+
+Test the gums-host command before adding the cron job:
+(How do I know if it succeeded ?)
+
+<verbatim>
+# ./gums-host generateGridMapfile
+</verbatim>
+
+Once tested, set up a cron job to generate the maps every six hours:
+<verbatim>
+# ln -s $VDT_LOCATION/gums/bin/gums-host-cron /etc/cron.hourly/gums-host-cron
+</verbatim>
+
+For more information about the GUMS Client, look towards the end of:
+http://grid.racf.bnl.gov/GUMS/guide_howto_installation.html
+
+---+++ Test configuration
+
+Run the site_verify script again locally (as a regular user) and verify that the authorization still works. If you have problems, (URL) has some debugging advice on how to identify common problems.
+
+Instructions for this configuration are located [[http://osg.ivdgl.org/twiki/bin/view/Integration/PrivilegeSiteWhatToDo#Full_Privilege_or_Compatability][here]]
+
+(Has anyone gotten this configuration to work ???)
+(Not I -- AH to here 5/24)
 ---++ Full privilege configuration
 
 In this configuration, requests to your gatekeeper(s) and gridftp server(s) use the authorization callout to contact an external service (GUMS is the OSG reference implementation) which checks whether the requester is permitted access and, if access is permitted, returns a local user id assigned to the requester's grid credential. This removes the need for maintaining grid mapfiles on each gatekeeper and/or gridftp server. 
@@ -99,165 +247,19 @@ Run the site_verify script again locally (as a regular user) and verify that the
 
 
 
----++ Compatibility configuration
-You will not be able to provide role based authorization in this configuration. Also, you will introduce delays since each gatekeeper will have to regenerate the map before implementing the new policy or allowing new users. You should fall back to this configuration if:
-	* Your gatekeeper(s) or service must be configured through grid-mapfile (i.e. you have tools or services that manipolate that file directly, without passing through globus)
-	* The idea of running GUMS 24/7 scares the hell out of you, and you'd rather approach with caution.
-In this configuration, you will have:
-	* One GUMS server per local account domain to manage the mapping from Grid identity (DN+attributes) to local username
-	* gums-host running via cron on your gatekeeper(s) to retrieve both the forward and inverse maps
-So you need to:
-	* Install GUMS at your site
-	* Configure it (if the default OSG policy is not good enough for you)
-	* Install and configure gums-host on your gatekeeper(s)
-
----+++ Identify the GUMS server you will be using
-
-There needs to be one GUMS server per map of 'DN to local uid'. An institution would only need one GUMS server if there is a global uid assignment (eg. a single NIS domain), but you'd need multiple GUMS to cover multiple mappings. Choose the appropriate GUMS. If you have no GUMS available, you will need to create one and load the mapping information, first. GumsAdmins contains instructions on how to setup and configure a GUMS service.
-
-Once you have identified the appropriate GUMS, continue.
-
-
----+++ Configure the GUMS client package 
-(isn't this only needed for compatibility mode or is it recommended as a backup for full privilege mode as well ?)
-
-You need to configure the file _gums-client.properties_ to point to the appropriate GUMS server
-
-<verbatim>
-# cd $VDT_LOCATION/gums/etc
-# cat ../etc/gums-client.properties
-gums.location=https://localhost:8443/gums/services/GUMSAdmin
-gums.authz=https://localhost:8443/gums/services/GUMSAuthorizationServicePort
-</verbatim>
-
-Replace _localhost_ in this example to the name of the GUMS Service host.
-
-Test the service by generating a mapfile at the command line
-
-<verbatim>
-# cd $VDT_LOCATION/gums
-# ./bin/gums generateGridMapfile 
-</verbatim>
-
-Test the gums-host command before adding the cron job
-(How do I know if it succeeded ?)
-
-<verbatim>
-# ./gums-host generateGridMapfile
-</verbatim>
-
-Once tested, set up a cron job to generate the maps every six hours:
-<verbatim>
-# ln -s $VDT_LOCATION/gums/bin/gums-host-cron /etc/cron.hourly/gums-host-cron
-</verbatim>
-
-For more information about the GUMS Client, look towards the end of:
-http://grid.racf.bnl.gov/GUMS/guide_howto_installation.html
-
----+++ Test configuration
-
-Run the site_verify script again locally (as a regular user) and verify that the authorization still works. If you have problems, (URL) has some debugging advice on how to identify common problems.
-
-Instructions for this configuration are located [[http://osg.ivdgl.org/twiki/bin/view/Integration/PrivilegeSiteWhatToDo#Full_Privilege_or_Compatability][here]]
-
-(Has anyone gotten this configuration to work ???)
-
----++ Grid3 configuration
-
-In this configuration, the authorization callout is not used. Rather individual gridmapfiles are created (and updated) on each gatekeeper.
-You may prefer this configuration if:
-	* You are a small site (one gatekeeper) and,
-	* You deal with a small set of fairly static VOs
-
-In this configuration, you will have:
-	* The EDG mkgridmap daemon running on your gatekeeper to create the grid-mapfile
-
-Here is the checklist for configuring a Compute Element gatekeeper in the Grid3 mode:
-(It appears in fact that the OSG pacman install preconfigures all this and runs the mkgrid-mapfile automagically. Maybe that's because I was reinstalling on a machine that had previously been setup ??)
-
----+++ Setting up edg-mkgridmap for local users
-
-You probably want to keep some portion of your current gridmapfile (at least your own entry) as locally known users so that you won't get locked out should there be a problem with a VOMS server at some update.
-
-The *edg-mkgridmap* script uses a configuration file to dictate 
-  its behavior. This is located at
-  *$VDT_LOCATION/edg/etc/edg-mkgridmap.conf*.
-
-  The *edg-gridmapfile-upgrade* daemon has a similar configuration
-  file *$VDT_LOCATION/edg/etc/edg-gridmapfile-upgrade.conf*.
-
-  One of the parameters specifies a _local_ *grid-mapfile* that
-  will be added to the output of the *edg-mkgridmap* command (the set of DNs returned from all the VOMS)
-
-There are two steps required to make this:
-
-	* Set the *GRIDMAP_LOCAL_FILE* variable in 
-	 *$VDT_LOCATION/edg/etc/edg-gridmapfile-upgrade.conf*:
-
-		==GRIDMAP_LOCAL_FILE=$VDT_LOCATION/edg/etc/grid-mapfile-local==
-
-	* Add a new directive to the end of the *$VDT_LOCATION/edg/etc/edg-mkgridmap.conf*:
-
-<tt><b>gmf_local <i>/usr/local/grid</i>/edg/etc/grid-mapfile-local</b></tt>
-
-  Now local *grid-mapfile* entries to this file will be 
-  added every time the script is executed.
-
----+++ Configure the list of VOs you wish to enable.
-(Is this now automatically configurable given the conventions on VO selections and the master vomses file ?)
-
-The default configuration is to all access from all OSG VOs. If that is acceptable to you, then you're done with this step.
-
-If not, then you'll need to edit the file $VDT_LOCATION/edg/etc/edg-mkgridmap.conf
-to comment out the lines for the VOs you wish to disable.
-
----+++ Setup and test access to each selected VOMS services
-
-To do a "shotgun" test of them all, as root, run
-
-<pre> 
-$ cd $VDT_LOCATION/edg/sbin
-$ ./edg-mkgridmap --verbose --output=test.out
-</pre>
-	
-  The most common error is "Internal Server Error" which indicates an
-  authentication failure.  This can happen either because access to the
-  VOMS DB has not been completed, or because the local site credentials
-  (host certificate and key) are not valid.  Set the X509_USER_CERT and
-  X509_USER_KEY variables to to test using a different, valid, certificate
-  and key.
-
-If the VO administrator has not enabled world read of the VO membership, then you must contact the VO
-administrator (how ?) and request that your site be given access to the VOMS database. You will need to provide
-the Subject and Issuer Distinguished Names (DN) for your host certificate.  The simplest thing to do is send email
-to the VO administrator requesting access and including the output of the command
-
-<pre>
-  $ openssl x509 -in /etc/grid-security/certificates/hostcert -noout -text
-</pre>
-
-(except I'll bet the output doesn't have the DN's in the proper format. Damn. Anyone got a better way ?)
-
----+++ Configure the automatic update scripts to refresh the gridmapfile
-
-Since VOs are likely adding/removing members over time, you will want to update your gridmapfile to reflect this. OSG provides some scripts (lifted from the EDG project :-) ) to do that periodically automatically. The following commands will copy and start the daemon.
-
-<pre># cp $VDT_LOCATION/post-install/edg-gridmapfile-upgraded /etc/init.d/
-</pre>
-<pre># /etc/init.d/edg-gridmapfile-upgraded start
-</pre>
-
----+++ Test configuration
-
-Run the site_verify script again locally (as a regular user) and verify that the authorization still works. If you have problems, (URL) has some debugging advice on how to identify common problems.
-
-
 
 ---++ Debugging the authentication chain
 
 A page describing the steps to follow in testing and debugging privilege components has been started under the topic GoldenChainDebugging.
 
 You may find the PrivilegeSiteWhatToDo and VoAdmins topics (older versions of instructions) helpful as well.
+
+---++Definitions:
+(Should we collect these somewhere or does this need to be inline ? AH thinks they should go in the OSG glossary -- but hasn't put them there yet!)
+	* Role-based authorization: authorization decisions based on extended proxies (roles and groups in addition to DNs) A user can get a different extended proxy from the VO VOMS server according to the role he/she is to play.  For example, the user may send a request as a member of the analysis group, and at another time may send a request as a production coordinator. Role-based authorization allows the site to map the user to a different account depending on his/her role.
+	* Account pools: Each DN is assigned a unique local account from a preallocated pool of local accounts. A particular DN always gets the same local account from then on. A site can choose to have one or more pools (for example, one pool per VO, one pool per group in a VO, one pool per role in a VO, etc...)
+	* Central management: being able to control access to a number of gatekeepers from a single file, and not having to look/change configuration on each gatekeeper. (often useful for large sites) (this is vague -- central account management? AH)
+*FQAN*: to do...
 
 
 
@@ -267,6 +269,7 @@ For significant updates to the topic, consider adding your 'signature' (beneath 
 *Major updates*:%BR%
 <!--Future editors should add their signatures beneath yours!-->
 -- Main.DaneSkow - 11 May 2005
+--Main.AnneHeavey - 24 May 2005
 
 %STOPINCLUDE%
 
