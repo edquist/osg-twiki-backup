@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JeffWeber" date="1117229735" format="1.0" version="1.5"}%
+%META:TOPICINFO{author="JeffWeber" date="1117631343" format="1.0" version="1.6"}%
 %META:TOPICPARENT{name="ItbRel015"}%
 ---+!!<nop>%TOPIC%
 %TOC%
@@ -15,12 +15,12 @@ The GEx has these goals:
 
 	* By providing a continuous stream of jobs for all sites on a grid, the GEx provides a continuous diagnostic capability for identifying errors, primarily when jobs don't run at all, or jobs abort with errors.
 
-	* Second, the GEx provides a continuous _backfill_ load upon all sites in the grid.
+	* The GEx provides a continuous _backfill_ load upon all sites in the grid.
 
-When sites are configured correctly, GEx jobs run at the lowest priority. and directly indicate the unused computing capacity for a site.  Ideally, the GEx should accumulate a low level of successful run time at a site.  A net run time of zero indicates a problem, either with the GEx or the site.  A high run time indicates the site is either lightly loaded, or a problem prioritizing GEx jobs.
+When sites are configured correctly, GEx jobs run at the lowest priority. and the accumulated GEx run time directly indicates the unused computing capacity for a site.  Ideally, the GEx should accumulate a low level of successful run time.  A net run time of zero indicates a problem, either with the GEx or the site.  A high net run time indicates the site is either lightly loaded, or a has problems prioritizing GEx jobs.
 
 ---++Site Loading Algorithm
-Currently the GEx attempts to maintain a load of _N_ submitted jobs at each site, where _N_ is the minimum of the number of CPUs reported for the site by the [[http://osg-itb.ivdgl.org/gridcat/ GridCat]], or 10.  The latter is the current arbitrary limit for the maximum number of simulaneous jobs per site. The job itself is essentially a script wrapper around "sleep 900", and outputs other useful environment information to stdout and stderr.  The GEx job itself should result in little to no CPU load.
+Currently the GEx attempts to maintain a load of _N_ submitted jobs at each site, where _N_ is the minimum of the number of CPUs reported for the site by the [[http://osg-itb.ivdgl.org/gridcat/ GridCat]], or 10.  The latter is the current arbitrary limit for the maximum number of simulaneous jobs per site. The GEx job itself is essentially a script wrapper around "sleep 900", and outputs other useful environment information to stdout and stderr.  The GEx job itself should result in little to no CPU load.
 
 TODO: There is a pending change [below] to only submit jobs to sites that are identified as "active" in the GridCat.
 
@@ -37,26 +37,29 @@ but will soon migrate to the new certificate
 TODO: What GEx user id(s) for sites with dynamic accounts?  How does this work with GUMs?
 
 ---++Configuring Site Policy for GEx Jobs
-
-An
-It is intended that each sites configures GEx jobs to run as backfill jobs.  This is done by configuring GEx jobs to run at the _poorest possible priority.  To accomplish this, all GEx jobs should be mapped to user ids that are _only_ associated with the GEx.  Bear in mind that [[http://grid.racf.bnl.gov/GUMS/guide_architecture.html GUMS ]] may map GEx jobs to multiple user ids.
+It is intended that each sites configures GEx jobs to run as backfill jobs.  This is done by configuring GEx jobs to run at the _poorest_ possible priority.  To accomplish this, all GEx jobs should be mapped to user ids that are _only_ associated with the GEx.  Bear in mind that [[http://grid.racf.bnl.gov/GUMS/guide_architecture.html GUMS ]] may map GEx jobs to multiple user ids.
 
 Here are suggestions for accomplishing this for the various OSG job managers: (I'll stand by the user prioritization for Condor pools, but am requesting feedback on PBS and LSF pools.)
 
 ---+++Condor
-The Condor administrator should set a high user priority factor for the local GEx Condor user id(s).  A high user priority factor should be at least an order of magnitude larger than the number of CPUs available at the site.  For example, if the GEx is uniquely associated with the _gridex_ user id:
-
-Note: change this:
-nice_user = true in job RSL
-site has startd_job_exprs = ... nice_user ...
-site has preemption_requirements || (MY.NiceUser == True)	||
-
+GEx jobs are submitted to remote Condor batch systems with the
 <verbatim>
-% condor_userprio -setfactor gridex 1000000
+nice_user = True
 </verbatim>
 
-Note that 
-Condor will always use this user priority factor to create a large (poor) effective user priority for the GEx user(s).  Condor remembers changes to the default user priorities set by _condor_userprio_.  These changes are retained across system restarts and upgrades.
+job attribute.  Thus, GEx jobs automatically set themselves to a poor user priority for remote Condor systems.  When the PREEMPTION_REQUIREMENTS configuration macro is properly configured, the Condor Negotiator will preempt all GEx jobs for other jobs with a better user priority.  To ensure that this happens immediately, verify PREEMPTION_REQUIREMENTS contains the clause to immediately preempt "nice" user jobs
+<verbatim>
+PREEMPTION_REQUIREMENTS = ... || (MY.NiceUser == True) 
+</verbatim>
+
+where the ellipses ... indicate any other preemption requirements appropriate for the site.  Note that some sites define PREEMPTION_REQUIREMENTS in terms of the intermediate macro UWCS_PREEMPTION_REQUIREMENTS.  If this is the case, the above <nop>NiceUser clause should be included in the UWCS_PREEMPTION_REQUIREMENTS definition.
+
+The Condor Negotiator has access to the <nop>NiceUser job attribute when it is made visible via the machine (Condor Startd) running the GEx job.  This is enabled in the STARTD_JOB_EXPRS configuration macro.  STARTD_JOB_EXPRS contains a comma delimited list of job attributes to be advertised in the machine ad.  Verify this macro contains the <nop>NiceUser job attribute
+<verbatim>
+STARTD_JOB_EXPRS = ... NiceUser
+</verbatim>
+
+where the ellipses ... indicate other job attributes to advertise in the machine ad, appropriate for the site.
 
 ---+++PBS
 _Help.  PBS feedback needed.  These notes apply to the old Grid3 config, of which I am less familiar._
@@ -79,19 +82,47 @@ Put the following in your fs.cfg file:
 </verbatim>
 
 ---+++LSF
-_Help.  LSF feedback needed.  These notes apply to the old Grid3 config, of which I am less familiar._
 
-To configure global fairshare, you must use host partition
-fairshare. Use the keyword all to configure a single partition that
-includes all the hosts in the cluster.
+This LSF user priority configuration wisdom has been provided courtesy of
+[[mailto:matteom@slac.stanford.edu Matteo Melani]],
+[[mailto:yangw@slac.stanford.edu Wei Yang]], and
+[[mailto:neal@slac.stanford.edu Neal Adams]]
+of [[http://osgserv01.slac.stanford.edu/ SLAC]].  Thankyou!
 
-Example:
+In LSF, user priority is configured via the USER_SHARES definition.
+User priority definitions are defined relative to one another.  The higher the user priority value, the better the relative priority.  Thus, user priority for the _gridex_ user should be set to a _lower_ value than for all other users.  In LSF, there are several alternative methods for defining user priorities:
+
+---++++Host Based User Priority
+In lsb.hosts file, define the gridex user to have a poorer priority than all other users:
 <verbatim>
   Begin HostPartition
   HPART_NAME =GlobalPartition
   HOSTS = all
-  USER_SHARES = [cmsprod@, 10] [atlasprod, 10] [cmstest, 1]
+  USER_SHARES = [user1, 10] [user2, 10] [gridex, 1]
   End HostPartition
+</verbatim>
+
+---++++Queue Based User Priority
+In lsb.queues file, define the gridex user to have a poorer priority than all other users:
+<verbatim>
+Begin Queue
+QUEUE_NAME		= idle
+PRIORITY		  = 5
+NICE				= 20
+USERS			  = user1 user2 gridex
+FAIRSHARE		 = USER_SHARES [[user1,5] [user2,8] [gridex,1]]
+HOSTS			  = host1 host2
+End Queue
+</verbatim>
+
+---++++User Based User Priority
+In lsb.users file, define the gridex user to have a poorer priority than all other users:
+<verbatim>
+Begin UserGroup
+GROUP_NAME		GROUP_MEMBER	 USER_SHARES
+...
+OSG				 (user1 gridex)	  ([user1 5] [gridex 1])
+End UserGroup
 </verbatim>
 
 ---++Most Recent OSG-ITB GEx Report
