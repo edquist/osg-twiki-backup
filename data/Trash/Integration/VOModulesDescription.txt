@@ -1,0 +1,520 @@
+%META:TOPICINFO{author="JohnWeigand" date="1117813680" format="1.0" version="1.1"}%
+%META:TOPICPARENT{name="MonALISA"}%
+<!-- This is the default OSG Integration template. 
+Please modify it in the sections indicated to create your topic!
+If you have any comments/complaints about this template, then please email me:
+rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
+--> 
+
+<!-- By default the title is the WikiWord used to create this topic !-->
+<!-- if you want to modify it to something more meaningful, just replace %TOPIC% below with i.e "My Topic"!-->
+
+
+---+!!<nop>VO_Modules Description
+%TOC%
+%STARTINCLUDE%
+
+---++Description
+The VO_JOBS module of MonALISA collects metrics on the following:
+ <OL>
+	<LI><a HREF="#job_manager_queue_status_metrics">Job Manager Queue Status Metrics</a>
+
+		  These show the status of user grid jobs in the job manager queue 
+		  of the gatekeeper.
+<pre>
+  Total Jobs
+  Idle Jobs
+  Running Jobs
+  Held Jobs
+</pre>
+		
+	<LI> <a HREF="#job_submissions_metrics">GLOBUS Gatekeeper Job Submission Metrics</a>
+
+	  These show the status of job submissions through the Globus gatekeeper process.
+<pre>
+  Total Submissions
+  Failed Submissions
+  PingOnly Submissions
+  Failed Jobs
+  Job Success Efficiency
+</pre>
+</OL>
+
+
+Each consists of a set of metrics depending on the data available in the
+systems/files used as the source of information.	The metrics are collected using the UNIX account authorized by the gatekeeper (using  either the grid-mapfile or the Prima/GUMS authorization services).
+The grid users are then mapped to a VO User  using  the VO-User map table and the metrics reported on that basis.
+
+
+---++User-VO map file
+
+The VO_JOBS module maps the UNIX user accounts that jobs are assigned 
+to the VO they belong to.  In the pre-PRIMA world where group accounts are used
+exclusively the map file would look something like this.
+<p>
+File: $VDT_LOCATION/monitoring/grid3-user-vo-map.txt
+<pre>
+  #User-VO map 
+  # #comment line, format of each regular line line: account VO
+  # Next 2 lines with VO names, same order, all lowercase, with case (lines starting with #voi, #VOc)
+  #voi btev ivdgl ligo sdss usatlas uscms gridex gadu grase
+  #VOc BTeV iVDgL LIGO SDSS ATLAS CMS GRIDEX GADU GRASE
+  btev btev
+  ivdgl ivdgl
+  lsc01 ligo
+  sdss sdss
+  usatlas1 usatlas
+  uscms01 uscms
+  uscms02 gridex
+  gadu	gadu
+  grase  grase
+</pre>
+
+The <b>#voi</b> line contains the lower case name of the VO.<br/>
+The <b>#VOc</b> line contains the mixed case name of the VO. 
+This is the VO name that is actually reported to MonALISA. 
+The order is critical to the correct mapping and is positional.  
+
+The <b>remaining lines</b> map the Unix account (e.g., uscms01) to the lower case VO name (uscms).
+
+The validation performed on this file was quite extensive in Grid3 and the VoModules (VO_JOB and VOIO) will fail if every user cannot be mapped to a VO and vice versa.
+This validation has been relaxed somewhat for OSG and a WARNING will be issued if not all users can be mapped to a reportable (mixed case) VO name.
+
+
+---++MonALISA setup
+<p>
+To setup up the collection of these metics in MonALISA requires the following
+configurations:
+<ol>
+ <li><b>VDTFarm.conf file</b><p> 
+	 The following entry in your VDTFarm.conf file will invoke the 
+	 monVoJobs module in the <b>FarmMonitor.jar</b> file every 300 seconds. 
+	 Both sets of metrics are generated from this module.
+	 <verbatim>
+  *VO_JOBS {monVoJobs,localhost}%300
+	 </verbatim>
+	 In addition, the code for this module (monVoJobs) can be found in the
+	 $MonaLisa_HOME/Service/usr_code/VoModules-{version} directory.
+  
+ <li><b>$MonaLisa_HOME/Service/CMD/site_env file</b>	  <p>
+	 The <b>site_env</b> is intended to support any local variables, setups or
+	 preprocessing requirements needed by any (not just the <b>monVoJobs</b>) 
+	 module specific to this implementation of MonALISA.  On startup, 
+	 MonALISA will first source the ml_env file and then the <b>site_env</b> 
+	 file, if it exists.
+	 <p>
+For the <b>VO_JOBS</b> module, the <b>site_env</b> file requires the
+following:
+<p>
+<ol type=a>
+<li>GLOBUS_LOCATION<p> 
+- VO_JOBS needs this data to find the globus gatekeeper log file
+for the job submissions metrics.<p>
+- VO_IO needs this to identify the location of the gridftp log
+<p>
+<li> The next variable serves 2 purposes: identifying the job queue 
+manager(s) and their respective location:<p>
+<pre>
+	PBS_LOCATION
+	CONDOR_LOCATION
+	LFS_LOCATION
+	FBS_LOCATION
+	SGE_LOCATION
+</pre>
+More than one job queue manager  can be in effect, but usually just one is.<p>
+For some job queue managers additional environmental variablesare required:
+<ul><li>CONDOR: requires CONDOR_CONFIG set 
+<li>SGE: requires SGE_ROOT set 
+</ul><p>
+This can be accomplished by exporting this variable in the 
+<b><i>site_env</i></b> script or by sourcing the VDT_LOCATION 
+setup script in <b><i>site_env</b></i>. 
+</ol>
+<p>
+</ol>
+<p>
+
+<a name="job_manager_queue_status_metrics"></a>
+---++Job Manager Queue Status Metrics
+<p>
+The job manager queue metrics cover 4 statuses:
+<ol>
+<li>Total Jobs
+<li>Idle Jobs
+<li>Running Jobs
+<li>Held Jobs
+</ol>
+Total Jobs is the sum of the Idle, Running and Held Jobs.
+<p>
+There are 5 Job Queue Managers supported and the table 
+shows the mapping of their respective job status modules and the command used 
+to query the job manager.  The individual grid users are mapped to VO 
+ using the VO-User map table.
+<p>
+<ol>
+<table border=1>
+<tr bgcolor=green>
+<td align=center><font color=white><b>Job Manager</b></font></td>
+<td align=center><font color=white><b>Command</b></font></td>
+<td align=center><font color=white><b>Metric</b></font></td>
+<td align=center><font color=white><b>Job Manager Status</b></font></td>
+</tr>
+<!--	Condor status mapping -->
+<tr><td rowspan=4 valign=top align=center><b>CONDOR</b></td> 
+<td rowspan=4 valign=top align=center><b>$CONDOR_LOCATION<br>/bin/condor_q</b></td> 
+<td align=center>Idle </td><td>I = idle (waiting for a machine to execute on)</td> </tr>
+<tr> <td align=center>Running </td><td>R = running</td> </tr>
+<tr> <td align=center>Held </td><td>H = on hold</td> </tr>
+<tr valign=top>
+<td align=center>Not mapped  </td>
+<td>
+C = completed<br> 
+U = unexpanded (never been run)<br>
+X = removed.
+</td>
+</tr>
+<tr><td colspan=4 bgcolor=grey></td></tr>
+
+<!--	PBS status mapping -->
+<tr><td rowspan=4 valign=top align=center><b>PBS</b></td> 
+<td rowspan=4 valign=top align=center><b>$PBS_LOCATION/<br>bin/qstat</b></td> 
+<td valign=top align=center>Idle</td>
+			<td>Q - job is queued, eligable to run or routed
+			<br>T - job is being moved to new location.
+			<br>I - job is idle.
+			<br>W - job is waiting for its execution time
+			</td></tr> 
+<tr> <td valign=top align=center>Running </td>
+			<td>R - job is running.
+			<br>C - Job is completed and leaving the queue on it's own.
+			<br>E - Job is exiting after having run.
+			<br>S - (Unicos only) job is suspend.
+			</td></tr> 
+<tr> <td align=center>Held </td>
+			<td>H - Job is held.
+			</td></tr> 
+<tr valign=top>
+<td align=center>Not mapped  </td>
+			<td>X - Job is removed from the queue
+			</td></tr> 
+<tr><td colspan=4 bgcolor=grey></td></tr>
+
+<!--	LFS status mapping -->
+<tr><td rowspan=4 valign=top align=center><b>LFS</b></td> 
+<td rowspan=4 valign=top align=center><b>$LSF_LOCATION/<br>bin/bjobs -a -w -u all</b></td> 
+<td valign=top align=center>Idle </td>
+			<td>
+PEND  - Job is pending, not yet started.
+<br>UNKWN - Job is lost
+<br>WAIT  - Job is waiting for its execution time
+			</td></tr> 
+<tr> <td valign=top align=center>Running </td>
+<td>RUN	- Job is running.</td></tr> 
+<tr> <td align=center>Held </td>
+<td> 
+PSUSP - Job is suspended while pending.
+<br>USUSP - Job is suspended while running.
+<br>SSUSP - Job is suspended due to load or job queue closed
+</td></tr> 
+<tr valign=top>
+<td align=center>Not mapped  </td>
+<td>
+ZOMBI - Job is/will  become a zombie for a couple reasons.
+<br>DONE  - Job has terminated with status of 0.
+<br>EXIT  - Job has termianted with non-zero status.
+</td></tr>
+<tr><td colspan=4 bgcolor=grey></td></tr>
+
+<!--	FBS status mapping -->
+<tr><td rowspan=4 valign=top align=center><b>FBS</b></td> 
+<td rowspan=4 valign=top align=center><b>$FBS_LOCATION/<br>/bin/fbs lj</b></td> 
+<td valign=top align=center>Idle </td>
+<td>NO STATUS
+</td></tr> 
+<tr> <td valign=top align=center>Running </td>
+<td>running	- Job is running.
+</td></tr> 
+<tr> <td align=center>Held </td>
+<td> pending - Job is pending 
+</td></tr> 
+<tr valign=top>
+<td align=center>Not mapped  </td>
+<td>NO STATUS
+</td></tr> 
+
+<!--	SGE status mapping -->
+<tr><td colspan=5 bgcolor=grey></td></tr>
+<tr><td rowspan=5 valign=top align=center><b>SGE</b></td> 
+<td rowspan=5 valign=top align=center><b>$SGE_LOCATION/<br>bin/glinux/qstat -s zprs</b></td> 
+
+<td valign=top align=center>Idle </td>
+<td>t - Job is transferring<br>
+w- Job is waiting 
+</td></tr> 
+
+<tr> <td valign=top align=center>Running </td>
+<td>r - Job is running.
+</td></tr> 
+
+
+<tr> <td align=center>Held </td>
+<td> s - Job is suspended<br> 
+S - Job is suspended<br> 
+h - Job is in hold<br> 
+</td></tr> 
+<tr valign=top>
+<td align=center>Not mapped  </td>
+<td>d - Job is deleted<br>
+T - Job is threshold<br>
+R - Job is restarted<br>
+</td></tr> 
+<tr> <td colspan=2 >
+<b>Note</b>: qw,hqw,Rr - these are states that kind of show a history. 
+						 The current state is the last character and is always 
+						 the one used for reporting metrics. 
+</td></tr> 
+</table>
+</ol>
+
+
+<a name="job_submissions_metrics"></a>
+---++GLOBUS Gatekeeper Job Submission Metrics
+<p>
+The job submissions metrics are obtained by parsing the 
+Globus gatekeeper log file and cover the following:<p>
+<ol>
+<table border=1>
+<tr bgcolor=green>
+
+<td align=center><font color=white><b>Metric</b></font></td>
+<td align=center><font color=white><b>Description</b></font></td>
+</td>
+<tr><td valign=top>Total Submissions</td>
+<td>
+Submissions that have passed authentification and for which a 
+job has been submitted to the local job queue manager:
+condor, pbs, lfs, pbs and fork.
+<p>
+Those jobs have been assigned a VO user account are included in
+the metrics.
+</td>
+</tr>
+<tr><td valign=top>Failed Submissions</td>
+<td>
+Submissions that never make it to the local job manager.
+<p>
+In general, these submissions have failed authentification.
+Since these submissions failed authentification they have not likely
+been asssigned a VO user account and will not show in the metrics.
+<p>
+There may be some instances where they fail for other than
+authentification and will appear, but I have not seen one yet.
+</td>
+</tr>
+<tr><td valign=top>PingOnly Submissions</td>
+<td>
+So far it is a mystery  to me as to what these are.  They never
+result in a job submission to the local job manager and always
+result in a failure message, but do not appear to really be faulures.
+</td>
+</tr>
+<tr><td valign=top>Failed Jobs</td>
+<td>
+Job submissions that have been handed to the local job manager and 
+have processed in the local cluster.  These jobs have failed at
+some point in there processing.  
+<p>
+
+The Gram log files in the VO user account home directory identifies 
+the error.
+</td>
+</tr>
+<tr><td valign=top>Job Success Efficiency</td>
+<td>
+This is a derived metric expressed as a percent:
+
+<ol>  (Total Submissions - Failed Jobs) / Total Submissions. </ol>
+
+</td>
+</tr>
+</table>
+
+</ol>
+
+
+---+++Parsing logic for the Globus gatekeeper log file
+<p>
+The "bolded" sections of the following lines are used to identify that some 
+event has occurred on a submission.
+<ol>
+<table border=1>
+  <tr bgcolor=green>
+ <tr><td>Start of<br> a submission</td>
+	 <td>
+
+	 <b>Notice: 6: </b>globus-gatekeeper<b> pid=</b>13115<b> starting at </b>Wed Nov 12 14:55:24 2003
+	 </td>
+  </tr>
+ <tr><td>User<br> identified</td>
+
+	 <td>
+	 <b>Notice: 5: Authorized as local user: </b>ivdgl
+	 </td>
+  </tr>
+ <tr><td>Successful submission<br> to the job manager</td>
+	 <td>
+	 <b>Notice: 0: Child </b>13121<b> started</b>
+
+	 </td>
+  </tr>
+</table>
+</ol>
+
+<p>
+Log File Examples:
+<ol>
+<li><b>Successful Submissions</b>
+<pre>
+PID: 11293 -- <b>Notice: 6: </b>globus-gatekeeper<b> pid=</b>13115<b> starting at </b>Wed Nov 12 14:55:24 2003
+PID: 11293 -- Notice: 0: GATEKEEPER_ACCT_FD=5 (var/globus-gatekeeper.log)
+PID: 11293 -- Notice: 6: Got connection 129.79.6.113 at Wed Nov 12 14:55:24 2003
+PID: 11293 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=Rob Quick 333863
+PID: 11293 -- Notice: 0: GRID_SECURITY_HTTP_BODY_FD=7
+PID: 11293 -- Notice: 5: Requested service: jobmanager
+
+PID: 11293 -- <b>Notice: 5: Authorized as local user: </b>ivdgl
+PID: 11293 -- Notice: 5: Authorized as local uid: 10869
+PID: 11293 -- Notice: 5:			  and local gid: 100
+PID: 11293 -- Notice: 0: executing /gfs/vdt/globus/libexec/globus-job-manager
+PID: 11293 -- Notice: 0: GATEKEEPER_JM_ID 2003-11-12.14:55:25.0000013115.0000000000 for /DC=org/DC=doegrids/OU=People/CN=Rob Quick 333863 on 129.79.6.113
+PID: 11293 -- Notice: 0: GRID_SECURITY_CONTEXT_FD=10
+PID: 11293 -- <b>Notice: 0: Child </b>13121<b> started</b>
+</pre>
+
+<li><b>Failed Submissions</b>
+<pre>
+PID: 11293 -- <b>Notice: 6: </b>globus-gatekeeper<b> pid=</b>28935<b> starting at </b>Fri Oct  3 12:58:32 2003
+PID: 11293 -- Notice: 0: GATEKEEPER_ACCT_FD=5 (var/globus-gatekeeper.log)
+PID: 11293 -- Notice: 6: Got connection 134.68.63.19 at Fri Oct  3 12:58:32 2003
+
+PID: 11293 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=John Hicks 387403
+PID: 11293 -- Failure: globus_gss_assist_gridmap()<b> failed authorization.</b> rc = 1
+PID: 11293 -- Failure: globus_gss_assist_gridmap() failed authorization. rc = 1
+</pre>
+<p>
+<pre>
+PID: 11293 -- <b>Notice: 6: </b>globus-gatekeeper <b>pid=</b>20389<b> starting at </b>Sun Nov  9 05:58:06 2003
+PID: 11293 -- Notice: 0: GATEKEEPER_ACCT_FD=5 (var/globus-gatekeeper.log)
+PID: 11293 -- Notice: 6: Got connection 128.9.72.83 at Sun Nov  9 05:58:06 2003
+Failed reading length 0
+<b>GSS authentication failure</b>
+	 globus_gss_assist token :3: read failure: Connection closed
+Failure: GSS failed Major:01090000 Minor:00000000 Token:00000003
+Failure: GSS failed Major:01090000 Minor:00000000 Token:00000003
+</pre>
+
+<li><b>PingOnly Submissions</b>
+<pre>
+PID: 11293 -- <b>Notice: 6: </b>globus-gatekeeper<b> pid=</b>13585<b> starting at </b>Wed Nov 12 14:55:39 2003
+PID: 11293 -- Notice: 0: GATEKEEPER_ACCT_FD=5 (var/globus-gatekeeper.log)
+PID: 11293 -- Notice: 6: Got connection 129.79.6.113 at Wed Nov 12 14:55:39 2003
+PID: 11293 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=Rob Quick 333863 
+PID: 11293 -- Notice: 5: Requested service: jobmanager-fork [PING ONLY]
+PID: 11293 -- Notice: 5: Authorized as local user: ivdgl
+PID: 11293 -- Notice: 5: Authorized as local uid: 10869
+PID: 11293 -- Notice: 5:			  and local gid: 100
+<b>Failure: ping successful</b>
+Failure: ping successful
+</pre>
+<li><b>Different type of failure with PING ONLY and VO user identified.</b>
+<pre>
+PID: 11293 -- <b>Notice: 6: Got connection 198.51.254.66 at Sat Oct 18 12:07:54 2003</b>
+PID: 11293 -- Notice: 5: Authenticated globus user: /O=doesciencegrid.org/OU=People/CN=Erik Paulson 115942
+PID: 11293 -- Notice: 5: Requested service: jobmanager [PING ONLY]
+PID: 11293 -- <b>Notice: 5: Authorized as local user: uscms02</b>
+<b>Failure: getpwname() failed to find uscms02</b>
+Failure: getpwname() failed to find uscms02
+</pre>
+<li><b>Another failure</b>
+<pre>
+PID: 11293 -- <b>Notice: 6: globus-gatekeeper pid=25918 starting at Wed Oct 22 12:39:34 2003</b>
+PID: 11293 -- Notice: 0: GATEKEEPER_ACCT_FD=5 (var/globus-gatekeeper.log)
+PID: 11293 -- Notice: 6: Got connection 134.68.142.81 at Wed Oct 22 12:39:34 2003
+PID: 11293 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=Services/CN=tester/gocmon.uits.iupui.edu 
+<b>Failure: globus_gss_assist_gridmap() failed authorization. rc = 1</b>
+Failure: globus_gss_assist_gridmap() failed authorization. rc = 1
+</pre>
+</OL>
+<hr width=75%>
+The examples below  illustrate problems problems with parsing the gatekeeper log file prior to the OSG-ITB version of Globus, i.e., the Grid3 version.  The pre-osg gatekeeper log never identified the thread  or job the messages belonged to.  So, on a heavily loaded system, the messages from various job submittals would be interspersed in the log file.  The examples shown below show this condition.  It made it impossible to, then , to associate the user assigned or error with a given job.  In these cases, the metric was dropped and, hence, job submittals understated.
+
+Recently, we noticed that a PID is now assigned and logged for each job submittal.  This will solve the above mentioned problem.  The changes have not  been made for this as yet.
+<OL>
+<li><b>Example of intermixed messages with a failure.</b>
+<pre>
+<b>Notice: 6: globus-gatekeeper pid=25275 starting at Wed Nov 19 13:30:23 2003</b>
+Notice: 0: GATEKEEPER_ACCT_FD=5 (var/globus-gatekeeper.log)
+Notice: 6: Got connection 198.51.254.66 at Wed Nov 19 13:30:24 2003
+<b>Notice: 6: globus-gatekeeper pid=26925 starting at Wed Nov 19 13:30:31 2003</b>
+ Notice: 0: GATEKEEPER_ACCT_FD=5 (var/globus-gatekeeper.log)
+Notice: 6: Got connection 198.51.254.66 at Wed Nov 19 13:30:32 2003
+Failed reading length 0
+<b>GSS authentication failure</b>
+
+	 globus_gss_assist token :3: read failure: Connection closed
+Failure: GSS failed Major:01090000 Minor:00000000 Token:00000003
+Failure: GSS failed Major:01090000 Minor:00000000 Token:00000003
+Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=Erik Paulson 115942
+Notice: 0: GRID_SECURITY_HTTP_BODY_FD=7
+Notice: 5: Requested service: jobmanager-fbsng
+<b>Notice: 5: Authorized as local user: uscms02</b>
+Notice: 5: Authorized as local uid: 11419
+Notice: 5:			  and local gid: 5063
+Notice: 0: executing /storage/data/G3DPE/globus/libexec/globus-job-manager
+ Notice: 0: GATEKEEPER_JM_ID 2003-11-19.13:30:32.0000025275.0000000000 for /DC=org/DC=doegrids/OU=People/CN=Erik Paulson 115942 on 198.51.254.66
+Notice: 0: GRID_SECURITY_CONTEXT_FD=10
+ <b>Notice: 0: Child 27232 started</b>
+</pre>
+<LI><b>Example of submissions not being identified due to intermixed messages from multiples threads and also being assigned the wrong VO:</b>
+<pre>
+ <b>Notice: 6: globus-gatekeeper pid=13468 starting at Wed Nov 19 13:31:26 2003</b>
+ Notice: 0: GATEKEEPER_ACCT_FD=5 (var/globus-gatekeeper.log)
+Notice: 6: Got connection 128.135.152.217 at Wed Nov 19 13:31:27 2003
+
+<b>Notice: 6: globus-gatekeeper pid=15367 starting at Wed Nov 19 13:31:31 2003</b>
+Notice: 0: GATEKEEPER_ACCT_FD=5 (var/globus-gatekeeper.log)
+ Notice: 6: Got connection 198.51.254.66 at Wed Nov 19 13:31:32 2003
+ Notice: 5: Authenticated globus user: /O=doesciencegrid.org/OU=People/CN=Yuri Smirnov 408506
+Notice: 0: GRID_SECURITY_HTTP_BODY_FD=7
+ Notice: 5: Requested service: jobmanager-fbsng
+<b>Notice: 5: Authorized as local user: usatlas1</b>
+Notice: 5: Authorized as local uid: 11417
+Notice: 5:			  and local gid: 5063
+Notice: 0: executing /storage/data/G3DPE/globus/libexec/globus-job-manager
+Notice: 0: GATEKEEPER_JM_ID 2003-11-19.13:31:35.0000013468.0000000000 for /O=doesciencegrid.org/OU=People/CN=Yuri Smirnov 408506 on 128.135.152.217
+Notice: 0: GRID_SECURITY_CONTEXT_FD=10
+<b>Notice: 0: Child 17271 started</b>
+Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=Erik Paulson 115942
+Notice: 0: GRID_SECURITY_HTTP_BODY_FD=7
+Notice: 5: Requested service: jobmanager-fbsng
+<b>Notice: 5: Authorized as local user: uscms02</b>
+Notice: 5: Authorized as local uid: 11419
+Notice: 5:			  and local gid: 5063
+Notice: 0: executing /storage/data/G3DPE/globus/libexec/globus-job-manager
+Notice: 0: GATEKEEPER_JM_ID 2003-11-19.13:31:41.0000015367.0000000000 for /DC=org/DC=doegrids/OU=People/CN=Erik Paulson 115942 on 198.51.254.66
+Notice: 0: GRID_SECURITY_CONTEXT_FD=10
+<b>Notice: 0: Child 18312 started</b>
+</pre>
+
+</ol>
+
+
+<!-- MAJOR UPDATES
+For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
+
+*Major updates*:%BR%
+<!--Future editors should add their signatures beneath yours!-->
+-- Main.JohnWeigand - 03 Jun 2005
+
+%STOPINCLUDE%
+
