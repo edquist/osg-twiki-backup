@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DaneSkow" date="1118160226" format="1.0" version="1.1"}%
+%META:TOPICINFO{author="DaneSkow" date="1118171878" format="1.0" version="1.2"}%
 %META:TOPICPARENT{name="WebHome"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -16,7 +16,7 @@ rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
 
 ---++Introduction
 
-The Monitoring and Information Services framework for Open Science Grid is a complex array of multiple implementation of a variety of service aspects. This overview tries to describe an conceptual framework for OSG MIS, but it likely does not map cleanly onto a service decomposition. The current situation is an ensemble of a number of local tools for monitoring managing resources, some cataloging and monitoring tools used by various VOs and some attempts at general framework. There are user constituencies of all of these and a recognition that consolidation on a common framework and agreed set of interface points is desireable. We will not have that framework and interface definition agreed before OSG 0.2 deployment, but that is one of the things being worked as a development goal for future release(s).
+The Monitoring and Information Services framework for Open Science Grid is a rather complex, interconnected array of multiple implementations of a variety of service aspects. This overview tries to describe a conceptual framework for OSG MIS, but it likely does not map cleanly onto a service decomposition. The current situation is an ensemble of a number of local tools for monitoring managing resources, some cataloging and monitoring tools used by various VOs and some attempts at general framework. There are user constituencies of all of these and a recognition that consolidation on a common framework and agreed set of interface points is desireable. We will not have that framework and interface definition agreed before OSG 0.2 deployment, but that is one of the things being worked as a development goal for future release(s).
 
 One decomposition of the MIS framework comes up with the following functional components:
 	* Service Catalog: contain a list of services and information about those services
@@ -25,23 +25,96 @@ One decomposition of the MIS framework comes up with the following functional co
 	* Service Information Query: a mechanism for querying information about a service
 	* Service Validation: a test that a service meets minimal functional specifications
 	* Service Status Monitoring: monitoring the recent/current status of a service
-	* Service Usage Accounting: recording usage of services
+	* Service Information Presentation Layer: present the monitoring information to clients in visually concise form
+	* Service Usage Accounting: recording usage and status of services in an historical archive
 
 The sections below describe each of these components in more detail as well as discussions of current implementations and suggestions for future development.
 
 ---++Service Catalogs
 
+The OSG Release 0.2 functionality of a Service Catalog is defined in the Deployment document (URL here). Conceptually, a catalog serves three basic functions: it contains a list of entries, it contains information about each entry, and it provides some method of managing that data (eg. query, update, removal).
+
+In a dynamic environment, one learns about the set of available services by querying a catalog. To avoid overly complicating the developers' lives, it is desireable to have a single catalog framework or at least a small number of common interfaces to catalog data. At the moment, this goal is not achieved. The compromise for OSG 0.2 was to define the following as the primary catalogs for the various services:
+	* Compute Element: GOC instance of Gridcat
+	* Storage Element: either GOC instance of Gridcat or OSG Discovery Service (TBD)
+	* VOMS: GOC pacman cache or webpage (TBD)
+	* Service Catalogs: (recursive) this page here
+
+There are a number of services deployed on OSG which contain service catalog functions. Most often this is due to the bootstrapping problem of needing a catalog yet not having a common infrastructure service defined. Sometimes this is due to differences in interfaces or maintained data. Sometimes it is due to "ownership" of the data and access control/availability constraints. It is not clear at this time what level of consolidation of Service catalogs is achievable. 
+
+Here is a quick catalog of OSG catalogs:
+	* Gridcat
+	* Monalisa
+	* Clarens Discovery Service
+	* MDS
+	* Condor ClassAds
+	* Pacman/VDT cache contents (eg: CA configuration file)
+	* ACDC
+
 ---++Information Collection
+
+Information about a resource is collected from an array of sensors. The set of information desired about a resource is not universal and will likely always have a custom component across the various "customers" of this information. The general practice has been that if you desire information about a resource, then you need to provide a set of sensors to collect that information from resources of interest. This leads to a great deal of redundancy in information sensor development, sensor load on the resource, and constraints on the pool of "interesting" resources. A goal of MIS is to leverage the various sensor development efforts and allow for a customizable network of sensors and various ways of providing the desired information.
+
+Usually, the resource will be instrumented for local management purposes, and the tools used will be those familiar to the resource management (and often integrated into a facility monitoring framework). Some resources will want to maximally leverage this local instrumentation and minimize the sensor "invasion" of OSG monitoring. Some resources will want to minimize their configuration load and just follow a "recipe" to install. There will likely be a continuum of responses. In any case, there needs to be consensus on the meaning of each information datum and the ability to collect, and make available, arbitrary information the resource chooses to make available.
+
+On OSG there are a variety of sensor sets being used and a few different schema for information.
+
+Schema:
+	* GLUE Schema (URL here)
+	* ClassAds schema (URL here)
+
+Sensors:
+	* Linux OS sensors
+	* Ganglia
+	* SNMP
+	* Monalisa (VO modules, etc)
+	* MIS-CI
+	* GIP
+
+
 
 ---++Service Local Information Repository
 
+One could arrange for information to be gathered in real time upon receipt of each request. And in fact, for some requests, this is desireable/necessary. However, that way leads to an unbounded load on the resource in the face of uncontrolled information queries. A better way is to have a local repository of information filled by the local sensor network. Many of the current sensors maintain a local repository and there are generally many of them. Since sensors come from a variety of sources and external contexts it is unlikely that there will be universal conventions possible. However, there are conventions that arise and should be leveraged to the extent possible (eg. the /proc filesystem in Linux)
+
+In OSG today there are the following local information repositories:
+	* $VDT_LOCATION/monitoring/grid3-info.conf (text format - mandatory for 0.2 CEs)
+	* GRIS .ldif file (LDAP LDIF format text file)
+	* MIS-CI (mysql database)
+	* Linux /proc filesystem
+
 ---++Service Information Query Interface
 
----++Service Usage Accounting
+The information available about a service needs to somehow be made available for query and update.
+For local information repositories, it is highly desireable to have a (small set of) common interface on how to query information (and how to interpret the results). This is a desireable area for standardization.
+
+For information stored externally about a service, there needs to be some method of updating the information there. Since the information is most easily maintained in locations "owned" by the data "owner", then it is desireable to have a composable system of information services. This can be obtained through either a pull (ie. the resource owner updates the local information repository and it is pulled by remote applications querying the repository) or push (ie. a remote catalog is updated by the resource updating the information in an external repository). Note: a pull model can be made to function like a push model through the use of local agents/daemons.
+
+In OSG there are the following query interfaces to the following set of information repositories: 
+	* (I don't know what these are well)
 
 ---++Service Validation
 
+One value of a catalog is that the services included have pass some sort of "check" prior to inclusion. This means that the presense of an entry in a catalog implies a certain set of characteristics (that the catalog operator is expected to enforce). Since the set of desired characteristics is highly variable by potential user, a general scheme is desired. There are several possible approaches.
+
+One can mantain a common catalog with a highly variable set of attributes and allow for many maintainers of the attributes. This is the general approach the ClassAds system follows. 
+
+One can maintain a variety of catalogs each with independent attributes and entry criteria. This is effectively the way Grid3 CE catalogs operate: there is a central catalog (Gridcat) with a list of all CEs with some basic attributes, from which VO job submission target lists were derived by various testing/installation processes. 
+
+One can maintain a strict heirarchy of catalogs enforcing various gatekeeping functions.
+
 ---++Service Status Monitoring
+
+Service status differs from service catalog attributes primarily in the expected latency of information. Monitoring information is intended to be more realtime and to facilitate troublshooting and matchmaking functions. It needs to be robust in the face of resource malfunction and competing access requests in order to be maximally useful.
+Competition may come from regular service usage requests, other monitors, runaway service usage requests and/or intentional attack.
+
+---++Service Information Presentation Layer
+
+Those desiring information about a resource/service do so with varying purposes in mind. Thus the presentation of this information is variable and should be left to the customization of the information consumer. There will likely be a large number of information presentation/digest tools and while efforts should be made to facilitate sharing and reuse of tools, diversity is a principle to be allowed if not encouraged.
+
+---++Service Usage Accounting
+
+At least in the near term, OSG accounting is extracted from historical archives of monitoring information collected about resources. In fact, even if accounting were to move to a transactional model separate from the monitoring information system, one would still need the ability to view and recover resource information recorded previously e.g. for purposes of troubleshooting.
 
 
 
