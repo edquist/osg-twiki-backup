@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="VivekJain" date="1120663973" format="1.0" version="1.4"}%
+%META:TOPICINFO{author="VivekJain" date="1120677994" format="1.0" version="1.5"}%
 %META:TOPICPARENT{name="VivekJain"}%
 -- Main.VivekJain - 05 Jul 2005
 
@@ -70,7 +70,9 @@ Again the documentation is quite self-explanatory. Some comments:
 
 ---++++ Certificates
 
-Once you get your User certificate, you will also need other certificates which are for the host as well as for services on the host. In some cases, it is better to wait for the certificate before proceeding. I needed a host certificate as well as service certificates for LDAP and http. It may save time if you were to apply for all these certificates at once (%BLUE% Is this possible? Need to check %ENDCOLOR%).
+#MyCertificates Once you get your User certificate, you will also need other certificates which are for the host as well as for services on the host. In some cases, it is better to wait for the certificate before proceeding. I needed a host certificate as well as service certificates for LDAP and http. It may save time if you were to apply for all these certificates at once (%BLUE% Is this possible? Need to check %ENDCOLOR%).
+
+To apply for the certificates, go to *https://pki1.doegrids.org* and follow instructions.
 
 ---+++ Configuration and setup of OSG CE Services
 
@@ -95,7 +97,7 @@ You also need to do chkconfig --add edg-gridmapfile-upgraded, so that the daemon
 
 ---++++ Configuring CONDOR
 
-This took the longest time to tweak. [[Main.TerrenceMartin][Terrence]] made many suggestions and we finally got it working. Here are the steps I followed.
+This took the longest time to tweak. [[Main.TerrenceMartin][Terrence]] made many suggestions and we finally got it working. Here are the steps I followed. I did all this tweaking after I had set up the system and discovered that CONDOR wasn't working
 
 ---+++++ %BLUE% Setup the Gatekeeper on the internal network %ENDCOLOR%
 
@@ -111,4 +113,79 @@ On the ROCKS headnode,
 	* /etc/init.d/named reload
 
 These steps allow osg-gk.local, osg-gk, 10.1.1.2 to be resolved. Remember, that for the Gatekeeper, the DNS server is the ROCKS headnode.
+
+---+++++ %BLUE% Exporting directories from the Gatekeeper %ENDCOLOR%
+
+I installed the VDT software below */usr/local/grid*. Some of the software needs to be visible from the ROCKS compute nodes, so we have to export these sub-dirs.
+
+	On the _Gatekeeper_,
+
+	* Edit */etc/exports* and add "/usr/local/grid 10.0.0.0/255.0.0.0(rw,no_root_squash)" - not clear if no_root_squash is necessary. We put it in while trying to fix a bug.
+	* Export via "exportfs -r"  (refreshes the kernel)
+	* "service nfs start" (Start NFS on the Gatekeeper) 
+	* If you also do "chkconfig nfs on" and "chkconfig nfslock on", it will keep NFS on all the time
+
+On the _ROCKS headnode_,
+
+	* Edit */etc/auto.master* and add the line "/usr/local/grid /etc/auto.osg -- timeout 600"
+	* Edit */etc/auto.osg* and add lines like "app osg-gk.local:/usr/local/grid/app". Similarly add more lines where _app_ is replaced by _data,scratch,users,condor_
+	* Make the directory */usr/local/grid*
+	* Issue the command "cluster-fork mkdir /usr/local/grid" - this makes the sub-dir on all the ROCKS compute nodes
+	* Since the ROCKS headnode communicates to the compute nodes via 411, restart this service. Issue the following commands, 
+		* "make -C /var/411 clean"
+		* "make -C /var/411"
+		* "cluster-fork /opt/rocks/bin/411get" - forces the compute nodes to get the latest 411 information
+		* "cluster-fork service autofs reload"
+
+---+++++ %BLUE% To start CONDOR at boot %ENDCOLOR%
+
+To ensure that CONDOR starts up at boot, 
+
+	* Make the directory */etc/condor/* 
+	* Issue the command, "ln -s /usr/local/grid/condor/etc/condor_config /etc/condor"
+
+---+++++ %BLUE% Other CONDOR configuration files to be changed %ENDCOLOR%
+
+We also need to edit a few CONDOR configuration files on the %RED% Gatekeeper %ENDCOLOR%
+
+Edit */usr/local/grid/condor/etc/condor_config*
+
+	* Set "RELEASE_DIR = /usr/local/grid/condor"
+	* Set "LOCAL_DIR = $(RELEASE_DIR)/local.$(HOSTNAME)"
+	* Set "LOCAL_CONFIG_FILE = $(LOCAL_DIR)/condor_config.local"
+	* Set "CONDOR_HOST = osg-gk.local"
+	* Set "UID_DOMAIN =albany.edu"
+	* Set "TRUST_UID_DOMAIN" = True
+	* Set "FILESYSTEM_DOMAIN" = True
+	* Set "USE_NFS = True"  (can't hurt)
+
+Edit */usr/local/grid/condor/local.aheposgk/condor_config.local*. I think this file gets created when we initially ran CONDOR as per instructions in the Install guide (Remember, I did all this tweaking after I had set up the system and discovered that CONDOR wasn't working).
+
+	* Set variables _CONDOR_HOST, RELEASE_DIR, LOCAL_DIR, UID_DOMAIN, FILESYSTEM_DOMAIN, USE_NFS__ as above.
+	* Set "NETWORK_INTERFACE = 10.1.1.2" (do this at the very top of the file, just after CONDOR_HOST)
+	* Set the variable "DAEMON_LIST = COLLECTOR, MASTER, NEGOTIATOR, SCHEDD" (I didn't want the gatekeeper to run jobs, so I removed STARTD from the list
+
+After all this tweaking, do "condor_reconfig" on the Gatekeeper. Re-reads the config. file(s).
+
+Wait, we are not done yet. We need to make local config files for the ROCKS compute nodes. I did it by hand (to test the system), but one can do issue a cluster-fork command from the ROCKS headnode and do all compute nodes at once. In any case, I did the following.
+
+On one of my %RED% ROCKS compute nodes (compute-0-0.local) %ENDCOLOR%, I did the following,
+
+	* In /usr/local/grid/ do "mkdir condor/local.compute-0.0/" (%BLUE% Do I have to make them on all compute nodes by hand? %ENDCOLOR%)
+	* "touch condor_config.local" within this sub-dir
+	* Issue the command, "/usr/local/grid/condor/condor_configure --install_dir = /usr/local/grid/condor/ --type=execute --central-manager=osg-gk.local --owner=condor" - this sets up the configuration file (%BLUE% This step could be done by cluster-fork, but I am not sure %ENDCOLOR%)
+	* Issue the command, "EXPORT CONDOR_CONFIG = /usr/local/grid/condor/etc/condor_config" followed by "condor/sbin/condor_master" - This turns CONDOR on this node
+	* For the other nodes, I did, "cp -rp local.compute-0-0/ local.compute-0-1/", etc. and start CONDOR on those nodes. (%BLUE% Is there a better way? %ENDCOLOR%
+
+This should get it working...
+
+---++ Testing some of this software
+
+I set up another machine where I installed VDT-Client software using the command 
+
+*pacman -get http://www.cs.wisc.edu/vdt/vdt-136-cache:VDT-Client *
+
+I put my User Certificate on this machine and made the .pem files as explained on the website mentioned [[#MyCertificates][above]]
+
+Make sure that this machine does not have a firewall, or the Gatekeeper will not be able to talk to it.
 
