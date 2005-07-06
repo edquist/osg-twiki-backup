@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="VivekJain" date="1120605159" format="1.0" version="1.3"}%
+%META:TOPICINFO{author="VivekJain" date="1120663973" format="1.0" version="1.4"}%
 %META:TOPICPARENT{name="VivekJain"}%
 -- Main.VivekJain - 05 Jul 2005
 
@@ -11,18 +11,25 @@ Here are some *tips/comments* for setting up a grid node as per instructions in 
 
 ---++ Installing the cluster
 
+We first set up the cluster using [[http://www.rocksclusters.org/Rocks/ ROCKS 3.3]] (Makalu). This includes the ROCKS headnode and compute nodes. We then set up the Gatekeeper node; this node contains all the VDT software. 
+
 ---+++ Setting up the ROCKS cluster
 
-We used ROCKS 3.3 [[http://www.rocksclusters.org/Rocks/ ROCKS]] to setup the cluster; the installation documentation is very well written.
-Since we were setting up a test grid node, we used some old CPU's which were lying around. I mention this because, we ended up booting the compute nodes using a floppy disk (the CD drives were not working and the NIC cards were too old to know about a PXE boot). We downloaded the relevant software from [[http://www.rom-o-matic.net/ here]] - you have to know the type of your NIC.
+The ROCKS installation documentation is very well written. Since we were setting up a test grid node, we used some old CPU's which were lying around. I mention this because, we ended up booting the compute nodes using a floppy disk (the CD drives were not working and the NIC cards were too old to know about a PXE boot). We downloaded the relevant software from [[http://www.rom-o-matic.net/ here]] - you have to know the type of your NIC.
+
+For installing the ROCKS cluster, we only used the base roll and the Kernel+HPC roll. All other software came from VDT.
 
 The ROCKS headnode is multi-homed. One NIC is connected to the external world and the other to the internal network. The latter has the IP address - 10.1.1.1. We have three compute nodes. When we go to a bigger cluster, we will probably have to do more sophisticated things for setting up NFS.
 
+Make sure that _eth0_ is connected to the internal network (_eth1_ is connected to the outside world).
+
 ---+++ OSG-GateKeeper
 
-Here we took a box and installed Scientific Linux 3 on it. Initially, we had connected this only to the external world, but it was recommended by [[Main.TerrenceMartin][Terrence]] that we also connect it to the same private network as the ROCKS headnode; the GK's internal card is connected on the "same side" of the switch as the ROCKS compute nodes. 
+#MyGatekeeper Here we took a box and installed Scientific Linux 3 on it. Initially, we had connected this only to the external world, but it was recommended by [[Main.TerrenceMartin][Terrence]] that we also connect it to the same private network as the ROCKS headnode; the GK's internal card is connected on the "same side" of the switch as the ROCKS compute nodes. 
 
 The internal NIC had a IP address of 10.1.1.2. For the DNS address, we used 10.1.1.1, i.e., the ROCKS headnode. It is necessary to have the GK talk directly to the compute nodes - makes the operation of CONDOR more robust. I will talk more about this [[#MyHeadnode][here]].
+
+Make sure that _eth0_ is connected to the internal network (_eth1_ is connected to the outside world).
 
 ---++ Following the OSG Install Guide
 
@@ -51,13 +58,19 @@ I installed the VDT software under /usr/local/grid and the plan is to export thi
 
 useradd -d /usr/local/grid/users/&lt;username&gt; &lt;username&gt;
 
+Remember, to set up the user accounts on the ROCKS headnode too. Here, it doesn't matter where the home directory is. Just use the command,
+
+useradd &lt;username&gt;
+
+The only requirement is that the user ID's should match on the two nodes.
+
 ---+++ Installation Procedure
 
 Again the documentation is quite self-explanatory. Some comments:
 
 ---++++ Certificates
 
-Once you get your User certificate, you will also need other certificates which are for the host as well as for services on the host. In some cases, it is better to wait for the certificate before proceeding. I needed a host certificate as well as service certificates for LDAP and http. It may save time if you were to apply for all these certificates at once (%BLUE% Is this possible. Need to check %ENDCOLOR%).
+Once you get your User certificate, you will also need other certificates which are for the host as well as for services on the host. In some cases, it is better to wait for the certificate before proceeding. I needed a host certificate as well as service certificates for LDAP and http. It may save time if you were to apply for all these certificates at once (%BLUE% Is this possible? Need to check %ENDCOLOR%).
 
 ---+++ Configuration and setup of OSG CE Services
 
@@ -72,6 +85,30 @@ Make sure in this line, it says ahepg1h.local instead of the FQDN
 
 On the ROCKS headnode (_ahepg1h_), you have to edit */etc/gmond.conf* and set *trusted_hosts* to point to the Gatekeeper node. Again, you want to use the internal network. I say *trusted_hosts osg-gk.local* - on the internal network, the gatekeeper is known as *osg-gk*, even though to the external world, it is known as _aheposgk.tld_. I'll talk about how to set this up [[#MyHeadnode][here]].
 
+---++++ Authorizing other users 
 
-#MyHeadnode ta ta...
+Since I have a test node, for now I am using the simplest scheme, *Grid3*, to authorize others users. Basically, I have grid-mapfile which gets updated regularly with user names.
+
+*Tip* One thing I discovered was that if a user is in more than two VO's, only one entry is made in the grid-mapfile. This depends on the order of VO's in the file $VDT_LOCATION/edg/etc/edg-mkgridmap.conf. So, if your node doesn't allow the jobs from the first VO, then this user will not be allowed to run jobs on your node, even though they may belong to another VO which is authorized to run jobs.
+
+You also need to do chkconfig --add edg-gridmapfile-upgraded, so that the daemon comes up at boot time.
+
+---++++ Configuring CONDOR
+
+This took the longest time to tweak. [[Main.TerrenceMartin][Terrence]] made many suggestions and we finally got it working. Here are the steps I followed.
+
+---+++++ %BLUE% Setup the Gatekeeper on the internal network %ENDCOLOR%
+
+#MyHeadnode As mentioned previously, the OSG Gatekeeper needs to communicate with both the ROCKS headnode (for [[Integration.MonALISA][MonALISA]]) and the ROCKS compute nodes (for CONDOR). It was suggested that we set it up so that it uses the internal network as much as possible. Some details are [[#MyGatekeeper][here]].
+
+On the ROCKS headnode,
+
+	* Make a file, */var/named/rocks.domain.local* and put the line "osg-gk A 10.1.1.2" in it.
+	* cd /var/named
+	* dbreport dns > rocks.domain
+	* Make a file, */var/named/reverse.rocks.domain.local* and put the line "2.1.1 PTR osg-gk.local." in it.
+	* dbreport dns reverse > reverse.rocks.domain
+	* /etc/init.d/named reload
+
+These steps allow osg-gk.local, osg-gk, 10.1.1.2 to be resolved. Remember, that for the Gatekeeper, the DNS server is the ROCKS headnode.
 
