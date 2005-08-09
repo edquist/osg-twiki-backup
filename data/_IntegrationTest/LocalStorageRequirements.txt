@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1123201798" format="1.0" version="1.2"}%
+%META:TOPICINFO{author="TerrenceMartin" date="1123612974" format="1.0" version="1.3"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
 If you have any comments/complaints about this template, then please email me:
@@ -32,6 +32,22 @@ Examples are: datasets for jobs executing on the worker nodes, datasets produced
 $DATA has to be POSIX accessible (open/read/write) by regular programs (NFS, dcap, drm are OK)
 It may be as well accessible through a gsiftp URL (but not exclusively using GSIftp, else it would be a SE)
 
+---+++Terrence:
+
+(open/read/write) capability does not require posix. Posix compatible implies a laundry list of features like the ability to modify file meta data (permissions) and special file creation (pipes, sockets, links). These are not features that should be required for $data from the compute nodes as the original note suggests. 
+
+Also as the original note says write access from compute nodes is not guaranteed. The use of $data as a writable area from compute nodes is one of the most significant performance bottlenecks in an OSG cluster. As such use of $data as the "hold all read/write area" should be discourage. 
+
+The dataflow that is behind the original requirements is as similar to the dataflow in the SE as possible to maintain consistency for users as well as scaleable and reliable data access. 
+
+* Data is written to $data via gridftp or if necessary fork (unpack tarballs etc). 
+* Job is staged into the cluster
+* Job copies its data to the compute node or reads data sequentially from $data if the data is read once. This is a significant performance issue if many random reads are necessary on typical network file systems and this should be avoided. This latter data access approach is where grid storage shows its potential since its distributed nature is better suited for handling that type of data access scaleably and reliably. If you need to make many random reads across a large data set it is preferable that data set be in some sort of distributed storage. 
+* Job output is placed in $wn_tmp (a fully posix capable file system that supports links, sockets, pipes and other special files as required)
+* At end of job the results from $wn_tmp are packaged, staged to $tmp and picked up through gridftp. 
+
+Like for $data the VO core data areas are writeable only by a subset of users in a VO. Most users should not be writing to VO data areas. The original $data requirements posted  re-inforce this model.  
+
 ---++ $TMP
 
 This area is intended as a temporary work area, and cache location for staging files in and out.
@@ -44,6 +60,13 @@ This area has functionalities similar to $DATA, but it is a temporary work area,
 
 $TMP has to be POSIX accessible (open/read/write) by regular programs (NFS, dcap, drm are OK). No gsiftp access is required. Files currently open in a running process will not be removed. File not touched for at least 24 hours may be purged but a system purging only files not used by running programs would be better (e.g. checking the scheduler id of the job that created a file and if that is running - I don't know how feasible this is).
 
+
+---+++Terrence:
+
+$tmp should be clearly seperated in the requirements from $data. $data is writable by specific VO users, and readable by VO users. $tmp is a read write area with a much shorter data life span. This makes it suitable for limited input and output from jobs after job completion. 
+
+Posix is not required to ensure that the core requirements, (open/read/write) are met. That functionality is available to a wide variety of file access systems none of which meet the requirments of full posix compatiblity. The one area where $tmp exceeds $data requirements is that it must be writable from the compute nodes. However even this requirement is narrow in that by the time the data is being written to $tmp for stageout it should already be packaged and compressed as a single archive for fast writing and easy retrieval. These requirements are not just for admins, they are also to promote efficient data handling on the part of the users.
+
 ---++ $WN_TMP
 
 This area is a temporary work area that may be purged when the job completes.
@@ -54,6 +77,18 @@ It is required that $WN_TMP points to a POSIX-compliant filesystem.
 A temporary directory created empty for the job, with a well defined quota and removed after the job completes would be ideal.
 
 $WN_TMP has to be local to the worker node where the job is executing or have similar performances.
+
+---+++Terrence:
+
+This is the one directory that does require Posix compliance so that special files can be created as necessary. This is also one file system where quota are not necessary or even counter productive. 
+
+On many clusters the user on the CE will be the same user as on the worker node. It does not make sense therefore to quota based on user as that one user may only visit that file system occasionally. That is a lot of quota information to maintain for a file system that can at most have only as many users as there are queue slots on that node. Typically this is 4 with current hyperthreaded or dual core dual socket compute nodes. 
+
+You could quota based on group but how would that be efficiently managed? I can see a scenario where I gave atlas 1/4 of the space and CMS 1/2 of $wn_tmp. However what if there are 4 atlas jobs running. Then I am effectively wasting 3/4 of the temporary space as it sits inaccesible to atlas. CMS on the other hand that gets 1/2 of the file system is not protected at all by quotas if it has one job with 1/2 the space and there are 3 other vo each with 1/4 of the space each. In essence I have oversubscribed and quotas offer no real protection. The user quota approach mentioned previously also suffers in that if I allow a single user to use 1/4 of the $wn_tmp then if they stage 4 jobs they are in effect getting access to 1/4 of a file system when there is absolutely no reason they should not get 4/4 of that file system. 
+
+If quotas are desirable then the best approach is to have 1 static user per job slot that is independent of the user id mapping on the compute node. In this model the static compute node job slot user maps to the static disk quota every time. As a result giving that user a quota of 1/# job slots is an effective mechanism for increasing reliability. That is assuming that $wn_tmp overflow is in practice a problem at all. 
+
+If you do want to define quotas for $wn_tmp that is fine, but quotas should not be in the requirements as they simply do not fit well with many cluster configurations that would nonetheless suscessfully and reliably execute jobs. 
 
 <!-- MAJOR UPDATES
 For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
