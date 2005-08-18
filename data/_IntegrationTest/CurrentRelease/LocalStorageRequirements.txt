@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="XinZhao" date="1123858534" format="1.0" version="1.7"}%
+%META:TOPICINFO{author="TerrenceMartin" date="1124324607" format="1.0" version="1.8"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
 If you have any comments/complaints about this template, then please email me:
@@ -23,6 +23,16 @@ I think that we should give slightly more specific instructions which are no les
 (b) On each worker node arrange by mount or symlink that APP has the same path as on the gatekeeper node.
 
 This would avoid essentially all of the problems that I described in my postings.  However, this is only true if software is only installed by the gatekeeper node.  If software is installed in $APP from the worker nodes, problems may still arrise.  For this reason, (and perhaps just for simplicity), just requiring the same absolute address on all nodes may be worth considering.
+
+---+++Terrence:
+
+I agree, maintaining consistency of $app hierachy is often required for correct execution of application software. At UCSD we have the exact same absolute $APP hierarchy across our cluster. However I would prefer if that applications themselves were made a bit more robust. If we enshrine that the absolute patheverywhere rule that makes for less incentive to fix what is actually a software distribution problem. 
+
+I also recommend against worker node write access to $app in all cases. In a more ideal environment a regular user would have write access only to those areas that are required for job execution and job stagein/stageout. Writing to $app from compute nodes opens up the possibility that a user could accidently, or purposefully, write to areas that they should not be writing. Of particular concern to me is if a user could write to an area that could be code executed by other users. $app is probably the most problematic in this regard. One could imagine one user installing a trojan into $app which could then be executed by subsequent innocent users. 
+
+In the longer term having $app writable only via specific VO roles, and only to a small subset of pre-authorized users I think is a must for a secure and robust grid. 
+
+Currently and unfortunately worker node or not the fork queue and the fact very few current VO have even the minimum of roles means that the problem of one user sneaking in code for another user to execute is a fact of life. 
 
 ---++ $DATA
 
@@ -64,6 +74,16 @@ directly from $WN_TMP, then worker nodes will need to have access to globus and 
 
 Of course, some sites can configure the SE so that worker nodes have directly access to SE by copy command, this is cheap operation but hard to make it a standard OSG SE deployment requirement. 
 
+
+---+++Terrence:
+
+NFS is not required to accomplish data movement from $DATA to $WN_TMP. Any file system that allows open/read can accomplish that task. NFS should not be noted as a requirement in my opinion when other completely acceptable, and depending on the situation, desirable solutions can be used. CIFS and AFS come to mind as examples with some unique features that may be required by local sites. The requirements should not be pinning specific file systems onto site admins.  
+
+As for direct connect to the storage space, I assume you mean PNFS mounts. Since PNFS on worker nodes throws security out the window, not to mention the possible SE crumbling results of a simple ls -R command, no, definitely no direct access to the SE. :) 
+
+However I do not think jobs should be moving data from $WN_TMP to $DATA. As the requirements stated, and as I mentioned $DATA is not guaranteed write from worker nodes. $DATA is for stagein data only, not stageout. If you want to stageout use $TMP, that is what that is for. Otherwise why is there even a $TMP? If $DATA is used as the catchall bin for all data flow $TMP will never be used. By seperating $DATA and $TMP, not just by definition of what they are supposed to be for but in how they are actually implemented then the data from from $DATA to $WN_TMP to $TMP to user is encouraged. 
+
+As for clients on worker nodes, what client installation? No additional software installation is required if you already mount the osg vdt  areas on worker nodes readonly. Many sites already do this because this is also the easiest way to deploy the condor client to worker nodes. The implication I read is that $WN_TMP to SE is hard or complicated because of the burden of making sure the SRM clients are there. The fact is though that it is very likely the clients are already there because the VDT is already there.  I do not see giving worker nodes the capability of having SRM clients locally to be a hurdle at all, nor do I see any need to encourage, or even allow $WN_TMP to $DATA to SE. I would think that we should be actively discouraging that data flow given the inherent limitations of $DATA in terms of scalability and reliability.	 
 
 ---++ $TMP
 
@@ -122,6 +142,16 @@ make this a unique partition per job, that would keep one job from stepping on t
 Or use the capacity that all batch systems have to pass a scratch directory created by the batch system
 to be the $WN_TMP.
 
+---+++Terrence
+
+Well even under current OSG one user would not overwrite, but get an error, unless that user is the same user. For example I could not clobber your jobs files but I could clobber my own. 
+
+The first problem though with per job slot partitions for $WN_TMP is getting that information to the user. There is no way I am aware of in OSG to allow users to identify what is their correct $WN_TMP aside from the very static one in Gridcat. We would probably need a $WN_TMP/somestring$JOBSLOT defined that could be incorporated into user scripts perhaps. It is not clear to me how to best approach this though if we are thinking longer term. Going down the $WN_TMP/somestring$JOBSLOT thought process I start to think about creating chrooted areas for each job slot and restricting each job slot to a specific user rather than mapping CE UID to WN UID. The UID change prevents me from clobbering me (I get an perm denied error), the chroot can give me a private $WN_TMP without requiring me to have some dynamic directory name based on my job slot. Combined with quotas I can even eliminate having to use seperate partitions. Of course chroot then leads me to wanting to eventually virtualize the entire thing so that each job slot gets its own private memory space isolated from all other jobs.
+
+$WN_TMP is definitely the low hanging fruit solution to a local directory. The users I have seen in Grid3 and OSG that actually use $WN_TMP generally make unique directories in that area to avoid overlap. Grid3 and early OSG users generally are used to this protocol of making unique directories for each job run. However as more and more users join the OSG this "obvious" solution reveals that it is really not that obvious, especially to users new to cluster computing. I know because my very first local OSG user made this exact mistake. :) 
+
+
+
 ---+++Terrence Overall:
 
 The goal of this requirements document should be to provide some narrow minimums that can be used as a starting point. A baseline that all users can expect. By making the requirements relatively narrow it does not preclude a site admin from allowing more generous access. It does give a better understanding though what you can expect as a user. 
@@ -130,6 +160,21 @@ The goal of this requirements document should be to provide some narrow minimums
 
 There is a 5th directory not mentioned to date in this document, namely the grid directory ($GRID) in gridcat.
 If we can find that, we can source grid3-info.conf and get the rest of them.
+
+---+++Terrence Overall:
+
+It is I think good to add $GRID as well, especially since if you have distributed $GRID to worker nodes in particular you have given worker nodes access to some very useful tools like srmcp. :)  
+
+So with all these comments now my question is how far this document should go though beyond a perhaps limited and narrow set of requirements. 
+
+What I would like to see from this is a fairly narrow set of requirements that are not too restrictive, yet nudge us in the direction of how we want to deal with OSG storage in the longer term as well as encourage efficient use of the directories that OSG provides. 
+
+As a siteadmin I need to know what I am required, at a minimum to provide to allow a job to run on OSG. Other features like quotas, per job slot directories, chroot environments, UID remapping, exotic file systems and virtualization though are more of a site specific issue. These are related to how much work I can do and to what level I need to deploy certain techniques and approachs to achieve the reliability I am going towards.
+
+I already know I can make a fairly exotic foundation and still deliver an OSG compatible job slot. I am not sure that a lot of detail, especially technology specific detail is necessary to define some basic requirements. I am particularly wary of mentioning technologies based on a subset of features that other technologies can offer just as well or better. Of course in addition to these narrow requirements other documents on how to implement the underlying system probably should be produced so that various low level details of implementation can be shared and discussed.  
+
+
+
 
 <!-- MAJOR UPDATES
 For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
