@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RuthPordes" date="1126871729" format="1.0" version="1.10"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1127246117" format="1.0" version="1.11"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
 If you have any comments/complaints about this template, then please email me:
@@ -7,6 +7,184 @@ rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
 ---+ Local Storage Requirements
 %TOC%
 %STARTINCLUDE%
+
+Goal of this page is to provide a discussion and suggestion about CE storagge spaces. It will mainly cover issues like definition of these spaces and correspondance to external schemas (e.g. GLUE, Grid3/OSG).
+There are some suggestion on how to push the users towards a correct use and on deployment (how to make this information available), but this is being discussed in different groups.
+
+This page is devided in 2 section. The first one is a work in progress and will result into the final document. Every contributor is encouraged to modify the content directly and change/overwrite the current version.
+
+The second one is for discussion and explanations and the default way of editing it should be appending comments to the current content.
+
+In the following Table there is a name matrix:
+	* CE Storage are the names used in this document, please change the section headers accordingly
+	* CN is the common name frequently used in emails or discussions
+	* GLUE is the attribute name as in GLUE Schema 1.2 (The same attribute may appear in more places in the Schema)
+	* Grid3/OSG is the LDAP attribute name as in Grid3 Schema
+	* OSG Storage is the name used in the OSG Storage day
+
+| *CE Storage*				  |*CN*|*GLUE*|*Grid3/OSG*|*OSG Storage*|
+| $APP	| $APP	 | CE.Info.ApplicationDir (!CE.Info.ApplicationDir)	| Gri3AppDir	 | $APP			  |
+| $DATA  | $DATA	| CE.Info.DataDir (!CE.VOView.DataDir)					| Gri3DataDir	| $SITE_WRITE	 |
+| $TMP	| $TMP	 | CE.Cluster.TmpDir (!CE.SubCluster.TmpDir)		 | Grid3TmpDir	| $TMP	  |
+| $WNTMP | $WNTMP  | CE.Cluster.WNTmpDir (!CE.SubCluster.WNTmpDir)	|	|	|
+|  |	 |	|	| $SITE_READ	|
+|  |	 | CE.Info.DefaultCE (!CE.VOViewDefaultCE)	|	 |	 |
+|  |	 |	 |	 |	 |
+
+
+!TODO: summarize the content of each section in part one using the content of the discussion
+
+---++ $APP
+
+This area is intended for VO-wide software installations.
+
+It is required that relative paths resolve consistently between gatekeeper and worker nodes even if the $APP variable differs between the two.  It is strongly recommended that the variable and paths are the same as well, or most legacy software will not function properly.  This area may be read-only for a subset of users: there is no guarantee that every user will have write access.  $APP must point to a POSIX-compliant filesystem for software installation. 
+
+---+++Saul:
+
+I think that we should give slightly more specific instructions which are no less convenient and could avoid major disruptions.  It could be something like this:
+
+(a) Choose any absolute location on your gatekeeper file system for APP.
+(b) On each worker node arrange by mount or symlink that APP has the same path as on the gatekeeper node.
+
+This would avoid essentially all of the problems that I described in my postings.  However, this is only true if software is only installed by the gatekeeper node.  If software is installed in $APP from the worker nodes, problems may still arrise.  For this reason, (and perhaps just for simplicity), just requiring the same absolute address on all nodes may be worth considering.
+
+---+++Terrence:
+
+I agree, maintaining consistency of $app hierachy is often required for correct execution of application software. At UCSD we have the exact same absolute $APP hierarchy across our cluster. However I would prefer if that applications themselves were made a bit more robust. If we enshrine that the absolute patheverywhere rule that makes for less incentive to fix what is actually a software distribution problem. 
+
+I also recommend against worker node write access to $app in all cases. In a more ideal environment a regular user would have write access only to those areas that are required for job execution and job stagein/stageout. Writing to $app from compute nodes opens up the possibility that a user could accidently, or purposefully, write to areas that they should not be writing. Of particular concern to me is if a user could write to an area that could be code executed by other users. $app is probably the most problematic in this regard. One could imagine one user installing a trojan into $app which could then be executed by subsequent innocent users. 
+
+In the longer term having $app writable only via specific VO roles, and only to a small subset of pre-authorized users I think is a must for a secure and robust grid. 
+
+Currently and unfortunately worker node or not the fork queue and the fact very few current VO have even the minimum of roles means that the problem of one user sneaking in code for another user to execute is a fact of life. 
+
+---+++Marco:
+	* (R) 
+	* (D)
+
+---++ $DATA
+
+This area is intended to hold readable datasets for jobs executing on the worker nodes.
+
+It is required that relative paths resolve consistently between gatekeeper and worker nodes.  
+This area may be read-only for a subset of users: there is no guarantee that every user will have write access.
+$DATA may point to a filesystem or gsiftp URL.
+
+
+---+++Marco:
+
+This area is intended to hold data shared among different applications running on different worker nodes and/or data that has to outlive the execution of the jobs on the worker nodes.
+Examples are: datasets for jobs executing on the worker nodes, datasets produced by the jobs executing on the worker nodes, shared daata for MPI applications. Data staged in or waiting to be staged out.
+
+$DATA has to be POSIX accessible (open/read/write) by regular programs (NFS, dcap, drm are OK)
+It may be as well accessible through a gsiftp URL (but not exclusively using GSIftp, else it would be a SE)
+
+---+++Terrence:
+
+(open/read/write) capability does not require posix. Posix compatible implies a laundry list of features like the ability to modify file meta data (permissions) and special file creation (pipes, sockets, links). These are not features that are necessary from compute nodes which are not guaranteed to have write access to $data.  
+
+The use of $data as a writable area from compute nodes is one of the most significant performance bottlenecks in an OSG cluster. Use of $data as the "hold all read/write area" should be discouraged. 
+
+The dataflow that is behind the original requirements is as similar to the dataflow in the SE as possible to maintain consistency for users as well as scaleable and reliable data access. 
+
+	* Data is written to $data via gridftp or if necessary fork (unpack tarballs etc). 
+	* Job is staged into the cluster
+	* Job copies its data to the compute node or reads data sequentially from $data if the data is read once. This is a significant performance issue if many random reads are necessary on typical network file systems and this should be avoided. It is worth noting that random data access over large data sets is where grid storage shows its potential. Its distributed nature is better suited for handling that type of data access scaleably and reliably.
+	* Job output is placed in $wn_tmp (a fully posix capable file system that supports links, sockets, pipes and other special files as required)
+	* At end of job the results from $wn_tmp are packaged, staged to $tmp and picked up through gridftp or other mechanism. Alternatively srmcp could be used directly from the nodes to a remote respository. 
+
+---+++Xin:
+
+Right now $DATA acts as "SE" for OSG site, it's a must for it to be accessible by gridftp or srm server, so the output data can be staged out to other locations. It's also accessible by worker nodes through NFS, so the input/output data can be moved between it and $WN_TMP. It should allow both read and write permissions by all VO users.
+
+On big sites that will set up dCache or similar large SE system, it's not guaranteed that the worker nodes will have direct connection to the storage space of the SE. The access to the SE might be done through gateways like srmdoor or gridftp server, even for local users. In this case, the NFS disk pointed to by $DATA doesn't need to have gsiftp or srm URL, but somehow jobs need to have some way to move data to/from the SE. If job wants to move data to SE
+directly from $WN_TMP, then worker nodes will need to have access to globus and srm clients. If job wants to move data from $WN_TMP to $DATA then to SE, then the movement between $DATA and SE can be done through gatekeepers, therefore no more clients need to be installed on worker nodes. 
+
+Of course, some sites can configure the SE so that worker nodes have directly access to SE by copy command, this is cheap operation but hard to make it a standard OSG SE deployment requirement. 
+
+
+---+++Terrence:
+
+NFS is not required to accomplish data movement from $DATA to $WN_TMP. Any file system that allows open/read can accomplish that task. NFS should not be noted as a requirement in my opinion when other completely acceptable, and depending on the situation, desirable solutions can be used. CIFS and AFS come to mind as examples with some unique features that may be required by local sites. The requirements should not be pinning specific file systems onto site admins.  
+
+As for direct connect to the storage space, I assume you mean PNFS mounts. Since PNFS on worker nodes throws security out the window, not to mention the possible SE crumbling results of a simple ls -R command, no, definitely no direct access to the SE. :) 
+
+However I do not think jobs should be moving data from $WN_TMP to $DATA. As the requirements stated, and as I mentioned $DATA is not guaranteed write from worker nodes. $DATA is for stagein data only, not stageout. If you want to stageout use $TMP, that is what that is for. Otherwise why is there even a $TMP? If $DATA is used as the catchall bin for all data flow $TMP will never be used. By seperating $DATA and $TMP, not just by definition of what they are supposed to be for but in how they are actually implemented then the data from from $DATA to $WN_TMP to $TMP to user is encouraged. 
+
+As for clients on worker nodes, what client installation? No additional software installation is required if you already mount the osg vdt  areas on worker nodes readonly. Many sites already do this because this is also the easiest way to deploy the condor client to worker nodes. The implication I read is that $WN_TMP to SE is hard or complicated because of the burden of making sure the SRM clients are there. The fact is though that it is very likely the clients are already there because the VDT is already there.  I do not see giving worker nodes the capability of having SRM clients locally to be a hurdle at all, nor do I see any need to encourage, or even allow $WN_TMP to $DATA to SE. I would think that we should be actively discouraging that data flow given the inherent limitations of $DATA in terms of scalability and reliability.	 
+
+---++ $TMP
+
+This area is intended as a temporary work area, and cache location for staging files in and out.
+
+It is required that relative paths resolve consistently between gatekeeper and worker nodes.  This area must be read-write for all users.  $TMP may point to a filesystem or gsiftp URL.  Files placed here are guaranteed not to be purged for at least 24 hours barring extraordinary cirucmstances; the precise purge policy is determined by site administrators.
+
+---+++Marco:
+
+This area has functionalities similar to $DATA, but it is a temporary work area, meaning that there is no guarantee that the data will be preserved once the jobs working on it are terminated (e.g. if there are some files in $TMP belonging to ATLAS users and no ATLAS job running, all those files can for sure be removed) 
+
+$TMP has to be POSIX accessible (open/read/write) by regular programs (NFS, dcap, drm are OK). No gsiftp access is required. Files currently open in a running process will not be removed. File not touched for at least 24 hours may be purged but a system purging only files not used by running programs would be better (e.g. checking the scheduler id of the job that created a file and if that is running - I don't know how feasible this is).
+
+
+---+++Terrence:
+
+$tmp should be clearly seperated in the requirements from $data. $data is writable by specific VO users, and readable by VO users. $tmp is a read write area with a much shorter data life span. This makes it suitable for limited input and output from jobs after job completion. 
+
+Posix is not required to ensure that the core requirements, (open/read/write) are met. That functionality is available to a wide variety of file access systems none of which meet the requirments of full posix compatiblity. The one area where $tmp exceeds $data requirements is that it must be writable from the compute nodes. However even this requirement is narrow in that by the time the data is being written to $tmp for stageout it should already be packaged and compressed as a single archive for fast writing and easy retrieval. These requirements are not just for admins, they are also to promote efficient data handling on the part of the users.
+
+Historically in Grid3 $tmp was rarely used if at all. Instead $data was used as a kind of kitchen sink for data often taking writes directly from compute nodes running jobs. This is not a scalable approach. By defining $data and $tmp in this narrow fashion we actually start to develop a model of data flow that is closer to that of the SE and encourages users to use the space available more efficiently and effectively. 
+
+
+---++ $WN_TMP
+
+This area is a temporary work area that may be purged when the job completes.
+
+It is required that $WN_TMP points to a POSIX-compliant filesystem.
+
+---+++Marco:
+A temporary directory created empty for the job, with a well defined quota and removed after the job completes would be ideal.
+
+$WN_TMP has to be local to the worker node where the job is executing or have similar performances.
+
+---+++Terrence:
+
+This is the one directory that does require Posix compliance so that special files can be created as necessary. This is also one file system where quota are likely counterproductive. 
+
+On many clusters the user on the CE will be the same user as on the worker node. It does not make sense to quota based on user as that one user may only visit that file system occasionally. That is a lot of quota information to maintain for a file system that can at most have only as many users simultaneously as there are queue slots on that node. 4 queue slots is fairly common for example while the number of user quotas would likely extend to the thousands. 
+
+Instead of per user you could quota based on group, but there is another problem. Say I set up a group quota where I gave atlas 1/4 of the space and CMS 1/2. The problem is that if 4 atlas jobs get queue to that node I am effectively wasting 3/4 of the temporary space as it sits inaccesible to atlas. After all atlas is restricted to 1/4 the total space on $wn_tmp. CMS on the other hand gets 1/2 but still has the original problem of not getting access to the whole disk even if they are the only user on the node. Also by setting CMS to 1/2 quota offers nothing in terms of protection. The scenario is likely that CMS could use 1/2 the space while 3 nonCMS jobs want 3/4 the space. The file system is then oversubscribed by 1/4. The single quota per user also suffers from this inefficient use of $wn_tmp problem on top of being more complex. 
+
+If quotas are desirable then the best approach is to have 1 static user per job slot that is independent of the user id mapping on the CE. In this model the static compute node job slot user maps to the static disk quota every time. This configuration accomplishes the goal of restricting any one job from overflowing into another jobs $wn_tmp space while at the same time allowing all jobs on that compute node to make maximum use of the space available. Mapping users to queue slot users at the compute node is a more complex configuration than is currently widely deployed for OSG. 
+
+If you do want to define quotas for $wn_tmp is a siteadmin choice but quotas should not be in the requirements as they simply do not fit well with many cluster configurations that would nonetheless suscessfully and reliably execute jobs. 
+
+As for removal it would be preferred if the users were shown that it is their primary responsibility for cleaning up after themselves or their access may become restricted or revoked. Siteadmins can then additionally deploy a solution if they feel users of the system are simply not trustworthy. 
+
+---+++Steve 
+
+The problem with $WN_TMP as currently defined is the following.  If it's a static area on the worker node, there
+is no protocol to keep 2 jobs that are running on the same node from conflicting with each other.  
+i.e., naively you could have two users untar their tarball in the same directory, have one clean up everything, etc.
+Ideally you should
+make this a unique partition per job, that would keep one job from stepping on the other one.
+Or use the capacity that all batch systems have to pass a scratch directory created by the batch system
+to be the $WN_TMP.
+
+---+++Terrence
+
+Well even under current OSG one user would not overwrite, but get an error, unless that user is the same user. For example I could not clobber your jobs files but I could clobber my own. 
+
+The first problem though with per job slot partitions for $WN_TMP is getting that information to the user. There is no way I am aware of in OSG to allow users to identify what is their correct $WN_TMP aside from the very static one in Gridcat. We would probably need a $WN_TMP/somestring$JOBSLOT defined that could be incorporated into user scripts perhaps. It is not clear to me how to best approach this though if we are thinking longer term. Going down the $WN_TMP/somestring$JOBSLOT thought process I start to think about creating chrooted areas for each job slot and restricting each job slot to a specific user rather than mapping CE UID to WN UID. The UID change prevents me from clobbering me (I get an perm denied error), the chroot can give me a private $WN_TMP without requiring me to have some dynamic directory name based on my job slot. Combined with quotas I can even eliminate having to use seperate partitions. Of course chroot then leads me to wanting to eventually virtualize the entire thing so that each job slot gets its own private memory space isolated from all other jobs.
+
+$WN_TMP is definitely the low hanging fruit solution to a local directory. The users I have seen in Grid3 and OSG that actually use $WN_TMP generally make unique directories in that area to avoid overlap. Grid3 and early OSG users generally are used to this protocol of making unique directories for each job run. However as more and more users join the OSG this "obvious" solution reveals that it is really not that obvious, especially to users new to cluster computing. I know because my very first local OSG user made this exact mistake. :) 
+
+
+
+
+
+---+ Discussion 
+
 
 Marco - At the end of each section I added a list of required and desired features (from the point of view of the developer). If a location is too demanding or too similar to another one. We have to considr that there are 2 kind of applications that will be running on the cluster. Those conshious of the grid environment and those adapted via some wrapper to run on the grid, but that are born as single node application, operating on local disks. 
 
