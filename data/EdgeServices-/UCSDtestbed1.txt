@@ -1,0 +1,203 @@
+%META:TOPICINFO{author="AbhishekSinghRana" date="1127212717" format="1.0" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+-- Main.AbhishekSinghRana - 20 Sep 2005
+
+---+!!<nop>ESF Testbeds: Bootstrapping
+
+%TOC%
+%STARTINCLUDE%
+
+
+---++ Introduction
+
+---++ Xen 3 on Fedora Core 4
+
+<b>This document serves as a quick-and-easy guide to getting started. Attempt is being made to make the content self-contained, but it may remain in a state of flux for some time. Urgent comments or questions can be addressed to - <tt>%GRAY%rana AT fnal.gov%ENDCOLOR%</tt></b>
+
+Have as much memory (RAM) as you can. We have <tt><b>%BLUE%1 GB%ENDCOLOR%</b></tt>, minimum required is <b>~256 MB</b>. Our CPU is a 2.4GHz P4. 
+
+Install Fedora Core 4 (FC4). The ISO's are available at http://download.fedora.redhat.com/pub/fedora/linux/core/4/i386/iso/. Note that FC5 release is due in February 2006.
+
+Configure the system and make sure networking, disk partitions, filesystem, and general system level services work.
+
+Proceed to start Xen 3 install (as <b>root</b>). Please note the latest stable release of Xen is v2.0.7. Development is taking place in separate testing and unstable trees. 
+<br>
+<b>%GRAY%Current Xen 3 releases are from the unstable tree. Thus a few packages are prone to being broken%ENDCOLOR%</b>.<i>(Sep 2005)</i>
+
+<b>GRUB bootloader</b> is required. 
+
+Disable the security-enhanced mode. 
+<br>
+Edit <tt>[[%ATTACHURL%/etc.selinux.config][/mnt/etc/selinux/config]]</tt> or use GUI by running <tt>system-config-securitylevel</tt>. Configure <tt><b>SELINUX=disabled</b></tt>
+
+Install the Xen 3 package. (This will get an RPM similar to xen-2-20050823.i386.rpm)
+<br>
+<tt>yum install xen</tt>
+
+Install the kernel packages for the Host system and the Guest systems. (This will get 2 RPMs similar to kernel-xen0-2.6.12-1.1447_FC4.i686.rpm and kernel-xenU-2.6.12-1.1447_FC4.i686.rpm)
+<br>
+<tt>yum install kernel-xen0 kernel-xenU</tt>
+
+Change the default kernel in bootloader to the Xen Host (xen0) kernel.
+<br>
+Edit <tt>[[%ATTACHURL%/boot.grub.grub.conf.old][/boot/grub/grub.conf]]</tt> and configure <tt><b>default=0</b></tt>
+
+Reboot the system.
+<br>
+<tt>shutdown -r now</tt>
+
+Check the kernel in use.
+<br>
+<tt>uname -r</tt>
+
+Check if all the required packages have been fetched and installed.
+<br>
+<tt>rpm -qa | grep xen</tt>
+<br>
+<tt>rpm -qa | grep iproute</tt>
+<br>
+<tt>rpm -qa | grep curl</tt>
+<br>
+<tt>rpm -qa | grep zlib</tt>
+<br>
+<tt>rpm -qa | grep bridge-utils</tt>
+<br>
+<tt>rpm -qa | grep python-twisted</tt>
+<br>
+<tt>rpm -qa | grep sysfsutils</tt>
+
+A few directories are not created by default (bug). We will create these.
+<br>
+<tt>mkdir -p /var/run/xenstored /var/lib/xenstored</tt>
+
+The interface is not set properly to xen-br0 from eth0, if a specific order is not followed. We will restart <tt>xend</tt> and <tt>network</tt> to rectify this.
+<br>
+<tt>route -n</tt>
+<br>
+<tt>/etc/init.d/xend stop</tt>
+<br>
+<tt>/etc/init.d/network restart</tt>
+<br>
+<tt>/etc/init.d/xend start</tt>
+<br>
+<tt>route -n</tt>
+
+Configure the startup information and run levels for <tt>xend</tt>.
+<br>
+<tt>chkconfig --level 345 xend on</tt> 
+
+List the running domains.
+<br>
+<tt>xm list</tt>
+
+Create an image file (1 GB) to be used as storage space by Guest system.
+<br>
+<tt>dd if=/dev/zero of=/root/fedora.img bs=1M count=1 seek=<b>%GREEN%1024%ENDCOLOR%</b></tt>
+
+Format image file and create filesystem with an ext3 journal.
+<br>
+<tt>mke2fs -F -j /root/fedora.img</tt>
+
+Mount the image file.
+<br>
+<tt>mount -o loop /root/fedora.img /mnt</tt>
+
+Create <tt>/dev</tt> on the mounted image with a few required device nodes.
+<br>
+<tt>for i in console null zero ; do /sbin/MAKEDEV -d /mnt/dev -x $i ; done</tt>
+
+Create a directory <tt>etc</tt> in <tt>/mnt</tt>.
+<br>
+<tt>mkdir -p /mnt/etc</tt>
+
+Configure partitions, devices and their properties.
+<br>
+Create and edit <tt>[[%ATTACHURL%/mnt.etc.fstab][/mnt/etc/fstab]]</tt>
+
+Mount <tt>proc</tt> inside the image if it is not already (bug).
+<br>
+<tt>mkdir /mnt/proc</tt>
+<br>
+<tt>mount -t proc none /mnt/proc</tt>
+
+Disable the security-enhanced mode. 
+<br>
+Edit <tt>[[%ATTACHURL%/etc.selinux.config][/mnt/etc/selinux/config]]</tt>. Configure <tt><b>SELINUX=disabled</b></tt>
+
+Install the Guest system in the mounted image file.
+<br>
+<tt>yum -c <nop>http://home.fnal.gov/~rana/esf/yum-1.conf --installroot=/mnt -y groupinstall Base</tt>
+
+Unmount the image.
+<br>
+<tt>umount /mnt/proc; umount /mnt</tt>
+
+Create and edit <tt>[[%ATTACHURL%/etc.xen.VM_exampleconfig][/etc/xen/VM_exampleconfig]]</tt>.
+
+Bring up a Guest (xenU) domain.
+<br>
+<tt>xm create -c VM_exampleconfig</tt>
+
+Check the kernel in use.
+<br>
+<tt>uname -r</tt>
+
+Configure networking in Guest domain.
+<br>
+Edit <tt>[[%ATTACHURL%/Guest.etc.sysconfig.network][/etc/sysconfig/network]]</tt>
+<br>
+Edit <tt>[[%ATTACHURL%/Guest.etc.sysconfig.network-scripts.ifcfg-eth0][/etc/sysconfig/network-scripts/ifcfg-eth0]]</tt>
+
+List the running domains.
+<br>
+<tt>xm list</tt>
+
+Monitor with Xen's <tt>top</tt> [[%ATTACHURL%/xentop-2.JPG][utility]].
+<br>
+<tt>xentop</tt>
+
+Configure and limit memory available to the Host (xen0) system.
+<br>
+Edit <tt>[[%ATTACHURL%/boot.grub.grub.conf][/boot/grub/grub.conf]]</tt>, Configure <tt><b>kernel /xen.gz dom0_mem=%BLUE%600M%ENDCOLOR%</b></tt>
+
+Reboot the system.
+<br>
+<tt>shutdown -r now</tt>
+
+The interface is not set properly to xen-br0 from eth0, if a specific order is not followed. We will restart <tt>xend</tt> and <tt>network</tt> to rectify this.
+<br>
+<tt>route -n</tt>
+<br>
+<tt>/etc/init.d/xend stop</tt>
+<br>
+<tt>/etc/init.d/network restart</tt>
+<br>
+<tt>/etc/init.d/xend start</tt>
+<br>
+<tt>route -n</tt>
+
+Do more...
+<br>
+<br>
+---++ Globus Toolkit 4 on FC4
+---++ Globus Workspace Service on FC4
+---++ Example ESF Edge Services on FC4
+
+
+
+<br><br>
+*Major updates*:%BR%
+<!--Future editors should add their signatures beneath yours!-->
+
+-- Main.AbhishekSinghRana - 20 Sep 2005
+
+%STOPINCLUDE%
+
+%META:FILEATTACHMENT{name="boot.grub.grub.conf" attr="h" comment="" date="1127218376" path="boot.grub.grub.conf" size="830" user="AbhishekSinghRana" version="1.1"}%
+%META:FILEATTACHMENT{name="etc.selinux.config" attr="h" comment="" date="1127218005" path="etc.selinux.config" size="447" user="AbhishekSinghRana" version="1.1"}%
+%META:FILEATTACHMENT{name="etc.xen.VM_exampleconfig" attr="h" comment="" date="1127218016" path="etc.xen.VM_exampleconfig" size="191" user="AbhishekSinghRana" version="1.1"}%
+%META:FILEATTACHMENT{name="Guest.etc.sysconfig.network" attr="h" comment="" date="1127218028" path="Guest.etc.sysconfig.network" size="36" user="AbhishekSinghRana" version="1.1"}%
+%META:FILEATTACHMENT{name="Guest.etc.sysconfig.network-scripts.ifcfg-eth0" attr="h" comment="" date="1127218038" path="Guest.etc.sysconfig.network-scripts.ifcfg-eth0" size="96" user="AbhishekSinghRana" version="1.1"}%
+%META:FILEATTACHMENT{name="boot.grub.grub.conf.old" attr="h" comment="" date="1127218834" path="boot.grub.grub.conf.old" size="816" user="AbhishekSinghRana" version="1.1"}%
+%META:FILEATTACHMENT{name="mnt.etc.fstab" attr="h" comment="" date="1127219752" path="mnt.etc.fstab" size="422" user="AbhishekSinghRana" version="1.1"}%
+%META:FILEATTACHMENT{name="xentop-2.JPG" attr="h" comment="" date="1127220023" path="xentop-2.JPG" size="30808" user="AbhishekSinghRana" version="1.1"}%
