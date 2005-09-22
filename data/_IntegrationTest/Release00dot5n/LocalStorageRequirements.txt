@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1127420998" format="1.0" version="1.14"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1127427846" format="1.0" version="1.15"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
 If you have any comments/complaints about this template, then please email me:
@@ -79,8 +79,6 @@ A suggested dataflow using $DATA providing a more scaleable and reliable data ac
 	* Job copies its data to the compute node or reads data sequentially from $DATA if the data is read once. This is a significant performance issue if many random reads are necessary on typical network file systems and this should be avoided. It is worth noting that random data access over large data sets is where grid storage shows its potential. Its distributed nature is better suited for handling that type of data access scaleably and reliably.
 	* Job output is placed in $WN_TMP (see below for desctiption)
 	* At end of job the results from $WM_TMP are packaged, staged to $DATA and picked up through gridftp or other mechanism. Alternatively srmcp could be used directly from the nodes to a remote respository. 
-
-- a fully POSIX capable file system that supports links, sockets, pipes and other special files as required)
  
 
 Typical uses of this area are:
@@ -148,46 +146,18 @@ Historically in Grid3 $tmp was rarely used if at all. Instead $data was used as 
 
 This area is a temporary work area that may be purged when the job completes.
 
-It is required that $WN_TMP points to a POSIX-compliant filesystem.
 
----+++Marco:
-A temporary directory created empty for the job, with a well defined quota and removed after the job completes would be ideal.
-
-$WN_TMP has to be local to the worker node where the job is executing or have similar performances.
-
----+++Terrence:
-
-This is the one directory that does require Posix compliance so that special files can be created as necessary. This is also one file system where quota are likely counterproductive. 
-
-On many clusters the user on the CE will be the same user as on the worker node. It does not make sense to quota based on user as that one user may only visit that file system occasionally. That is a lot of quota information to maintain for a file system that can at most have only as many users simultaneously as there are queue slots on that node. 4 queue slots is fairly common for example while the number of user quotas would likely extend to the thousands. 
-
-Instead of per user you could quota based on group, but there is another problem. Say I set up a group quota where I gave atlas 1/4 of the space and CMS 1/2. The problem is that if 4 atlas jobs get queue to that node I am effectively wasting 3/4 of the temporary space as it sits inaccesible to atlas. After all atlas is restricted to 1/4 the total space on $wn_tmp. CMS on the other hand gets 1/2 but still has the original problem of not getting access to the whole disk even if they are the only user on the node. Also by setting CMS to 1/2 quota offers nothing in terms of protection. The scenario is likely that CMS could use 1/2 the space while 3 nonCMS jobs want 3/4 the space. The file system is then oversubscribed by 1/4. The single quota per user also suffers from this inefficient use of $wn_tmp problem on top of being more complex. 
-
-If quotas are desirable then the best approach is to have 1 static user per job slot that is independent of the user id mapping on the CE. In this model the static compute node job slot user maps to the static disk quota every time. This configuration accomplishes the goal of restricting any one job from overflowing into another jobs $wn_tmp space while at the same time allowing all jobs on that compute node to make maximum use of the space available. Mapping users to queue slot users at the compute node is a more complex configuration than is currently widely deployed for OSG. 
-
-If you do want to define quotas for $wn_tmp is a siteadmin choice but quotas should not be in the requirements as they simply do not fit well with many cluster configurations that would nonetheless suscessfully and reliably execute jobs. 
-
-As for removal it would be preferred if the users were shown that it is their primary responsibility for cleaning up after themselves or their access may become restricted or revoked. Siteadmins can then additionally deploy a solution if they feel users of the system are simply not trustworthy. 
-
----+++Steve 
-
-The problem with $WN_TMP as currently defined is the following.  If it's a static area on the worker node, there
-is no protocol to keep 2 jobs that are running on the same node from conflicting with each other.  
-i.e., naively you could have two users untar their tarball in the same directory, have one clean up everything, etc.
-Ideally you should
-make this a unique partition per job, that would keep one job from stepping on the other one.
-Or use the capacity that all batch systems have to pass a scratch directory created by the batch system
-to be the $WN_TMP.
-
----+++Terrence
-
-Well even under current OSG one user would not overwrite, but get an error, unless that user is the same user. For example I could not clobber your jobs files but I could clobber my own. 
-
-The first problem though with per job slot partitions for $WN_TMP is getting that information to the user. There is no way I am aware of in OSG to allow users to identify what is their correct $WN_TMP aside from the very static one in Gridcat. We would probably need a $WN_TMP/somestring$JOBSLOT defined that could be incorporated into user scripts perhaps. It is not clear to me how to best approach this though if we are thinking longer term. Going down the $WN_TMP/somestring$JOBSLOT thought process I start to think about creating chrooted areas for each job slot and restricting each job slot to a specific user rather than mapping CE UID to WN UID. The UID change prevents me from clobbering me (I get an perm denied error), the chroot can give me a private $WN_TMP without requiring me to have some dynamic directory name based on my job slot. Combined with quotas I can even eliminate having to use seperate partitions. Of course chroot then leads me to wanting to eventually virtualize the entire thing so that each job slot gets its own private memory space isolated from all other jobs.
-
-$WN_TMP is definitely the low hanging fruit solution to a local directory. The users I have seen in Grid3 and OSG that actually use $WN_TMP generally make unique directories in that area to avoid overlap. Grid3 and early OSG users generally are used to this protocol of making unique directories for each job run. However as more and more users join the OSG this "obvious" solution reveals that it is really not that obvious, especially to users new to cluster computing. I know because my very first local OSG user made this exact mistake. :) 
+It is required that $WN_TMP points to a POSIX-compliant filesystem that supports links, sockets, locks, pipes and other special files as required. Good I/O is essential for job performance, so a local FS is suggested.
+Ideally it should be a temporary directory (or partition) assigned empty for the job, with a well defined amount of space (current jobs require at least 1-2 GB of disk space *1) and removed (or cleared) after the job completes. <br>
+In most cases it is a space shared among all the jobs that are currently executing at the WN, so it is recommended that a jobs creates a unique subdirectory of $WN_TMP (e.g. $WN_TMP/somestring$JOBSLOT) that becomes its working area and that should be removed by the job itself before ending (*2)
 
 
+Typical uses of this area are:
+	* working directory for jobs (running on the worker nodes)
+
+Notes (*#):
+	1. Add link to VO space requirements
+	1. A mechanism to help automatic cleanup would be the introduction of a 'lock' directories with files named according the temporary directory, containing the PID of the job. If that process is terminated, the directory can be removed
 
 
 
