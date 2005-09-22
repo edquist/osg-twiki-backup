@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1127404126" format="1.0" version="1.13"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1127420998" format="1.0" version="1.14"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
 If you have any comments/complaints about this template, then please email me:
@@ -66,12 +66,22 @@ Notes (*#):
 
 ---++ $DATA
 
-This area is intended to hold readable datasets for jobs executing on the worker nodes.
+This area is a transient storage shared between jobs executing on the worker nodes.
 
 It is required that relative paths resolve consistently between gatekeeper and worker nodes.  
 This area is intended to hold data shared among different applications running on different worker nodes and/or data that has to outlive the execution of the jobs on the worker nodes.
+It has to allow open/read/write operations by regular programs (that may use it transparently as a local disk space).  (NFS, dcap, drm, AFS, CIFS are OK). This is a subset of a POSIX compatible fs, not including features like special file creation (pipes, sockets, locks, links) the (*??* Do we want the possibility to change permissions?)ability to modify file meta data (permissions).<br>
+Since the allocation of this space is transient, it is important that users remove unused data or that a simple mechanism to allow cleanups (*1) is added.
+The use of $data as a writable area from compute nodes is one of the most significant performance bottlenecks in an OSG cluster. Use of $DATA as the "hold all read/write area" (working area for the jobs) is discouraged.
+A suggested dataflow using $DATA providing a more scaleable and reliable data access is the following:
+	* Data is written to $DATA via gridftp or if necessary fork (unpack tarballs etc). 
+	* Job is staged into the cluster
+	* Job copies its data to the compute node or reads data sequentially from $DATA if the data is read once. This is a significant performance issue if many random reads are necessary on typical network file systems and this should be avoided. It is worth noting that random data access over large data sets is where grid storage shows its potential. Its distributed nature is better suited for handling that type of data access scaleably and reliably.
+	* Job output is placed in $WN_TMP (see below for desctiption)
+	* At end of job the results from $WM_TMP are packaged, staged to $DATA and picked up through gridftp or other mechanism. Alternatively srmcp could be used directly from the nodes to a remote respository. 
 
-Examples are: datasets for jobs executing on the worker nodes, datasets produced by the jobs executing on the worker nodes, shared daata for MPI applications. Data staged in or waiting to be staged out.
+- a fully POSIX capable file system that supports links, sockets, pipes and other special files as required)
+ 
 
 Typical uses of this area are:
 	* input datasets for jobs executing on the worker nodes
@@ -81,36 +91,19 @@ Typical uses of this area are:
 
 
 Notes (*#):
-	1.
----+++ A
+	1. An example could be a file in each directory ( _.keep_) that includes a number of days (between 0 and _maxdays_) that that data should be kept. If today's date > (_.keep_ modification date+number of days requested) all files in that directory and subdirectories may be removed. This is a gentlemans agreement. Keep in mind that none of the data in a transient storage is guaranteed (if the sysadmin needs to remove it, he can and asking around is a kindness, not a rule)
+
 
 This area may be read-only for a subset of users: there is no guarantee that every user will have write access.
 $DATA may point to a filesystem or gsiftp URL.
+It may be as well accessible through a gsiftp URL (but not exclusively using GSIftp, else it would be a SE) - This is DefaultSE
 
+*Terrence*, what do you intend with PNFS (paralle NFS?). I was intending transparent open/read/write access.
+As for direct connect to the storage space, I assume you mean PNFS mounts. Since PNFS on worker nodes throws security out the window, not to mention the possible SE crumbling results of a simple ls -R command, no, definitely no direct access to the SE. :) 
 
----+++Marco:
+I would think that we should be actively discouraging that data flow given the inherent limitations of $DATA in terms of scalability and reliability.	  - If this is the case we can remove $DATA
 
-This area is intended to hold data shared among different applications running on different worker nodes and/or data that has to outlive the execution of the jobs on the worker nodes.
-Examples are: datasets for jobs executing on the worker nodes, datasets produced by the jobs executing on the worker nodes, shared daata for MPI applications. Data staged in or waiting to be staged out.
-
-$DATA has to be POSIX accessible (open/read/write) by regular programs (NFS, dcap, drm are OK)
-It may be as well accessible through a gsiftp URL (but not exclusively using GSIftp, else it would be a SE)
-
----+++Terrence:
-
-(open/read/write) capability does not require posix. Posix compatible implies a laundry list of features like the ability to modify file meta data (permissions) and special file creation (pipes, sockets, links). These are not features that are necessary from compute nodes which are not guaranteed to have write access to $data.  
-
-The use of $data as a writable area from compute nodes is one of the most significant performance bottlenecks in an OSG cluster. Use of $data as the "hold all read/write area" should be discouraged. 
-
-The dataflow that is behind the original requirements is as similar to the dataflow in the SE as possible to maintain consistency for users as well as scaleable and reliable data access. 
-
-	* Data is written to $data via gridftp or if necessary fork (unpack tarballs etc). 
-	* Job is staged into the cluster
-	* Job copies its data to the compute node or reads data sequentially from $data if the data is read once. This is a significant performance issue if many random reads are necessary on typical network file systems and this should be avoided. It is worth noting that random data access over large data sets is where grid storage shows its potential. Its distributed nature is better suited for handling that type of data access scaleably and reliably.
-	* Job output is placed in $wn_tmp (a fully posix capable file system that supports links, sockets, pipes and other special files as required)
-	* At end of job the results from $wn_tmp are packaged, staged to $tmp and picked up through gridftp or other mechanism. Alternatively srmcp could be used directly from the nodes to a remote respository. 
-
----+++Xin:
+---+++Xin - SE discussion, site configurations option:
 
 Right now $DATA acts as "SE" for OSG site, it's a must for it to be accessible by gridftp or srm server, so the output data can be staged out to other locations. It's also accessible by worker nodes through NFS, so the input/output data can be moved between it and $WN_TMP. It should allow both read and write permissions by all VO users.
 
@@ -118,17 +111,7 @@ On big sites that will set up dCache or similar large SE system, it's not guaran
 directly from $WN_TMP, then worker nodes will need to have access to globus and srm clients. If job wants to move data from $WN_TMP to $DATA then to SE, then the movement between $DATA and SE can be done through gatekeepers, therefore no more clients need to be installed on worker nodes. 
 
 Of course, some sites can configure the SE so that worker nodes have directly access to SE by copy command, this is cheap operation but hard to make it a standard OSG SE deployment requirement. 
-
-
----+++Terrence:
-
-NFS is not required to accomplish data movement from $DATA to $WN_TMP. Any file system that allows open/read can accomplish that task. NFS should not be noted as a requirement in my opinion when other completely acceptable, and depending on the situation, desirable solutions can be used. CIFS and AFS come to mind as examples with some unique features that may be required by local sites. The requirements should not be pinning specific file systems onto site admins.  
-
-As for direct connect to the storage space, I assume you mean PNFS mounts. Since PNFS on worker nodes throws security out the window, not to mention the possible SE crumbling results of a simple ls -R command, no, definitely no direct access to the SE. :) 
-
-However I do not think jobs should be moving data from $WN_TMP to $DATA. As the requirements stated, and as I mentioned $DATA is not guaranteed write from worker nodes. $DATA is for stagein data only, not stageout. If you want to stageout use $TMP, that is what that is for. Otherwise why is there even a $TMP? If $DATA is used as the catchall bin for all data flow $TMP will never be used. By seperating $DATA and $TMP, not just by definition of what they are supposed to be for but in how they are actually implemented then the data from from $DATA to $WN_TMP to $TMP to user is encouraged. 
-
-As for clients on worker nodes, what client installation? No additional software installation is required if you already mount the osg vdt  areas on worker nodes readonly. Many sites already do this because this is also the easiest way to deploy the condor client to worker nodes. The implication I read is that $WN_TMP to SE is hard or complicated because of the burden of making sure the SRM clients are there. The fact is though that it is very likely the clients are already there because the VDT is already there.  I do not see giving worker nodes the capability of having SRM clients locally to be a hurdle at all, nor do I see any need to encourage, or even allow $WN_TMP to $DATA to SE. I would think that we should be actively discouraging that data flow given the inherent limitations of $DATA in terms of scalability and reliability.	 
+	
 
 ---++ $TMP
 
@@ -136,6 +119,15 @@ This area is intended as a temporary work area, and cache location for staging f
 
 It is required that relative paths resolve consistently between gatekeeper and worker nodes.  This area must be read-write for all users.  $TMP may point to a filesystem or gsiftp URL.  Files placed here are guaranteed not to be purged for at least 24 hours barring extraordinary cirucmstances; the precise purge policy is determined by site administrators.
 
+Typical uses of this area are:
+	* input datasets for jobs executing on the worker nodes
+	* datasets produced by the jobs executing on the worker nodes
+	* shared daata for MPI applications. 
+	* data staged in or waiting to be staged out.
+
+
+Notes (*#):
+ 
 ---+++Marco:
 
 This area has functionalities similar to $DATA, but it is a temporary work area, meaning that there is no guarantee that the data will be preserved once the jobs working on it are terminated (e.g. if there are some files in $TMP belonging to ATLAS users and no ATLAS job running, all those files can for sure be removed) 
