@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1128973485" format="1.0" version="1.23"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1128978398" format="1.0" version="1.24"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
 If you have any comments/complaints about this template, then please email me:
@@ -32,10 +32,12 @@ In the following Table there is a name matrix:
 | SITE_READ  |	 |	|	| $SITE_READ	|
 | -na-  | $TMP	 | CE.Cluster.TmpDir (!CE.SubCluster.TmpDir)		 | Grid3TmpDir	| $TMP	  |
 | WNTMP | $WNTMP  | CE.Cluster.WNTmpDir (!CE.SubCluster.WNTmpDir)	|	|	|
-|  |	 | CE.Info.DefaultCE (!CE.VOViewDefaultCE)	|	 |	 |
+| DEFAULT_SE |	 | CE.Info.DefaultCE (!CE.VOViewDefaultCE)	|	 |	 |
 <!-- |  |	 |	 |	 |	 |-->
 
 As visible from the table above, GLUE provides the possibility to have multiple values for some of the CE storages, depending on the VO and the Role (VOMS FQAN). In OSG these are currently sitewide informations.
+
+No other assumption about the CE is made. It is unsafe to make assumptions about the existence and characteristics (size, being shared, ...) of the $HOME directory.
 
 Follows a list of sections dedicated to CE storages.
 Each section includes:
@@ -80,8 +82,8 @@ A suggested dataflow using DATA and providing a more scaleable and reliable data
 	* Job copies its data to the compute node (WN_TMP) or reads data sequentially from DATA if the data is read once. This is a significant performance issue if many random reads are necessary on typical network file systems and this should be avoided. It is worth noting that random data access over large data sets is where grid storage shows its potential. Its distributed nature is better suited for handling that type of data access scaleably and reliably.
 	* Job output is placed in WN_TMP (see below for desctiption)
 	* At end of job the results from $WM_TMP are packaged, staged to DATA and picked up through gridftp or other mechanism. Alternatively srmcp could be used directly from the nodes to a remote respository. 
-Functions covered by DATA are almost equivalent to those provided by SITE_READ and SITE_WRITE together (see below). This latter solution is forcing the separation between inputs and outputs and may be more efficient for big production sites with specialized hardware while DATA may be easier to deploy for small sites.
-
+Functions covered by DATA are almost equivalent to those provided by SITE_READ and SITE_WRITE together (see below). This latter solution is forcing the separation between inputs and outputs and may be more efficient for big production sites with specialized hardware while DATA may be easier to deploy for small sites.<br>
+If you plan to remove DATA for performance issues, check if your jobmanagers require a shared space and if $HOME is local or it is another DATA de facto (*4).
 
 Typical uses of this area are:
 	* input datasets for jobs executing on the worker nodes
@@ -92,8 +94,9 @@ Typical uses of this area are:
 
 Notes (*#):
 	1. The ability to modify file permissions may become something to support. It is also available in SRMv2
-	1. The DefaultSE entry (see below) may be used to publish the GSIftp URL of the SE viewing that space.
+	1. The DEFAULT_SE entry (see below) may be used to publish the GSIftp URL of the SE viewing that space.
 	1. An example of a simple space managment solution could be a file in each directory ( _.keep_) that includes a number of days (between 0 and _maxdays_) that that data should be kept. If today's date > (_.keep_ modification date+number of days requested) all files in that directory and subdirectories may be removed. This is a gentlemans agreement. Keep in mind that none of the data in a transient storage is guaranteed (if the sysadmin needs to remove it, he can do it freely and asking around is a kindness, not a rule)
+	1. E.g. The current Condor jobmanager is using a shared space (in the gass_cache as default) when it is requested to transfer the executable or some data. As mentioned above it is not safe to assume that the $HOME dir is shared between gatekeeper and worker nodes. Furthermore it is not worthy to remove a shared space like DATA for performance issues to reintroduce it as $HOME (that probably will hevr even more performance problems because of other loads)
 
 
 ---++ SITE_READ
@@ -103,14 +106,20 @@ It is required that relative paths resolve consistently between gatekeeper and w
 This read-only area is intended to hold input data shared among different applications running on different worker nodes.
 It allows normal file random access read operations (open, seek, read, close) by regular programs (that may use it transparently as a local disk space). This is provided through a grid file access library and the users have not to know the Site and which is the underlying implementation (the use will be uniform across OSG).<br>
 Users have no write access to this area: files will be placed there by site administrators or by mechanisms external to the CE, e.g. a SE can write in that area (*1).<br>
+If the gatekeeper cannot write to this area there may be problems with jobmanagers using a shared directory to transfer the executable or some data (*2). 
+
+This is the LCG model. This last option may cause problems to many current applications that count on normal file access to a shared space and it may require non trivial changes to them to use special client programs to access the DEFAULT_SE. Furthermore it may cause problems with jobmanagers using a shared directory to transfer the executable or some data. A dataflow example could be: 
+
 Its features cover the read part of DATA and it is recommended to big sites to force users not to use DATA as a 'catch-all' directory affecting the performance of the cluster.
+
 
 Typical uses of this area are:
 	* input datasets for jobs executing on the worker nodes
 	* data staged in 
 
 Notes (*#):
-	1. The DefaultSE entry (see below) may be used to publish the GSIftp URL of the SE able to write in SITE_WRITE.  
+	1. The DEFAULT_SE entry (see below) may be used to publish the GSIftp URL of the SE able to write in SITE_WRITE.  
+	1. E.g. The current Condor jobmanager is using a shared space (in the gass_cache as default) when it is requested to transfer the executable or some data. As mentioned above it is not safe to assume that the $HOME dir is shared between gatekeeper and worker nodes. Furthermore it is not worthy to remove a shared space like DATA for performance issues to reintroduce it as $HOME (that probably will hevr even more performance problems because of other loads)
 
 
 ---++ SITE_WRITE
@@ -118,90 +127,83 @@ This area is a transient storage visible from all worker nodes and optimized for
 
 It is a write only (or mostly write) transient sorage.
 This area is intended to hold the output of jobs running on different worker nodes (that has to outlive the execution of the jobs on the worker nodes) to combine it with other outputs or to allow its stage out.
-It allows open/repeating write operations by regular programs (that may use it transparently as a local disk space). This is provided through a grid access library hyding peculiarities, specific for the underlying storage.<br>
-Users have no write access to this area: files will be placed there by site administrators or by mechanisms external to the CE, e.g. a SE can read from that area (*1).<br>
+It allows normal random access file write operations: open, set flags, write (sequential, with multiple write operations), close. It may not be possible to modify a file once closed. This is provided through a grid file access library hyding peculiarities, specific for the underlying storage, and programs may use it transparently (almost *1) as a local disk space.<br>
+Users have no write access to this area: files will be placed there by site administrators or by mechanisms external to the CE, e.g. a SE can read from that area (*2).<br>
 Its features cover the write part of DATA and it is recommended to big sites to force users not to use DATA as a 'catch-all' directory affecting the performance of the cluster.
-
 
 Typical uses of this area are:
 	* storage of datasets produced by the jobs executing on the worker nodes
 	* data waiting to be staged out.
 
-
 Notes (*#):
-	1. The DefaultSE entry (see below) may be used to publish the GSIftp URL of the SE able to write in SITE_WRITE.  
+	1. Limitations will have to be avoided if possible and be clearly stated.
+	1. The DEFAULT_SE entry (see below) may be used to publish the GSIftp URL of the SE able to write in SITE_WRITE.  
 
 
----++ $TMP
+---++ TMP (REMOVED!)
+This area was is intended as a shared temporary work area. Because of its similarities with DATA, the reduced interest in multimode applications (that anyway can use DATA), and the possibility of the application abusing of a shared space, we propose to remove this storage from those defined within OSG 
 
 
-This area is intended as a shared temporary work area.
-
-
-It is required that relative paths resolve consistently between gatekeeper and worker nodes.  This area must be read-write for all users.  $TMP may point to a filesystem or gsiftp URL.  Files placed here are guaranteed not to be purged only while the job is running. Site administrators may remove files older (access or modification time) than the max walltime allowed by all the queues, since the job that used them is for sure terminated; the precise purge policy is determined by site administrators.<br>
-(*??* is this ok? --marco) If possible should allow mechanisms like locks or IPC (inter-process communication) files so that it could be used to coordinate multinode jobs.<br>
-The main difference between $TMP and $DATA is in the lifespan of the files saved into it.<br>
-Users are encouraged not to use $TMP as main working area for their job but only when they require a shared area visible across all Wn and the head nodes
-
-
-Typical uses of this area are:
-	* work area 
-	* shared daata for MPI applications. 
-	* staging of job executables (e.g. Condor automatig staging) or parameter files
-
-
-Notes (*#):
-
-
-
-
----++ $WN_TMP
-
+---++ WN_TMP
 This area is a temporary work area that may be purged when the job completes.
 
 
-It is required that $WN_TMP points to a POSIX-compliant filesystem that supports links, sockets, locks, pipes and other special files as required. Good I/O is essential for job performance, so a local FS is suggested.
-Ideally it should be a temporary directory (or partition) assigned empty for the job, with a well defined amount of space (current jobs require at least 1-2 GB of disk space *1) and removed (or cleared) after the job completes. <br>
-In most cases it is a space shared among all the jobs that are currently executing at the WN, so it is recommended that a jobs creates a unique subdirectory of $WN_TMP (e.g. $WN_TMP/somestring$JOBSLOT) that becomes its working area and that should be removed by the job itself before ending (*2)
+It is required that WN_TMP points to a POSIX-compliant filesystem that supports links, sockets, locks, pipes and other special files as required. Good I/O is essential for job performance, so a local FS is suggested.
+Ideally it should be a temporary directory (or partition) assigned empty for the job, with a well defined amount of space (current jobs require at least 1-2 GB of disk space *1) and removed (or cleared) after the job completes. The space provided should be dedicated and isolated: jobs overusing thir space should not affect each other or affect the OS.<br>
+In most cases it is a space shared among all the jobs that are currently executing at the WN, so it is recommended that a jobs creates a unique subdirectory of WN_TMP (e.g. WN_TMP/somestring$JOBSLOT) that becomes its working area and that should be removed by the job itself before ending (*2).
 
 
 Typical uses of this area are:
 	* working directory for jobs (running on the worker nodes)
 
 Notes (*#):
-	1. Add link to VO space requirements
+	1. Add link to VO space requirements (which is the recommended/required size?)
 	1. A mechanism to help automatic cleanup would be the introduction of a 'lock' directories with files named according the temporary directory, containing the PID of the job. If that process is terminated, the directory can be removed
 
 
-
-
----++!DefaultSE
-
+---++ DEFAULT_SE
 This area is a SE closely related to the CE
 
-
-It is accessible only using SE access methods (Gridftp, SRM). It is the preferred SE for the CE and should be used when doing 2(or more)-step copy of input datasets to the CE (e.g. 3rd party transfer to the DefaultSE, copy to the workdir using a client program)
-
+It is accessible only using SE access methods (Gridftp, SRM). It is accessible from within the cluster (wisible from the worker nodes). If accessible from outside, it is the preferred SE for the CE and should be used when doing 2(or more)-step copy of input datasets to the CE (e.g. 3rd party transfer to the DefaultSE, copy to the workdir using a client program).<br>
+In simple cluster this could be a SE visible from both inside and outside and serving an internally shared space like DATA (*1). In sites with no shared spaces this would allow to get data in and out using grid tools.
 
 Typical uses of this area are:
-	* saging in of big input files (e.g. datasets)
-	* saging out of big input files (e.g. datasets)
+	* staging in of big input files (e.g. datasets)
+	* staging out of big input files (e.g. datasets)
 
 
 Notes (*#):
-	1. staging in of big input files (e.g. dataset)
+	1. This is not guaranteed. To describe better the the SE connected to CE storages like DATA, SITE_READ, SITE_WRITE a better mechanism will have to be defined. The GLUE CE-SE binding schema could be a start point.
+
 
 ---++Minimum requiremets
-An OSG site is not forced to provide all the areas described above as far as it makes clear what is providing (according to this classification presented and using the mechanisms provided by OSG *1) and what not and satisfies the minimum requirements.
+An OSG site is not forced to provide all the areas described above as far as it makes clear what is providing (according to this classification presented and using the mechanisms provided by OSG *1), what it is not providing (the value '-na-'/'na' could be a marker for the missing storage, to distinguish it from entries missing in the information system) and satisfies the minimum requirements.
 
-A CE should provide at least:
-	* $WN_TMP 
-	* one between $DATA, SITE_READ+SITE_WRITE+$TMP, !DefaultSE+$TMP
+Mandatory set options:
+
+	1. DATA, WN_TMP - This is the Grid3 model. A dataflow example is provided above, in the section about DATA
+	2. SITE_READ, SITE_WRITE, WN_TMP. A dataflow example could be: 
+		* site admin intervention or external transfer 
+		* cp: SITE_READ->WN_TMP 
+		* job execution 
+		* cp:WN_TMP->SITE_WRITE 
+		* external stage-out
+	3. DEFAULT_SE, WN_TMP - This is the LCG model. This last option may cause problems to many current applications that count on normal file access to a shared space and it may require non trivial changes to them to use special client programs to access the DEFAULT_SE. Furthermore it may cause problems with jobmanagers using a shared directory to transfer the executable or some data. A dataflow example could be: 
+		* site admin intervention or externall transfer 
+		* srmcp: DEFAULT_SE->WN_TMP
+		* job execution
+		* srmcp:WN_TMP->DEFAULT_SE
+		* external stage-out
+
+The set of CE storages provided by a CE must include at least one of these three sets.
 
 Off course providing a wider selection of CE storages would allow the jobs to select the most proper for their needs. But it could also allow the jobs to adopt inefficient execution models that could affect negatively the performance of the whole cluster.
 
 Notes (*#):
 	1. Alain Roy? should be coordinating an activity working on how to make storage information available: environment variables, MDS information providers, ... 
+
+
+
 
 ---------------------------------------------------------------------
 
