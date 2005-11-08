@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="FkW" date="1131417943" format="1.0" version="1.32"}%
+%META:TOPICINFO{author="FkW" date="1131430921" format="1.0" version="1.33"}%
 ---+!! Local Storage Requirements
 
 %TOC%
@@ -41,7 +41,7 @@ In the following Table there is a name matrix:
 
 No other assumption about the CE is made. It is unsafe to make assumptions about the existence and characteristics (size, being shared, ...) of the $HOME directory.
 
-*I am confused by this statement. Access to the users proxy is a requirement in order to use the srmcp client from the worker node. It would be good to make this clear somewhere!(fkw)*
+*I am confused by this statement. Access to the users proxy is a requirement in order to use the srmcp client from the worker node. It would be good to make this clear somewhere! E.g., this could be made clear in the context of what's refered to as $GRID in the discussion part of this page if such a $GRID was adopted explicitly.(fkw)*
 
 The following sections describe the different  storage areas that may be declared local to a CE.
 Each section includes:
@@ -150,10 +150,10 @@ This area was is intended as a shared temporary work area. Because of its simila
 
 ---++ WN_TMP
 This area is a temporary work area that may be purged when the job completes.
-
+It is generally not possible for two jobs running on as cluster to read from (or write to) each others WN_TMP areas. The WN_TMP area is thus fundamentally different from all other areas discussed here in that it is job specific.
 
 It is required that WN_TMP points to a POSIX-compliant filesystem that supports links, sockets, locks, pipes and other special files as required. Good I/O is essential for job performance, so a local FS is suggested.
-Ideally it should be a temporary directory (or partition) assigned empty for the job, with a well defined amount of space (current jobs require at least 1-2 GB of disk space *1) and removed (or cleared) after the job completes. The space provided should be dedicated and isolated: jobs overusing thir space should not affect each other or affect the OS.<br>
+Ideally it should be a temporary directory (or partition) assigned empty for the job, with a well defined amount of space (current jobs require at least 1-2 GB of disk space *1) and removed (or cleared) after the job completes. The space provided should be dedicated and isolated: jobs overusing their space should not affect each other or affect the OS.<br>
 In most cases it is a space shared among all the jobs that are currently executing at the WN, so it is recommended that a jobs creates a unique subdirectory of WN_TMP (e.g. WN_TMP/somestring$JOBSLOT) that becomes its working area and that should be removed by the job itself before ending (*2).
 
 
@@ -202,7 +202,15 @@ OR
 		* srmcp:WN_TMP->DEFAULT_SE
 		* external stage-out
 
-The set of CE storages provided by a CE must include at least one of these three sets.
+OR
+	4. SITE_READ, DEFAULT_SE, WN_TMP - This is the SRM/dCache model. In this model read access is via dcap, while write access is via srmcp only. Write access via dcap is in principle possible, and thus would in principle provide SITE_WRITE. However, in practice files do not get consistently written to in an open/write/close/open/write/close sequence. dCache may serve different replicas of a file for two consecutive open. As there is no mechanism inside dCache that would enforce synchronization of the writing to one of the physical files after opening a given logical file, this generally leads to different file contents for different physical files that a referenced as the same logical file. This is obviously unacceptable and thus prohibits the use of dCache as a SITE_WRITE solution. The same is avoided if writes are allowed only via srmcp (i.e. DEFAULT_SE) while reads may use either srmcp (DEFAULT_SE) or dcap (SITE_READ). SRM implementation in dcache does not allow writing of logical files that already exist. It thus guarantees that all physical file replicas of the same logical file remain the same. 
+ A dataflow example could be: 
+		* site admin intervention or externall transfer 
+		* job execution (open/seek/read from SITE_READ using dcap)
+		* srmcp:WN_TMP->DEFAULT_SE
+		* external stage-out
+
+The set of CE storages provided by a CE must include at least one of these four sets.
 
 Off course providing a wider selection of CE storages would allow the jobs to select the most proper for their needs. But it could also allow the jobs to adopt inefficient execution models that could affect negatively the performance of the whole cluster.
 
@@ -403,8 +411,6 @@ What I would like to see from this is a fairly narrow set of requirements that a
 As a siteadmin I need to know what I am required, at a minimum to provide to allow a job to run on OSG. Other features like quotas, per job slot directories, chroot environments, UID remapping, exotic file systems and virtualization though are more of a site specific issue. These are related to how much work I can do and to what level I need to deploy certain techniques and approachs to achieve the reliability I am going towards.
 
 I already know I can make a fairly exotic foundation and still deliver an OSG compatible job slot. I am not sure that a lot of detail, especially technology specific detail is necessary to define some basic requirements. I am particularly wary of mentioning technologies based on a subset of features that other technologies can offer just as well or better. Of course in addition to these narrow requirements other documents on how to implement the underlying system probably should be produced so that various low level details of implementation can be shared and discussed.  
-
-
 
 ---++Ruth: Input from OSG Storage Day
 The storage and data service implementors require that 2 variables be defined to differentiate between high performance Read and Write capabilities. US CMS Pile Up and Analysis applications are two use cases that have such high performance requirements. The requirement remains that the applications have access on the worker nodes to the local storage element through  Posix I/O (actually Posix-I/O like which seems to mean all but the most esoteric functions). This matches the EGEE architecture also.
