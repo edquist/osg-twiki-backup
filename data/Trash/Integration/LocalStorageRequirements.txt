@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1131733233" format="1.0" version="1.35"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1131746104" format="1.0" version="1.36"}%
 ---+!! Local Storage Requirements
 
 %TOC%
@@ -6,16 +6,22 @@
 ---++ Introduction
 
 The goal of this page is to provide a recommendation for the definitions and environment variables for the Local Storage accessible to Compute Elements (the headnodes and the worker-nodes) on OSG. It will mainly cover issues like definition of these spaces and correspondance to external schemas (e.g. GLUE, Grid3/OSG).
+The paths defined with the names below are sometime called also _CE storages_. They are disc spaces or SEs accessible from within the CE (the same from each jobmanager of that CE: jobs on the headnode using _fork_, jobs on the worker nodes usong _pbs/condor/lsf/..._, multiple gatekeeper added to the same CE for reliability or scalability reasons will have to have the same values). These values do not refer to any disk space as viewed from outside (SE, !GridFTP server, ...).
 
-There are some suggestions on how to push the users towards correct use and on deployment (how to make this information available), but in general this is the responsibility of other groups in OSG.
+In this document there are some suggestions on how to push the users towards correct use and on deployment (how to make this information available), but in general this is the responsibility of other groups in OSG.
 
 Possible technologies to deploy CE storage include (but are not limited to):
-	* variables defined in the environment that resolve to the correct path or URL
-	* path or URLs consistent across the CE (headnodes and WN), published using an information system
+	1. variables defined in the environment that resolve to the correct path or URL
+	1. path or URLs consistent across the CE (headnodes and WN), published using an information system (e.g. GIP and BDII)
+	1. it is still possible but DEPRECATED (will be removed from future versions) the use of !GridCat Web pages or !DataBase
 
-*why do you call this CE storage? I am expecting that sites will want to seperate CE and storage in order to minimize overloads on one affecting the other. As a result, I predict that sites will seperate the jobmanager that leads to batch submissions from the one that allows disk space access because the two have no reason to be on the same hardware.(fkw)*
+Solution 2 and 3 involve a lookup to the information systen that can be done before submitting the job (in that case the job will carry along the information to be able to use the CE).
 
-This page is divided in 2 sections. The first one is a work in progress and will result into the final document. Every contributor is encouraged to modify the content directly and change/overwrite the current version. The second one is for discussion and explanations and the default way of editing it should be appending comments to the current content.
+This page has a sister page, LocalStorageRequirementsDiscussion, that includes thet discussion that lead to this document. Please read it and feel free to add your ideas to that page if you are interested in proposing changes.
+
+Check LocalStorageConfiguration for installation/configuration notes and examples.
+
+LocalStorageUse is adocument for users with best practices, notes and examples.
 
 In the following Table there is a name matrix:
 	* CE Storage are the names used in this document, please change the section headers accordingly
@@ -25,6 +31,7 @@ In the following Table there is a name matrix:
 	* OSG Storage is the name used in the OSG Storage day
 
 | *CE Storage*				  |*CN*|*GLUE*|*Grid3/OSG*|*OSG Storage*|
+| GRID  | $GRID3  | Location.Path (*2)  | Gri3Dir	 | $GRID			  |
 | APP	| $APP	 | CE.Info.ApplicationDir (!CE.Info.ApplicationDir) (*1)  | Gri3AppDir	 | $APP			  |
 | DATA  | $DATA	| CE.Info.DataDir (!CE.VOView.DataDir) (*1)				  | Gri3DataDir	|	|
 | SITE_WRITE |	 | Location.Path (*2) |	| $SITE_WRITE  |
@@ -36,12 +43,11 @@ In the following Table there is a name matrix:
 
 *1. As visible from the table above, GLUE provides the possibility to have multiple values for some of the CE storage, depending on the VO and the Role (VOMS FQAN). In OSG these are currently sitewide information.<br>
 *2. GLUE Schema does not have an attribute specific for SITE_WRITE or SITE_READ, but it provides the location entity (Name/Version/Path sets) to accommodate additional CE local storage. In order to accommodate them two locations will have to be defined (this will be done by the Information Provider (GIP?)  using some configuration info):
-	1. LocalID: SITE_WRITE+OSG, Name:SITE_WRITE, Version: OSG, Path: <value of SITE_WRITE>
-	1. LocalID SITE_READ+OSG, Name:SITE_READ, Version: OSG, Path: <value of SITE_READ>
+	1. !LocalID: GRID+OSG, Name:GRID, Version: OSG, Path: <value of GRID>
+	1. !LocalID: SITE_WRITE+OSG, Name:SITE_WRITE, Version: OSG, Path: <value of SITE_WRITE>
+	1. !LocalID: SITE_READ+OSG, Name:SITE_READ, Version: OSG, Path: <value of SITE_READ>
 
-No other assumption about the CE is made. It is unsafe to make assumptions about the existence and characteristics (size, being shared, ...) of the $HOME directory.
-
-*I am confused by this statement. Access to the users proxy is a requirement in order to use the srmcp client from the worker node. It would be good to make this clear somewhere! E.g., this could be made clear in the context of what's refered to as $GRID in the discussion part of this page if such a $GRID was adopted explicitly.(fkw)*
+Each CE administrator will provide for the correct functioning of the client software (Globus and SRM: access to the users proxy, gass_cache mechanism) for all the jobs running on the CE (on the headnode using fork and on the worker nodes using condor/lsf/pbs/...). Normally this requires a shared $HOME directory but the administrator is free to use other mechanisms (LCG) and this is hidden from the users. Users should have no other assumption about the CE different from what is stated in this document. It is unsafe to make assumptions about the existence and characteristics (size, being shared, ...) of the $HOME directory.
 
 The following sections describe the different  storage areas that may be declared local to a CE.
 Each section includes:
@@ -49,6 +55,18 @@ Each section includes:
 	* detailed description
 	* use cases (informal)
 	* notes
+
+
+---++ GRID
+
+This area is read only intended for client software provided by OSG.
+
+The CE administrators will install in this area the client software included in the OSG-Workernoe (OSG-WN-Client) package. The content of this package is defined elsewhere (refer Leigh document) but includes programs like _globus-job-run_, _globus-url-copy_, _srncp_ and is self contained (i.e. this software will be configured and able to run whenever the GRID directory is visible). 
+It is required that relative paths and content are consistent between gatekeeper and worker nodes even if GRID itself (the base dir) differs between the two.  It is up to the site administrator to provide a shared directory or to install it on each machine, anyway it will be read-only. GRID may be included directly into the PATH defined for jobs running at the CE.
+
+Tipical uses of this area are:
+	* provide a default set of OSG client software (like _globus-job-run_, _globus-url-copy_, _srncp_) so that the users have not to worry about bringing it with themself and configuring it
+
 
 ---++ APP
 
@@ -183,36 +201,33 @@ Notes (*#):
 ---++ Minimum requirements
 An OSG site is not forced to provide all the areas described above as far as it makes clear what is provided (according to this classification presented and using the mechanisms provided by OSG *1), what it is not providing (the value '-na-'/'na' could be a marker for the missing storage, to distinguish it from entries missing in the information system) and satisfies the minimum requirements.
 
-Mandatory set options:
+Mandatory set options (one of the following):
 
-	1. DATA, WN_TMP - This is the Grid3 model. A dataflow example is provided above, in the section about DATA<br>
-OR
+	1. DATA, WN_TMP - This is the Grid3 model. A dataflow example is provided above, in the section about DATA. A simple CE (one or few nodes, not a production CE) may even decide to use a single shared disk, pointing both DATA and WN_TMP to the same directory, but this is not recommended.
 	2. SITE_READ, SITE_WRITE, WN_TMP. A dataflow example could be: 
 		* site admin intervention or external transfer 
 		* cp: SITE_READ->WN_TMP 
 		* job execution 
 		* cp:WN_TMP->SITE_WRITE 
 		* external stage-out
-<br>
-OR
 	3. DEFAULT_SE, WN_TMP - This is the LCG model. This last option may cause problems to many current applications that count on normal file access to a shared space and it may require non trivial changes to them to use special client programs to access the DEFAULT_SE. Furthermore it may cause problems with jobmanagers using a shared directory to transfer the executable or some data. A dataflow example could be: 
 		* site admin intervention or externall transfer 
 		* srmcp: DEFAULT_SE->WN_TMP
 		* job execution
 		* srmcp:WN_TMP->DEFAULT_SE
 		* external stage-out
-
-OR
-	4. SITE_READ, DEFAULT_SE, WN_TMP - This is the SRM/dCache model. In this model read access is via dcap, while write access is via srmcp only. Write access via dcap is in principle possible, and thus would in principle provide SITE_WRITE. However, in practice files do not get consistently written to in an open/write/close/open/write/close sequence. dCache may serve different replicas of a file for two consecutive open. As there is no mechanism inside dCache that would enforce synchronization of the writing to one of the physical files after opening a given logical file, this generally leads to different file contents for different physical files that a referenced as the same logical file. This is obviously unacceptable and thus prohibits the use of dCache as a SITE_WRITE solution. The same is avoided if writes are allowed only via srmcp (i.e. DEFAULT_SE) while reads may use either srmcp (DEFAULT_SE) or dcap (SITE_READ). SRM implementation in dcache does not allow writing of logical files that already exist. It thus guarantees that all physical file replicas of the same logical file remain the same. 
+	4. SITE_READ, DEFAULT_SE, WN_TMP - This is the SRM/dCache model. This is actually a superset of 3, so this CE satisfies 3. It is reported because is an important use case. In this model read access is via dcap, while write access is via srmcp only. Write access via dcap is in principle possible, and thus would in principle provide SITE_WRITE. However, in practice files do not get consistently written to in an open/write/close/open/write/close sequence. dCache may serve different replicas of a file for two consecutive open. As there is no mechanism inside dCache that would enforce synchronization of the writing to one of the physical files after opening a given logical file, this generally leads to different file contents for different physical files that a referenced as the same logical file. This is obviously unacceptable and thus prohibits the use of dCache as a SITE_WRITE solution. The same is avoided if writes are allowed only via srmcp (i.e. DEFAULT_SE) while reads may use either srmcp (DEFAULT_SE) or dcap (SITE_READ). SRM implementation in dcache does not allow writing of logical files that already exist. It thus guarantees that all physical file replicas of the same logical file remain the same. 
  A dataflow example could be: 
 		* site admin intervention or externall transfer 
 		* job execution (open/seek/read from SITE_READ using dcap)
 		* srmcp:WN_TMP->DEFAULT_SE
 		* external stage-out
 
-The set of CE storages provided by a CE must include at least one of these four sets.
+The set of CE storages provided by a CE *must include* at least one of these four sets (*1 OR 2 OR 3* - 4 includes 3).
 
 Off course providing a wider selection of CE storages would allow the jobs to select the most proper for their needs. But it could also allow the jobs to adopt inefficient execution models that could affect negatively the performance of the whole cluster.
+
+Check LocalStorageConfiguration for installation/configuration notes and examples.
 
 Notes (*#):
 	1. Alain Roy? should be coordinating an activity working on how to make storage information available: environment variables, MDS information providers, ... 
