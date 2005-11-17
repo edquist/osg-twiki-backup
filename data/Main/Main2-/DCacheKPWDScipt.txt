@@ -1,0 +1,150 @@
+%META:TOPICINFO{author="TedHesselroth" date="1132256135" format="1.0" version="1.1"}%
+%META:TOPICPARENT{name="DCacheStorageElementInstallNotes"}%
+<verbatim>
+
+#!/usr/bin/perl -w
+
+use strict;
+use Getopt::Std;
+
+# Looks at the gridmapfile located from /etc/sysconfig/edg
+# and also uses the host certificate
+# to create a dcache.kpwd file from the grid-mapfile.
+#
+# -c hostcert can be used to give the location of the host cert.
+# -o output can be used to create the file in a different location.
+# -u user can be used to map the host cert to the named user.
+
+my %opts;
+getopts('c:o:u:', \%opts);
+
+my $hostcert	= $opts{c} || "/etc/grid-security/hostcert.pem";
+my $hostuser	= $opts{u} || "edginfo";
+my $dcacheKpwd = $opts{o} || "/opt/d-cache/etc/dcache.kpwd";
+my $tmp = "$dcacheKpwd.tmp";
+my ($uid, $gid) = (getpwnam($hostuser))[2, 3];
+my $hostdn;
+
+open(HOSTDN, "openssl x509 -subject -noout < $hostcert |");
+
+while (<HOSTDN>) {
+	 if (/^subject=\s*(.*CN=.*)/) {
+	$hostdn = $1;
+	last;
+	 }
+}
+close(HOSTDN);
+
+die "Could not determine host DN\n" unless $hostdn;
+die "Could not find user '$hostuser' in passwd file\n" unless
+	 defined($uid) && defined($gid);
+
+my $globuscfg = '/etc/sysconfig/edg';
+open(GLOBUSCFG, "<$globuscfg") or die "Could not open $globuscfg: $!\n";
+my $gridmap = '/etc/grid-security/grid-mapfile';
+
+while (<GLOBUSCFG>) {
+	 $gridmap = $1 if (/^GRIDMAP\s*=\s*(\S*)\s*/);
+}
+close(GLOBUSCFG);
+
+open(GRIDMAP, "<$gridmap") or die "Could not open $gridmap: $!\n";
+
+my %map;
+my %ac4gid;
+my %uid4ac;
+
+while (<GRIDMAP>) {
+	 if (/^"(.*CN=.*)"\s+(\S+)\s*$/) {
+	my $dn = $1;
+	my $ac = $2;
+
+	push( @{$map{$ac}} , $dn );
+
+	# Something changes Email= to E= somewhere
+	# If we have a DN with Email= change it to E= and add it also
+
+	if ($dn =~ s/Email=/E=/) {
+		push( @{$map{$ac}} , $dn );
+	}
+	 }
+}
+
+open(DCACHE, ">$tmp") || die "Could not open $tmp: $!\n";
+
+print DCACHE "# This was created by the grid-mapfile2dcache-kpwd command\n";
+print DCACHE "# from the grid-mapfile\n\n";
+print DCACHE "version 2.1\n\n";
+
+if ($hostdn) {
+	 print DCACHE 'mapping "'.$hostdn.'" '."$hostuser\n"
+			 . "\n"
+					. "login $hostuser read-write $uid $gid / / /\n"
+			 . "\t$hostdn\n\n";
+}
+if ($hostdn =~ s/Email=/E=/) {
+	 print DCACHE 'mapping "'.$hostdn.'" '."$hostuser\n"
+			 . "\n"
+					. "login $hostuser read-write $uid $gid / / /\n"
+			 . "\t$hostdn\n\n";
+}
+
+for (sort keys %map) {
+	 my $ac = $_;
+	 my ($uid, $gid);
+
+	 if ($ac =~ s/^\.//) {
+	# pool account
+
+	$ac .= "001";
+	($uid, $gid) = (getpwnam($ac))[2, 3];
+
+	if (defined($gid)) {
+		 $ac4gid{$gid} = $ac;
+		 $uid4ac{$ac} = $uid;
+	} else {
+		 warn "$0: cannot find user '$ac'\n";
+	}
+
+	 } else {
+	# static account: use corresponding pool account if needed
+
+	($uid, $gid) = (getpwnam($ac))[2, 3];
+
+	if (defined($gid)) {
+		 if (exists $ac4gid{$gid}) {
+		$ac = $ac4gid{$gid};
+		$uid = $uid4ac{$ac};
+		 }
+	} else {
+		 warn "$0: cannot find user '$ac'\n";
+	}
+	 }
+
+	 next unless defined $gid;
+
+	 my @grp = sort @{$map{$_}};
+
+	 print DCACHE "# Mappings for '$_' users\n";
+
+	 for (@grp) {
+	print DCACHE "mapping \"$_\" $ac\n";
+	 }
+
+	 print DCACHE "\n";
+	 print DCACHE  "# Login for '$_' users\n";
+	 print DCACHE  "login $ac read-write $uid $gid / / /\n";
+
+	 for (@grp) {
+	print DCACHE "\t$_\n";
+	 }
+
+	 print DCACHE "\n";
+}
+
+close(DCACHE);
+rename($tmp, $dcacheKpwd) or die "Error: cannot rename $tmp to $dcacheKpwd: $!\n";
+
+
+</verbatim>
+
