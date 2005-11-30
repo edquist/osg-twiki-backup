@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MichaelThomas" date="1117132462" format="1.0" version="1.5"}%
+%META:TOPICINFO{author="MichaelThomas" date="1133336470" format="1.0" version="1.6"}%
 %META:TOPICPARENT{name="ItbRel015"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -16,14 +16,24 @@ rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
 
 ---++Introduction
 
-JClarens is a grid service framework for hosting and developing new grid services. The Discovery Service is one such grid service. In order to run the Discovery Service, both JClarens and the Discovery Service packages must be installed. Fortunately, the VDT installer makes this easy.
+JClarens is a grid service framework for hosting and developing new grid services. It is a Java implementation of the more general [[http://clarens.sourceforge.net][Clarens grid service framework]].  The Discovery Service is one such grid service.
+
+The Discovery Service provides a way to dynamically discover and advertise Web Services in the OSG.  Local Discovery Service instances can run on many sites and each one will receive the same set of service advertisements.	Once a service is published to any of the local Discovery Service instances, the publication is sent out to all other Discovery Service instances immediately.  In this archtecture, sites are never polled for the services that they provide.  Instead, each site pushes out service descriptions to the Discovery Service.  This push model is much more scalable than a poll model where each site must be queried directly.
+
+The Discovery Service uses the Jini P2P framework provided by MonALISA to propogate and discover service information.
+
+In the OSG there are several types of services that are currently advertised through the Discovery Service:
+	1. VOMS-Admin - VOMS servers are advertised to help maintain a list of the current valid VOs and their configurations.  This allows sites to generate an up-to-date =edg-mkgridmap.conf= file or =gums.config= template from a single query to a local or a remove Discovery Service instance.
+	1. SRM/DRM - SRM/DRM has built-in support for advertising itself to the Discovery Service.
+
+In order to run the Discovery Service, both JClarens and the Discovery Service packages must be installed. Fortunately, the VDT installer makes this easy.
 
 ---++Basic Installation
 
 	1. Install a service certificate and key into =/etc/grid-security/http/httpcert.pem= and =/etc/grid-security/http/httpkey.pem=. This should be done before installing the VDT.  
 	1. If you haven't done so already, [[http://www.cs.wisc.edu/vdt/releases/1.3.6/installation_pacman.html][install pacman]].
 	1. Install the JClarens and Discovery Service packages from the VDT cache<br/>
-		=pacman -get !http://www.cs.wisc.edu/vdt/vdt_136_cache:jClarens-Discovery=
+		=pacman -get !http://www.cs.wisc.edu/vdt/vdt_138_cache:jClarens-Discovery=
 	1. During the installation, pacman will ask if you want to enable the JClarens web services framework.  Good admins (who got a service cert first) should answer =y=. Impatient admins, answer =s=.
 <verbatim>
 		Would you like to enable the jClarens web services framework?
@@ -37,16 +47,20 @@ Good admins -- you're done!  Anyone else should get a service certificate and in
  
 ---++Site Configuration
 
-The Discovery Service requires access to a [[http://monalisa.caltech.edu][MonALISA]] server that has been configured to receive [[http://monalisa.caltech.edu/dev_ap_mon.html][ApMon publications]].  This MonALISA server does not need to reside on the same host, or even at the same site as the Discovery Service.
-There are three files that must be updated for the local site installation:  
+The Discover Service operates in two modes:  Publication and Discovery.  In Publication mode, the services hosted in JClarens (including the Discover Service itself) are advertised to the other Discovery Services in the OSG-ITB.  Additionally, the web service interface of a local Discovery Server will advertise services published via the "rendezvous.register" method to the other Discovery Services.  In order to run in Discovery mode, the Discovery Service requires access to a [[http://monalisa.caltech.edu][MonALISA]] server that has been configured to receive [[http://monalisa.caltech.edu/dev_ap_mon.html][ApMon publications]].  This MonALISA server does not need to reside on the same host, or even at the same site as the Discovery Service.
+
+In Discovery Mode, the Discovery Service listens for service advertisements from other Discovery Services.  No changes are necessary to enable Discovery mode for the Discovery Service.
+
+There are three files that must be updated for the local site installation (these need to be verified against a VDT 1.3.8 installation):  
 
 ---+++$VDT_LOCATION/tomcat/v4/webapps/jclarens/xmlrpc_handlers.properties
 	1. Change the value of =monitor.dest= to point to the [[http://monalisa.caltech.edu][MonALISA]] server that was configured to receive [[http://monalisa.caltech.edu/dev_ap_mon.html][ApMon publications]].<br/>
-		=monitor.dest=my.monalisa.host:8884=
+		=monitor.dest=my.monalisa.host:8884= (TODO:  A public MonALISA server for Discovery publications will be installed at Caltech in the near future.  New hardware has just arrived...)
 	1. The =clarens.admin= property contains a certificate DN fragment for the user who is given full access to all services on the server.  Any user who logs in with a certificate containing this substring will bypass all access control checks.  Comment out this property to remove all adminstrator access.<br/>
 		=#clarens.admin=OU=GAE=
 	1. Set the =vo.name= property to the name of the virtual organization to which this server belongs.<br/>
 		=vo.name=uscms=
+	1. Set the =clarens.admin.email= property to a valid email address.  Important notices about jClarens and the Discovery Service may be sent to this address.
 
 ---+++$VDT_LOCATION/tomcat/v4/webapps/jclarens/mlstore.properties
 	1. Change the name of the MonALISA group to OSG-ITB<br/>
@@ -61,7 +75,7 @@ There are three validation steps that the Discovery Service is running.  The fir
 
 The second validation test is to check the [[http://ultralight.caltech.edu:8080/jclarens/web/rendezvous/rendezvous_interface.html][Discovery Service registry hosted at Caltech]].  If your local Discovery Service has been configured correctly then you should see your site listed in this registry.
 
-The third validation step involes publishing a service to the registry from the command line.  Command line tools are available from http://discover.gridservice.info/publish-voms-admin.tar.gz.  This package contains generic service publication scripts as well as a script for publishing voms-admin services to the registry.  The README file in the tarball contains information on how to customize and use these scripts.  Validation is successful when the publish script publishes a service with no errors and the query script returns the service that was published via the publish script.
+The third validation step involves publishing a service to the registry from the command line.  Command line tools are available from http://discover.gridservice.info/publish-voms-admin-1.3.7.tar.gz.  This package contains generic service publication scripts as well as a script for publishing voms-admin services to the registry.  The README.osg file in the tarball contains information on how to customize and use these scripts.  Validation is successful when the publish script publishes a service with no errors and the query script returns the service that was published via the publish script.
 
 <!-- MAJOR UPDATES
 For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
