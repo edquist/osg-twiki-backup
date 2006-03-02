@@ -1,0 +1,150 @@
+#!/bin/sh
+
+# Synchronize the certificates in the area given in the argument with those
+# in an identically-named area on the worker nodes
+# This version is for pbs and will skip all nodes that are marked down
+# Modeled heavily on the edg-fetch-url script
+# 27 Feb 2006 Alan Sill, Texas Tech University / TIGRE
+
+PATH="${PATH}:/opt/globus/bin:/bin:/usr/bin:/usr/local/bin/usr/pbs/bin"
+
+date=date
+basename=basename
+getopt=getopt
+pbsnodes=pbsnodes
+grep=grep
+sed=sed
+cut=cut
+rsync=rsync
+dirname=dirname
+readlink=readlink
+ 
+programName=`${basename} $0`
+verboseMode=1                    # enable message display
+
+#
+# ShowUsage - show this program usage
+#
+ShowUsage()
+{
+   echo
+   echo "Usage:" ${programName} "[-h|--help]" 
+   echo "      " ${programName} "[-l|--loc <local_cert_area>] [-q|--quiet]" 
+   echo
+   echo "   Options:"
+   echo
+   echo "      -h|--help show this help"
+   echo
+   echo "      -l|--loc  <local_cert_area>"
+   echo "                The script will make a list of worker nodes not currently marked"
+   echo "                as down by the PBS command pbsnodes -a and will attempt to"
+   echo "                rsync the local_cert_area given in the -l argument to all such"
+   echo "                active worker nodes."
+   echo "                The directory to be used as argument for this option"
+   echo "                is typically /etc/grid-security/certificates or an equivalent."
+   echo "                If this is a symbolic link, it will be translated before the "
+   echo "                the rsync step, so the translated link is what is synced."
+   echo "                Default: none (must be supplied or the routine will exit)."
+   echo
+   echo "      -q|--quiet"
+   echo "                Quiet mode (do not print information messages)"
+   echo
+}
+
+
+#
+# Print information message
+#
+PrintMessage()
+{
+   if [ ${verboseMode} -eq 0 ]; then
+      return
+   fi
+
+   timeStamp=`${date} +%Y/%m/%d-%H:%M:%S`
+   echo ${programName}": ["${timeStamp}"]" $*
+}
+
+#
+# Print error message
+#
+PrintError()
+{
+   if [ ${verboseMode} -eq 0 ]; then
+      return
+   fi
+
+  timeStamp=`${date} +%Y/%m/%d-%H:%M:%S`
+   echo ${programName}": ["${timeStamp}"]" $* 1>&2
+}
+
+#
+# Parse the command line
+#
+getoptResult=`${getopt} -o hl:q -a -l help,loc:,quiet -n ${programName} -- "$@"`
+if [ $? != 0 ] ; then
+   ShowUsage
+   exit 1
+fi
+
+eval set -- "${getoptResult}"
+while true ; do
+   case "$1" in
+      -h|--help)  helpRequested="true" ; shift ;;
+      -l|--loc)   local_cert_area=$2; shift 2 ;;
+      -q|--quiet) verboseMode=0; shift ;;
+      --)         shift; break;;
+      *)          echo ${programName}": internal error!" ; exit 1 ;;
+   esac
+done
+
+#
+# Are there extra arguments?
+#
+if [ $1 ]; then
+   echo ${programName}": unexpected argument '"$1"'"
+   ShowUsage
+   exit 1
+fi
+
+#
+# Did the user request help?
+#
+if [ "X${helpRequested}" = "Xtrue" ]; then
+   ShowUsage
+   exit 0
+fi
+
+# Check that area exists
+
+if [ "X${local_cert_area}" = "X" ]; then
+   PrintError "Argument for certificate area not given"
+   exit 1
+fi
+if [ ! -d ${local_cert_area} ]; then
+   PrintError "'"${local_cert_area}"' is not a directory or cannot be read"
+   exit 1
+fi
+
+cert_dir=`${basename} ${local_cert_area}`
+cert_area=`${dirname} ${local_cert_area}`
+
+# translate any soft link, taking care to reassemble from above pieces
+
+if [ -h ${cert_area}/${cert_dir} ]; then
+    PrintMessage "Translating soft link for '"${local_cert_area}"'"
+    local_cert_area=`${readlink} ${cert_area}/${cert_dir}`
+    cert_dir=`${basename} ${local_cert_area}`
+    cert_area=`${dirname} ${local_cert_area}`
+fi
+
+PrintMessage "Starting pbs worker node certificate synchronization from '"${cert_area}/${cert_dir}"' to same dir in remote '"${cert_area}"'"
+
+for wn_ok in `${pbsnodes} -a | ${grep} "\.local\|state \=" | ${sed} '$!N;s/\n/ /' | ${grep} -v "state \= down" | ${cut} -f 1 -d " "`; do
+        PrintMessage "Synchronizing certs for '"${wn_ok}"'"
+    if [ ${verboseMode} -eq 0 ]; then
+        ${rsync} --archive --quiet --rsh=/usr/bin/ssh ${cert_area}/${cert_dir} ${wn_ok}:${cert_area}
+    else
+        ${rsync} --archive --verbose --stats --rsh=/usr/bin/ssh ${cert_area}/${cert_dir} ${wn_ok}:${cert_area}
+    fi
+done
