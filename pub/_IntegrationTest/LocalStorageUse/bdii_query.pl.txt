@@ -1,0 +1,73 @@
+#!/usr/bin/perl -w
+
+use Net::LDAP;
+use Data::Dumper;
+
+$hostname = "data.grid.iu.edu";
+$port = 2170;
+$base = "mds-vo-name=OSG,o=grid";
+
+#$hostname = "your.full.hostname";
+#$port = 2135;
+#$base = "mds-vo-name=local,o=grid";
+
+$attributes = ['GlueLocationPath', 'GlueLocationLocalID'];
+$objectClass = "GlueLocation";
+$filter = "(GlueLocationName=OSG_GRID)";
+
+eval {          
+	local $SIG{ALRM} = sub { die "alarm clock restart" };
+	alarm 60 * 5;
+	
+	$ldap = Net::LDAP->new($hostname, port => $port, timeout => 5);
+
+	if (! $ldap ) {
+		die "ldap object creation failed";
+	}
+	 
+	$ldap->bind ;    # an anonymous bind
+
+	$mesg = $ldap->search (  # perform a search
+               	base => $base,
+               	filter => "(&(objectClass=$objectClass)$filter)",
+               	attrs => $attributes
+        );
+ 
+	if ($mesg->code)  {
+
+		if ($mesg->code == 53) {
+			die "Cannot search mds-vo-name=local,o=grid (need GSI auth) (" . $mesg->code . ")\n" . $mesg->error . "\n";
+		} else {
+			die "Cannot search mds-vo-name=local,o=grid (" . $mesg->code . ")\n" . $mesg->error . "\n";
+		}
+
+	}
+	
+	foreach $entry ($mesg->all_entries) { 
+		$dn = $entry->dn();
+		print "dn: $dn\n";
+		@attributes = $entry->attributes();
+
+		foreach $attribute (@attributes) {
+			@values = @{$entry->get_value($attribute, asref => 1)};
+			print "$attribute ->\n";
+			foreach $value (@values) {
+				print "\t$value\n";
+			}
+		}
+	}
+
+	$ldap->unbind;
+
+	alarm 0;        
+};        
+
+if ($@) {
+	if ($@ =~ /alarm clock restart/) { 
+		print "ldap functions hung\n"; 
+	} else {
+		print $@ . "\n";
+	}
+}
+
+
