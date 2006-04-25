@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="StevenTimm" date="1142977297" format="1.0" version="1.15"}%
+%META:TOPICINFO{author="FkW" date="1145993576" format="1.0" version="1.16"}%
 %META:TOPICPARENT{name="LocalStorageRequirements"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -29,11 +29,11 @@ This section covers the configuration of information about your CE that you must
 <!-- The current version also provides backward compatibility with applications using Grid3 conventions. -->
 At the core is a standard configuration file (<tt>$VDT_LOCATION/monitoring/osg-attributes.conf</tt>), that can be edited or reviewed directly. There is a configuration script (<tt>$VDT_LOCATION/monitoring/configure-osg.sh</tt>) which automates much of the configuration.
 
-The meaning and purpose of the various elements of the attributes in that file are documented further in LocalStorageRequirements and in the [[http://infnforge.cnaf.infn.it/glueinfomodel/index.php/Spec/V12][GLUE documentation]]. New resource administrators may want read that information carefully and determine how to map those elements onto their Resource before proceeding. Guidance on the basic elements and common defaults is provided below. 
+The meaning and purpose of the various elements of the attributes in that file are documented further in LocalStorageRequirements and in the [[http://infnforge.cnaf.infn.it/glueinfomodel/index.php/Spec/V12][GLUE documentation]]. New resource administrators may want to read that information carefully and determine how to map those elements onto their Resource before proceeding. Guidance on the basic elements and common defaults is provided below. 
 
 ---+++!!Gather configuration information
 
-OSG strives to make resources available with minimal requirements; however, in order to provide a basic execution environment, certain information about files and filesystem locations is needed. Filesystem sharing and filesystem mount points available for a cluster requires specific coordination for applications to be installed and to be executed correctly. For this purpose, some special directory hierarchies (mount points) will be required to be defined and allocated in the OSG environment. These directories may be required to be available on the head node/gatekeeper node, available (using the exact path) on each of the worker nodes, simply shared filespace.
+OSG strives to make resources available with minimal requirements; however, in order to provide a basic execution environment, certain information about files and filesystem locations is needed. Filesystem sharing and filesystem mount points available for a cluster requires specific coordination for applications to be installed and to be executed correctly. For this purpose, some special directory hierarchies (mount points) will be required to be defined and allocated in the OSG environment. These directories may be required to be available on the head node/gatekeeper node, and (using the exact path) on each of the worker nodes. They generally do NOT have to be made available in form of a shared filesystem across the whole cluster. Read-only spaces can generally be provisioned with or without a shared filesystem as long as care is taken in providing consistent paths.
 
 * %RED%OSG Location ($OSG_LOCATION)%ENDCOLOR%
 
@@ -51,10 +51,11 @@ must be accessible by both gatekeeper and worker nodes (via a shared filesystem,
 
 This is the base location for VO-specific application software. Only users with software
 installation privileges in their VO should have write privileges to this directories. At least 10 GB of space should be allocated per VO.
+It is read-only mounted on all worker nodes in the cluster.
 
 * %RED%Data Directories ($OSG_DATA or $OSG_SITE_READ/$OSG_SITE_WRITE)%ENDCOLOR%
 
-	 These directories must be shared from the head node to each of the worker nodes. This is intended
+	 These directories must be accessible from the head node as well as each of the worker nodes. This is intended
 as the space for applications to write input and output data files for running jobs with persistency that must exceed the lifetime of the job which created it. This directory should be writable by all users.  Users will be able to create sub-directories which are private, as provided by the filesystem. At least 10 GB of space should be allocated per worker node; some VOs require much larger allocations.
 
 The following different options are possible: 
@@ -62,6 +63,7 @@ The following different options are possible:
 	* $OSG_SITE_READ: shared directory with read-only access for all users (data may be prestaged by the administrator or using a SE pointing to the same space)
 	* $OSG_SITE_WRITE: shared directory with write-only access for all users (data may be staged out by the administrator or using a SE pointing to the same space)
 A CE can provide $OSG_DATA, both $OSG_SITE_READ and $OSG_SITE_WRITE, or none of them if it has a local SE specified in $OSG_DEFAULT_SE. The keyword to say that one hierarchy is not provided is UNAVAILABLE.
+For additional details please refer to LocalStorageRequirements .
 
 * %RED%Temporary Directory ($OSG_WN_TMP)%ENDCOLOR%
 
@@ -70,7 +72,7 @@ Files placed in this area by a job may be deleted upon completion of the job.
 
 * %RED%Default Storage Element ($OSG_DEFAULT_SE)%ENDCOLOR%
 
-	 The default Storage Element, $OSG_DEFAULT_SE, is a storage element that is close and visible from all the nodes of the CE (worker nodes and head node). Usually, it is local to the CE and accessible from outside with the same or a different URL. The value to be specfied in $OSG_DEFAULT_SE is the full URL, including method, host/port and path of the base dir. 
+	 The default Storage Element, $OSG_DEFAULT_SE, is a storage element that is close and visible from all the nodes of the CE (worker nodes and head node). <!-- Usually, it is local to the CE and accessible from outside with the same or a different URL. --> The value to be specfied in $OSG_DEFAULT_SE is the full URL, including method, host/port and path of the base dir. This full URL must be reachable from inside as well as outside the cluster. The $OSG_DEFAULT_SE generally supports only put and get, rather than open/read/write/close as discussed in LocalStorageRequirements . At present, the supported methods for the $OSG_DEFAULT_SE are SRM and gftp.
 If the CE has no default SE it can use the value UNAVAILABLE for $OSG_DEFAULT_SE. 
 
 The final question asks about the <b>VO sponsor</b> of your site.
@@ -424,7 +426,9 @@ Export all file systems
 </pre>
 
 In this configuration you must point "myheadnode.athome.edu" in the specification of "Default SE" to the nodename of 
-Headnode 2, the one that instantiates the gsiftp server.
+Headnode 2, the one that instantiates the gsiftp server. The CE installation will also install a gridftp server. However, that gftp server will not be advertized in any way shape or form. It is required because the condor-g client uses it to retrieve those files that are specified in the jdl as output files. Condor-g implicitly assumes that the host that runs the GRAM also runs gsiftp.
+
+The intended use case here is for large scale data movement to go via the "Default SE" while small output files (O(a few MB)) that are retrieved by condor-g directly may be transfered via the CE.
 
 This installation implements LocalStorageRequirements#1_OSG_GRID_OSG_APP_OSG_DATA_OSG and is thus OSG compliant.
 
@@ -452,7 +456,7 @@ A site that chooses this configuration needs to configure "Site Read", "Site Wri
 <pre>
 Site read:		 <i>dcap://mydcapnode.athome.edu:22136//pnfs/athome.edu</i>
 Site write:		<i>srm://mysrmnode.athome.edu:8443/</i>
-Default SE:		<i>gsiftp://myheadnode.athome.edu:2811</i>
+Default SE:		<i>gsiftp://myheadnode2.athome.edu:2811</i>
 </pre>
 
 Note that a file that is copied into the Default SE can not be read from "Site read" as these are two entirely 
@@ -481,6 +485,7 @@ For significant updates to the topic, consider adding your 'signature' (beneath 
 *Major updates*:%BR%
 <!--Future editors should add their signatures beneath yours!-->
 -- Main.MarcoMambelli - 11 Nov 2005
+-- Main.FkW - 25 Apr 2006
 
 %STOPINCLUDE%
 
