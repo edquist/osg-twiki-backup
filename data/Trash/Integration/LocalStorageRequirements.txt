@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="StevenTimm" date="1142541370" format="1.0" version="1.44"}%
+%META:TOPICINFO{author="FkW" date="1145941120" format="1.0" version="1.45"}%
 ---+!! Local Storage Requirements
 
 %TOC%
@@ -8,7 +8,7 @@
 The goal of this page is to provide a recommendation for the definitions and environment variables for the Local Storage accessible to Compute Elements on OSG. It covers the definition of these spaces and correspondences to external schemas (e.g. GLUE, Grid3/OSG).
 The paths defined with the names below are sometimes also called _CE storages_. They are disk spaces or SEs accessible from within the CE .
 <!-- (the same from each jobmanager of that CE: jobs on the headnode using _fork_, jobs on the worker nodes usong _pbs/condor/lsf/..._, multiple gatekeeper added to the same CE for reliability or scalability reasons will have to have the same values). -->
-The keyword <i>UNAVAILABLE</i>will be provided instead of the path when the CE is not supporting a particular CE storage, disambiguating an unconfigured site from one which provides support for only certain CE storages.
+The keyword <i>UNAVAILABLE</i> will be provided instead of the path when the CE is not supporting a particular CE storage, distinguishing an unconfigured site from one which provides support for only certain CE storages.
 The values provided do not refer to any disk space as viewed from outside (SE, !GridFTP server, ...).
 
 <!-- In this document there are some suggestions on how to encourage proper use and deployment (how to make this information available), but in general this is the responsibility of other groups in OSG.
@@ -46,7 +46,9 @@ In the following table there is a name matrix:
 	1. !LocalID: SITE_WRITE+OSG, Name:SITE_WRITE, Version: OSG, Path: <value of SITE_WRITE>
 	1. !LocalID: SITE_READ+OSG, Name:SITE_READ, Version: OSG, Path: <value of SITE_READ>
 
-Each CE administrator will provide for the correct functioning of the client software (Globus and SRM: access to the users proxy, gass_cache mechanism) for all the jobs running on the CE.  Common practice is to use a shared $HOME directory, but the administrator is free to use other mechanisms transparent to the users. Users should have no other assumption about the CE different from what is stated in this document. It is unsafe to make assumptions about the existence and characteristics (size, being shared, ...) of the $HOME directory.
+Each CE administrator will provide for the correct functioning of the client software (Globus and SRM: access to the users proxy, gass_cache mechanism) for all the jobs running on the CE.  Common practice is to use a shared $HOME directory, but the administrator is free to use other mechanisms transparent to the users. Users should have no other assumption about the CE different from what is stated in this document. It is unsafe to make assumptions about the existence and characteristics (size, being shared, ...) of the $HOME directory. In particular, site admins are free to deploy configurations that do not
+include any NFS exports from the CE, e.g. as described in OSG document 
+<a href="http://osg-docdb.opensciencegrid.org/cgi-bin/ShowDocument?docid=382">382</a>.
 
 The following sections describe the different storage areas that may be declared local to a CE.
 Each section includes:
@@ -62,6 +64,9 @@ Each section includes:
 This area is read-only, intended for client software provided by OSG.
 
 The CE administrators will install the client software included in the OSG-WN-Client package in this area (see WorkerNodeClient for details.)  It is required that relative paths and content are consistent between gatekeeper and worker nodes even if OSG_GRID itself (the base dir) differs between the two.  It is up to the site administrator to either provide a shared directory, or to locally install it on each machine. OSG_GRID may be included directly into the PATH defined for jobs running at the CE.
+In cases when WorkerNodeClient installation leads to OSG_GRID that differs between CE (i.e. gatekeeper)
+and worker nodes, it is required to add appropriate softlinks on the worker node such that jobs that
+assume the same base path will work.
 
 Typical uses of this area are:
 	* Provide a common set of OSG client software (_globus-job-run_, _globus-url-copy_, _srmcp_, etc.)
@@ -92,9 +97,10 @@ Notes (*#):
 This area is a transient storage shared between jobs executing on the worker nodes.
 
 It is required that relative paths resolve consistently between gatekeeper and worker nodes.  
-This area is intended to hold data shared among different applications running on different worker nodes and/or data that has to outlive the execution of the jobs on the worker nodes.  It has to allow open/read/write operations by regular programs (that may use it transparently as a local disk space --  NFS, dcap, drm, AFS, CIFS are OK). This is a subset of a POSIX-compatible filesystem, excluding features such as special file creation (pipes, sockets, locks, links) and the ability to modify file metadata (permissions)(*1).
+This area is intended to hold data shared among different applications running on different worker nodes and/or data that has to outlive the execution of the jobs on the worker nodes.  It has to allow open/read/write operations by regular programs (that may use it transparently as a local disk space --  NFS, <!-- dcap, drm, -->
+AFS, CIFS are OK). This is a subset of a POSIX-compatible filesystem, excluding features such as special file creation (pipes, sockets, locks, links) and the ability to modify file metadata (permissions)(*1).
 
-Gridftp or 'SE like' access from outside of the cluster would allow an efficient use of OSG_DATA as staging area (*2).
+Gridftp or 'SE like' access from outside of the cluster is required to allow an efficient use of OSG_DATA as staging area (*2).
 
 Since the allocation of this space is transient, it is important that users remove unused data and/or that a simple mechanism to allow cleanups (*3) is added.
 The use of OSG_DATA as a writable area from compute nodes is one of the most significant performance bottlenecks in an OSG cluster. Use of OSG_DATA as the "hold all read/write area" (working area for the jobs) is discouraged.
@@ -105,7 +111,7 @@ A suggested dataflow using OSG_DATA and providing more scalable and reliable dat
 	* Job output is placed in OSG_WN_TMP
 	* At the end of job, the results from OSG_WN_TMP are packaged, staged to OSG_DATA and picked up via gridftp or staged out via other mechanisms (such as srmcp).
 Functions covered by OSG_DATA are nearly equivalent to those provided by OSG_SITE_READ and OSG_SITE_WRITE together.  The latter solution forces the separation between input and output and may be more efficient for big production sites with specialized hardware, while OSG_DATA may be easier to deploy for small sites.<br>
-If you plan to remove OSG_DATA for performance issues, check if your jobmanagers require a shared space and if $HOME is local or it is another OSG_DATA de facto (*4).
+If you plan to remove OSG_DATA for performance issues, check if your jobmanagers require a shared space and if $HOME is local or it is another OSG_DATA de facto (*4). At present, we discourage site admins from removing OSG_DATA and discourage users from using OSG_DATA. We believe that many users need some more transition time to ween themselves off of their use of OSG_DATA.
 
 Typical uses of this area are:
 	* Input datasets for jobs executing on the worker nodes
@@ -117,7 +123,7 @@ Notes (*#):
 	1. The ability to modify file permissions may be required in future revisions -- it is available in SRMv2
 	1. The OSG_DEFAULT_SE entry may be used to publish the base GSIftp URL of the SE viewing that space.
 	1. An example of a simple space management solution could be a file in each directory ( _.keep_) that includes a number of days (between 0 and _maxdays_) that that data should be kept. If today's date > (_.keep_ modification date+number of days requested), all files in that directory and subdirectories may be removed. This is a "gentleman's agreement" -- keep in mind that none of the data in a transient storage is guaranteed (if the sysadmin needs to remove it, he can do it freely and asking around is a kindness, not a rule)
-	1. E.g. the current Condor jobmanager uses a shared space (in the gass_cache as default) when it is requested to transfer the executable or some data. As previously mentioned, it is not safe to assume that $HOME is shared between gatekeeper and worker nodes. Furthermore, it is not worth removing a shared space like OSG_DATA for performance issues only to reintroduce it as $HOME (that probably will have even more performance problems because of other loads)
+	1. E.g. the current Condor jobmanager uses a shared space (in the gass_cache as default) when it is requested to transfer the executable or some data. As previously mentioned, it is not safe to assume that $HOME is shared between gatekeeper and worker nodes. Furthermore, it is not worth removing a shared space like OSG_DATA for performance issues only to reintroduce it as $HOME (that probably will have even more performance problems because of other loads). If you do decide to eliminate OSG_DATA from your site then you should also eliminate $HOME at the same time, e.g. as described in OSG document <a href="http://osg-docdb.opensciencegrid.org/cgi-bin/ShowDocument?docid=382">382</a>.
 
 ---++ OSG_SITE_READ
 
@@ -125,7 +131,7 @@ This area is a transient storage visible from all worker nodes and optimized for
 
 It is required that relative paths resolve consistently between gatekeeper and worker nodes.  
 This read-only area is intended to hold input data shared among different applications running on different worker nodes.
-It allows normal file random access read operations (open, seek, read, close) by regular programs (that may use it transparently as a local disk space). This is provided through a grid file access library, and the users do not have to know the storage location and its the underlying implementation (the use will be uniform across OSG).<br>
+It allows normal file random access read operations (open, seek, read, close) by regular programs (that may use it transparently as a local disk space). This is provided through a grid file access library, and the users do not have to know the storage location and its underlying implementation (the use will be uniform across OSG).<br>
 Users have no write access to this area: files will be placed there by site administrators or by writing from the Grid side of the SE.  (*1).<br>
 If the gatekeeper cannot write to this area, there may be problems with jobmanagers using a shared directory to transfer the executable or some data (*2). 
 
@@ -165,11 +171,15 @@ This area was intended as a shared temporary work area. Because of its similarit
 
 ---++ OSG_WN_TMP
 This area is a temporary work area that may be purged when the job completes.
-It is generally not possible for two jobs running on as cluster to read from (or write to) eachother's OSG_WN_TMP areas. The OSG_WN_TMP area is thus fundamentally different from all other areas discussed here in that it is job-specific.
+It is generally not possible for two jobs running on a cluster to read from (or write to) each other's OSG_WN_TMP areas. The OSG_WN_TMP area is thus fundamentally different from all other areas discussed here in that it is job-specific.
 
 It is required that OSG_WN_TMP points to a POSIX-compliant filesystem that supports links, sockets, locks, pipes and other special files as required. Good I/O is essential for job performance, so a local filesystem is recommended.
 Ideally, it should be a temporary directory (or partition) assigned empty for the job, with a well defined amount of space (many jobs require at least 1-2 GB of disk space) and purged at job completion.  The space provided should be dedicated and isolated: jobs overusing their space should not affect each other or affect the OS.<br>
 In most cases, it points to a space shared among all jobs currently executing at the worker node, so it is recommended that a job create a unique subdirectory of OSG_WN_TMP (e.g. OSG_WN_TMP/somestring$JOBSLOT) that becomes its working area and that should be removed by the job itself before completion.
+<br>
+Sites using condor as their batch system typically implement this by letting condor create the
+jobs directory prior to launching the job. In those cases OSG_WN_TMP may be defined in the GIP implicitly by pointing to another environment variable, rather than explicitly by pointing to a full path.
+
 
 Typical uses of this area are:
 	* Working directory for jobs (running on the worker nodes)
@@ -183,7 +193,7 @@ Notes (*#):
 This variable represents a Storage Element closely related to the CE.
 
 It is accessible only using SE access methods (Gridftp, SRM). It is accessible from within the cluster (visible from the worker nodes). If accessible from outside, it is the preferred SE for the CE and should be used when doing 2(or more)-step copy of input datasets to the CE (e.g. 3rd party transfer to OSG_DEFAULT_SE, then copy to OSG_WN_TMP using a client program).<br>
-In a simple cluster this could be a SE visible from both inside and outside and serving an internally shared space like OSG_DATA (*1). In sites with no shared space, this would allow I/O via grid tools.
+In a simple cluster this could be a SE visible from both inside and outside and serving an internally shared space like OSG_DATA. In sites with no shared space, this would allow I/O via grid tools.
 
 Typical uses of this area are:
 	* Staging in of large input files (e.g. datasets)
@@ -196,7 +206,7 @@ Notes (*#):
 
 ---++ Minimum requirements
 An OSG site is not required to provide every single area described above but must implement at least one of the options below.
-Areas are not provided should be labelled as "UNAVAILABLE".
+Areas that are not provided should be labelled as "UNAVAILABLE".
 
 Mandatory set options (one of the following):
 
@@ -243,6 +253,7 @@ For significant updates to the topic, consider adding your 'signature' (beneath 
 <!--Future editors should add their signatures beneath yours!-->
 -- Main.BurtHolzman - 04 Aug 2005
 -- Main.MarcoMambelli - 23 Sep 2005
+-- Main.FkW - 25 Apr 2006
 
 %STOPINCLUDE%
 
