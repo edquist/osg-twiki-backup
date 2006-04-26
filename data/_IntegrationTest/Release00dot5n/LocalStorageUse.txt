@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="StevenTimm" date="1142979796" format="1.0" version="1.10"}%
+%META:TOPICINFO{author="FkW" date="1146028917" format="1.0" version="1.11"}%
 %META:TOPICPARENT{name="LocalStorageRequirements"}%
 <!-- By default the title is the WikiWord used to create this topic !-->
 <!-- if you want to modify it to something more meaningful, just replace %TOPIC% below with i.e "My Topic"!-->
@@ -10,27 +10,54 @@
 
 ---++Introduction
 
-This document provides some very basic descriptions of the local storage paths on a CE and how to use them.
+This document provides a user perspective on storage on OSG. It is written for and addressed to scientists who want to use the OSG as a tool to get their science done. For additional details on more site administrator focused information please refer to LocalStorageRequirements and LocalStorageConfiguration documents. Both of these documents include some discussion of workflow use cases, the more extensive of which are probably found in LocalStorageRequirements .
+
+Storage definitions and implementation on OSG is still something that is very much in flux, and any documentation is likely to be incomplete. So expect the unexpected!
+
+In general, you should expect to find three types of storage supported at OSG sites:<br>
+	* an area where you can install application software releases into via the CE, and  that is then read-only accessible from all batch slots on your cluster. This is refered to as $OSG_APP .
+	* an area where you can stage data to using gftp that is then readable from all batch slots.
+	* an area where you can stage output files to from all batch slots, for later asynchronous retrieval using gftp.
+
+The latter two areas are the ones for which a great variety of different implementations may exist, and which may not be fully consistently deployed across all OSG sites, despite our best efforts of providing a reasonably uniform infrastructure.
+
+In addition, two other types of disk space must be available at each batch slot:<br>
+	* a set of "client tools" that are part of the OSG software stack. This is refered to as $OSG_GRID .
+	* an area that is strictly local to each batch slot, from within which you run your job(s) during the time they have "leased" the batch slot. You should clean this area before you vacate the batch slot. This area is generally refered to as $OSG_WN_TMP .
+
+The implementation of $OSG_WN_TMP is again inconsistent across sites. Some sites start your jobs
+in a dedicated directory for your jobs on a local disk on the worker node, and configure $OSG_WN_TMP to point to that directory. This is clearly the prefered way. However, many sites plop you down on some shared filesystem, and expect you to "export mydir=$OSG_WN_TMP/myWorkDir$RANDOM ; mkdir $mydir ; cd $mydir" before you start your job. This is particularly important if your job has significant IO.
+
+Last but not least a word about input and output files as specified via the condor-g jdl. Condor-g allows specification of:<br>
+	* executable= one file
+	* output= one file - stdout
+	* error= one file - stderr
+	* transfer_input_Files= comma seperated list of files
+	* transfer_output_files= comma seperated list of files
+
+The first three are straighforward, while the latter two requires some explanation. Both of these tend to be fragile, and we discourage using them to transfer anything more than a few MB. All of these files end up getting transfered via the CE headnode, and can cause serious loads, and thus bring down the cluster. In addition, space on the headnode tends to be limited, and some sites severely quota the gram scratch area via which these files are spooled. GB size files should definitely be stored in the dedicated stage out spaces, and pulled from the outside as part of a DAG rather than spooled via the CE headnode by condor file transfer.
+
+In the remainder of this document we describe how to find your way around these various storage areas both from outside the site, i.e. before you submit your job, as well as from inside the site, i.e. after your job starts inside a batch slot.
 
 ---++Known Problems
 
----++Possibilities
+---++Finding your way around
 
 A definition of the concepts used in this document can be found in LocalStorageRequirements, including a [[LocalStorageRequirements#Minimum_requirements][section]] describing minimal requirements and some sample configurations.
 
-You will always be provided a =$OSG_WN_TMP= area where you will put your current working directory (possibly in a unique subdirectory to avoid conflicts with other jobs running on the same host). 
+Here we describe how to find the various storage locations. We start by describing how to find things after your job starts, and then complete the discussion by describing what you can determine from the outside, before you submit a job to the site. We deliberately do not describe what these various storage implementations are. That is done in the LocalStorageRequirements document.
 
-The path and URL of CE storage is provided in different ways:
+---+++What to expect once you get there
 
----+++Environment Variables
+The first command any job should execute after it is started in a batch slot at an OSG site is:<br>
+source $OSG_GRID/setup.sh
 
-Environment variables contain much of the necessary path information and are automatically propagated into
-the worker node environment of a freshly-created job.  The
-variables are found in =$VDT_LOCATION/monitoring/osg-attributes.conf=.
-An excerpt is provided below from FNAL_GPFARM_TEST. 
+In addition to setting some environment variables, this will add some client tools, e.g. srmcp, to your path, and configure them propperly. Most of the environment variables are already set before you source this. However, at some sites there are inconsistencies between paths on the headnode and the worker node. The environment settings prior to sourcing is consistent with the headnode, while after the sourcing it should be consistent with the worker node. If (or when) you arrive at a site where this is not the case you should feel free to complain by opening a trouble ticket.
+
+An excerpt of these environment variables is provided below from FNAL_GPFARM_TEST. 
 See the OSGCEInstallGuide and LocalStorageConfiguration for more information.
-Note that the SE used in the example, fndca.fnal.gov, doesn't support
-all VO's at the moment.
+<!-- Note that the SE used in the example, fndca.fnal.gov, doesn't support
+all VO's at the moment. -->
 
 <verbatim>
 OSG_SITE_NAME="FNAL_TEST_033"
@@ -85,18 +112,18 @@ GRID3_UTIL_CONTACT=fnpcg.fnal.gov/jobmanager
 X509_USER_PROXY=/home/fnalgrid/.globus/job/fnpcg.fnal.gov/10121.1134169575/x509_up
 </verbatim>
 
----+++Information Providers (GIP/BDII) 
+---+++Information available before job submission
 
-		Path or URLs consistent across the CE (headnodes and WN), published using an information system (e.g. GIP and BDII).  
+		OSG sites advertize their properties via the "Generic Information Provider" (GIP). This information can be querried from outside the site. It is meant to be used to select sites that support the functionality you need for your applications. The GIP uses the GLUE schema, and all information may be read via ldap queries. The following fields are of particular importance in the context of storage:
+  
 !GlueCEInfoApplicationDir (corresponding to =$OSG_APP=) and !GlueCEInfoDataDir (corresponding to =$OSG_DATA=).  The Worker node client directory,
 (corresponding to =$OSG_GRID=), is published with !GlueLocationLocalID=OSG_GRID, !GlueLocationName=OSG_GRID, and !GlueLocationPath=
 the path to the directory.  Similarly, OSG_SITE_READ and OSG_SITE_WRITE
 are published with !GlueLocationLocalID's of that name.
 
 The GLUE schema allows to configure different paths for SITE_READ and
-SITE_WRITE and DEFAULT_SE for each VO if you want but some manual
-editing of the schema file is required to do this.  See the section
-on Generic Information Providers configuration.
+SITE_WRITE and DEFAULT_SE for each VO. However, few sites are likely to do this as it requires some manual editing of the schema file to do this.  See the section
+on Generic Information Providers configuration for details.
 
 To select these attributes out of the GLUE schema using ldapsearch, 
 the following syntax works to get all !GlueLocationLocalID, of 
@@ -149,5 +176,9 @@ GRIS or the BDII, to get the OSG_GRID area.
 
 %STOPINCLUDE%
 	* [[%ATTACHURL%/bdii_query.pl.txt][bdii_query.pl.txt]]: Sample Perl script to query the bdii and/or the GRIS
+
+*Major updates*:%BR%
+<!--Future editors should add their signatures beneath yours!-->
+-- Main.FkW - 26 Apr 2006
 
 %META:FILEATTACHMENT{name="bdii_query.pl.txt" attr="" comment="Sample Perl script to query the bdii and/or the GRIS" date="1142980263" path="bdii_query.pl" size="1554" user="StevenTimm" version="1.1"}%
