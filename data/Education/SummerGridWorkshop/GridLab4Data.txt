@@ -1,0 +1,238 @@
+%META:TOPICINFO{author="MichaelWilde" date="1150413369" format="1.0" version="1.1"}%
+%META:TOPICPARENT{name="SummerGridSyllabus2006"}%
+Exercises for Lecture 4:  Grid Data Management
+
+Earlier today we learned about GridFTP servers and client, Globus RLS, and metadata catalogs. Now we will move some files and publish them into RLS
+
+Table of Contents
+
+	* Part I: Getting setup 
+	* Part II: Moving files with GridFTP 
+	* Part III: Publishing with RLS 
+
+---+ Part I: Getting setup
+
+As always when begining Grid work you need to setup your environment properly. The following should work for these exercises (do otherwise if your instructors tell you differently).
+
+<pre>
+source /home/vdt-students/setup.sh
+grid-proxy-init
+Your identity: <your certificate details here>
+Enter GRID pass phrase for this identity:
+</pre>
+
+Next create some files of different size to practive moving. Each file should have a unique name, so use your name or something similar below. Change to your home directory and do the following:
+
+<pre> 
+dd if=/dev/zero of=./smallfileYOURNAME bs=1M count=10
+dd if=/dev/zero of=./mediumfileYOURNAME bs=1M count=50
+dd if=/dev/zero of=./largefileYOURNAME bs=1M count=200
+</pre>
+
+You can check the filesizes using ls with the -lh flags. You should have a 10, 50, and 200 MB file:
+
+<pre>
+ls -lh ./smallfileYOURNAME
+ls -lh ./mediumfileYOURNAME
+ls -lh ./largefileYOURNAME
+</pre>
+
+---+ Part II: Moving files with GridFTP
+
+Let's begin with something simple. Use globus-url-copy to move your small file from your home directory to the /tmp directory on gk1:
+
+<pre> 
+globus-url-copy file:/home/YourHomeDirectory/smallfileYOURNAME gsiftp://gk1/tmp/smallfileYOURNAME
+echo $?
+0
+</pre>
+
+The echo $? checks to see what the return value was for the previous command. If you see a zero (0) then globus-url-copy succeeded.
+
+Next examine the communication that takes place more closely by adding the -dbg flag. Look in detail at what the client sends to the server and how the server responds. It should look similar to what you see below: 
+
+<pre>
+globus-url-copy -dbg file:/home/YourHomeDirectory/smallfileKORANDAYOURNAME gsiftp://gk1/tmp/smallfileYOURNAME
+debug: starting to put gsiftp://gk1/tmp/smallfileKORANDA
+debug: connecting to gsiftp://gk1/tmp/smallfileKORANDA
+debug: response from gsiftp://gk1/tmp/smallfileKORANDA:
+220 gk1.phys.utb.edu GridFTP Server 1.12 GSSAPI type Globus/GSI wu-2.6.2 (gcc32dbg, 1069715860-42) ready.
+ 
+debug: authenticating with gsiftp://gk1/tmp/smallfileKORANDA
+debug: response from gsiftp://gk1/tmp/smallfileKORANDA:
+230 User skoranda logged in.
+ 
+debug: sending command:
+FEAT
+ 
+debug: response from gsiftp://gk1/tmp/smallfileKORANDA:
+211-Extensions supported:
+ REST STREAM
+ ESTO
+ ERET
+ MDTM
+ SIZE
+ PARALLEL
+ DCAU
+211 END
+ 
+debug: sending command:
+TYPE I
+debug: response from gsiftp://gk1/tmp/smallfileKORANDA:
+200 Type set to I.
+ 
+debug: sending command:
+PBSZ 16384
+ 
+debug: response from gsiftp://gk1/tmp/smallfileKORANDA:
+200 PBSZ=16384
+ 
+debug: sending command:
+PASV
+ 
+debug: response from gsiftp://gk1/tmp/smallfileKORANDA:
+227 Entering Passive Mode (10,10,0,2,168,57)
+ 
+debug: sending command:
+STOR /tmp/smallfileKORANDA
+ 
+debug: response from gsiftp://gk1/tmp/smallfileKORANDA:
+150 Opening BINARY mode data connection.
+ 
+debug: data callback, no error, buffer 0x402d1008, length 1048576, offset=0, eof=false
+debug: data callback, no error, buffer 0x403d2008, length 1048576, offset=1048576, eof=false
+debug: data callback, no error, buffer 0x404d3008, length 1048576, offset=2097152, eof=false
+debug: data callback, no error, buffer 0x402d1008, length 1048576, offset=3145728, eof=false
+debug: data callback, no error, buffer 0x403d2008, length 1048576, offset=4194304, eof=false
+debug: data callback, no error, buffer 0x404d3008, length 1048576, offset=5242880, eof=false
+debug: data callback, no error, buffer 0x402d1008, length 1048576, offset=6291456, eof=false
+debug: data callback, no error, buffer 0x403d2008, length 1048576, offset=7340032, eof=false
+debug: data callback, no error, buffer 0x404d3008, length 1048576, offset=8388608, eof=false
+debug: data callback, no error, buffer 0x402d1008, length 1048576, offset=9437184, eof=false
+debug: data callback, no error, buffer 0x403d2008, length 0, offset=10485760, eof=true
+debug: response from gsiftp://gk1/tmp/smallfileKORANDA:
+226 Transfer complete.
+ 
+debug: operation complete
+</pre>
+
+See how fast the file transfer is happening by using the -vb flag. Since this is a transfer over a local network that should probably not be too busy it should be fairly quick:
+
+<pre>
+globus-url-copy -vb file:/home/YourHomeDirectory/smallfileYOURNAME gsiftp://gk1/tmp/smallfileYOURNAME
+		9437184 bytes		5801.61 KB/sec avg		7447.27 KB/sec inst
+Trying using 4 parallel data streams by adding the -p flag with an argument of 4: 
+globus-url-copy -vb -p 4 file:/home/YourHomeDirectory/smallfileYOURNAME gsiftp://gk1/tmp/smallfileYOURNAME
+</pre>
+
+Don't worry if you don't see any rate information from the -vb flag! If your transfer happens so fast that it is over before the server can send rate markers then you won't see the output. 
+
+Try moving a larger file first with one data channel and then with 4 to see if the parallel channels makes the transfer go faster: 
+
+<pre>
+globus-url-copy -vb file:/home/YourHomeDirectory/mediumfileYOURNAME gsiftp://gk1/tmp/mediumfileYOURNAME
+	 48234496 bytes		8291.98 KB/sec avg		8378.18 KB/sec inst
+globus-url-copy -vb -p 4 file:/home/YourHomeDirectory/mediumfileYOURNAME gsiftp://gk1/tmp/mediumfileYOURNAME
+	 50593792 bytes		9881.60 KB/sec avg		9881.60 KB/sec inst
+</pre>
+
+Again don't worry if using more data channels doesn't show a large rate increase. For such a short transfer over a local network you will not see great performance gains. Wait until you can try this "back home" and can move files across the country or the world! 
+Move the medium file again using 4 data streams but this time add the -dbg flag. Compare the communications between the client and server with the single channel exercise you did before. How do they differ? 
+
+<pre>
+globus-url-copy -dbg -p 4 file:/home/YourHomeDirectory/mediumfileYOURNAME gsiftp://gk1/tmp/mediumfileYOURNAME
+debug: starting to put gsiftp://gk1/tmp/mediumfileKORANDA
+debug: connecting to gsiftp://gk1/tmp/mediumfileKORANDA
+debug: response from gsiftp://gk1/tmp/mediumfileKORANDA:
+220 gk1.phys.utb.edu GridFTP Server 1.12 GSSAPI type Globus/GSI wu-2.6.2 (gcc32dbg, 1069715860-42) ready.
+
+ (snip...we won't show all the output)
+</pre>
+
+Next try a third-party transfer. Try using your globus-url-copy client to move the file smallfileYOURNAME from the machine gk1 to a location on the machine gk2: 
+
+<pre>
+globus-url-copy gsiftp://gk1/tmp/smallfileYOURNAME gsiftp://gk2/tmp/smallfileYOURNAME
+echo $?
+0
+</pre>
+
+---+ Part III: Publishing with RLS
+
+Before publishing files into RLS let's make sure you can connect to the two RLS servers. Use globus-rls-admin and the -p flag to ping the servers: 
+
+<pre>
+globus-rls-admin -p rls://gk1
+ping rls://gk1: 0 seconds
+globus-rls-admin -p rls://gk2
+ping rls://gk2: 0 seconds
+</pre>
+
+Next use the -S flag to check the status/statistics of each of the two servers. You should see output similar to that below: 
+
+
+<pre>
+globus-rls-admin -S rls://gk1
+Version:	 2.1.5
+Uptime:	  00:28:15
+LRC stats
+  update method: lfnlist
+  update method: bloomfilter
+  updates bloomfilter: rls://gk2.phys.utb.edu:39281 last 06/21/04 22:44:45
+  lfnlist update interval: 86400
+  bloomfilter update interval: 900
+  numlfn: 1
+  numpfn: 1
+  nummap: 1
+RLI stats
+  updated by: rls://gk2.phys.utb.edu:39281 last 06/21/04 22:44:35
+  updated via bloomfilters
+globus-rls-admin -S rls://gk2
+Version:	 2.1.5
+Uptime:	  00:32:33
+LRC stats
+  update method: lfnlist
+  update method: bloomfilter
+  updates bloomfilter: rls://gk1.phys.utb.edu:39281 last 06/21/04 22:44:40
+  lfnlist update interval: 86400
+  bloomfilter update interval: 900
+  numlfn: 2
+  numpfn: 2
+  nummap: 2
+RLI stats
+  updated by: rls://gk1.phys.utb.edu:39281 last 06/21/04 22:44:49
+  updated via bloomfilters
+</pre>
+
+Now use the globus-rls-cli client to create a mapping in the gk1 LRC for your smallfile test file: 
+
+<pre>
+globus-rls-cli create smallfileYOURNAME gsiftp://home/YourHomeDirectory/smallfileYOURNAME rls://gk1
+</pre>
+
+Add a second mapping for your LFN. Perhaps it could be a file:// URL: 
+
+<pre>
+globus-rls-cli add smallfileYOURNAME file://localhost/home/YourHomeDirectory/smallfileYOURNAME rls://gk1
+</pre>
+
+The LRC for each RLS server is configured to update the other's RLI every 15 minutes. Query the RLI on gk2 to see if it has learned about your file yet: 
+
+<pre>
+globus-rls-cli query rli lfn smallfileYOURNAME rls://gk2
+LFN doesn't exist: smallfileYOURNAME
+</pre>
+
+Keep trying now and then for 15 minutes until the RLI on gk2 has been updated by the LRC on gk1 and you can query the RLI on gk2 for your file. You should see something like this: 
+
+<pre>
+globus-rls-cli query rli lfn smallfileYOURNAME rls://gk2
+  smallfileYOURNAME: rls://gk1.phys.utb.edu:39281
+</pre>
+
+Use a wildcard query of the LRC on gk1 and gk2 to see what your fellow students are up to (don't forget to quote the asterisk): 
+
+<pre>
+globus-rls-cli query wildcard lrc lfn "*" rls://gk1
+</pre>
+
