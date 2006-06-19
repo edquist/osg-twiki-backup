@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="FkW" date="1148365679" format="1.0" version="1.9"}%
+%META:TOPICINFO{author="IlyaNarsky" date="1150750437" format="1.0" version="1.10"}%
 <!-- By default the title is the WikiWord used to create this topic !-->
 <!-- if you want to modify it to something more meaningful, just replace %TOPIC% below with i.e "My Topic"!-->
 
@@ -32,13 +32,30 @@ There is no policy schema defined for OSG at this point. It is thus not possible
 The OSG does not allocate resources as none of the resources available via the grid are "owned" by the OSG. The owners &#8212; generally large VOs and IT organisations, including national labs &#8212; fully control usage policies on their resources. 
 
 %WARNING% A cluster is a large error amplifier!
-All OSG sites are registered with <a hre="http://osg-cat.grid.iu.edu/">gridcat</a>. Gridcat maintains information on every site in a DB, and verifies this information regularly. A site that fails a set of functionality tests will "turn red" on the <a hre="http://osg-cat.grid.iu.edu/">gridcat web page</a>. 
+All OSG sites are registered with <a href="http://osg-cat.grid.iu.edu/">gridcat</a>. Gridcat maintains information on every site in a DB, and verifies this information regularly. Sites that fail basic functionality tests are red, sites that pass all basic tests are green, and inactive sites are grey. 
 ---++Finding the list of available sites
-In addition to the basic information available via the <a hre="http://osg-cat.grid.iu.edu/">gridcat web page</a>
-more detailed information, e.g. network architecture (Open, NAT, closed), can be obtained via ldap queries to the site. Examples for this can be found here.(need to add this!)
+In addition, more detailed information, e.g. network architecture (Open, NAT, closed), can be obtained via ldap queries to the site. For example, if you want to find out if worker nodes at CIT_CMS_T2 have outgoing connections, you can query 
+All OSG sites are registered with [[http://osg-cat.grid.iu.edu/][GridCat]]. !GridCat maintains information on every site in a DB, and verifies this information regularly. Sites that fail basic functionality tests are red, sites that pass all basic tests are green, and inactive sites are grey. 
+<verbatim>
+ldapsearch -LLL -h cit-gatekeeper.ultralight.org -p 2135 -x -b mds-vo-name=CIT_CMS_T2,o=grid "(GlueHostNetworkAdapterOutboundIP=*)" GlueHostNetworkAdapterOutboundIP
+</verbatim>
+$ <b>ldapsearch -LLL -h cit-gatekeeper.ultralight.org -p 2135 -x -b mds-vo-name=CIT_CMS_T2,o=grid "(GlueHostNetworkAdapterOutboundIP=*)" GlueHostNetworkAdapterOutboundIP</b>
+This returns 
+GlueHostNetworkAdapterOutboundIP: TRUE
+<verbatim>
+GlueHostNetworkAdapterOutboundIP: TRUE
+</verbatim>
 
 To find out whether or not your VO is supported by a specific site, you might find <a href="http://osg.ccr.buffalo.edu/statistics/acdc/vo_support_matrix.php">this</a> useful. While this VO support matrix is still under development, your only other way to determine if you are allowed to access a site is to try it out.
 
+You can get the same info from ldap, for example:
+If you want to find out whether or not a specific site supports your VO, check  [[http://vors.grid.iu.edu/cgi-bin/index.cgi?region=0&VO=0&res=0&grid=1][VORS]]. 
+<verbatim>
+ldapsearch -LLL -h cit-gatekeeper.ultralight.org -p 2135 -x -b mds-vo-name=CIT_CMS_T2,o=grid "GlueCEName=cdf"
+</verbatim>
+<pre class="screen">
+tells you if VO cdf is supported at CIT_CMS_T2. If it is not, the query returns an empty string.
+</pre>
 
 If supported, it will return a series of entires. If not, it returns an empty string.
 The OSG 0.4.1 release provides access to compute resources via condor-g and to storage resources via either gridftp or SRM. In the following we provide simple examples for how to use these interfaces to consume resources.
@@ -174,6 +191,68 @@ There are a variety of different storage areas in OSG. Their use is documented <
    * Avoid network mounted disks for IO operations as best as you can. Always remember: a cluster is a large error amplifier! If you have >100 jobs running in parallel even a modest amount of IO to a network mounted disk can overwhelm the server, and can cause a large mess on the site you are running!
    * Avoid a steady stream of job submissions at arund the Hz t couple Hz rate. You are better off submitting, say 10 at once, and then take a 20 seconds break, than space them equally by 2 seconds. We found that the gridmonitor is unable to handle a steady stream of submits at 0.5 Hz, while it deals with the other pattern quite well. (more details on this sort of stuff later)
 ---++++Golden Rules for power users
+</verbatim>
+
+<b>globus-url-copy</b> uses similar syntax but can only communicate with gsiftp servers:
+
+---+++ globus-url-copy syntax
+<span class="command">globus-url-copy</span> uses similar syntax but can only communicate with gsiftp servers
+
+<verbatim>
+globus-url-copy file:////bin/sh gsiftp://myhost.mydomain.edu/dir1/dir2/sh-copy
+---+++Condor error codes
+</verbatim>
+Of course, when you submit jobs, sometimes they run and sometimes they don't. If they don't, exit error codes may be useful. Condor error codes unfortunately are not documented anywhere consistently. Here is a list kindly extracted by Jaime Frey from 6.7 Condor code:
+---+++Condor Hold (_error_) Codes
+<verbatim>
+//There may still be some lingering cases that result in this
+//unspecified hold code.  Hopefully they will be eliminated soon.
+const int CONDOR_HOLD_CODE_JobPolicy	= 3;
+Sometimes, jobs that you submit actually run, and sometimes they don't. When they don't, exit error codes may be useful. Condor doesn't have error codes _per se_ but does have _hold codes_ that serve the purpose. Unfortunately, the condor teams have not consistently documented them. Here is a list kindly extracted by Jaime Frey from 6.7 Condor code:
+//User put the job on hold with condor_hold
+const int CONDOR_HOLD_CODE_UserRequest = 1;
+
+//Globus reported an error.  The subcode is the GRAM error number.
+const int CONDOR_HOLD_CODE_JobPolicyUndefined	= 5;
+---++ Troubleshooting
+//The periodic hold expression evaluated to true
+const int CONDOR_HOLD_CODE_JobPolicy   = 3;
+In this section we try to provide some hints about when and to whom you should report errors, and which errors you can solve yourself.
+//The credentials for the job (e.g. X509 proxy file) are invalid.
+const int CONDOR_HOLD_CODE_CorruptedCredential = 4;
+You should report OSG-related errors to your [[http://www.opensciencegrid.org/index.php?option=com_content&task=view&id=37&elMenu=Grid%20Support"][VO support center]], who will then triage your problems, and forward your problems to the <span class="firstterm">Grid Operations Center</span> )(<span class="acronym">GOC</span>), if warranted. 
+//A job policy expression (such as PeriodicHold) evaluated to UNDEFINED.
+const int CONDOR_HOLD_CODE_JobPolicyUndefined   = 5;
+As some of you may actually be also the support center people of your VO, here are some pointers.
+//The condor_starter failed to start the executable.
+//The subcode will contain the unix errno.
+const int CONDOR_HOLD_CODE_FailedToCreateProcess = 6;
+   1. You arrive at the worker node but have no grid proxy, are missing srmcp in your path, or are missing some other client tools that should be part of the OSG WN client installation.
+//The standard output file for the job could not be opened.
+//The subcode will contain the unix errno.
+const int CONDOR_HOLD_CODE_UnableToOpenOutput = 7;
+   1. If a site doesn't have a functioning LDAP service, then it deserves a ticket.
+//The standard input file for the job could not be opened.
+//The subcode will contain the unix errno.
+const int CONDOR_HOLD_CODE_UnableToOpenInput = 8;
+
+//The standard output stream for the job could not be opened.
+//The subcode will contain the unix errno.
+const int CONDOR_HOLD_CODE_UnableToOpenOutputStream = 9;
+Unfortunately, OSG rules do not require you to have access to any site in particular. It's up to the site to support you and your VO. Some sites support some VOs without supporting all of their users. 
+//The standard input stream for the job could not be opened.
+//The subcode will contain the unix errno.
+const int CONDOR_HOLD_CODE_UnableToOpenInputStream = 10;
+At present, the only way to understand the intentions of a site is to query its LDAP and see if your VO shows up. The best way to understand if authentication should work for you personally is to check the VO support matrix, and look for your DN among the DNs supported at the site. 
+//An internal Condor protocol error was encountered when transferring
+files.
+const int CONDOR_HOLD_CODE_InvalidTransferAck = 11;
+
+//The condor_starter failed to download input files.
+//The subcode will contain the unix errno.
+const int CONDOR_HOLD_CODE_DownloadFileError = 12;
+
+//The condor_starter failed to upload output files.
 //The subcode will contain the unix errno.
 const int CONDOR_HOLD_CODE_UploadFileError = 13;
 
@@ -198,12 +277,7 @@ As some of you may actually be also the support center people of your VO, here a
 
 What do we need to document here?
 
-	* Some information on common error signals, or where to find such information.
 	* Some info on how to use GlobusRSL, and info on what's needed where and why.
-
-How to find out what sites exist:<br>
-	* an example for how to query information from the site ldap or gridcat
-	* not clear that we want people to query site ldap servers!
 
 Table with twiki pages for all the VOs who maintain twiki pages on this site.
 
