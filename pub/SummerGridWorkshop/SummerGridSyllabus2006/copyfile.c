@@ -1,5 +1,7 @@
+/* System Header Files */
 #include <stdio.h>
 
+/* GAT Header Files */
 #include "GAT.h"
 #include "GATTestUtils.h"
 
@@ -32,6 +34,7 @@ int main (int argc, char *argv[])
 
   /* cp <name1> <name2> */
   retval = GATFile_Copy   (file1, name2, GATFileMode_Overwrite);
+  GAT_TEST_TRACE(retval == GAT_SUCCESS, context);
 
   /* clean up */
   GATFile_Destroy     (&file1);
