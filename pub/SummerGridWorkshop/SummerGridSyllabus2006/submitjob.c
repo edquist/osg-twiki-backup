@@ -155,7 +155,7 @@ static GATSoftwareDescription
   GATTable_Add_GATObject (attributes, "arguments", 
      GATList_String_ToGATObject_const (arguments));
 
-  GATTable_Add_String(attributes, "output", "/tmp/result");
+  GATTable_Add_String(attributes, "stdout", "/home/train36/result.out");
 
   /* create the software description object */
   sw_desc = GATSoftwareDescription_Create (attributes);
@@ -179,11 +179,8 @@ static GATResourceDescription
   /* create and fill the requirements table */
   requirements = GATTable_Create ();
 
-  GATTable_Add_float  (requirements, "memory.size", 0.256f);
   GATTable_Add_float (requirements, "cpu.count", 1);
   GATTable_Add_String (requirements, "cpu.type", "unknown");
-//  GATTable_Add_float  (requirements, "cpu.speed", 1.f);
-//  GATTable_Add_float  (requirements, "disk.size", 10.f);
 
   /* create the software Resource description */
   hw_desc = GATHardwareResourceDescription_Create (requirements);
