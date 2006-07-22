@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="FkW" date="1153588728" format="1.1" version="1.32"}%
+%META:TOPICINFO{author="FkW" date="1153592764" format="1.1" version="1.33"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! DcacheWorkshop for storage admins (July 17th 2006, FNAL)
 
@@ -194,6 +194,48 @@ http://cmsdcam.fnal.gov:9090/lps/plots/src/plots2.lzx
 The source, and deployment instructions will be available here:
 https://plone4.fnal.gov/P0/DCache/dcache/webdcache
 (Vladimir will update this page to provide the necessary info!)
+
+---++++ Some info that people sent around after the meeting
+
+Email from Dan Bradley to Ilya Kravchenko explaining the "WAN queue" they implemented
+to improve WAN Xfer.
+
+<pre>
+What I meant by WAN I/O queues is this:
+
+Each dCache pool has a limit on the number of active movers.  This is  in the pool setup file.  Example:
+
+mover set max active 600
+
+If you just configure it like the above line, than this applies to all  protocols, including dcap and gridftp.  We are using pull-mode SRM copy  to write files to our pools, which are on the public net, so with max  active movers of 600, this means we are saying it is ok to have 600  simultaneous gridftp transfers to each pool node (and each of those  transfers is using 20 streams!)  Of course, we weren't trying to run  even 600 transfers all at the same time through phedex, but with even  40 simultaneous transfers going on, this still resulted in a single  nodes being overloaded, which resulted in transfer errors, timeouts,  etc.
+
+We therefore needed to reconfigure dCache to limit the maximum number  of transfers to the same node to a reasonable level.  We also wanted to  improve the load balancing, because we found that with the settings we  were using, transfers were not being scheduled evenly across the  available machines.
+
+To limit the maximum number of gridftp transfers to a node, we could  have simply set the max active movers to something lower, like 5.   However, in the past, we found we needed a much larger number of dcap  movers in order to support applications such as ORCA.  This is  precisely why the dCache folks had added the ability to create multiple  I/O queues, and channel different protocols to different queues.  The  setup we are using is like this (in very abbreviated form):
+
+pool setup file:
+mover set max active 1000 -queue=default
+mover set max active 5 -queue=WAN
+
+pool.batch:
+-io-queues=default,WAN \
+
+srm-cms-dcache.batch:
+-io-queue=WAN \
+
+gridftpdoor-cms-dcache.batch:
+-io-queue=WAN \
+
+dcapdoor.batch:
+-io-queue=default \
+
+
+So that says to use a queue named "WAN" for gridftp transfers, and to  use a queue named "default" for dcap transfers.
+
+To improve the load balancing problem, we did two things.  One was  simply to add a lot more nodes to the write pools.  The other was to  set -spacecostfactor to 0 in PoolManager.conf, because during the load  test, it doesn't make sense to try to fill up nodes that are less full,  since the files are continually getting removed, creating a permanent  imbalance in spacecostfactor.
+
+--Dan 
+</pre>
 
 ---+++ New features coming within the next 6 months
 
