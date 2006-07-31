@@ -1,0 +1,1002 @@
+\documentclass[12pt]{article}
+
+
+\usepackage{fullpage}
+
+% - use \affiliation{author1, author2, ... and authorN}{address} for author(s)  <typeset in italics>
+%         with a single affiliation (address)\def\affiliation#1#2{\gdef\@address{}
+
+\begin{document}
+\title{GLUE Schema v1.2 Mapping to Old ClassAd Format\\
+July 24, 2006}
+\author{
+Sergio Andreozzi (\em{INFN})\\
+Gabriele Garzoglio, Sudhamsh Reddy (\em{Fermilab})\\
+Marco Mambelli (\em{University of Chicago})\\
+Alain Roy (\em{University of Wisonsin}),\\
+Shaowen Wang (\em{University of Iowa}),\\
+Torre Wenaus (\em{BNL})}
+
+\maketitle
+
+\begin{abstract}
+\noindent This document describes a mapping between the GLUE schema
+v1.2 and old ClassAd format. The old ClassAd representation of
+resource characteristics can be used in out-of-the-box resource
+selection technologies, such as the Condor Matchmaking Service. This
+mapping has been written focussing on the problem of resource
+selection and is presented as a series of rules with examples.
+\end{abstract}
+
+\newpage
+
+\tableofcontents
+
+\newpage
+
+\section{Introduction}
+\label{se:Introduction}
+
+The GLUE schema \cite{GLUE-schema} provides a model to describe Grid
+resources and their relationship. Previous works \cite{LDIF-mapping}
+\cite{XML-mapping} present a mapping between the GLUE schema and
+different popular data formats, such as LDIF and XML. This document
+presents a mapping between the GLUE schema and the old ClassAd
+format. Such representation can be immediately used by
+out-of-the-box software, such as the Condor Matchmaking Service, to
+implement resource selection.
+
+\section{Limitations}
+\label{se:limitation}
+
+In this document, the main motivation for the mapping of the GLUE
+schema to old ClassAd format is providing a resource description
+that can be easily used in resource selection and discovery
+services. We do not focus on other potential uses of such mappings,
+such as resource monitoring or job environment enhancing. With ``job
+environment enhancing'' we intend the process of adding to the job
+environment by dereferencing abstract attribute values to concrete
+values, after resource selection is completed \footnote{In condor
+ClassAd, attribute dereferencing is expressed with the
+\$\$(AttributeName) syntax}. For these reasons, some entities of the
+GLUE schema, such as ``Job'' of ``Computing Element'', or
+the ``Path'' attribute of the ``Location'' entity, are explicitly
+excluded from the mapping.
+
+In addition, this document does not provide a mapping for the
+Storage Resources description of the GLUE schema. This mapping
+addresses the translation to old ClassAd format for the computing
+resources only.
+
+\section{Mapping Rules}
+\label{se:MappingRules} This section presents a set of rules to
+translate the GLUE schema into old ClassAd format. The section
+describes a set of basic rules and a set of extended rules. These
+rules apply to the GLUE schema v1.1 and v1.2.
+
+\subsection{Implementations}
+\label{se:Implementations} As of March 2006, the basic rules have
+been implemented as the ``old\_ClassAd'' dialect of the CEMon
+service (v1.7.2) from gLite \cite{CEMon}.
+
+The mapping uses as input the GLUE representation of the resources
+in LDIF format \cite{LDIF-mapping,LDIF} from the Generic Information
+Providers \cite{GIP}. As such, it should be noted that it is not
+mandatory for all the GLUE attributes to have defined values at all
+sites. Developers should keep this in mind when implementing code
+that works with this mapping e.g. Condor matchmaking functions.
+
+The extended rules are an extension/modification to the basic rules and
+focus on the ``VOView'' and ``Location'' entities in the GLUE schema v1.2.
+This extended mapping has only a partial implementation in CEMon v1.7.2
+as of May 2006.
+
+
+\subsection{Basic Rules}
+\label{se:BasicRules}
+
+In this section, we describe the basic rules of the mapping of LDIF
+representation of Grid resources based on the GLUE Schema into the
+old ClassAd format.
+
+\subsubsection{Definitions}
+
+\begin{itemize}
+\item Attribute names are built using the same rules as for the LDIF
+mapping \cite{LDIF-mapping} and are not described here.
+
+\item The mapping is built by considering all the possible combinations of
+inter-related ComputingElement, Cluster, and Subcluster entities. In
+other words, each combination contains a single ComputingElement,
+Cluster, and Subcluster entity. Attributes in each combination are
+then mapped to a single old ClassAd. In general, the full
+representation of the GLUE schema for a site in old ClassAd format
+consists of a set of old ClassAds. Each ClassAd represents a sort of
+virtual homogeneous cluster with a single entry point and waiting
+queue.
+
+\item Attributes of the CE, Cluster, and Subcluster entities that,
+according to the schema, do not appear with more than one value
+(e.g. GlueCEInfoHostName, GlueCEInfoTotalCPUs) are translated in old
+ClassAd format as AttributeName = Value
+
+\item Attributes that can appear with more than one value (indicated in the UML
+representation of the GLUE schema with an asterisk [*] next to the
+attribute type or without the keyword \verb+SINGLE-VALUE+ in the
+LDAP attribute definition), must be treated differently. In an old
+ClassAd, in fact, attributes must be unique, i.e. they appear only
+once in the ClassAd. Every GLUE attribute that can be present
+multiple times with different values (e.g.
+GlueHostApplicationSoftwareRunTimeEnvironment) appears only once in
+the old ClassAd mapping. The multiple values are represented as a
+single comma-separated string of the original values. For the
+purpose of resource selection using the Condor Matchmaking service,
+the values can be individually used in expressions using custom
+(call-out) functions. For example, to select a ClassAd that contains
+a certain value in one of these attributes, the Matchmaking Service
+could provide the users a syntax like
+\begin{verbatim}
+  MultiValueAttribute ==
+       matchString("myValue",MultiValueAttributeValues)
+\end{verbatim}
+
+
+\item In some General Information Provider implementations (GIP),
+the ContactString Info attribute of the ComputingElement entity is
+not necessarily a GRAM URL and may have the form
+$<$GRAM-URL$>$-$<$VO-Name$>$. This form cannot be used directly as a
+contact string by most Grid clients. In LCG, the Resource Broker
+processes this value so that it can be used by the standard Grid
+clients. In the mapping to old ClassAd, instead, the value is
+published in the form $<$GRAM-URL$>$, irrespectively of the GIP
+implementation, by comparing the value of ContactString with the
+values in the GlueCEAccessControlBaseRule (i.e., the VO names). This
+is important in order to use the Condor Matchmaking Service
+out-of-the-box for Resource Selection.
+
+
+\item The ``Job'' and ``VOView'' entities of ``Computing Element'' AND the
+``Location" entity of "SubCluster" are not considered for the
+mapping to old ClassAd in the basic mapping rules. ``VOView'' and
+``Location'' are used in the extended mapping rules.
+
+\item The following rules are followed to quote string values in old ClassAd
+\begin{verbatim}
+ClassAd Keywords
+  Special keyword are not quoted.
+  Special keywords: undefined, true, t, false, f, error
+  Note: int, float, and the like are not keywords in the
+  ClassAd language and have no special meaning
+
+Variables
+  If an attribute refers to another attribute, the attribute
+  name is a variable, and is not quoted.
+  For instance, if you have:
+  X = 3
+  Y = X
+  then if you evaluate Y, you get 3. In this case, no quote
+  marks are used.
+  Variables can be combined into expressions, like:
+  Y = X + 3
+  Y = X > 3
+
+Numbers
+  Numbers are not quoted, unless you want them to be
+  interpreted as strings. There are floating point numbers
+  and integers. If the C function strtod() recognizes it as
+  a floating point number, then it is, otherwise it isn't.
+
+Strings
+  The only other element that you can have is a string,
+  and it must be quoted.
+  X = "blah"
+  Y = X
+  Z = "foo"
+  A backslash (\) can also be used for quoting the following
+  strings:
+  \  (\<blank>)
+  \"
+  \n
+  \r
+\end{verbatim}
+\end{itemize}
+
+\subsubsection{Considerations}
+
+These rules are useful when using the Condor Matchmaking Service to
+implement Resource Selection. These rules are
+implementation-specific, thus are kept outside of the ``generic''
+mapping rules.
+
+\begin{itemize}
+\item When using the Condor Matchmaking Service for Resource Selection,
+every generated ClassAd should have the following three attributes
+added to it: ``MyType'', ``TargetType'', and ``Name''. These
+attribute are used internally by Condor for Matchmaking and have the
+following constant values:
+
+MyType = "Machine"
+
+TargetType = "Job"
+
+Name = $<$GlueCeName$>$.$<$GlueClusterName$>$.$<$GlueSubclusterName$>$
+
+where the notation $<$GlueCeName$>$ indicates the value of the GlueCeName
+attribute and similarly for the other attributes.
+
+It should be noted that the attribute ``Name'' must be unique among
+all ClassAds considered for resource selection.
+\end{itemize}
+
+\subsubsection{Example}
+\label{se:BasicRulesExample}
+
+Firgure \ref{CLASSAD-Basic-1-Example} and
+\ref{CLASSAD-Basic-2-Example} show an example of a set of two old
+ClassAds. The set is derived applying the ``basic rules'' (section
+\ref{se:BasicRules}) to the LDIF representation of the example GLUE
+schema in figures \ref{LDIF-CE-1-Example} \ref{LDIF-CE-2-Example},
+\ref{LDIF-Cluster-Subcluster-Example},
+\ref{LDIF-VOView-Site-Example}, and \ref{LDIF-Location-Example}.
+
+Note that the LDIF example is derived from a real configuration of
+resources and does not include the GLUE attributes
+``GlueClusterTmpDir'', ``GlueClusterWNTmpDir'',
+``GlueHostArchitecturePlatformType'', ``GlueHostProcessorVersion'',
+``GlueHostProcessorInstructionSet'',
+``GlueHostProcessorOtherDescription'', and
+``GlueCEInfoGRAMVersion''. These attributes are included for
+completeness in the old ClassAd set example.
+
+
+
+\subsection{Extended Rules}
+\label{se:ExtendedRules}
+
+In this section, we describe the extended rules of the mapping of
+LDIF representation of Grid resources based on the GLUE Schema into
+the old ClassAd format. The extended rules provide a mapping to old
+ClassAd for the GLUE schema entities "VOView" and "Location". The
+extended rules have to be used in addition to the basic rules of
+section \ref{se:BasicRules}.
+
+
+\subsubsection{Definitions}
+
+The extended rules are the following:
+
+\begin{itemize}
+
+\item The mapping is built by considering all the possible combinations of
+inter-related ComputingElement, Cluster, Subcluster, and VOView
+entities. In other words, each combination contains a single
+ComputingElement, Cluster, Subcluster, and VOView entity. Attributes
+in each combination are then mapped to a single old ClassAd. VOView
+attributes that have the same names as the ones for CE overwrite the
+CE values (e.g. GlueCEStateFreeJobSlots from the linked VOView, if
+present, overwrites GlueCEStateFreeJobSlots from CE). This makes it
+easier for users to express requirements on resource characteristics
+that affect the VO/group/role. In fact, the requirement expression
+does not change depending on whether VOView is present or not.
+
+\item After building all ClassAds, it should be checked whether the value of 
+the attribute GlueCEAccessControlBaseRule of the CE entity is the same as
+one of the GlueCEAccessControlBaseRule attributes in the 
+VOView entities. If this is NOT the case, the CE entity refers to an 
+Access Control Base Rule that is not qualified using a VOView entity.
+Therefore, in order to advertise this CE-level Access Rule, an extra set
+of ClassAds should be generated by building all possible combinations of the
+inter-related ComputingElement, Cluster, Subcluster only (excluding 
+the VOView entities). If this were not done, the GlueCEAccessControlBaseRule
+attribute of the CE would go lost, as the GlueCEAccessControlBaseRule
+attributes of VOView always overwrite the one for CE.
+
+\item The location entity appears in old ClassAd as a multivalue attribute.
+The mapping is built as follows. For a given subcluster entity, we
+consider all its related Location entities. For a given attribute in
+the Location entity, we build the list of values in all the related
+Location entities as a comma-separated string of values. The order
+of the values must be the same across different attributes, i.e.
+values from the same entity have the same position on the list. This
+way, pairs of values from two different Location attributes can be
+selected using custom (call-out) functions in the Condor Matchmaking
+Service. Example signatures for such functions could be
+
+\begin{verbatim}
+  matchOrderedPair(AttributeName1, AttrbuteName2,
+                   Value1, Value2)
+\end{verbatim}
+    or
+\begin{verbatim}
+  matchOrderedNTuple(NumberOfAttributes,
+                     AttributeName1, AttributeName2, ... ,
+                     Value1, Value2, ...)
+\end{verbatim}
+
+In summary, in old ClassAd format, for every subcluster, every
+attribute in the Location entity appears once with the list of
+values expressed as a list.
+
+\item The attribute Path from the Location entity is not advertised, as it is
+deemed to be of marginal importance in the resource selection process.
+
+\item At least these two attributes from the Site entity are provided: 
+GlueSiteUniqueID and GlueSiteName. In particular, the GlueSiteName is of
+interest in the selection of resources. 
+
+\end{itemize}
+
+\subsubsection{Example}
+\label{se:ExtendedRulesExample}
+
+Figure \ref{CLASSAD-Extended-1-Example-part1},
+\ref{CLASSAD-Extended-1-Example-part2},
+\ref{CLASSAD-Extended-2-Example-part1}, and
+\ref{CLASSAD-Extended-2-Example-part2}  show an example of a set of
+two old ClassAds (each ClassAd is split in two figures to fit on the
+page). The set is derived applying the ``extended rules'' (section
+\ref{se:ExtendedRules}) to the LDIF representation of the example
+GLUE schema in figures \ref{LDIF-CE-1-Example}
+\ref{LDIF-CE-2-Example}, \ref{LDIF-Cluster-Subcluster-Example},
+\ref{LDIF-VOView-Site-Example}, and \ref{LDIF-Location-Example}.
+
+The ClassAd are identical to the ones generated with the basic
+rules, with the addition of Location attributes. VOView attributes
+have overwritten CE attributes in the case of the cdf VO. The
+GlueLocationPath attribute of the Location entity is not included in
+the mapping.
+
+
+\begin{figure}
+\scriptsize
+\begin{verbatim}
+# Computing Element Entity (1)
+dn: GlueCEUniqueID=rsgrid3.its.uiowa.edu:2119/jobmanager-condor-cdf,mds-vo-name=local,o=grid
+objectClass: GlueCETop
+objectClass: GlueCE
+objectClass: GlueSchemaVersion
+objectClass: GlueCEAccessControlBase
+objectClass: GlueCEInfo
+objectClass: GlueCEPolicy
+objectClass: GlueCEState
+objectClass: GlueInformationService
+objectClass: GlueKey
+GlueCEHostingCluster: rsgrid3.its.uiowa.edu
+GlueCEName: cdf
+GlueCEUniqueID: rsgrid3.its.uiowa.edu:2119/jobmanager-condor-cdf
+GlueCEInfoGatekeeperPort: 2119
+GlueCEInfoHostName: rsgrid3.its.uiowa.edu
+GlueCEInfoLRMSType: condor
+GlueCEInfoLRMSVersion: 6.7.13
+GlueCEInfoTotalCPUs: 1
+GlueCEInfoJobManager: condor
+GlueCEInfoContactString: rsgrid3.its.uiowa.edu:2119/jobmanager-condor
+GlueCEInfoApplicationDir: /export/grid/app
+GlueCEInfoDataDir: /export/grid/data
+GlueCEInfoDefaultSE: rsgrid3.its.uiowa.edu
+GlueCEStateEstimatedResponseTime: 0
+GlueCEStateFreeCPUs: 0
+GlueCEStateRunningJobs: 0
+GlueCEStateStatus: Production
+GlueCEStateTotalJobs: 0
+GlueCEStateWaitingJobs: 0
+GlueCEStateWorstResponseTime: 0
+GlueCEStateFreeJobSlots: 1
+GlueCEPolicyMaxCPUTime: 0
+GlueCEPolicyMaxRunningJobs: 0
+GlueCEPolicyMaxTotalJobs: 0
+GlueCEPolicyMaxWallClockTime: 0
+GlueCEPolicyPriority: 0
+GlueCEPolicyAssignedJobSlots: 1
+GlueCEAccessControlBaseRule: VO:cdf
+GlueForeignKey: GlueClusterUniqueID=rsgrid3.its.uiowa.edu
+GlueInformationServiceURL: ldap://rsgrid3.its.uiowa.edu:2135/mds-vo-name=local,o=grid
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 2
+\end{verbatim}
+\normalsize
+\caption[Example of an LDIF Representation of the GLUE
+Schema]{\label{LDIF-CE-1-Example}  An LDIF respresentation
+of a Computing Element entity of the GLUE schema v1.2}
+\end{figure}
+
+\begin{figure}
+\scriptsize
+\begin{verbatim}
+# Computing Element Entity (2)
+dn: GlueCEUniqueID=rsgrid3.its.uiowa.edu:2119/jobmanager-condor-fermilab,mds-vo-name=local,o=grid
+objectClass: GlueCETop
+objectClass: GlueCE
+objectClass: GlueSchemaVersion
+objectClass: GlueCEAccessControlBase
+objectClass: GlueCEInfo
+objectClass: GlueCEPolicy
+objectClass: GlueCEState
+objectClass: GlueInformationService
+objectClass: GlueKey
+GlueCEHostingCluster: rsgrid3.its.uiowa.edu
+GlueCEName: fermilab
+GlueCEUniqueID: rsgrid3.its.uiowa.edu:2119/jobmanager-condor-fermilab
+GlueCEInfoGatekeeperPort: 2119
+GlueCEInfoHostName: rsgrid3.its.uiowa.edu
+GlueCEInfoLRMSType: condor
+GlueCEInfoLRMSVersion: 6.7.13
+GlueCEInfoTotalCPUs: 1
+GlueCEInfoJobManager: condor
+GlueCEInfoContactString: rsgrid3.its.uiowa.edu:2119/jobmanager
+GlueCEInfoApplicationDir: /export/grid/app
+GlueCEInfoDataDir: /export/grid/data
+GlueCEInfoDefaultSE: rsgrid3.its.uiowa.edu
+GlueCEStateEstimatedResponseTime: 0
+GlueCEStateFreeCPUs: 0
+GlueCEStateRunningJobs: 0
+GlueCEStateStatus: Production
+GlueCEStateTotalJobs: 0
+GlueCEStateWaitingJobs: 0
+GlueCEStateWorstResponseTime: 0
+GlueCEStateFreeJobSlots: 1
+GlueCEPolicyMaxCPUTime: 0
+GlueCEPolicyMaxRunningJobs: 0
+GlueCEPolicyMaxTotalJobs: 0
+GlueCEPolicyMaxWallClockTime: 0
+GlueCEPolicyPriority: 0
+GlueCEPolicyAssignedJobSlots: 1
+GlueCEAccessControlBaseRule: VO:fermilab
+GlueForeignKey: GlueClusterUniqueID=rsgrid3.its.uiowa.edu
+GlueInformationServiceURL: ldap://rsgrid3.its.uiowa.edu:2135/mds-vo-name=local,o=grid
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 2
+\end{verbatim}
+\normalsize
+\caption[LDIF Representation of a CE Entity]{
+\label{LDIF-CE-2-Example} An LDIF respresentation
+of a Computing Element entity of the GLUE schema v1.2}
+\end{figure}
+
+\begin{figure}
+\scriptsize
+\begin{verbatim}# Cluster Entity
+dn: GlueClusterUniqueID=rsgrid3.its.uiowa.edu,mds-vo-name=local,o=grid
+objectClass: GlueClusterTop
+objectClass: GlueCluster
+objectClass: GlueSchemaVersion
+objectClass: GlueInformationService
+objectClass: GlueKey
+GlueClusterName: rsgrid3.its.uiowa.edu
+GlueClusterService: rsgrid3.its.uiowa.edu
+GlueClusterUniqueID: rsgrid3.its.uiowa.edu
+GlueForeignKey: GlueCEUniqueID=rsgrid3.its.uiowa.edu:2119/jobmanager-condor-cdf
+GlueForeignKey: GlueCEUniqueID=rsgrid3.its.uiowa.edu:2119/jobmanager-condor-fermilab
+GlueForeignKey: GlueSiteUniqueID=rsgrid3.its.uiowa.edu
+GlueInformationServiceURL: ldap://rsgrid3.its.uiowa.edu:2135/mds-vo-name=local,o=grid
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 2
+
+# SubCluster Entity
+dn: GlueSubClusterUniqueID=rsgrid3.its.uiowa.edu, GlueClusterUniqueID=rsgrid3.its.uiowa.edu,
+    mds-vo-name=local,o=grid
+objectClass: GlueClusterTop
+objectClass: GlueSubCluster
+objectClass: GlueSchemaVersion
+objectClass: GlueHostApplicationSoftware
+objectClass: GlueHostArchitecture
+objectClass: GlueHostBenchmark
+objectClass: GlueHostMainMemory
+objectClass: GlueHostNetworkAdapter
+objectClass: GlueHostOperatingSystem
+objectClass: GlueHostProcessor
+objectClass: GlueInformationService
+objectClass: GlueKey
+GlueChunkKey: GlueClusterUniqueID=rsgrid3.its.uiowa.edu
+GlueHostApplicationSoftwareRunTimeEnvironment: OSG-0.3.6
+GlueHostApplicationSoftwareRunTimeEnvironment: ATLAS_LOC_903
+GlueHostApplicationSoftwareRunTimeEnvironment: LCG-2_6_0
+GlueHostArchitectureSMPSize: 2
+GlueHostBenchmarkSF00: 380
+GlueHostBenchmarkSI00: 400
+GlueHostMainMemoryRAMSize: 512
+GlueHostMainMemoryVirtualSize: 1024
+GlueHostNetworkAdapterInboundIP: FALSE
+GlueHostNetworkAdapterOutboundIP: TRUE
+GlueHostOperatingSystemName: linux-rocks-3.3
+GlueHostOperatingSystemRelease: Rocks Linux
+GlueHostOperatingSystemVersion: 3.3
+GlueHostProcessorClockSpeed: 1000
+GlueHostProcessorModel: Pentium III (Coppermine)
+GlueHostProcessorVendor: GenuineIntel
+GlueSubClusterName: rsgrid3.its.uiowa.edu
+GlueSubClusterUniqueID: rsgrid3.its.uiowa.edu
+GlueSubClusterPhysicalCPUs: 1
+GlueSubClusterLogicalCPUs: 2
+GlueSubClusterTmpDir: /export/grid/data
+GlueSubClusterWNTmpDir: /tmp
+GlueInformationServiceURL: ldap://rsgrid3.its.uiowa.edu:2135/mds-vo-name=local,o=grid
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 2
+\end{verbatim}
+\normalsize
+\caption[LDIF Representation of another CE Entity]{
+\label{LDIF-Cluster-Subcluster-Example} An LDIF representation
+of a Cluster and SubCluster entities of the GLUE schema v1.2}
+\end{figure}
+
+\begin{figure}
+\scriptsize
+\begin{verbatim}
+# VOView Entity: Ignored in the mapping with the basic rules
+dn: GlueVOViewLocalID=cdf,GlueCEUniqueID=rsgrid3.its.uiowa.edu:2119/
+    jobmanager-condor-cdf,mds-vo-name=local,o=grid
+objectClass: GlueCETop
+objectClass: GlueVOView
+objectClass: GlueCEInfo
+objectClass: GlueCEState
+objectClass: GlueCEAccessControlBase
+objectClass: GlueCEPolicy
+objectClass: GlueKey
+objectClass: GlueSchemaVersion
+GlueVOViewLocalID: cdf
+GlueCEAccessControlBaseRule: VO:cdf
+GlueCEStateRunningJobs: 0
+GlueCEStateWaitingJobs: 0
+GlueCEStateTotalJobs: 0
+GlueCEStateFreeJobSlots: 1
+GlueCEStateEstimatedResponseTime: 0
+GlueCEStateWorstResponseTime: 0
+GlueCEInfoDefaultSE: rsgrid3.its.uiowa.edu
+GlueCEInfoApplicationDir: /export/grid/app
+GlueCEInfoDataDir: /export/grid/data
+GlueChunkKey: GlueCEUniqueID=rsgrid3.its.uiowa.edu:2119/jobmanager-condor-cdf
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 2
+
+# Site Entity: Ignored in the mapping
+dn: GlueSiteUniqueID=rsgrid3.its.uiowa.edu,mds-vo-name=local,o=grid
+objectClass: GlueTop
+objectClass: GlueSite
+objectClass: GlueKey
+objectClass: GlueSchemaVersion
+GlueSiteUniqueID: rsgrid3.its.uiowa.edu
+GlueSiteName: UIOWA-ITB
+GlueSiteDescription: OSG Site
+GlueSiteUserSupportContact: mailto: shaowen-wang@uiowa.edu
+GlueSiteSysAdminContact: mailto: shaowen-wang@uiowa.edu
+GlueSiteSecurityContact: mailto: shaowen-wang@uiowa.edu
+GlueSiteLocation: Iowa City , US
+GlueSiteLatitude: 41.67
+GlueSiteLongitude: -91.55
+GlueSiteWeb: http://rsgrid3.its.uiowa.edu
+GlueForeignKey: GlueSiteUniqueID=rsgrid3.its.uiowa.edu
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 2
+\end{verbatim}
+\normalsize
+\caption[Example of an LDIF Representation of the VOView and Site entities of
+the  GLUE Schema]{\label{LDIF-VOView-Site-Example} An LDIF representation
+of a VOView and Site entities of the GLUE schema v1.2. A mapping
+for VOView and Site is not provided by the basic rules but is provided by the extended
+rules.}
+\end{figure}
+
+
+
+
+
+\begin{figure}
+\scriptsize
+\begin{verbatim}
+# Location Entity: Ignored in the mapping with the basic rules
+# OSG_SITE_READ, rsgrid3.its.uiowa.edu, rsgrid3.its.uiowa.edu, local, grid
+dn: GlueLocationLocalID=OSG_SITE_READ,
+    GlueSubClusterUniqueID=rsgrid3.its.uiowa.edu,
+    GlueClusterUniqueID=rsgrid3.its.uiowa.edu,mds-vo-name=local,o=grid
+objectClass: GlueClusterTop
+objectClass: GlueLocation
+objectClass: GlueKey
+objectClass: GlueSchemaVersion
+GlueLocationLocalID: OSG_SITE_READ
+GlueLocationName: OSG_SITE_READ
+GlueLocationPath: /export/grid/data
+GlueChunkKey: GlueClusterUniqueID=rsgrid3.its.uiowa.edu
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 2
+
+# OSG_SITE_WRITE, rsgrid3.its.uiowa.edu, rsgrid3.its.uiowa.edu, local, grid
+dn: GlueLocationLocalID=OSG_SITE_WRITE,
+    GlueSubClusterUniqueID=rsgrid3.its.uiowa.edu,
+    GlueClusterUniqueID=rsgrid3.its.uiowa.edu,mds-vo-name=local,o=grid
+objectClass: GlueClusterTop
+objectClass: GlueLocation
+objectClass: GlueKey
+objectClass: GlueSchemaVersion
+GlueLocationLocalID: OSG_SITE_WRITE
+GlueLocationName: OSG_SITE_WRITE
+GlueLocationPath: /export/grid/data
+GlueChunkKey: GlueClusterUniqueID=rsgrid3.its.uiowa.edu
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 2
+\end{verbatim}
+\normalsize \caption[Example of an LDIF Representation of the
+Location entity of the GLUE Schema]{\label{LDIF-Location-Example} An
+LDIF representation of Location entities of the GLUE schema v1.2.
+The basic rules do not provide a mapping to old ClassAd for these
+entities, but the extended rules do (see
+Fig.\ref{CLASSAD-Extended-1-Example-part2}).}
+\end{figure}
+
+
+
+
+
+
+
+\begin{figure}
+\scriptsize
+\begin{verbatim}
+### Computing Element Entity (1)
+GlueCEHostingCluster = "rsgrid3.its.uiowa.edu"
+GlueCEName = "cdf"
+GlueCEUniqueID = "rsgrid3.its.uiowa.edu:2119/jobmanager-condor-cdf"
+GlueCEInfoGatekeeperPort = 2119
+GlueCEInfoHostName = "rsgrid3.its.uiowa.edu"
+GlueCEInfoLRMSType = "condor"
+GlueCEInfoLRMSVersion = "6.7.13"
+GlueCEInfoTotalCPUs = 1
+GlueCEInfoJobManager = "condor"
+GlueCEInfoContactString = "rsgrid3.its.uiowa.edu:2119/jobmanager-condor"
+GlueCEInfoApplicationDir = "/export/grid/app"
+GlueCEInfoDataDir = "/export/grid/data"
+GlueCEInfoDefaultSE = "rsgrid3.its.uiowa.edu"
+GlueCEInfoGRAMVersion = "1.7"
+GlueCEStateEstimatedResponseTime = 0
+GlueCEStateFreeCPUs = 0
+GlueCEStateRunningJobs = 0
+GlueCEStateStatus = "Production"
+GlueCEStateTotalJobs = 0
+GlueCEStateWaitingJobs = 0
+GlueCEStateWorstResponseTime = 0
+GlueCEStateFreeJobSlots = 1
+GlueCEPolicyMaxCPUTime = 0
+GlueCEPolicyMaxRunningJobs = 0
+GlueCEPolicyMaxTotalJobs = 0
+GlueCEPolicyMaxWallClockTime = 0
+GlueCEPolicyPriority = 0
+GlueCEPolicyAssignedJobSlots = 1
+GlueCEAccessControlBaseRule = "VO:cdf"
+GlueInformationServiceURL = "ldap://rsgrid3.its.uiowa.edu:2135/mds-vo-name=local,o=grid"
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 2
+### Cluster Entity
+GlueClusterName = "rsgrid3.its.uiowa.edu"
+GlueClusterService = "rsgrid3.its.uiowa.edu"
+GlueClusterUniqueID = "rsgrid3.its.uiowa.edu"
+GlueClusterTmpDir = "/tmp"
+GlueClusterWNTmpDir = "/scratch"
+### SubCluster Entity
+GlueHostApplicationSoftwareRunTimeEnvironment = "OSG-0.3.6,ATLAS_LOC_903,LCG-2_6_0"
+GlueHostArchitectureSMPSize = 2
+GlueHostArchitecturePlatformType = undefined
+GlueHostBenchmarkSF00 = 380
+GlueHostBenchmarkSI00 = 400
+GlueHostMainMemoryRAMSize = 512
+GlueHostMainMemoryVirtualSize = 1024
+GlueHostNetworkAdapterInboundIP = FALSE
+GlueHostNetworkAdapterOutboundIP = TRUE
+GlueHostOperatingSystemName = "linux-rocks-3.3"
+GlueHostOperatingSystemRelease = "Rocks Linux"
+GlueHostOperatingSystemVersion = 3.3
+GlueHostProcessorClockSpeed = 1000
+GlueHostProcessorModel = "Pentium III (Coppermine)"
+GlueHostProcessorVendor = "GenuineIntel"
+GlueHostProcessorVersion = undefined
+GlueHostProcessorInstructionSet = "i686"
+GlueHostProcessorOtherDescription = "i686"
+GlueSubClusterName = "rsgrid3.its.uiowa.edu"
+GlueSubClusterUniqueID = "rsgrid3.its.uiowa.edu"
+GlueSubClusterPhysicalCPUs = 1
+GlueSubClusterLogicalCPUs = 2
+GlueSubClusterTmpDir = "/export/grid/data"
+GlueSubClusterWNTmpDir = "/tmp"
+\end{verbatim}
+\normalsize \caption[Example of an old ClassAd representation of the
+GLUE Schema]{\label{CLASSAD-Basic-1-Example} The first of two old
+ClassAds representing the GLUE Schema presented before in LDIF
+format. This ClassAd was generated using the ``basic rules'' for the
+mapping. The 3 pound signs (\#\#\#) are used as comments only and
+are not part of the ClassAd.}
+\end{figure}
+
+\begin{figure}
+\scriptsize
+\begin{verbatim}
+### Computing Element Entity (2)
+GlueCEHostingCluster = "rsgrid3.its.uiowa.edu"
+GlueCEName = "fermilab"
+GlueCEUniqueID = "rsgrid3.its.uiowa.edu:2119/jobmanager-condor-fermilab"
+GlueCEInfoGatekeeperPort = 2119
+GlueCEInfoHostName = "rsgrid3.its.uiowa.edu"
+GlueCEInfoLRMSType = "condor"
+GlueCEInfoLRMSVersion = "6.7.13"
+GlueCEInfoTotalCPUs = 1
+GlueCEInfoJobManager = "condor"
+GlueCEInfoContactString = "rsgrid3.its.uiowa.edu:2119/jobmanager-condor"
+GlueCEInfoApplicationDir = "/export/grid/app"
+GlueCEInfoDataDir = "/export/grid/data"
+GlueCEInfoDefaultSE = "rsgrid3.its.uiowa.edu"
+GlueCEInfoGRAMVersion = "1.7"
+GlueCEStateEstimatedResponseTime = 0
+GlueCEStateFreeCPUs = 0
+GlueCEStateRunningJobs = 0
+GlueCEStateStatus = "Production"
+GlueCEStateTotalJobs = 0
+GlueCEStateWaitingJobs = 0
+GlueCEStateWorstResponseTime = 0
+GlueCEStateFreeJobSlots = 1
+GlueCEPolicyMaxCPUTime = 0
+GlueCEPolicyMaxRunningJobs = 0
+GlueCEPolicyMaxTotalJobs = 0
+GlueCEPolicyMaxWallClockTime = 0
+GlueCEPolicyPriority = 0
+GlueCEPolicyAssignedJobSlots = 1
+GlueCEAccessControlBaseRule = "VO:fermilab"
+GlueInformationServiceURL = "ldap://rsgrid3.its.uiowa.edu:2135/mds-vo-name=local,o=grid"
+GlueSchemaVersionMajor = 1
+GlueSchemaVersionMinor = 2
+### Cluster Entity
+GlueClusterName = "rsgrid3.its.uiowa.edu"
+GlueClusterService = "rsgrid3.its.uiowa.edu"
+GlueClusterUniqueID = "rsgrid3.its.uiowa.edu"
+GlueClusterTmpDir = "/tmp"
+GlueClusterWNTmpDir = "/scratch"
+### SubCluster Entity
+GlueHostApplicationSoftwareRunTimeEnvironment = "OSG-0.3.6,ATLAS_LOC_903,LCG-2_6_0"
+GlueHostArchitectureSMPSize = 2
+GlueHostArchitecturePlatformType = undefined
+GlueHostBenchmarkSF00 = 380
+GlueHostBenchmarkSI00 = 400
+GlueHostMainMemoryRAMSize = 512
+GlueHostMainMemoryVirtualSize = 1024
+GlueHostNetworkAdapterInboundIP = FALSE
+GlueHostNetworkAdapterOutboundIP = TRUE
+GlueHostOperatingSystemName = "linux-rocks-3.3"
+GlueHostOperatingSystemRelease = "Rocks Linux"
+GlueHostOperatingSystemVersion = 3.3
+GlueHostProcessorClockSpeed = 1000
+GlueHostProcessorModel = "Pentium III (Coppermine)"
+GlueHostProcessorVendor = "GenuineIntel"
+GlueHostProcessorVersion = undefined
+GlueHostProcessorInstructionSet = "i686"
+GlueHostProcessorOtherDescription = "i686"
+GlueSubClusterName = "rsgrid3.its.uiowa.edu"
+GlueSubClusterUniqueID = "rsgrid3.its.uiowa.edu"
+GlueSubClusterPhysicalCPUs = 1
+GlueSubClusterLogicalCPUs = 2
+GlueSubClusterTmpDir = "/export/grid/data"
+GlueSubClusterWNTmpDir = "/tmp"
+\end{verbatim}
+\normalsize \caption[Example of an old ClassAd representation of the
+GLUE Schema]{\label{CLASSAD-Basic-2-Example} The second of two old
+ClassAds representing the GLUE Schema presented before in LDIF
+format. This ClassAd was generated using the ``basic rules'' for the
+mapping. The 3 pound signs (\#\#\#) are used as comments only and
+are not part of the ClassAd.}
+\end{figure}
+
+
+
+
+
+
+
+\begin{figure}
+\scriptsize
+\begin{verbatim}
+### Computing Element Entity (1)
+GlueCEHostingCluster = "rsgrid3.its.uiowa.edu"
+GlueCEName = "cdf"
+GlueCEUniqueID = "rsgrid3.its.uiowa.edu:2119/jobmanager-condor-cdf"
+GlueCEInfoGatekeeperPort = 2119
+GlueCEInfoHostName = "rsgrid3.its.uiowa.edu"
+GlueCEInfoLRMSType = "condor"
+GlueCEInfoLRMSVersion = "6.7.13"
+GlueCEInfoTotalCPUs = 1
+GlueCEInfoJobManager = "condor"
+GlueCEInfoContactString = "rsgrid3.its.uiowa.edu:2119/jobmanager-condor"
+GlueCEInfoGRAMVersion = "1.7"
+GlueCEStateFreeCPUs = 0
+GlueCEStateStatus = "Production"
+GlueCEPolicyMaxCPUTime = 0
+GlueCEPolicyMaxRunningJobs = 0
+GlueCEPolicyMaxTotalJobs = 0
+GlueCEPolicyMaxWallClockTime = 0
+GlueCEPolicyPriority = 0
+GlueCEPolicyAssignedJobSlots = 1
+GlueInformationServiceURL = "ldap://rsgrid3.its.uiowa.edu:2135/mds-vo-name=local,o=grid"
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 2
+### Attributes overwritten by VOView Entity
+GlueVOViewLocalID: "cdf"
+GlueCEAccessControlBaseRule = "VO:cdf"
+GlueCEStateRunningJobs = 0
+GlueCEStateWaitingJobs = 0
+GlueCEStateTotalJobs = 0
+GlueCEStateFreeJobSlots = 1
+GlueCEStateEstimatedResponseTime = 0
+GlueCEStateWorstResponseTime = 0
+GlueCEInfoDefaultSE = "rsgrid3.its.uiowa.edu"
+GlueCEInfoApplicationDir = "/export/grid/app"
+GlueCEInfoDataDir = "/export/grid/data"
+\end{verbatim}
+\normalsize \caption[Example of an old ClassAd representation of the
+GLUE Schema]{\label{CLASSAD-Extended-1-Example-part1} The first half
+of the first of two old ClassAds representing the GLUE Schema
+presented before in LDIF format. This ClassAd was generated using
+the ``extended rules'' for the mapping. The 3 pound signs (\#\#\#)
+are used as comments only and are not part of the ClassAd.}
+\end{figure}
+
+\begin{figure}
+\scriptsize
+\begin{verbatim}
+### Cluster Entity
+GlueClusterName = "rsgrid3.its.uiowa.edu"
+GlueClusterService = "rsgrid3.its.uiowa.edu"
+GlueClusterUniqueID = "rsgrid3.its.uiowa.edu"
+GlueClusterTmpDir = "/tmp"
+GlueClusterWNTmpDir = "/scratch"
+### SubCluster Entity
+GlueHostApplicationSoftwareRunTimeEnvironment = "OSG-0.3.6,ATLAS_LOC_903,LCG-2_6_0"
+GlueHostArchitectureSMPSize = 2
+GlueHostArchitecturePlatformType = undefined
+GlueHostBenchmarkSF00 = 380
+GlueHostBenchmarkSI00 = 400
+GlueHostMainMemoryRAMSize = 512
+GlueHostMainMemoryVirtualSize = 1024
+GlueHostNetworkAdapterInboundIP = FALSE
+GlueHostNetworkAdapterOutboundIP = TRUE
+GlueHostOperatingSystemName = "linux-rocks-3.3"
+GlueHostOperatingSystemRelease = "Rocks Linux"
+GlueHostOperatingSystemVersion = 3.3
+GlueHostProcessorClockSpeed = 1000
+GlueHostProcessorModel = "Pentium III (Coppermine)"
+GlueHostProcessorVendor = "GenuineIntel"
+GlueHostProcessorVersion = undefined
+GlueHostProcessorInstructionSet = "i686"
+GlueHostProcessorOtherDescription = "i686"
+GlueSubClusterName = "rsgrid3.its.uiowa.edu"
+GlueSubClusterUniqueID = "rsgrid3.its.uiowa.edu"
+GlueSubClusterPhysicalCPUs = 1
+GlueSubClusterLogicalCPUs = 2
+GlueSubClusterTmpDir = "/export/grid/data"
+GlueSubClusterWNTmpDir = "/tmp"
+### Location Entity
+GlueLocationLocalID = "OSG_SITE_READ,OSG_SITE_WRITE"
+GlueLocationName = "OSG_SITE_READ,OSG_SITE_WRITE"
+### Site Entity: at least these two attribute must be present
+GlueSiteUniqueID: rsgrid3.its.uiowa.edu
+GlueSiteName: UIOWA-ITB
+\end{verbatim}
+\normalsize \caption[Example of an old ClassAd representation of the
+GLUE Schema]{\label{CLASSAD-Extended-1-Example-part2} The second
+half of the ClassAd in figure
+\ref{CLASSAD-Extended-1-Example-part1}}
+\end{figure}
+
+
+
+
+
+
+
+\begin{figure}
+\scriptsize
+\begin{verbatim}
+### Computing Element Entity (2)
+GlueCEHostingCluster = "rsgrid3.its.uiowa.edu"
+GlueCEName = "fermilab"
+GlueCEUniqueID = "rsgrid3.its.uiowa.edu:2119/jobmanager-condor-fermilab"
+GlueCEInfoGatekeeperPort = 2119
+GlueCEInfoHostName = "rsgrid3.its.uiowa.edu"
+GlueCEInfoLRMSType = "condor"
+GlueCEInfoLRMSVersion = "6.7.13"
+GlueCEInfoTotalCPUs = 1
+GlueCEInfoJobManager = "condor"
+GlueCEInfoContactString = "rsgrid3.its.uiowa.edu:2119/jobmanager-condor"
+GlueCEInfoApplicationDir = "/export/grid/app"
+GlueCEInfoDataDir = "/export/grid/data"
+GlueCEInfoDefaultSE = "rsgrid3.its.uiowa.edu"
+GlueCEInfoGRAMVersion = "1.7"
+GlueCEStateEstimatedResponseTime = 0
+GlueCEStateFreeCPUs = 0
+GlueCEStateRunningJobs = 0
+GlueCEStateStatus = "Production"
+GlueCEStateTotalJobs = 0
+GlueCEStateWaitingJobs = 0
+GlueCEStateWorstResponseTime = 0
+GlueCEStateFreeJobSlots = 1
+GlueCEPolicyMaxCPUTime = 0
+GlueCEPolicyMaxRunningJobs = 0
+GlueCEPolicyMaxTotalJobs = 0
+GlueCEPolicyMaxWallClockTime = 0
+GlueCEPolicyPriority = 0
+GlueCEPolicyAssignedJobSlots = 1
+GlueCEAccessControlBaseRule = "VO:fermilab"
+GlueInformationServiceURL = "ldap://rsgrid3.its.uiowa.edu:2135/mds-vo-name=local,o=grid"
+GlueSchemaVersionMajor = 1
+GlueSchemaVersionMinor = 2
+### VOView Entity for VO:fermilab is not defined: nothing to overwrite.
+\end{verbatim}
+\normalsize \caption[Example of an old ClassAd representation of the
+GLUE Schema]{\label{CLASSAD-Extended-2-Example-part1} The first half
+of the second of two old ClassAds representing the GLUE Schema
+presented before in LDIF format. This ClassAd was generated using
+the ``extended rules'' for the mapping. The 3 pound signs (\#\#\#)
+are used as comments only and are not part of the ClassAd.}
+\end{figure}
+
+\begin{figure}
+\scriptsize
+\begin{verbatim}
+### Cluster Entity
+GlueClusterName = "rsgrid3.its.uiowa.edu"
+GlueClusterService = "rsgrid3.its.uiowa.edu"
+GlueClusterUniqueID = "rsgrid3.its.uiowa.edu"
+GlueClusterTmpDir = "/tmp"
+GlueClusterWNTmpDir = "/scratch"
+### SubCluster Entity
+GlueHostApplicationSoftwareRunTimeEnvironment = "OSG-0.3.6,ATLAS_LOC_903,LCG-2_6_0"
+GlueHostArchitectureSMPSize = 2
+GlueHostArchitecturePlatformType = undefined
+GlueHostBenchmarkSF00 = 380
+GlueHostBenchmarkSI00 = 400
+GlueHostMainMemoryRAMSize = 512
+GlueHostMainMemoryVirtualSize = 1024
+GlueHostNetworkAdapterInboundIP = FALSE
+GlueHostNetworkAdapterOutboundIP = TRUE
+GlueHostOperatingSystemName = "linux-rocks-3.3"
+GlueHostOperatingSystemRelease = "Rocks Linux"
+GlueHostOperatingSystemVersion = 3.3
+GlueHostProcessorClockSpeed = 1000
+GlueHostProcessorModel = "Pentium III (Coppermine)"
+GlueHostProcessorVendor = "GenuineIntel"
+GlueHostProcessorVersion = undefined
+GlueHostProcessorInstructionSet = "i686"
+GlueHostProcessorOtherDescription = "i686"
+GlueSubClusterName = "rsgrid3.its.uiowa.edu"
+GlueSubClusterUniqueID = "rsgrid3.its.uiowa.edu"
+GlueSubClusterPhysicalCPUs = 1
+GlueSubClusterLogicalCPUs = 2
+GlueSubClusterTmpDir = "/export/grid/data"
+GlueSubClusterWNTmpDir = "/tmp"
+### Location Entity
+GlueLocationLocalID = "OSG_SITE_READ,OSG_SITE_WRITE"
+GlueLocationName = "OSG_SITE_READ,OSG_SITE_WRITE"
+### Site Entity: at least these two attribute must be present
+GlueSiteUniqueID: rsgrid3.its.uiowa.edu
+GlueSiteName: UIOWA-ITB
+
+\end{verbatim}
+\normalsize \caption[Example of an old ClassAd representation of the
+GLUE Schema]{\label{CLASSAD-Extended-2-Example-part2} The second
+half of the ClassAd in figure
+\ref{CLASSAD-Extended-2-Example-part1}}
+\end{figure}
+
+
+
+\begin{thebibliography}{6}
+\addcontentsline{toc}{section}{References}
+\bibitem{GLUE-schema} http://glueschema.forge.cnaf.infn.it/
+\bibitem{LDIF-mapping} http://glueschema.forge.cnaf.infn.it/Mapping/LDAP
+\bibitem{XML-mapping} http://glueschema.forge.cnaf.infn.it/Mapping/XMLSchema
+\bibitem{CEMon} http://grid.pd.infn.it/cemon/
+\bibitem{GIP} L.~Field.
+\newblock Generic Information Provider.
+\newblock http://lfield.home.cern.ch/lfield/gip
+\bibitem{LDIF}
+G.~Good.
+\newblock The LDAP Data Interchange Format (LDIF) - Technical
+Specification.
+\newblock IETF RFC 2849. June 2000.
+\end{thebibliography}
+
+\end{document}
