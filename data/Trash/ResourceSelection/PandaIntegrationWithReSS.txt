@@ -1,0 +1,79 @@
+%META:TOPICINFO{author="GabrieleGarzoglio" date="1155748419" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICPARENT{name="WebHome"}%
+---+The Integration of the OSG Resource Selection Service with PANDA, the Atlas Job Management system.
+
+On Aug 4, 2006, Gabriele Garzoglio and Marco Mambelli met for one day discussing the integration of !ReSS with Panda, the Atlas job management system. The discussion touches on what problems !ReSS could address and how. This is a summary of the meeting.
+
+---++How PANDA works in a nutshell
+
+Panda is a pilot-based job management system. The system consists of two main components: the Grid Server or (Pilot) Job Submitter (JS) and the Panda Server or Task Buffer (TB) (VO Job queue). The [[https://twiki.cern.ch/twiki/bin/view/Atlas/Panda][Panda twiki]] contains a detailed description of the system.
+
+The JS periodically submits pilot jobs to the Atlas grid clusters (currently about 8 for production) using Condor-G. By looking at the Condor-G job queue, the current algorithm of the JS makes sure that each cluster is receiving an adequate amount of pilot jobs, with the condition that no more than 50 jobs are pending (idle or on hold) in the queue of each cluster. When a pilot job runs, it connects to the TB asking for 1 VO job. When finished, the pilot exits.
+
+The TB is populated by jobs in two ways.
+   1. Direct client submission: used for analysis jobs and user production
+   1. Managed production submission: CERN maintains a database that contains requests for production jobs. These requests are transfered to regional job management systems (Executors) by a server called Eowyn. Eowyn submits production jobs to Panda by populating the TB.
+ 
+To submit jobs to the ATLAS grid clusters, the TB uses the following logic. For each job in its list, the TB considers the job's input datasets. For each ATLAS cluster on the grid, the TB checks 2 conditions: (1) the Storage Element (SE) at the cluster has enough space to hold the job's input datasets; (2) the site is running "lot" of pilot jobs. When such site is identified, the TB submits a request for data pre-staging (dataset "subscription") to Don Quixote 2 (DQ), the Distributed Data Management system of ATLAS. DQ asks the location of the dataset to its central services, which returns a list of location where the dataset is complete (all files are available) or incomplete (some files are available). DQ then moves all files in the dataset to the local SE. Once the dataset is available at the site, DQ notifies the TB. At this point (when its input data is at the site), the job becomes available for execution and the TB will assign it to the next available pilot job from that site. The pilot, then, executes the job sending periodic status reports to the TB and puts the outputs in the SE local to the cluster. 
+
+---++Current Problems and how a Resource Selection Service could address them
+
+---+++Problem 1
+Sometimes the TB cannot give a pilot job any VO jobs. This typically happens when the DQ data movement service has problems. In this case, the pilot job exits  in one minute without running any jobs. However, the Job Submitter (JS) keeps submitting pilot jobs to the site. This situation causes a high load to the gatekeeper of the site without a corresponding useful throughput.
+
+IDEAL SOLUTION: the JS should be notified that pilot jobs exit without executing any VO jobs. This way, the rate of pilot job submission can be slowed or interrupted. It should be noted that currently the Task Buffer (TB) checks whether the site runs pilot jobs or not, before considering data pre-staging and VO job submission there. In other words, the TB tries to submit VO jobs only to site that can run pilot jobs. This behavior would need to be tuned, should such solution be implemented. This way, sites that run only a few pilot jobs still have a chance of executing VO jobs.
+
+ATTEMPTED SOLUTION: the JS decides whether a pilot job succeeds or fails by looking at the execution time. If the execution time is a few minutes, it is probably a pilot job that received no real ATLAS job. This heuristic fails when a pilot job executes short analysis jobs, which can last a few minutes.
+
+POSSIBLE SOLUTIONS USING !ReSS:
+
+1.1) we implement a lightweight status reporting service. The service runs at the site. Pilot jobs report to it whether they exited without executing any job or not. The status reporting service maintains the recent history of pilot job statuses and uses it to determine how likely it is that the next pilot job will receive a real job and run successfully. This probability is then published as one of the characteristics of the site and used for resource selection by the task buffer. The probability could be reported as a new "HighLevelStatus" attribute of the Service entity of the Glue Schema v1.3.
+
+1.2) The status of DQ could be advertise using the Service entity of the Glue Schema. This status can be considered for resource selection. This way, the JS could reduce the rate of pilot jobs submissions to those sites that cannot move data. We should reduce and not stop the submission of pilot jobs, because some VO jobs could run on the site, should the necessary dataset be present there already or should the data movement service be restored.
+
+---+++Problem 2
+The JS submits pilot jobs requiring the availability of a minimal amount of memory. This memory is the minimum necessary to run the VO jobs. This requirement is specified in the RSL string of condor-g and propagated to the site batch system through the Globus job managers. Some sites always fail pilot jobs because such minimum amount of memory is not available. The problem is that these pilot jobs are continuously submitted to the site gatekeeper, unnecessarily increasing the load to the computing element. It should be noted that this problem is a special case of problem 1.
+
+IDEAL SOLUTION: pilot jobs are submitted only to those clusters that provide worker nodes with the requested minimal amount of memory.
+
+ATTEMPTED SOLUTION: lovering the requirement and have pilot reporting the available memory at the node, but all jobs may require more memory.
+
+POSSIBLE SOLUTIONS USING !ReSS: the JS could use one of the memory attributes of the subcluster entity from the glue schema (e.g. =SubclusterMainMemoryRAMSize=) to implement resource selection. It should be noted that currently these values are often misconfigured at the sites, as only one subcluster (homogeneous set of worker nodes) is assumed at a cluster. Further development could include match the memory requirements of specific jobs with what's provided by the CEs.
+
+---+++Problem 3
+The JS submit pilot jobs assuming a certain amount of scratch disk space available. Sometimes jobs fail because the disk space is not available.
+
+IDEAL SOLUTION: publishing the availability of local scratch space in real time from the site. In reality, this information is never available. However, having at least static information on the disk space could be useful, even if it does not guarantee zero failure rate.
+
+ATTEMPTED SOLUTION: the pilot reports the available disk space at the node and aborts its execution if it is not sufficient. There is no real job failure, but resources are wasted to run the pilot.
+
+POSSIBLE SOLUTIONS USING !ReSS: we could publish the amount of disk space available in the scratch area. If such attribute is not available in the current glue schema, we could request an extension for the Glue Schema v1.3. The JS could use this information to select resources.
+
+---+++Problem 4
+VO jobs fail because the necessary software is not pre-installed at the site. This has to be detected and the job resubmitted.
+
+IDEAL SOLUTION: the presence of the necessary software is checked before submitting a VO job to a site
+
+ATTEMPTED SOLUTION: none
+
+POSSIBLE SOLUTIONS USING !ReSS: The available software at a site is published using the Location entity of the Glue Schema. This information could be used by the TB to check the software requirements of VO jobs before selecting a grid site. It should be noted that the "Glue Schema to old classad mapping" document already contains rules to map the Location entity to classad. These rules will be implemented in the next release of the !ReSS system, should ATLAS be interested in using it.
+
+
+---++Other related discussions
+
+- Data-driven job submission: the TB runs a VO job at the site that was selected for data pre-staging. Since data pre-staging can take a long time, there is often a chance that the necessary dataset has become available already elsewhere, because it was requested by other jobs. This affects job efficiency especially when the data handling system is having problems. In this case, the job submission times out after 2 days. A late binding to the site would reduce such occurrences. In this case, increasing the number of data pre-staging requests to sites could also improve efficiency. The redundancy in  pre-staging requests should reflect the difference in costs between computing resources (CPUs at CEs) and data movements and storage (network bandwidth/latency and SE capacity)
+
+- Using ranges and lists in the attributes of the Subcluster entity of the Glue Schema: in the current Glue Schema there is a one to many relationship between the cluster and the subcluster (set of homogeneous worker nodes) entities. However, the current information systems assume a single subcluster, because administrators are not willing to change the configuration by hand and no tools are available to do this configuration automatically. This makes it difficult to select resources based on worker nodes characteristics.
+
+It was discussed the use of ranges for subcluster attributes (e.g. Memory = 256 MB - 1 GB), irrespectively of how many different homogeneous sets of worker nodes are available. This could often be sufficient in resource selection and would avoid the proliferation of subcluster entities.
+A single value should reflect the possibility to get a resource with those characteristics and the job should be able to wait in queue until that specific resource is available.
+
+
+---++Short term plans
+
+   * Interface the test JS system to the general OSG !ReSS system. This activity is ongoing.
+
+   * Install CEMon on an ATLAS ITB machine, in order to advertise it to the !ReSS. Install a test instance of the central !ReSS services (condor_collector/negotiator + apache + tomcat from vdt 1.3.11; IG servlet from FNAL). Try to use the ATLAS !ReSS services to submit jobs.
+
+
+-- Main.GabrieleGarzoglio - 08 Aug 2006
