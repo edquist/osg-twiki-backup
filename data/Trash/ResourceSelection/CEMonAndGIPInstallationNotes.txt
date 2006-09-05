@@ -1,19 +1,185 @@
-%META:TOPICINFO{author="GabrieleGarzoglio" date="1157055503" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1157486671" format="1.1" reprev="1.5" version="1.5"}%
 %META:TOPICPARENT{name="WebHome"}%
+%TOC%
+---++ Instructions to install CEMon on an OSG v0.4.1 installation
+---+++ Introduction
+This document is intended for administrators responsible for supporting ITB Compute Element (CE) version 0.4.1 onto OSG Integration Resources. We assume that an administrator is already familiar with the installation and configuration procedure described in [[http://osg.ivdgl.org/twiki/bin/view/Integration/OSGCEInstallGuide][OSG Installation Guide]]. Our goal is to describe some additional steps that need to be performed in order to install and configure the newest [[http://grid.pd.infn.it/cemon/field.php][CEMonitor  service]]  from vdt_1.3.11 on top of existing ce 0.4.1 installation.  This service is capable of collecting the CE resource information by using [[http://lfield.home.cern.ch/lfield/cgi-bin/wiki.cgi?area=gip&page=documentation][Generic Information Provider]] (GIP).
+A properly installed and configured CEMonitor service pushes collected information in classad format to central [[http://osg.ivdgl.org/bin/view/ResourceSelection/WebHome][Information Gatherer]] (IG) running on designated host (osg-ress-1.fnal.gov). IG advertises these classads to [[http://www.cs.wisc.edu/condor][Condor Match Maker]] service.  
+
+---+++  Initial assumptions
+We assume that CE-0.4.1 software has been installed on the node and the following products are installed and properly configured:
+   * Job Management software (condor, pbs or lsf)
+   * GIP
+We also assume that apache and tomcat are not installed on the CE node.
+d39 1
+---+++  Installation method
+The installation method is based on Pacman. You will need to install the latest pacman version somewhere on your machine (make sure that the version is equal or greater 3.18.5).
+
+<b><i>wget http://physics.bu.edu/pacman/sample_cache/tarballs/pacman-latest.tar.gz</i></b>
+
+unzip and untar the file<br>
+cd to the untared directory <br>
+__. setup.sh__<br>
 These are our internal documentation of how to install CEMon and GIP for an OSG environment.
 
-   * <b>Instructions for ITB v0.5.0 (Aug 31, 2006)</b>: [[%ATTACHURL%/cemon-0.5.0.pdf][cemon-0.5.0.pdf]]
+---+++  Pre-install steps
+Make sure that you have host and http service certificates on the server you are planning to install cemon: 
+   *  The host certificate should be installed in /etc/grid-security with ownership and permissions as: <br>
+              -rw-r--r--  root   root     hostcert.pem<br> 
+              -r--------    root   root    hostkey.pem 
+   * http certificate: Used by apache and tomcat. The http certificate for your system should be installed in /etc/grid-security/http with ownership and permission as: <br>
+              -rw-r--r--  daemon daemon  httpcert.pem <br>
+              -r--------    daemon daemon httpkey.pem
+---+++  Installation 
+In order to avoid any overlapping between previously installed software and CEMon you have to create a new directory that is different from your intial intallation of ce-0.4.1. 
+   a. Create a directory where you want to install vdt-1.3.11 cemon cache <br>
+        <b><i>cd /usr/local</b></i><br>
+        <b><i>mkdir cemon</b></i><br>
+        cd to the cemon directory ($VDT_LOCATION) 
+        <b><i>export VDT_LOCATION=/usr/local/cemon</b></i><br>
+   a. Install CEMon  from vdt:1.3.11<br>
+        <i>pacman &#8211;get http://vdt.cs.wisc.edu/vdt_1311_cache:CEMon<br>
+         Do you want to add [http://vdt.cs.wisc.edu/vdt_1311_cache] to [trusted.caches]? (y or n): y<br>
+         Do you agree to the licenses? [y/n] y
+         <br>&#8230;<br>
+         Where would you like to install CA files? n
+         Would you like to setup daily rotation of VDT log files? y
+         <br>Would you like to enable the CEMon server to run automatically? y
+         <br>&#8230;
+         <br>Would you like CRL to be updated automatically ?n<br>
+         <br>Would you like to enable the CEMon server to run automatically? y
+         <br>&#8230;
+         <br>If you would like, we can configure the Globus GRIS (MDS) to startautomatically at boot time? s<br></i>
+         </i>
+   a. Apache and tomcat have been configured and should have been started automatically at this time. 
+   a. In order to properly configure CEMon consumer (IG)  subscription execute the following command:<br>
+       <b><i>$VDT_LOCATION/vdt/setup/configure_cemon --consumer https://osg-ress-1.fnal.gov:8443/ig/services/CEInfoCollector  --dialect OLD_CLASSAD   --topic OSG_CE</b></i>
+   a. The next step is to manually modify the CEMon configuration in order to do minor fixes and minimize the load on the system (this changes will be included in the next vdt release). Open $VDT_LOCATION/glite/etc/glite-ce-monitor/cemonitor-config.xml with your favorite editor, do the following changes:<br>
+      * Line #8          <br>
+          %BLUE%sslCAfiles="/usr/local/cemon/globus/TRUSTED_CA/*.0" %ENDCOLOR%<br>
+          change this value to correct path to trusted certificate directory<br>
+      * Line #73 &#8211; Line # 80<br>
+           %BLUE%<sensor id="sensor-ce"<br>
+            &#8230;.<br>
+            </sensor >%ENDCOLOR%<br>
+            You will need to disable invocation of this sensor by commenting the whole xml fragment out:<br>
+             %RED%&lt;!-- sensor id="sensor-ce" <br>
+             &#8230;.<br>
+              It appears this comment is done automatically now.
+      * Line #86<br>     
+          %BLUE%&lt;property name="executionDelay" value="60000" />%ENDCOLOR%<br> 
+           Increase the interval between executions of gip script from 1 minute to 10 minute:<br> 
+           Default interval by default is now 300000, equiv to 5 minutes.
+      * Line #126<br>       
+            %BLUE%&lt;policy rate="60000">%ENDCOLOR%<br> 
+             Increase the frequency of consumer notification from 1 minute to 10 minute:<br> 
+            %RED%&lt;policy rate="600000">%ENDCOLOR%
+   a. Modify gip wrapper script. Open file  $VDT_LOCATION/glite/etc/glite-ce-ce-plugin/glite-ce-info and change it to the following:<br> 
+       <b><i>#!/bin/sh<br> 
+        $OSG_LOCATION/lcg/bin/lcg-info-generic $OSG_LOCATION/lcg/etc/osg-info-generic.conf%ENDCOLOR%</b></i><br> 
+        Where $OSG_LOCATION is a root directory of your CE.0.4.1 installation
+of $OSG_LOCATION to the path that it is.
+---+++ Installation Verification
+At this time apache, tomcat and CEMon  should be up and running. You can check cemon log file that is located $VDT_LOCATION/tomcat/v5/logs/glite-ce-monitor.log. You can also verify that cemon is started by accessing it via your browser (your certificate should be imported into your browser).  
+   * Use the following url:<br>
+       https://&lt;host&gt;:8443/ce-monitor/services/CEMonitor?method=GetInfo<br> 
+        If your DN is not in the /etc/grid-security/grid-mapfile you will see the following [[%ATTACHURL%/exception.GIF][information on the page]]
+   * If you upload your certificate into to your browser and add certificate subject (DN) to a /etc/security/grid-mapfile, you could get back [[%ATTACHURL%/cemon-topic.GIF][meaningful information about topics and dialects]] that CEMonitor supports.
+   * You can verify that CEMonitor started reporting to IG by checking  $VDT_LOCATION/tomcat/v5/log/glite-ce-monitor.log. You should see:
+        <br><i>%ORANGE%&#8230;.org.glite.security.trustmanager.CRLFileTrustManager - Client CN=osg-ress-1.fnal.gov, OU=Services, DC=doegrids, DC=org accepted%ENDCOLOR%</i><br>
+         each time CEMonitor pushes  information to Information Gatherer.
+   * You can also run<br>
+           __condor_status &#8211;pool osg-ress-1.fnal.gov &#8211;l__ <br>
            to check what information your CE is advertising.
-   * <b>Instructions to install CEMon on an OSG v0.4.1 installation (Aug 31, 2006)</b>: [[%ATTACHURL%/cemon-0.4.1.pdf][cemon-0.4.1.pdf]]
+
+---------------------------------------------
+---++ Instructions for ITB v0.5.0
+---+++ Introduction (v0.5.0)
+This document is intended for administrators responsible for installing and configuring ITB Compute Element (CE) version 0.5.0 onto OSG Integration Resources. We assume that an administrator is already familiar with the installation and configuration procedure described in [[http://osg.ivdgl.org/twiki/bin/view/Integration/OSGCEInstallGuide][OSG Installation Guide]]. Our goal is to describe some additional steps that need to be performed in order to configure [[http://grid.pd.infn.it/cemon/field.php][CEMonitor  service]] .  This service is capable of collecting the CE resource information by using [[http://lfield.home.cern.ch/lfield/cgi-bin/wiki.cgi?area=gip&page=documentation][Generic Information Provider]] (GIP).
+In current ITB CE installation CEMonitor service pushes collected information in classad format to central [[http://osg.ivdgl.org/bin/view/ResourceSelection/WebHome][Information Gatherer]] (IG) running on designated host (osg-ress-1.fnal.gov). IG advertises these classads to [[http://www.cs.wisc.edu/condor][Condor Match Maker]] service.  
+	
+---+++ Installation method (v0.5.0)
+The installation method is based on [[http://physics.bu.edu/pacman/][Pacman]]. You will need to install  the latest pacman version somewhere on your machine.<br>
+<b><i>wget http://physics.bu.edu/pacman/sample_cache/tarballs/pacman-latest.tar.gz</i></b><br>
+unzip and untar the file<br>
+cd to the untared directory <br>
 __. setup.sh__
-   * Old documentation:
+
+---+++ Pre-install steps (v0.5.0)
+Make sure that you have host and http service certificates on the server you are planning to install cemon: 
+   a. The host certificate should be installed in /etc/grid-security with ownership and permissions as: <br>
+      -rw-r--r--  root   root     hostcert.pem <br>
+      -r--------    root   root    hostkey.pem 
+   a. http certificate: Used by apache and tomcat. The http certificate for your system should be installed in /etc/grid-security/http with ownership and permission as:<br>
+      -rw-r--r--  daemon daemon  httpcert.pem<br>
+      -r--------    daemon daemon httpkey.pem
+	
+---+++ Installation (v0.5.0)
+   1. CEMon is installed automatically as you installed ce-0.5.0:
+    a. Create a directory where you want to install vdt package if it doesn&#8217;t exists<br>
+        <b><i>cd /usr/local</i></b><br>
+        <b><i>mkdir vdt</i></b><br>
+    a.  cd to the vdt directory ($VDT_LOCATION) 
+    a.  Install ce-0.5.0 from ITB<br>
+        <b><i>pacman -get ITB:ce-0.5.0</i></b><br>
+     at the moment ITB:ce is the same as ITB:ce-0.5.0 and it generally points to the current CE version of the ITB whatever that is. More instructions on the ITB CE install and preparation for it can be found in [[http://osg.ivdgl.org/twiki/bin/view/Integration/OSGCEInstallGuide] [ OSG Install Guide]].  
+   1. Make sure that there is a batch system already installed on your node.  If the OSGCEInstall guide was followed correctly, it will already be installed by this time, as will the globus jobmanager adapters.  GIP works with condor, PBS, LSF, SGE.  Be sure you have done the two steps below.  If you haven't,
+    a. Install condor from vdt1.3.11:  In $VDT_LOCATION install condor:<br>
+        <b><i>pacman -get http://vdt.cs.wisc.edu/vdt_1311_cache:Condor</i></b><br>
+        (answer &#8220;yes&#8221; to all the questions).  See the OSGCEInstallGuide for hints on condor and other installation tricks.
+    a. Setup condor (pbs, lsf etc) if this has not already done<br>
+         <b><i>pacman -get ITB:Globus-Condor-Setup</i></b>
+   1. The next step is performed with each installation of  ce package.  Run configure-osg script.  Under ITB 0.5.0 and greater this will also automatically configure the GIP.<br>
+        <b><i>. $VDT_LOCATION/setup.sh</i></b><br>
+        <b><i>monitoring/configure_osg.sh</i></b>
+
+---+++ Modification of CEMon configuration file and GIP wrapper (v0.5.0)
+The next step is to manually modify the CEMon configuration in order to do minor fixes and minimize the load on the system (this changes will be included in the next vdt release). Open $VDT_LOCATION/glite/etc/glite-ce-monitor/cemonitor-config.xml with your favorite editor, do the following changes:
+   * Line #73 &#8211; Line #80<br>
+       %BLUE%<sensor id="sensor-ce"<br>
+        &#8230;.<br>
+       </sensor >%ENDCOLOR%<br>
+       You will need to disable invocation of this sensor by commenting the whole xml fragment out:<br>
+        %RED%&lt;!-- sensor id="sensor-ce" <br>
+        &#8230;.<br>
+       </sensor --&gt;%ENDCOLOR%
+   * Line #86<br>     
+       %BLUE%&lt:property name="executionDelay" value="60000" />%ENDCOLOR%<br>
+        Increase the interval between executions of gip script from 1 minute to 10 minute:<br>
+        %RED%&lt:property name="executionDelay" value="600000" />%ENDCOLOR%
+   * Line #126<br>      
+      %BLUE%&ltpolicy rate="60000">%ENDCOLOR%<br>
+      Increase the frequency of consumer notification from 1 minute to 10 minute:<br>
+      %RED%&lt;policy rate="600000">%ENDCOLOR%<br> 
+
+Modify gip wrapper script. Open file  $VDT_LOCATION/glite/etc/glite-ce-ce-plugin/glite-ce-info and add the following line:
+<br><b><i>#!/bin/sh
+<br>%RED%export LANG=c%ENDCOLOR%     #add this line
+<br>$VDT_LOCATION/lcg/bin/lcg-info-generic $VDT_LOCATION/lcg/etc/osg-info-generic.conf</i></b>
+
+---+++ Installation Verification (v0.5.0)
+   * Apache and tomcat have been configured and should be started at this time. 
+   * CEMon  should be started as well. Check  cemon log file that is located $VDT_LOCATION/tomcat/v5/logs/glite-ce-monitor.log. You can verify that cemon is started by accessing it via your browser (your certificate should be imported into your browser).  Use the following url: https://&lt;host&gt;:8443/ce-monitor/services/CEMonitor?method=GetInfo
+   * If your DN is not in the /etc/grid-security/grid-mapfile you will see the following [[%ATTACHURL%/exception.GIF][information on the page]]
+   * If you add your DN to a /etc/security/grid-mapfile, you could get back [[%ATTACHURL%/cemon-topic.GIF][meaningful information about topics and dialects]] that CEMonitor supports
+   * Verify that CEMonitor started reporting to IG (in $VDT_LOCATION/tomcat/v5/log/glite-ce-monitor.log) you will see:<br><i>%ORANGE%&#8230;.org.glite.security.trustmanager.CRLFileTrustManager - Client CN=osg-ress-1.fnal.gov, OU=Services, DC=doegrids, DC=org accepted%ENDCOLOR%
+<br>each time CEMonitor pushed  information to Information Gatherer.
+    * You can also run<br> 
+        __condor_status &#8211;pool osg-ress-1.fnal.gov &#8211;l__ 
+
+---------------------------------------------
+
 ---++ Old Documentation
       * Feb 07, 2006: [[%ATTACHURL%/CEMonAndGIPInstallation.pdf][CEMonAndGIPInstallation.pdf]]: 
       * Jun 28, 2006: [[%ATTACHURL%/CEMONinstallationandconfigurationprocedure_1.7.21.pdf][CEMONinstallationandconfigurationprocedure_1.7.21.pdf]]. Same in TWiki format: Integration.CEMonInstallationConfigurationGuide050
 -- Main.GabrieleGarzoglio - 07 Feb 2006
 
  
+
+  
+
 %META:FILEATTACHMENT{name="exception.GIF" attr="" autoattached="1" comment="" date="1157485912" path="exception.GIF" size="22304" user="Main.TanyaLevshina" version="2"}%
+%META:FILEATTACHMENT{name="cemon-0.5.0.pdf" attr="" autoattached="1" comment="" date="1157055336" path="cemon-0.5.0.pdf" size="118188" user="Main.GabrieleGarzoglio" version="1"}%
 %META:FILEATTACHMENT{name="cemon-topic.GIF" attr="" autoattached="1" comment="" date="1157486296" path="cemon-topic.GIF" size="41377" user="Main.TanyaLevshina" version="1"}%
 %META:FILEATTACHMENT{name="CEMonAndGIPInstallation.pdf" attr="" autoattached="1" comment="" date="1139355300" path="CEMonAndGIPInstallation.pdf" size="22543" user="GabrieleGarzoglio" version="1.1"}%
 %META:FILEATTACHMENT{name="CEMONinstallationandconfigurationprocedure_1.7.21.pdf" attr="" autoattached="1" comment="" date="1151509155" path="CEMONinstallationandconfigurationprocedure_1.7.21.pdf" size="90761" user="GabrieleGarzoglio" version="1.1"}%
