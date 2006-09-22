@@ -1,0 +1,435 @@
+%META:TOPICINFO{author="LeighGrund" date="1158942974" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICPARENT{name="DocumentTableRelease041"}%
+<!-- This is the default OSG Integration template. 
+Please modify it in the sections indicated to create your topic!
+If you have any comments/complaints about this template, then please email me:
+rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
+--> 
+
+<!-- By default the title is the WikiWord used to create this topic !-->
+<!-- if you want to modify it to something more meaningful, just replace %TOPIC% below with i.e "My Topic"!-->
+
+---+!!<nop>%TOPIC%
+%TOC%
+%STARTINCLUDE%
+
+
+
+---++Introduction
+ 
+<a href="http://grid.racf.bnl.gov/GUMS/">GUMS</a> (Grid User Management System) is a Grid Identity Mapping Service. Identity mapping is necessary when a site's resources do not use grid credentials natively, but instead use a different mechanism to identify users, such as UNIX accounts or Kerberos principals. In these cases, the grid credential for each incoming job must be associated with an appropriate site credential. The GUMS server performs this mapping and communicates it to the gatekeepers. The gatekeepers are charged with enforcing the site mapping established by GUMS. The GUMS client (gatekeeper) portion consists of an admin tool for querying and/or changing the state of the server. Typically, the term "GUMS" refers to the server portion.
+
+GUMS is particularly well suited to a heterogeneous environment with multiple gatekeepers; it allows the implemenation of a single site-wide usage policy, thereby providing better control and security for access to the site's grid resources. Using GUMS, individual resource administrators are able to assign different mapping policies to different groups of users and define groups of hosts on which the mappings will be used. GUMS was designed to integrate with the site's local information services (such as HR databases or LDAP).
+
+GUMS is intended to be used with OSG ITB, but it (the server portion) does not get installed as part of compute element ITB software; you must install it separately. For the OSG ITB you will need to use one of two senerios, "Full Privilege" or the "Compatibility" site configurations.
+
+More Information can be obtained from the following resources:
+
+   * The full GUMS service description and a detailed manual is available at the GUMS site: http://grid.racf.bnl.gov/GUMS
+   * The Privilege project <a href="http://computing.fnal.gov/docs/products/voprivilege/">homepage</a> contains links to everything.  
+   * Transition plan: http://computing.fnal.gov/docs/products/voprivilege/documents/transition-to-privilege.html
+   * vo-admins@opensciencegrid.org - you can add yourself to this mail list by sending mail to listserv@opensciencegrid.org with the body of the mail being: add vo-admins 
+---++Pre-requisites for a GUMS Installation
+---+++ pacman install utility
+      <br>- Download and install Pacman (if not already available); see PacmanInfo. You will use pacman to install GUMS.
+---+++ A http certificate
+       <br>- You will need an  http certificate for your system installed in  /etc/grid-security/http as httpcert.pem / httpkey.pem.  
+       <br>- If you do not already have one on this machine, this can  be done as a post-install step. 
+       <br>- GUMS running in tomcat5 is generally setup by default to run as 'daemon' so be sure to set ownership on the certificate files  accordingly.
+      <br> - Instructions for getting the certificate can be found here:
+      * VDT instructions: http://www.cs.wisc.edu/vdt/requesting_cert.html
+      * Also refer to any instructions you may find in the $VDT_LOCATION/vdt/post-install/README 
+---+++ Known Problems
+         <br>- Add "Known Problems" here.
+
+---+++ existing Gums installation 
+      <br>- If you have an OSG GUMS running and you're about to reinstall or if any of the following daemons are installed and running on your machine, see the [[#Shutdown_Guide][Shutdown instructions]] below. 
+      * Apache
+      * Tomcat V5
+      * !MySql
+
+---++Install GUMS Server
+If you want to be able to start GUMS automatically, you need to do the install as root.
+
+First of all, make sure no old copy of GUMS is installed on the system you're using for the GUMS server. To do so, run:
+<verbatim> 
+ls $VDT_LOCATION/gums-service
+</verbatim>
+This should return "fail to find the file".  You should install GUMS from the latest VDT version (see http://www.cs.wisc.edu/vdt/whats_new.html). 
+
+Here we describe the pacman GUMS installation. You can choose to install GUMS manually, or learn more about the installation at 
+http://grid.racf.bnl.gov/GUMS/guide_howto_installation.html
+
+Set up pacman.  If you have a $VDT_LOCATION, go to it. If you don't, then create one and cd to it.  Run the pacman install command from there (using the latest version of VDT; shown here as %OSG_ITB_VDT_VERSION%:
+
+  pacman -get OSG:gums
+
+
+Output:
+
+
+This installs both the GUMS server and the GUMS client. 
+You'll want to make it so it starts/shuts down with the server.  The VDT will do this for you if you answer "y" to the question "Would you like to enable the GUMS server to run automatically?" (shown in output).  Answering "y" creates <tt>/etc/init.d/tomcat-5</tt> which is a startup script.
+
+Under $VDT_LOCATION, these changes occur:
+   * If mysql, tomcat v5 and/or apache aren't already installed, it/they will get installed
+   * <tt>apache/conf/httpd.conf</tt> gets updated to include tomcat-5 installation of GUMS. 
+   * There's a gums-service directory which is for tomcat-5 services provided by GUMS
+   * There's a gums directory which contains the GUMS client and host scripts
+   * A mysql GUMS database is created, (currently) named gums_1_0
+
+Start tomcat-5 and apache (stop them first if they've been running):
+<verbatim>
+
+/etc/init.d/tomcat-5 start
+/etc/init.d/apache start
+ 
+</verbatim>
+
+If you answered "n" to the question or did the install as non-root,  you'll need to run the above 2 commands to start it up each time. 
+You'll also need to set up the services with the following commands:
+<verbatim>
+    vdt/setup/configure_apache --server y
+    vdt/setup/configure_tomcat --server y --version 5
+</verbatim>
+
+Verify that you have access to your GUMS services. Go to your GUMS web interface (in a certificate-enabled browser) at <tt>https://your-gums-server:8443/gums</tt>. You should get a screen up. You won't be able to do anything until you configure GUMS.
+
+---++Configure GUMS Server
+---+++Create a GUMS administrator
+Make sure you log into your GUMS host as root.  
+
+   * Add yourself to the list of GUMS admins. If you have a root mysql password, you'll need it for this step.  If you don't have one, it won't be required. Run the following commands:
+       
+       <verbatim>
+      ssh -l root your.host  #login as root however you like
+      cd $VDT_LOCATION/gums-service/sbin
+      ./addAdmin "your DN"   #quotes needed due to spaces in DN string
+     </verbatim>
+   This will give you administrative access through your GUMS web interface.  This adds you (or the DN you provide) to the <b>admins</b> subGroup in the GUMS database.<br>
+<b>Note</b>: you must run <tt>addAdmin</tt> from the <tt>gums-service/sbin</tt> directory.  This may be fixed in a future VDT release.
+
+Output of the addAdmin command:
+<verbatim>
+WARNING: You must have created the database before running this script!
+Adding the following DN to the local database:
+Certificate DN for administrator: "/DC=org/DC=doegrids/OU=People/CN=Anne Heavey 830711"
+Is this correct? (Enter 'yes' to proceed)
+yes
+Adding the admin:
+Enter the root mysql password
+</verbatim>
+If there's no password set, it will finish by itself.  Ignore the warning; the database got created during the installation.
+
+Verify you have  administrative capabilities in GUMS:
+   * Go to your gums web interface at <b>https://your-gums-server:8443/gums</b>. 
+   * Click "Generate Grid Mapfile".  
+   * Enter anything (e.g., xyz) as host computer just to test that the process runs.  
+   * You should get "null" as a response. 
+
+If you get the following, you have not added yourself correctly to the <b>admins</b> group or you are using the wrong certificate in your browser:
+     <verbatim>
+     GUMS encountered an error
+     Error Type: gov.bnl.gums.admin.AuthorizationDeniedException
+     Error Message: Authorization denied
+     </verbatim>   
+
+---+++Modify the gums.config file
+ A default gums.config file is installed in 
+<verbatim>
+$VDT_LOCATION/tomcat/v5/webapps/gums/WEB-INF/classes/gums.config
+</verbatim>
+(Note that <tt>$VDT_LOCATION/gums</tt> is symlinked to <tt>/$VDT_LOCATION/gums-service/var/war</tt>).
+ This file has two groupMapping elements (i.e., groupMapping with no "s" at the end), both of which need to be replaced.  They fall inside the one <nop>groupMappings element (with an "s").
+
+You can choose to follow the "instant gratification" path, below, or follow the GumsConfigStepByStep path.
+
+To get some instant gratification:
+<ol>
+  <li> first replace the groupMapping elements with the following element:
+<verbatim>
+  <groupMapping name='osg' accountingVo='osg' accountingDesc='OSG'>
+    <userGroup className='gov.bnl.gums.VOMSGroup'
+        url='https://grid03.uits.indiana.edu:8443/edg-voms-admin/vos/services/VOMSAdmin'
+        persistenceFactory='mysql' name='osg' voGroup="/vos/osg"
+        sslCertfile='/etc/grid-security/http/httpcert.pem'
+        sslKey='/etc/grid-security/http/httpkey.pem' ignoreFQAN="true"/>
+    <accountMapping className='gov.bnl.gums.GroupAccountMapper' 
+        groupName='osg' />
+  </groupMapping>
+</verbatim>
+Note that this sample <b>groupMapping</b> element points to a VOMS server at Indiana and to the <b>/vos/osg</b> group, that it uses group account mapping (the <b>className</b> attribute of <b>accountMapping</b> element contains the <b>GroupAccountMapper</b> class), and the group account which it maps to is <b>osg</b> (the <b>groupName</b> attribute of <b>accountMapping</b> element).
+
+<li>In the <b>hostGroup</b> element, below, change the <b>groups</b> attribute to <b><i>osg</i></b> to match the inserted element (delete groupA and groupB) and change the <b>wildcard</b> attribute value from '<b>*.site.com</b>' to the CE or gatekeeper host(s) that the group mappings apply to (*.fnal.gov shown in example below).  As indicated, you can use a wildcard to specify a set of hosts.   
+<verbatim>
+ <hostGroups>
+  <hostGroup className='gov.bnl.gums.WildcardHostGroup' 
+              cn='*.fnal.gov,host/*.fnal.gov' 
+                groups='osg'   />
+ </hostGroups>
+</verbatim>
+
+<li>On your GUMS web interface at <b>https://your-gums-server:8443/gums</b>, 
+    <ul><li>click "Update Members" in the left pane
+             <li>then the "Update VO Members Database" button
+   </ul>
+This retrieves the members of the <b>/vos/osg</b> group from the Indiana VOMS server, and inserts them into the !MySql GUMS database.
+
+<li>Still on your GUMS web interface, 
+<ul><li>Click on "Generate Grid Mapfile," 
+    <li>Enter the hostname that you want to generate the grid mapfile for<br>
+        <b>Key point</b>: In step 3, you specified certain hosts in the 
+        <b>cn</b> attribute of the <b>hostGroup</b> element that these
+        mappings applied to.  This is the value you would enter here. 
+        For example, if you had entered <b>cn="*.fnal.gov"</b>, you can
+        enter any host with a .fnal.gov domain.  Some host certificates are prepended with an extra string, 'host/.'  It is recommended that you also add this regex to the cn attribute to avoid possible problems with some gatekeepers (see above as an example).
+    <li>Click "Generate grid-mapfile."  <br>
+        You should get the text of a grid-mapfile formatted output (as of this writing):
+<verbatim>
+#---- members of vo: osg ----#
+"/DC=org/DC=doegrids/OU=People/CN=Alexis Rodriguez 233072" osg
+"/DC=org/DC=doegrids/OU=People/CN=Andrew Zahn 730598" osg
+"/DC=org/DC=doegrids/OU=People/CN=Craig Phillip Prescott 50911" osg
+</verbatim> 
+</ul>
+</ol>
+
+If you get errors and need to look in log files, they're kept under <tt>$VDT_LOCATION/tocmat/v5/logs</tt>.  The first one to check is the <tt>gums-service-admin.log</tt>, and second the <tt>gums-service-developer.log</tt>.
+
+A few notes about maintenance:
+   * The gums.config needs to be maintained such that it includes mappings for all active VOs in OSG. %RED%How to do this still needs to be addressed (Dane has some ideas) AH 5/27/05%ENDCOLOR%
+   * You'll need to be notified of changes to the list of VOs in order to maintain this.
+
+---+++Setting up email notification for GUMS errors
+GUMS has the capability to notify an administrator via email of any errors that may occur. The <b>$VDT_LOCATION/tomcat/v5/webapps/gums/WEB-INF/classes/log4j.properties</b> contains these entries but are commented out.  Look for these lines:
+<verbatim>
+  #log4j.appender.mail=org.apache.log4j.net.SMTPAppender
+  #log4j.appender.mail.from=gums@site.com
+  #log4j.appender.mail.subject=gums e-mail alert
+  #log4j.appender.mail.SMTPHost=smtp.site.com
+  #log4j.appender.mail.to=admin@site.com
+  #log4j.appender.mail.layout=org.apache.log4j.PatternLayout
+  #log4j.appender.mail.layout.ConversionPattern=%d{DATE} [%-5p]: %m%n
+</verbatim>
+Uncomment them and set the "from", "SMTPHost", and "to" lines to the right values for your site.  "From" should be the username under which GUMS runs.  Here is a sample:
+<verbatim>
+  log4j.appender.mail=org.apache.log4j.net.SMTPAppender
+  log4j.appender.mail.from=daemon@cd-94372.dhcp.fnal.gov
+  log4j.appender.mail.subject=gums e-mail alert
+  log4j.appender.mail.SMTPHost=smtp.fnal.gov
+  log4j.appender.mail.to=aheavey@fnal.gov
+  log4j.appender.mail.layout=org.apache.log4j.PatternLayout
+  log4j.appender.mail.layout.ConversionPattern=%d{DATE} [%-5p]: %m%n
+</verbatim>
+Towards the top of the same file (line 22) under the heading "Log for GUMS administrator", you'll see:
+<verbatim>
+  log4j.logger.gums.resourceAdmin=DEBUG, adminFile
+  #log4j.logger.gums.resourceAdmin=DEBUG, mail, adminFile
+</verbatim>
+Comment out the first line and uncomment the second so that the resource info that you need to get comes to you via email in addition to going to a file.
+   
+After you change these files, stop and restart tomcat-5.  
+
+To test for notification, force an error.  E.g., in gums.config, give an incorrect groupMapping name:  
+<verbatim>
+     <groupMapping name='osg_anne' accountingVo='osg' accountingDesc='OSG'>
+</verbatim>
+
+Now go to the GUMS-Admin UI <tt>https://your.gums.host:8443/gums</tt>, click Update Members. You should get an error which (among other text) should contain "Error Message: GUMS is misconfigured: please check the resource admin log for errors, and the gums.config file."
+You should receive one or more email notifications as well. (The error shown above generated three messages.)  One of them contains the solution: 
+
+"19 May 2005 10:31:00,169 [FATAL]: The configuration wasn't read properly. GUMS is not operational: Error at (32, 97: The groupMapping 'osg' is used within a hostGroup, but it was not defined."
+
+Don't forget to fix your error now! .... and restart tomcat!!!
+
+---+++Setting the Frequency to Refresh GUMS from VOMS
+GUMS will query the various VOMS VOs defined in the <b>gums.config</b> file on a periodic basis based on a parameter defined in the following configuration file:<br>
+<DD><b>$VDT_LOCATION/gums-service/var/war/WEB-INF/web.xml</b>.</DD>
+
+The third line from the bottom contains the interval in minutes. Default is every 12 hours.
+<verbatim>
+ <env-entry-value>720</env-entry-value>
+</verbatim>
+You may want to adjust the value.  You will need to restart tomcat to effect the change.
+
+---+++Installation and Basic Configuration Postmortem
+If you've made to this point, you should have a functioning GUMS server.  Congratulations!!!!!
+Savor the moment!!!!!!   You just completed the easy part.  The true challenge is ahead.
+
+Now you will need configure GUMS for the VOs  your site will  support and the authorization policy you wish to deploy for assigning  accounts.  This is not a trivial task.  The following sections will provide some 
+insight into the "instant gratification" configuration of the gums.config you just performed.. 
+
+
+---++Connecting your GUMS to other VOMS installations
+As you will see in the next section, as well as in the small configuration you just completed, that the various
+VOMS servers you will support are identified in the ==gums.config==  file's  ==userGroup url== attribute.
+
+Your GUMS server needs to access the VOMS servers for the VOs you will be supporting. These VOMS servers can be configured to allow access in one of 2 ways:
+   * allow anyone with a valid certificate read-only access
+   * allow only specific hosts read access 
+
+In either case, the http certificate you established for GUMS is this identification.  If, when you configure
+GUMS and you get an "Access Denied" message when performing the "Update Members" web ui 
+function, you will need to contact that VOMS VO adminstrator and request access.
+
+
+
+---++Understanding the GUMS configuration file (gums.config)
+These links below contain the official documentation for GUMS:
+|GUMS configuration guide|http://grid.racf.bnl.gov/GUMS/guide_howto_configuration.html|
+|GUMS config reference|http://grid.racf.bnl.gov/GUMS/guide_config_gums.html|
+
+
+The gums.config file has three parts:
+
+*persistenceFactories* - defines where the local data can be stored. For example, GUMS will keep a local copy of the VO listings; you can decide where to keep them. Each component that needs persistence will retrieve it through the factory (not sure what this means. AH). This allows creation of a custom persistence layer for the facility. 
+
+*groupMappings* - defines groups of users and sets how they are mapped. A groupMapping is defined by two things: a set of users (userGroup) and a policy for account mapping (accountMapping). Optionally, the policy can be composed of multiple policies (compositeAccountMapping) 
+
+*hostGroups* - defines which groupMappings are used for the different hosts.
+GUMS uses the gums.config file in this way.
+
+Let's go through an example. A request comes in to map user DN="/DC=org/DC=doegrids/OU=People/CN=Gabriele Carcassi" FQAN="/atlas/usatlas" coming from gatekeeper "/DC=org/DC=doegrids/OU=Services/CN=mygk.usatlas.bnl.gov".
+
+Gums will first look through the hostGroups section to find a match to the gatekeeper CN. Say we have:
+<verbatim>
+  <hostGroups>
+    <!-- RHIC gatekeepers -->
+    <hostGroup className="gov.bnl.gums.WildcardHostGroup" wildcard='star*.*.bnl.gov' ... />
+    <hostGroup className="gov.bnl.gums.WildcardHostGroup" wildcard='phenix*.*.bnl.gov' ... />
+
+    <!-- ATLAS test gatekeeper -->
+    <hostGroup className="gov.bnl.gums.WildcardHostGroup" wildcard='mygk.usatlas.bnl.gov' ... />
+
+    <!-- Rest of ATLAS gatekeepers -->
+    <hostGroup className="gov.bnl.gums.WildcardHostGroup" wildcard='*.usatlas.bnl.gov' ... />
+  </hostGroups>
+</verbatim>
+
+GUMS will go through that list *in the order specified*, and find the first match to the "wildcard" attribute. In this case, we match the third hostGroup specification. Notice that if you put the third hostGroup last, it would never actually be used, because mygk.usatlas.bnl.gov also matches "*.usatlas.bnl.gov", which covers a broader range of hosts. If you have broader match together with more specific cases, the more specific cases must preceed the broader case.
+
+Let's look more closely at the hostGroup entry; there are additional attributes, in particular "groups".  This attribute refers to group mappings. In our case it is:
+<verbatim>
+    <hostGroup className="gov.bnl.gums.WildcardHostGroup" wildcard='mygk.usatlas.bnl.gov' 
+groups='atlasProd,usatlasPool,ivdglPool, ...' />
+</verbatim>
+
+GUMS will now go through the list of groups (i.e. group mappings) *in the order specified* and take the first one that matches the given credentials.
+GUMS will check whether the credentials are part of atlasProd; if not, then usatlasPool, and so on, until either a match is found or the list ends. *The first match will define the map*, and the user will get mapped accordingly. As before, if you have both a broad default and a more specific case, the specific case must come first.
+
+In a correct configuration, each group (e.g., atlasProd, usatlasPool,...) must be defined in the groupMappings section in a groupMapping element. GUMS first checks the first one listed, e.g., atlasProd.  A groupMapping element contains userGroup elements.  Let's look at the atlasProd group mapping:
+<verbatim>
+    <groupMapping name='atlasProd' accountingVo='usatlas' accountingDesc='ATLAS'>
+      <userGroup className='gov.bnl.gums.VOMSGroup' url='https://vo.racf.bnl.gov:8443/edg-voms-admin/atlas/services/VOMSAdmin' persistenceFactory='mysql'
+                 name='atlasProd' voGroup="/atlas" voRole="production" sslCertfile='/etc/grid-security/gumscert.pem' sslKey='/etc/grid-security/gumskey.pem' />
+      <accountMapping className='gov.bnl.gums.GroupAccountMapper' groupName='usatlas1' />
+    </groupMapping>
+</verbatim>
+
+The userGroup defines "who is going to be part of this map". A userGroup element may include the attribute 'ignoreFQAN="true"'; if so, the incoming user's FQAN is ignored, and a match is made.  If this attribute is absent (or is set to false), then the FQAN must match (voGroup, voRole and/or voCapability(?), as defined)  in order for a mapping to take place. 
+
+In this case, the groupMapping "atlasProd" has one userGroup, whose voGroup is "/atlas". The voRole of "production" is required. The attribute 'ignoreFQAN="true"' is absent, so the FQAN must match '/atlas/Role=production'. Our sample FQAN has only a name in it (/atlas/usatlas).  It doesn't match.
+ We proceed with the next group, usatlasPool. Its group mapping is as follows:
+
+<verbatim>
+    <groupMapping name='usatlasPool' accountingVo='usatlas' accountingDesc='ATLAS'>
+      <userGroup className='gov.bnl.gums.VOMSGroup' url='https://vo.racf.bnl.gov:8443/edg-voms-admin/atlas/services/VOMSAdmin' persistenceFactory='mysql'
+                 name='osgusatlas' voGroup="/atlas/usatlas" sslCertfile='/etc/grid-security/gumscert.pem' sslKey='/etc/grid-security/gumskey.pem' ignoreFQAN="true"/>
+      <compositeAccountMapping>
+        <accountMapping className='gov.bnl.gums.AccountPoolMapper' persistenceFactory='mysql' name='bnlPool' />
+        <accountMapping className='gov.bnl.gums.GroupAccountMapper' groupName='usatlas1' />
+      </compositeAccountMapping>
+    </groupMapping>
+</verbatim>
+
+This says all the people in the ATLAS VO %RED%(where is this specified? userGroup name is osgusatlas -- that's different... AH)%ENDCOLOR%, part of /atlas/usatlas, are part of this group. The attribute 'ignoreFQAN="true"' means a matching FQAN is not required. Our case, DN="/DC=org/DC=doegrids/OU=People/CN=Gabriele Carcassi" FQAN="/atlas/usatlas", is clearly part of /atlas/usatlas. Even if it came in with no FQAN, however, it would still be considered a match, and get mapped.
+
+Since there is a match, GUMS will use this groupMapping element to determine the account. It looks at the accountMapping, which happens to be composite (there's a pool of accounts and a group account): GUMS will go through the accountMapping elements *in the order listed*, until one returns a value. 
+
+The first is a pool of accounts; if it has any available accounts left, it will return either an assigned account previously assigned to this user, or it will assign a new account to him. If its pool of accounts is exhausted, it will not return an account.  In this case, the next accountMapping element will be used; this one always maps to the same group account, usatlas1.
+
+---+++[[GumsConfigExamples][gums.config examples]]
+
+---++Set up CE Authorization To Use GUMS
+Now that you have GUMS configured to perform the account authorizations, you need to effect it on the CE/gatekeeper node(s). There are 2 important aspects of this:
+   * Using GUMS for authorization mappings toUNIX UID
+   * Using GUMS to generate the MonALISA monitoring VO-to-User map file.
+
+Each of these is described in the [[OsgCEAuthorization][OSG CE Authorization]]  page.
+
+---+++OSG CE Authorizations
+There are 2 authorization configurations involving GUMS described on the [[OsgCEAuthorization][OSG CE Authorization]] page:
+   * Compatibility configuration - where you are still using the grid-mapfile 
+   * Full Privilege configuration - where the grid-mapfile is no longer used and is replaced by the globus gatekeeper callout of PRIMA which makes a web services authorization request oof GUMS.
+
+---+++MonALISA Monitoring VO-to-User Map file
+Under both configurations,now that you are using GUMS to establish your account assigments,  you will need to use the GUMS's *generateGrid3UserVoMap* to generate the *VDT_LOCATION/monitoring/grid3-user-vo-map.txt* file which is critical to the MonALISA  [[VOModulesDescription][VO Modules]] accounting of the jobs and ftp IO activity on the CE/gatekeeper host.
+
+
+
+---++Miscellaneous
+---+++Managing the GUMS log files
+GUMS logging is managed using the [[http://logging.apache.org/log4j/docs][Apache log4j logging services]].  
+
+The GUMS web server processes log files, covering the web user  interface and the authorization services, are managed  in the log configuration file shown below:
+<dd>VDT_LOCATION/gums-service./var/war/WEB-INF/classes/log4j.properties</dd>
+
+The GUMS client and host log configuration file, which  may be on host different from the GUMS web server, is located:
+<dd>VDT_LOCATION/gums/etc/log4j.properties</dd>
+
+More detailed description on GUMS logging can be found at the primary GUMS web portal  ([[http://grid.racf.bnl.gov/GUMS/guide_logging.html][general]] and [[http://grid.racf.bnl.gov/GUMS/guide_logging_details.html][detailed]] information).
+
+
+
+
+---++Shutdown Guide
+The GUMS installation starts up several processes.  If you try to re-install/upgrade the GUMS without shutting them down it will fail.  Run the following commands to turn off the GUMS services before upgrading:
+
+<ul>
+  <li>/etc/init.d/apache stop
+  <li>/etc/init.d/tomcat-5 stop
+  <li>/etc/init.d/mysql stop
+</ul>
+
+
+---++Troubleshooting
+
+   * PRIMA 0.2 can not interface to a GUMS server that runs with a service (rather than host) certificate.  If you will be using PRIMA you need to switch the certificate used by gums:
+<verbatim>
+      # cd /etc/grid-security/http
+      # mv httpkey.pem httpkey.pem.sav
+      # mv httpcert.pem httpcert.pem.sav
+      # cd ..
+      # cp hostkey.pem http/httpkey.pem
+      # cp hostcert.pem http/httpcert.pem
+      # chown -R daemon:daemon http
+</verbatim>
+
+---++Appendix A: OSG-ITB gum.config groupmappings
+
+Note that the current gums.template is always located here.
+It contains an example of pool accounts in all the uscms entries.
+
+[[http://software.grid.iu.edu/pacman/tarballs/vo-version/gums.template.html][Current gums.template]]
+
+
+
+<!-- MAJOR UPDATES
+For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
+
+*Major updates*:%BR%
+<!--Future editors should add their signatures beneath yours!-->
+-- Main.LeighGrund - 19 Apr 2005<br>
+-- Main.AnneHeavey - 17 May 2005<br>
+-- Main.JohnWeigand - 17 May 2005<br>
+-- Main.JohnWeigand - 08 Jun 2005 - added gums.config example page<br>
+-- Main.JohnWeigand - 14 Jun 2005 - expanded the pre-requisites TOC section<br>
+-- Main.JohnWeigand - 16 Jun 2005 - expanded the 'Set up CE Authorizations To Use GUMS' TOC section<br>
+-- Main.JohnWeigand - 23 Jun 2005 - modified a fair portion of the "Modify the gums.config TOC for clarity"<br>
+-- Main.JohnWeigand - 08 Jul 2005 - added  Installation and Basic Configuration Postmortem TOC and modified the Connect your GUMS to a VOMS installation section<br>
+
+%STOPINCLUDE%
+
+
+
+-- Main.RobQ - 01 May 2006
