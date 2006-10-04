@@ -1,22 +1,45 @@
-%META:TOPICINFO{author="RuthPordes" date="1156887786" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="AnneHeavey" date="1160000496" format="1.1" version="1.2"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!!<nop>%TOPIC%
-%TOC%
-
 ---+GUMS
+%TOC%
+---++ About GUMS
+---+++ What is GUMS?
 
----++Introduction
+The GUMS service performs one and only one function: it maps users' grid certificates/credentials to site-specific identities/credentials (e.g., UNIX accounts or Kerberos principals) in accordance with the site's grid resource usage policy. It does not perform authentication. It just tells the gatekeeper which site credentials the job should get. The gatekeeper is in charge of enforcing the site mapping established by GUMS.
 
-The gums.config file is written in XML and has three parts:
-persistenceFactories - defines where the local data can be stored. For example, GUMS will keep a local copy of the VO listings; you can decide where to keep them. In OSG, it's always mysql. Each component that needs persistence information will retrieve it from mysql.
+GUMS can be configured to generate static grid-mapfiles or to map users dynamically as each job is submitted. If configured to generate a grid-mapfile, GUMS downloads the file to each gatekeeper as scheduled or requested by an administrator via the GUMS client tools. If configured to map users dynamically and individually, GUMS is called by the gatekeeper upon each job submission.  More information is available at [[http://grid.racf.bnl.gov/GUMS/guide_introduction.html][What is GUMS?]].
 
-groupMappings - defines groups of users and sets how they are to get mapped. A groupMapping is defined by two things: a set of users (userGroup) and a policy for account mapping (accountMapping). Optionally, the policy can be composed of multiple policies (compositeAccountMapping)
+---+++ Implementing Site Policies
 
-hostGroups - defines which groupMappings are used for the different hosts.
+GUMS runs at a grid site under the control of site administrators; it is a "site tool" as opposed to a "VO tool". The users it maps may be affiliated with numerous VOs. The mappings in a site's GUMS installation are defined in a single XML policy file, =gums.config=. This file may contain multiple policies, and the administrator can assign different policies to different groups of users. The administrator can also specify different mappings on different hosts or different sets of hosts.
 
----++File Structure
+The =gums.config= file has three parts:
+   $ persistenceFactories: defines where the local data can be stored. For example, GUMS will keep a local copy of the VO listings; you can decide where to keep them. In OSG, it's always mysql. Each component that needs persistence information will retrieve it from mysql.
 
-The XML file has this structure:
+   $ groupMappings: defines groups of users and sets how they are to get mapped. A groupMapping is defined by two things: a set of users (userGroup) and a policy for account mapping (accountMapping). Optionally, the policy can be composed of multiple policies (compositeAccountMapping)
+
+   $ hostGroups: defines which groupMappings are used for the different hosts.
+
+---+++ Mapping users to accounts
+
+Users can be mapped to accounts in a variety of ways:
+
+   * map groups of users to shared group accounts
+   * map users to pool accounts, one user per account
+   * map users to group accounts manually
+
+The accounts themselves are created outside of GUMS. Particular accounts or ranges of accounts (e.g., xyz0000 to xyz9999) are then specified in the GUMS configuration file. The mapping policy as implemented in this file may take into account the grid identity of the user and his/her VO only, or it can accommodate extended attributes (implemented via voms-proxy-init) such as the user's role and group within the VO. Furthermore, different mapping policies may be implemented depending on the host chosen to process the job. 
+
+---+++ Retrieving the Map
+A gatekeeper (or a generic service) can retrieve the suitable map in two ways:
+
+   * by using gums-host to retrieve the grid-mapfile
+   * by calling directly the GUMS service for every request
+
+---++ Policy File Structure
+
+The XML policy file has this structure:
 <gums>
  <persistenceFactories>
 
@@ -52,9 +75,10 @@ The XML file has this structure:
 
 ---++Getting Started
 d102 1
-persistenceFactories
+---+++ persistenceFactories
 
 The default file includes one persistenceFactory element; leave it as is (even the password?).
+<verbatim>
 <persistenceFactory 
 name='mysql'
 className='gov.bnl.gums.MySQLPersistenceFactory'
@@ -63,32 +87,38 @@ jdbcUrl='jdbc:mysql://cd-94372.dhcp.fnal.gov/GUMS_1_0'
 user='gums' 
 password='VDTXLKRBKIM' 
 autoReconnect='true' />
+</verbatim>
 
-groupMappings
+---+++ groupMappings
 
 This element contains groupMapping elements. The only essential attribute is "name". This is the name for the mapping defined within this element. Each groupMapping element in the file must have a unique name.
-<groupMapping name='osg1'>
 
-userGroup
+=<groupMapping name='osg1'>=
+
+---++++ userGroup
 
 The userGroup element is a subelement of groupMapping.
 
-Required, fixed-value attributes
+*Required, fixed-value attributes*
 ---+++++!!Required, fixed-value attributes
 
+It has two attributes which are always needed and should never be changed from the default values: className and persistenceFactory.
 <verbatim>
 className='gov.bnl.gums.VOMSGroup'
-Required, installation-specific attributes
+persistenceFactory='mysql' 
 </verbatim>
 
+---+++++!!Required, installation-specific attributes
+
 It has others which are required, but that you need to set for your own installation: url, name, voGroup, sslCertfile, ss1key. The default values for these last two should work as is, but check.
-name: your VO name
-voGroup: a group defined in VOMS under your VO 
-url: URL for your VOMS admin server
-sslCertfile: path to the httpcert.pem file on your GUMS host 
-sslKey path to the httpkey.pem file on your GUMS host 
+Values:
+
+   * name: your VO name
+   * voGroup: a group defined in VOMS under your VO 
+   * url: URL for your VOMS admin server
+   * sslCertfile: path to the httpcert.pem file on your GUMS host 
    * sslKey path to the httpkey.pem file on your GUMS host 
-d127 1
+E.g.,
 <verbatim>
 name='myusergroup1' 
 voGroup="/myvo/group1"
@@ -96,20 +126,22 @@ url='https://my-voms-server:8443/edg-voms-admin/vos/services/VOMSAdmin'
 sslCertfile='/etc/grid-security/http/httpcert.pem'
 sslKey='/etc/grid-security/http/httpkey.pem' 
 </verbatim>
----+++Optional attributes
+
 ---++++Optional attributes
 
-voRole: Specifies which VO role(s) (defined in a VOMS) must be specified in the proxy in order to make a match. Should be used with ignoreFQAN="false".
-ignoreFQAN: This dictates whether to process or ignore role and group information, if any, in a proxy obtained with voms-proxy-init. False means "process it"; true means "ignore it".
+There are two optional attributes: voRole and ingoreFQAN.
+   * voRole: Specifies which VO role(s) (defined in a VOMS) must be specified in the proxy in order to make a match. Should be used with ignoreFQAN="false".
    * ignoreFQAN: This dictates whether to process or ignore role and group information, if any, in a proxy obtained with voms-proxy-init. False means "process it"; true means "ignore it".
 
-d139 1
+We recommend that you always include ignoreFQAN with its value, either true or false. That way you don't have to remember the default value (which is "false").
 <verbatim>
 voRole="role1"
 ignoreFQAN="false"
-accountMapping
 </verbatim>
 
+---+++ accountMapping
+
+An accountMapping element defines the logic with which the user credentials are mapped to the local account. You can choose whether you want to implement mapping to a group account or to a pool of accounts.
 %RED%to here AH 4Oct%ENDCOLOR%
 
 ---+++Group Account Mapping
@@ -218,9 +250,12 @@ d248 2
  ...
  </groupMapping>
 </verbatim>
-	Supported by the National Science Foundation and the U.S. Department of Energy's Office of Science	 
+These values will appear in the =$VDT_LOCATION/monitoring/grid3-user-vo-map.txt= file (the inverse map file) when you run _Generate Inverse Map_ on the GUMS web UI.
 
-a259 1
+These values will appear in the $VDT_LOCATION/monitoring/grid3-user-vo-map.txt file (the inverse map file) when you run Generate Inverse Map on the GUMS web UI.
+
+
+
 
 Questions? Comments? Contact Webmaster.
 	Supported by the National Science Foundation and the U.S. Department of Energy's Office of Science	
