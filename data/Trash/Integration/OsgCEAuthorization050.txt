@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1161202362" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="JohnWeigand" date="1161896997" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="DocumentationTable050"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -19,7 +19,7 @@ The Authorization system determines who can access your resources and how. A goo
 <a href="http://grid.racf.bnl.gov/GUMS/guide_architecture.html#GUMS_in_the_grid_architecture">
 GUMS web site</a>.  Of those discussed, OSG supports three, namely: Grid3/Local, Compatibility, and Full Privilege. All three use VOMS. Here's a brief explanation of each follows.
 
----+++Changes effective with this release
+
 
 ---+++<nop>Grid3 or local <nop>GridMap file
 Authorization is performed only via the <i>grid-mapfile</i> on the Compute Element (CE) node. 
@@ -77,21 +77,46 @@ The flowchart below will help you decide what kind of configuration you should s
 </pre>
 
 We'll present the "how to" information in order of simplest (Grid3) to most sophisticated (full privilege) so that you can implement step-by-step and test as you go, if you like.
----++ Grid3 or Local configuration
-Authorization is performed only via the grid-mapfile on the gatekeeper. The grid-mapfile is either created manually on each gatekeeper, or created by a VOMS Admin installation.  VOMS is used; GUMS is not used. Synchronizing all the grid-mapfiles for multiple CE nodes is difficult in this case.
 
-In this configuration, you will need the EDG mkgridmap daemon running on your gatekeeper to create the grid-mapfile (discussed below). 
+---++Changes effective with this release
+---+++edg-mkgridmap
+Prior to this release, the <i>edg-mkgridmap</i> script run as a system  service and installed in <i>/etc/init.d</i>. With this release, it is being installed as a <i>root</i> crontab entry.  
+If you are upgrading from a prior release, you must <i>stop</i> the <i>edg-mkgridmap</i> daemon and delete that entry from system services.
+<b>Note:</b> It is not installed/configured by default.
+
+---++ Grid3 or Local configuration
+In this mode, authorization is performed only via the <i>/etc/grid-security/grid-mapfile</i> on the CE (gatekeeper) node. The <i>grid-mapfile</i> is created/maintained either:
+   *  manually on each gatekeeper, 
+   * or created from the VOMS Admin servers for each VO you are supporting using the <i>edg-mkgridmap</i> script.  VOMS is used; GUMS is not used. If you are supporting mutiple CE nodes for your site, synchronizing all the <i>grid-mapfiles</i> across these nodes is difficult.
+
+Using a configuration file that identifies the VOMS servers for each VO your CE node supports, the <i>edg-mkgridmap</i> script will  pull down the VO's membership from those VOMS servers and create a new <i>grid-mapfile</i> with each invocation.
+The <i>edg-mkgridmap</i> script is run as a cron entry with the times set randomly when  <i>configure_edg_make_gridmap</i> is run:
+<pre>
+50 15,21,3,9 * * * YOUR_VDT_LOCATION/edg/sbin/edg-mkgridmap &gt;&gt;YOUR_VDT_LOCATION/edg/log/edg-mkgridmap.log 2&gt;&1
+</pre>
+<b>Note: It is not installed/configured by default.</b>
+
+Before you configure your CE node to use the <i>edg-mkgridmap</i> script via cron, you should probably (all described in subsequent sections):
+   * verify/determine the list of VO's you will be supporting
+   * determine/setup your CE node for use of a local gridmap file
+   * test the script and verfiy it produces the desired results
+
+
+---+++ Configure the list of supported VOs for site
+During installation, a default OSG configuration file, <i>$VDT_LOCATION/edg/etc/edg-mkgridmap.conf</i>,  is created providing access to all registered and approved OSG VOs VOMS servers. Review this configuration file:
+   * If the list is acceptable to you, then you're done with this step. 
+   * If not, then you will need to edit the file and commenting out the line(s) for each VO you wish to disable.
+
+Comments lines start with "#" as in a shell script. This file is periodically updated by the OSG GOC and new/updated versions are issued.  For this reason, it is recommended that you do not delete entries, but comment them.  This will allow you to do a comparison of your current configuration against any new OSG version more accurately and you will be more readily aware of those VOs you omitted intentionally
+
 
 ---+++ Setting up edg-mkgridmap for local users
-d98 1
 You probably want to keep some portion of your current grid-mapfile (at least your own entry) as locally known users so that you won't get locked out should there be a problem with a VOMS server.
 
 The <i>edg-mkgridmap</i> script uses a configuration file to dictate   its behavior. This config file is 
-The <i>edg-mkgridmap</i> script uses a configuration file to dictate 
-  its behavior. This config file is 
   <i>$VDT_LOCATION/edg/etc/edg-mkgridmap.conf</i>.
 
-  The <i>edg-gridmapfile-upgrade</i> daemon has a similar configuration
+ The <i>edg-gridmapfile-upgrade</i> daemon has a similar configuration
   file: <i>$VDT_LOCATION/edg/etc/edg-gridmapfile-upgrade.conf</i>.
 
   One of the parameters specifies a _local_ <i>grid-mapfile</i> that
@@ -113,17 +138,6 @@ Now, to create this local portion:
 </OL>
 You should now have local <i>grid-mapfile</i> entries added to this file every time the script is executed.
 
----+++ Configure the list of VOs you wish to enable
-The default configuration, set in the <i>$VDT_LOCATION/edg/etc/edg-mkgridmap.conf</i>  file, provides access from all registered and approved OSG VOs. If that is acceptable to you, then you're done with this step. If not, then you'll need to edit the file commenting out the line for each VO you wish to disable.
-
-If the VO administrator has not enabled world read of the VO membership, then you must contact the VO
-administrator and request that your site be given access to the VOMS database. You will need to provide
-the Subject and Issuer Distinguished Names (DN) for your host certificate.  The simplest thing to do is send email
-to the VO administrator requesting access and including the output of the command (check that the path to the hostcert.pem is correct for you):
-<pre>
-  &gt;   openssl x509 -in /etc/grid-security/hostcert.pem -subject -noout
-</pre> 
-
 
 ---+++ Setup and test access to each selected VOMS service
 To do a "shotgun" test of them all, as root, run:
@@ -132,20 +146,31 @@ To do a "shotgun" test of them all, as root, run:
   &gt;  cd $VDT_LOCATION/edg/sbin
   &gt  ./edg-mkgridmap --verbose --output=test.out
 </pre>
+
+If the VO administrator has not enabled world read of the VO membership, then you must contact the VO
+administrator and request that your site be given access to the VOMS database. You will need to provide
+the Subject and Issuer Distinguished Names (DN) for your host certificate.  The simplest thing to do is send email
+to the VO administrator requesting access and including the output of the command (check that the path to the hostcert.pem is correct for you):
+<pre>
+  &gt;   openssl x509 -in /etc/grid-security/hostcert.pem -subject -noout
+</pre> 
    
+
+
+---+++Configuring the CE node for use of the edg-mkgridmap script
+To establish the <i>root</i> cron entry for <i>edg-mkgridmap</i>, the following will create the cron entry described above with random times;
+<pre>
+&gt;  cd $VDT_LOCATION
+&gt;  source setup.sh
+&gt;  ./vdt/setup/configure_edg_make_gridmap
+<b><i>.... (no output indicates success)</b></i>
+</pre>
+
+
 ---+++Troubleshooting edg-mkgridmap
 Refer to the [[EdgMkgridmapTroubleshootingGuide050][edg-mkgridmap troubleshooting guide]] for any problems/errors.
  
----+++ Configuring /etc/rc.d services for edg-mkgridmap
-Since VOs are likely adding/removing members over time, you will want to update your grid-mapfile to reflect this. OSG provides  the /etc/rc scripts for this service.  The following commands will copy and start the daemon (do these as <i>root</i>). 
-<pre>
-   &gt; cp $VDT_LOCATION/post-install/edg-gridmapfile-upgraded /etc/init.d/.
-   &gt;  /etc/init.d/edg-gridmapfile-upgraded start
-</pre>
-The script will run as a daemon updating the gridmap file based on the <i>GRIDMAP_UPGRADE_DELAY=1d</i> attribute in <i>VDT_LOCATION/edg/etc/edg-gridmapfile-upgrade.conf</i>.
 
-Make sure you run <i>chkconfig --add  /etc/init.d/edg-gridmapfile-upgraded</i> so that the service will automatically start on a reboot.
-d408 1
 ---+++ Test  the Grid3/Local configuration
 Run the 
 <a href="http://osg.ivdgl.org/twiki/bin/view/ReleaseDocumentation/CEInstallGuide#Site_Verification">Site Verification</a>
