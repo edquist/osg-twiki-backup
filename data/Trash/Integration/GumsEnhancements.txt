@@ -1,0 +1,130 @@
+%META:TOPICINFO{author="JohnWeigand" date="1163618316" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Main.JohnWeigand"}%
+---+!!<nop>Proposed GUMS Enhancements
+%TOC%
+%STARTINCLUDE%
+
+---++ Introduction
+Most enhancements identified here are associated with OSG ticket 79197 and VDT ticket 1900.  These items were identified in May 2006 and I have not verified that they are still valid since then.
+
+The emphasis with the majority of these enhancement is for more comprehensive validation of the ==gums.config== file.
+
+
+---++gums.config
+---+++gums.config -  userGroup element name must be unique.
+The name attribute of the ==userGroup== element is used as the ==GROUP_NAME== in the ==USER== table.  
+There is no check to insure uniqueness, so the 2nd ==groupMapping== encountered will overlay the 1st in the database if the ==userGroup== name is the same and you don't even know it.
+
+---+++gums.config - history maintained in the database
+If you change the name of the userGroup name element from say ==cmsuser==  to ==uscmsuser==, the original  'cmssuer' ==USER== table entry is not removed.  So you now have two sets of entries for everyone in that VO with the  same FQAN (Role not even a factor). My guess is that it is just chance which one they pick up (based on the db query) when  authorization is requested.... and I don't know how gums responds when it tries to find the account mapping for a non-existent ==GROUP_NAME==.
+
+---+++gums.config - removal of groupMapping element
+The same is true on the removal of a groupMapping element. It is never deleted from the database.  Although this may not be an issue since GUMS will not attempt to process it when an authorization is attempted... since there will be no entry in the hostGroups.... BUT... if the FQAN is the same for a similar group, it will be a problem.
+
+---+++gums.config - uniqueness of  FQAN
+I haven't tried this one, but I believe the FQAN created from the ==gums.config== file should be unique across the ==gums.config==.  The ==USER== table entries should be unique on DN and FQAN.  If I have the same DN with multiple entriies for the same FQAN in  the ==USER== table, it is just chance which one will be used.
+
+I'm pretty sure that originally there were no indexes on these tables and no transaction level updating in GUMS. Therefore, there could be duplicate table entries. I think Gabrielle added some with 1.0 or 1.1. I think he may have a missed a few that would eliminate these conditions.
+
+---+++gums.config - groupMapping element name must be unique.
+This one is not related to the translation from ==gums.config== to database, but I believe causes a problem when GUMS attempts to process an  authorization request. The name attribute of the ==groupMapping== element  should also be unique across the ==gums.config==. GUMS currently terminates the table update if you have a ==groupMapping== not in the ==hostGroups== element.
+
+HOWEVER, it does not when you have ==groupMapping== elements of the same name.  Now, which ==groupMapping / userGroup== entry GUMS uses .. I have no clue.
+
+---+++gums.config - should requery VOMS servers on gums.config modification.
+When a ==gums.config file== is modified, GUMS does detect that the file has changed.  But it does not attempt to reload and update. This is something the admin must perform manually and is likely to be missed.  This creates a out of sync condition since authorizations  are immediatley using the new mapping against an outdated database and membership list
+
+---+++gums.config - general
+There is no specific problem identifiable with what this proposal is about.  It just might facilitate maintenance and reduce the  likelihood of errors when configuring the mapping policy.
+
+The current structure of the ==gums.config== has the following implicit rules:
+   * The ==groupMapping== element can contain one and only one ==userGroup== element.
+   * There ==must== be one and only one ==accountMapping== element per ==groupMapping==.
+
+I am not sure that there is any validation on the above implicit rules.  There may be.  If not, there should be.
+
+The following is what I would like to propose:
+   * A ==groupMapping== would be at the VO level
+   * Allow the VO to describe all the ==userGroup== elements needed for that VO.
+   * The  ==userGroup== policies would be processed sequentially, although this may not be possible using standard xml query utilities.  Some other means of defining the order may be required.
+   * Since there should be only one ==accountMapping== rule per ==userGroup==, make those attributes a part of the ==userGroup== element.
+
+
+
+---++gums-host-cron / gums-host 
+The enhancements in the section are not in the original OSG/VDT tickets.
+
+These are a result of a late September 2006 initiative to insure that the  OSG CE nodes accurately advertise the VOs that they support.  The 2 urls below are basically the only documentation of the problem and present more of a solution than the problem.
+   * [[http://ivdgl.uits.indiana.edu/~leighg/t01.html][http://ivdgl.uits.indiana.edu/~leighg/t01.html]]
+   * [[http://grow.uiowa.edu/infrastructure/osg-ts/vo-mapping.shtml][http://grow.uiowa.edu/infrastructure/osg-ts/vo-mapping.shtml ]]
+
+The bottom line, in terms of a solution, is to use the ==$VDT_LOCATION/montioring/osg-user-vo-map.txt== file to determine the support VOs.
+
+---+++ generateGridMapfile
+Use of the ==gums-host-cron generateGridMapfile== on the CE node is intended to be used when running in what is referred to ==Compatibility==  authorization mode.  It is a replacement to those sites who intend to use GUMS as a central server for mulitple CE nodes at their site, yet still use the ==grid-mapfile== for authorization.  Since its intent was to provide a migration path for sites ultimately desiring to move to ==Full Privilege== authorization mode, the net affect on a CE node is to replace the use of the ==edg-mkgridmap== process.  
+
+The problem is that the creation of the ==grid-mapfile== is different and the initial affect might likely be that some users may no longer be authorized and some VOs not supported.
+
+The ==edg-mkgridmap== script does the following that ==generateGridMapfile== does not:
+   * DNs are sorted and duplicates removed
+   * there must be another thing, but I can't think of it now.
+
+
+---+++ generateGrid3UserVoMap
+The purpose of this module is to create the ==$VDT_LOCATION/monitoring/osg-user-vo-map.txt== file. This is the new name for the ==grid3-user-vo-map.txt== file.  This file is used to  map user accounts to VO and is currently used by:
+   * <nop>MonALISA to report various accounting and monitoring metrics on a VO basis
+   * GIP to report the supported VOs
+
+---+++ Assignment of DN to pool accounts
+Use of either the ==generateGridMapfile== or ==generateGrid3UserVoMap== modules has the affect of doing a complete assignment  of a VOs users to allocated pool accounts.  This is understandable for the desired ==generateGridMapfile== based functionality, but is not desired if a site is operating in ==Fuill Privilege== authorization mode and is only using the ==generateGrid3UserVoMap== module.
+
+The expectation at a site is that although there may be 500 members in a VO, there will be a smaller percentage of those members that actual utilize the grid.   The administrators would like to allocate/create UNIX accounts only for the anticpated active users and not for an entire VO.  
+
+GUMS supports this behavior as a part of the normal authorizationn process.  When pool accounts are initially allocated and created in the ==MAPPING== table.  There are no DNs assigned, just an empty slot.  When an authorization request is approved for a ==groupMapping== using pool accounts, the requestor's DN is assigned the next available (empty) pool account value.
+
+However, when the ==generateGrid3UserVoMap== is run, these slots are all assing in for all members or the VO that ==could== be authorized for that ==groupMapping==.
+
+The desired behavior would be to ==NOT== pre-assign the accounts and allow the authorization process to do this.  This allows the allocated pool accounts to be consumed by active users only and ==may== minimize the number of accounts needed.
+
+
+---++Pool account maintenance
+The following are some enhancements that would make maintenance of pool accounts easier:
+   * An easier means of identifying the allocatted and also unassigned pool accounts.  Both GUI and command line would be desired.
+   * An easier means of allocating (adding) pool accounts. Both GUI and command line would be desired.
+   * Provide the capability to remove users already assigned to pool account making that slot available for future use.  This will create gaps in the pool account range such that a simple "max" value query in the ==MAPPING== table will not be sufficient (this is an assumption on my part as to how the next available pool account is determined.)
+
+---++ Visibility into the status of the Group Updates
+Currenty, there is no visibility as to the success or failure of the group updates performed for each ==userGroup== element other than by reading the log files.   This is not something anyone does on a regular basis.
+
+==Proposal:== Create a new table with the status of the Group Updates and provide both command line and GUI visibilty. The table would contain:
+   * userGroup name
+   * state (active/inactive) - 'inactive' would be caused by the removal of a mapping
+   * last successful update - date/time of the last successful refresh of the userGroup
+   * last update attempt - date/time of last attempted update
+   * status of last update attempt (success/failure)
+   * failure reason - if status of last update attempt is failure, then the reason for the failure
+
+
+---++ Authorization Metrics
+Currently the only means of collecting any metrics on authorizations (attempts/ failures) is by parsing the log files.  The log messages were reall not intended for this purpose, yet it is often necessary to monitor the success rate and volume of the authorization service.  A separate file specifically dedicated for that purpose would be very beneficial.
+
+---++ Clarification as to how the VOMSGroup attributes are applied
+The following attributes can be used when defining a mapping policy:
+   * matchFQAN= exact | group | vo | ignore
+   * acceptProxyWithoutFQAN = true | false
+
+What is the order is which these are applied, especially when used in combination?  My concern is when ==acceptProxyWithoutFQAN=true== is used in combination with ==matchFQAN==.
+
+
+%STOPINCLUDE%
+
+
+<!-- MAJOR UPDATES
+For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
+*Major updates*:%BR%
+<!--Future editors should add their signatures beneath yours!-->
+-- Main.JohnWeigand - 15 Nov 2006<br>
+
+%INCLUDE{"WhuReferences"}%
+
+%META:TOPICMOVED{by="JohnWeigand" date="1163608451" from="Main.GumsEnhancements" to="Integration.GumsEnhancements"}%
