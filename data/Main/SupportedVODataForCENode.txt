@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1165513477" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="JohnWeigand" date="1165525272" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="JohnWeigand"}%
 ---+!!<nop>Publishing Supported VOs for a Compute Element (CE)
 %TOC%
@@ -8,22 +8,22 @@
 In the OSG environment, it is necessary to identify the set of VOs that a Compute Element (CE) supports, resource availability data about those nodes  and to collect accounting data for those nodes.
 
 The VO identity is used in the following OSG systems:
-   *  [[Integration.MonALISA050][MonALISA]] to capture Compute Element/Worker Node resource usage for each VO. 
-   *  GIP ([[Integration.GenericInformationProvider][Generic Information Provider]]) to publish supported VO resource and availability data.
-   * VORS
-   * VOMS Monitor
-   * Gratia
-   * GridCat
+   * <nop>MonALISA - uses grid3-user-vo-map.txt
+   * GIP - uses grid3-user-vo-map.txt
+   * VORS - uses the registration databases for sites and then aliases when conflicts occur
+   * VOMS Monitor - uses edg-mkgridmap.conf
+   * Gratia - uses grid3-user-vo-map.txt
+   * <nop>GridCat - uses grid3-user-vo-map.txt (expected to be deprecated so not addressed specifically)
 
 In addition, the VO name is also used in the following:
    * DOE certification site
 
-Unfortunately there is little consistency as the the value used to identify the VO.  The purpose of this document is to identity the known problems and provide a resolution.
+Unfortunately there is little consistency as to the value used to identify the VO.  The purpose of this document is to identify the known problems and provide resolution.
 
+---++grid3-usr-vo-map.txt file
+---+++Historical Background.
+At this time a little background and explanation of one file, <i>grdi3-user-vo-map.txt</i>,  is needed to better understand the problem.  This file was intended to be used for just this purpose.
 
----++Historical Background.
-At this time a little background and explanation of the file is needed to better understand the problem.
-d34 1
 The <i>grid3-user-vo-map.txt</i> file was originally used only by <nop>MonALISA in the collection of user job metrics.  Since the user data was captured by UNIX account, this file was established to perform the conversion.  
 <pre>
 #voi  <b>List of identifiers that the UNIX account is initially translated to on the uncommented line</b>
@@ -32,7 +32,6 @@ UNIX_account   #voi_entry <b>Maps the UNIX account to #voi indentifier</b>
 </pre>
 The translation from UNIX account to reportable VO is actually a double translation:
    * first the UNIX account is translated to the #voi entry on based on the uncommented line entry
-   * first the UNIX account is translated tot he #voi entry on based on the uncommented line entry
    * then the #voi identifier is converted to the reportable VO name using the #voi and #VOc entries (these must be paired lists).
 In the example below, UNIX accounts uscms001, uscms002 and uscmsadmin will all have their metrics reported as the USCMS VO.  The metrics collected for ivdgl001 and ivdgl002 users will have their metrics reported as iVDGL.
 <pre>
@@ -47,7 +46,7 @@ ivdgl001 ivdgl
 ivdgl002 ivdgl
 </pre>
 
----++The Problem(s)
+
 There are 2 main problems with the use of the <i>grid3-user-vo-map.txt</i> file:
    * Integrity of the data
    * (Mis-)use of the data
@@ -57,35 +56,67 @@ For those sites using the <i>edg-mkgridmap</i> cron script to update their <i>gr
 
 For those sites using GUMS, the <i>grid3-user-vo-map.txt</i> is mechanically updated using the <i>gums-host-cron</i> cron script.  No direct manual maintanence is required.
 
-In both cases, it is possible to have a <i>grid-mapfile</i> entry or an account mapping from GUMS for a UNIX account that does not exist and the user, while authorized, will not be capable of running a job.  If this condition exists for all members of a particular VO, then that VO is obviously not being supported by that site.
+In both cases, it is possible to have a <i>grid-mapfile</i> entry or an account mapping from GUMS for a UNIX account that does not exist and the user, while authorized, will not be capable of running a job.  If this condition exists for all members of a particular VO, then that VO is not being supported by that site.
+
+On 9/20/06 a conference call was held to address this data integrity issue with the following participants: Shaewon Wang, Leigh Grundhoefer, John Weigand and Alain Roy.   The following enhancements were decided on and will be available with the VDT 1.6.0 release (ITB 0.5.1+).
+
+
+---++++Sites using edg-mkgridmap
+New script: <i>VDT_LOCATION/osg-vo-map/sbin/<b>generate-vo-map</b></i> script (courtesty of Alain Roy):
+
+This script will use the <i>VDT_LOCATION/edg/edg-mkgridmap.conf</i> to generate a <i>grid3-user-vo-map.txt</i> file.  The format of the configuration file will be changed to include the reportable VO name as the second token in the commented line above the VOMS server entry.
+<pre>
+#1 CDF Subir Sarkar (subir.sarkar@cnaf.infn.it)
+group vomss://voms.cnaf.infn.it:8443/voms/cdf cdf
+#2 FermiLab -- Fermilab Grid Support Center (helpdesk-admin@fnal.gov)
+group vomss://voms.fnal.gov:8443/voms/fermilab fermilab
+   : 
+</pre>
+This script will create the <i>grid3-user-vo-map.txt</i> by re-reading the newly generated <i>grid-mapfile</i> in conjunction with the configuration file resulting in:
+<pre>
+#voi CDF Fermilab
+#VOc CDF Fermilab
+cdf CDF
+fermiilab Fermilab
+</pre>
+
+<b>This script will be incorporated in the <i>edg-mkgridmap</i> cron script</b>
+
+
+---++++Sites using GUMS
+These sites already have the <i>grid3-user-vo-map.txt</i> file created using the gums-host-cron script.
+
+---++++All sites (edg-mkgridmap and GUMS)
+New script: <i>VDT_LOCATION/osg-vo-map/sbin/<b>check-vo-map</b></i> script (courtesy of Alain Roy)
+
+This script addresses the issue of a VO having either no members or none of the members of a VO having UNIX accounts available.  It will verify that each potential UNIX account is, in fact, available by doing a 'bin/id'.  If an account does not exist, it will drop that entry from the user vo map file replacing the existing file with the modified one.  
+
+This script will generate the following additional files when complete:
+   * <i>osg-supported-vos.txt</i> - This will contain the list of all VOs for which at least one member can be authorized and has an established UNIX account.
+   * <i>osg-undefined-accounts.txt</i> - This will contain a list of all accounts that can be authorized/assigned, but no UNIX account exists.
+
+<b>This script will be incorporated in both the <i>edg-mkgridmap</i> and <i>gums-host-cron</i> scripts.</b>
+
+
 
 ---+++(Mis-)use of the data
-With the execption of <nop>MonALISA, all the middleware that uses the <i>grid3-user-vo-map.txt</i> appears to be using:
+With the exception of <nop>MonALISA, all the middleware that uses the <i>grid3-user-vo-map.txt</i> appears to be using:
    * either the #voi entry associated with the uncommented UNIX-to-#voi line.
    * or mapping correctly to the #VOc entry, but converting it to lower case before using it.
+
+A meeting was held on 12/6/06 to address this issue with the following participants:  Shaewon Wang, Horst Severini, Rob Quick, John Roeshek and John Weigand.  It was agreed that  the #VOc value should be used. This allows for the mixed-case VO value such as iVDGL.  The  major issue will be acceptance of this by all the reporting/data collection systems.
+
+<b>Open issue:</b>
+
+---++Action items
+   1 Shaewon will look into how EGEE is assigning VO names.  Are they using GIP output, another source... whatever? 
+
+
+
 
        
 
 
----++osg-user-vo-map.txt (grid3-user-vo-map.txt)
-The main component, irrespective of the authorization mode used, is the <i>$VDT_LOCATION/monitoring/grid3-user-vo-map.txt</i>.  This file provides a mapping of the local unix user accounts, used for OSG authorizations, to the OSG VOs. 
-This file is currently used by:
-   *  [[Integration.MonALISA050][MonALISA]] to capture Compute Element/Worker Node resource usage for each VO. 
-   *  GIP ([[Integration.GenericInformationProvider][Generic Information Provider]]) to publish supported VO resource and availability data.
-   * VORS
-   * VOMS Monitor
-   * Gratia
-   * DOE certifcation site
-   * GridCat
-
-
-A static file is distributed with the VO package which also distributes the gums.template file and the edg-mkgridmap.conf file.
-
-If a site is using the GUMS service then a cron entry is added which dynmically creates the grid3-user-vo-map.txt file. More inforamtion at the URL below.
-
-
-
-Problems to resolve
 
 
 
