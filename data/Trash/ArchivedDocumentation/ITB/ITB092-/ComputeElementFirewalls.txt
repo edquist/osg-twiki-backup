@@ -1,0 +1,205 @@
+%META:TOPICINFO{author="ForrestChristian" date="1166038807" format="1.1" reprev="1.4" version="1.4"}%
+<!-- This is the default OSG Integration template. 
+Please modify it in the sections indicated to create your topic!
+If you have any comments/complaints about this template, then please email me:
+rwg@hep.uchicago.edu.  (Adapted from Atlas wiki template, Ed Moyse)
+--> 
+
+<!-- By default the title is the WikiWord used to create this topic !-->
+<!-- if you want to modify it to something more meaningful, just replace %TOPIC% below with i.e "My Topic"!-->
+
+---+!!<nop>OSG CE - Firewalls
+%TOC%
+%STARTINCLUDE%
+
+
+---++ Firewalls
+%EDITTHIS%
+
+Grid components are distributed throughout the network, and services such as gatekeepers and data movement utilities are required to be accessible to the dynamic cloud of clients and peer services.
+This distributed and dynamic requirement places the burden of the security on the implementation of the application.
+
+Due to the discovery of significant vulnerabilities in recent years, network-based applications are untrusted by default. To solve the application problem effort has focused on developing and deploying firewalls which
+restricts full and free network access.  (You might say that this is analogous to building  a house with no doors. Is it safe? Yes. Is it useful? No.)
+
+Some essential network-based applications have been "hardened," such as mail relay services, web servers, and secure shell daemons. These are further protected further by IP address  filtering to prevent access from unknown hosts or domains.
+
+Grid components which are located behind network firewall face special challenges for Grid setup and operations. 
+
+There are two styles of firewalls usually encountered. 
+   * A network firewall which is upstream from your server  (usually centrally maintained). This blocks all traffic to your host. 
+   * Host-based firewalls which are setup and maintained  by individual host administrators. This is usually setup and configured by the <b>iptables</b> program which filters incoming network packets which arrive for the host.
+
+ In addition to host-based firewalls, hosts can choose to implement host based access rules (usually setup with the <b>tcp_wrapper</b>   or <b>hosts_allow</b> utilities.
+
+Network traffic can be blocked at the firewall for both incoming and outgoing dataflow depending on hostnames, ip addresses, ports and protocols. 
+
+A common setup is to allow any outgoing connection, while significantly (if not completely) restricting 
+incoming connections.  The Globus project provides thorough documentation, including but not limited to
+the [[http://www.globus.org/toolkit/security/firewalls/][Globus Toolkit firewall requirements]] document.
+Also remember that you may need to open ports on your firewall for your batch system (Condor, LSF, etc.!) 
+
+[[http://www.cs.wisc.edu/condor/manual/v6.7/3_8Networking.html][Information about Condor's use of ports]]
+
+Port usage which may require firewall updates:
+   * Inbound:
+      * MDS: 2135/tcp inbound
+      * GRAM: 2119/tcp inbound
+      * [[http://www.globus.org/grid_software/data/gridftp.php][Integration.GridFTP]]: 2811/tcp inbound
+      * GRAM callback: user-defined contiguous range (set via the environment variable =GLOBUS_TCP_PORT_RANGE=beginport,endport=).  It should span at least 100 ports for a small site. 
+      * Monalisa: 9000/udp (for ABping measurements).  These are specified in the file =$VDT_LOCATION/MonaLisa/Service/VDTFarm/ml.properties=
+   * Outbound:
+      * GRAM callback: user-defined contiguous range (set via the environment variable =GLOBUS_TCP_SOURCE_RANGE=beginport,endport=). 
+   
+GRAM and [[http://www.globus.org/grid_software/data/gridftp.php][Integration.GridFTP]] need to know the port range that you've opened up via environment variables.  You need to set the =GLOBUS_TCP_PORT_RANGE=beginport,endport= for inbound
+ports.  If you restrict outbound connections, you will also need to set =GLOBUS_TCP_SOURCE_RANGE=beginport,endport=.  These may be set either in $VDT_LOCATION/vdt/etc/vdt-local-setup.sh=, or in the xinetd configuration files &mdash; the examples below
+use xinetd.  The variables will be used by GRAM, Integration.GridFTP, and any clients that require them.
+
+The above ports and protocols <em>must be open</em> to and from all grid clients and server machines participating in the grid in order to provide minimal functionality.
+
+In addition to the above, port 9443 must be open for both incoming and outgoing connections in order to test the web-services capabilities of the most recent versions of the VDT.
+
+You also may need to open the following optional incoming ports for additional Grid services.  Note that unlike the ones listed above, the following are <em>optional</em> and are only needed if you are running those specific services or if required by your specific virtual organization.
+
+   * GIIS: 2136/tcp
+   * GSISSH: 22/tcp
+   * [[http://grid.ncsa.uiuc.edu/myproxy/][Integration.MyProxy]]: 7512/tcp
+   * VOMS: 8443/tcp
+   * RLS server: 39281/tcp
+
+Here is a sample of the a =/etc/hosts.allow= with the GLOBUS services opened:
+<pre>
+&gt;  cat /etc/hosts.allow
+<i>
+  #
+  # hosts.allow   This file describes the names of the hosts which are
+  #               allowed to use the local INET services, as decided
+  #               by the '/usr/sbin/tcpd' server.
+  #
+  sshd: 129.79.6.113 
+  ALL : localhost
+  vdt-run-gsiftp.sh : ALL
+  vdt-run-globus-gatekeeper.sh : ALL</i>
+</pre>
+
+---+++ For RH9, RHEL3 or compatible iptables systems
+
+The default firewall configuration for Red Hat's iptables sets the system up with a stateful packet filter. This is different than some legacy RH7 systems as by default no ports that are not explicitly opened by the iptables script will be open. This includes high numbered ports that are often used by grid services. 
+
+If your preference is to leave as much of the stateful packet filtering in place but enable just those grid services you want to deploy then you can use the following instructions. 
+
+Two changes need to be made to an OSG gateway with a host based iptables stateful firewall. 
+
+First is the configuration of the firewall itself. On RHEL or similar systems this is done in =/etc/sysconfig/iptables=.
+
+The Chain RH-Firewall-1-INPUT is a default chain for RHEL3. This chain is also sometimes called INPUT. Make sure the following rules use the chain that other rules in =/etc/sysconfig/iptables= do. 
+
+   $ %I% %RED% *Note* %ENDCOLOR%: For GSISSH this port is often already open for systems. You can use either this rule or the default rule setup at install time if you selected custom firewall and enabled ssh. 
+
+  <verbatim>
+# Globus: Requires addition configuration in /etc/xinetd.d/globus-gatekeeper
+# set: env = GLOBUS_TCP_PORT_RANGE=40000,50000
+# This allows up to 10,000 ports and matches the globus config.
+# How globus is configured to use these ports is subject to change in an upcoming
+# release
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 40000:50000 -j ACCEPT
+# Monalisa, grabs 3 ports from the following range
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 9000:9010 -j ACCEPT
+# Gridftp
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 2811 -j ACCEPT
+# MDS
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 2135 -j ACCEPT
+# GRAM
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 2119 -j ACCEPT
+
+# Optional Services
+# RLS Server
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 39281 -j ACCEPT
+# MyProxy
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 7512 -j ACCEPT
+# GSISSH/SSH
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 22 -j ACCEPT
+# GIIS
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 2136 -j ACCEPT
+# GUMS/VOMS
+-A RH-Firewall-1-INPUT  -m state --state NEW -p tcp -m tcp --dport 8443 -j ACCEPT
+  </verbatim>
+
+Second, we configure Globus to use the allowed inbound port range.
+
+=/etc/xinetd.d/globus-gatekeeper=
+<verbatim>
+  service globus-gatekeeper
+  {
+         socket_type = stream
+         protocol = tcp
+         wait = no
+         user = root
+         instances = UNLIMITED
+         cps = 400 10
+         server = $VDT_LOCATION/vdt/sbin/vdt-run-globus-gatekeeper.sh
+         env    = GLOBUS_TCP_PORT_RANGE=40000,50000
+         disable = no
+  }
+</verbatim>
+
+<b>If</b> you restrict outbound connections (to the same port range, for example), you should also modify the gsiftp config file.
+
+=/etc/xinetd.d/globus-gsiftp=
+<verbatim>
+service gsiftp
+{
+         socket_type = stream
+         protocol = tcp
+         wait = no
+         user = root
+         instances = UNLIMITED
+         cps = 400 10
+         server = $VDT_LOCATION/vdt/sbin/vdt-run-gsiftp.sh
+         env += GLOBUS_TCP_SOURCE_RANGE=40000,50000
+         disable = no
+}
+</verbatim>
+
+Finally, add the port range(s) to
+<tt>$VDT_LOCATION/globus/etc/globus-job-manager.conf</tt> to ensure that it is picked up by other services by
+adding the following lines (omit the globus-tcp-source-range line if you do not restrict outbound connections):
+<verbatim>
+        -globus-tcp-port-range 40000,50000
+        -globus-tcp-source-range 40000,50000
+</verbatim>
+
+   $ %I% %RED% *Note* %ENDCOLOR%: $VDT_LOCATION should be set by the pacman installer_
+
+If you limit the globus-related port range to certain values, it may be necessary to adjust the Linux ephemeral port range to avoid these values.  
+If this has not already been done, check the =/etc/sysctl.conf= for the following lines and insert if needed:
+<pre>
+# Limit ephemeral ports to avoid globus tcp port range
+# See OSG CE install guide
+net.ipv4.ip_local_port_range = 10240 39999
+</pre>
+Save and exit if edited.  Then, if you changed it, apply the changes by doing:
+=sysctl -p=
+
+
+After editing the above files run the following commands
+  <pre>
+  # /etc/rc.d/init.d/iptables restart
+  Flushing firewall rules:                                   [  OK  ]
+  Setting chains to policy ACCEPT: filter                    [  OK  ]
+  Unloading iptables modules:                                [  OK  ]
+  Applying iptables firewall rules:                          [  OK  ]
+  # /etc/rc.d/init.d/xinetd reload
+  Reloading configuration:                                   [  OK  ] 
+  </pre>
+
+
+
+a199 5
+<!-- MAJOR UPDATES
+For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
+
+<!--Future editors should add their signatures beneath yours!-->
+-- Main.RobQ - 01 May 2006
+
+%META:TOPICMOVED{by="ForrestChristian" date="1166038807" from="Integration.CEFireWalls050" to="Integration/ITB_0_5.CEFireWalls"}%
