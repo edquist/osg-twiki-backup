@@ -1,0 +1,39 @@
+%META:TOPICINFO{author="GregorySharp" date="1169560959" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="GregSharp"}%
+*dCache release*: pre-release 1.7
+
+*Symptom*:
+
+In =modules/dCache/diskCacheV111/pools/CostCalculationV5.java=, the cost function =recalculateV5()= will report that there is sufficient room for a new file that is larger than the available free space if the disk has more free space than the "gap" (the low-water mark). The code makes the invalid assumption that no file will ever be larger than the "gap".
+
+*Diagnosis*:
+
+The =recalculateV5()= method calculates the cost of storing a file on the current disk. Note that the method is called with 3*filesize, and not the raw file size. The cost algorithm reduces to:
+
+<verbatim>
+    if ( freespace > LOW_WATER_MARK )
+        cost = 3*filesize / freespace
+    else if ( freeable_space < LOW_WATER_MARK )
+        cost = infinity
+    else
+        cost = breakeven * 604800 / max( lru, 60 );
+</verbatim>
+
+Now suppose the low water mark (called the *Gap* in the code) is 4GB, the free space is 4GB + 1 byte and that the freeable space also is 4GB + 1 byte. If the file we want to add to this disk is 5GB, this algorithm says:
+
+freespace is greater than low-water-mark, so cost = 3* 5GB/(4GB+1) which is approximately 3.75. But the file can't fit, so the cost should be infinity.
+
+The algorithm is assuming that nobody will ever try to create a file larger than the low water mark.
+
+*Proposed Resolution*:
+
+At the start of the algorithm, add the test
+
+<verbatim>
+    if ( filesize > freeable_space )
+        cost = infinity
+    else 
+</verbatim>
+
+
+-- Main.GregorySharp - 23 Jan 2007
