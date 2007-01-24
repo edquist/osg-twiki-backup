@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ForrestChristian" date="1166111556" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="JohnWeigand" date="1169657479" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="CEInstallGuide"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -19,11 +19,9 @@ d78 1
 The [[http://grid.pd.infn.it/cemon/field.php][CEMon]] (CEMonitor) service is responsible for providing information coming from the Computing Element (CE) and is being implemented as an optional component in the OSG Compute Element (CE) architecture in support of the [[ResourceSelection.WebHome][ReSS (Resource Selection Service) OSG project]].  This service is capable of collecting the CE resource information by using [[http://lfield.home.cern.ch/lfield/cgi-bin/wiki.cgi?area=gip&page=documentation][Generic Information Provider]] (GIP). GIP works with the Condor, PBS, LSF and SGE job managers. A properly installed and configured CEMonitor service pushes collected information in classad format to a central [[ResourceSelection.WebHome][Information Gatherer]] (IG) running on designated host (<i>osg-ress-1.fnal.gov</i>). IG advertises these classads to the [[http://www.cs.wisc.edu/condor][Condor Match Maker]] service.
 
 ---++++CEMon configuration files
-The configuration of <i>CEMon</i> is done for you in the <i>configure_cemon</i> script which is automatically run as a part of the OSG 0.5.1 installation process.  This section is intended to highlight the key configuration files and changes made by that script.
+The configuration of <i>CEMon</i> is done for you in the <i>configure_cemon</i> script which is automatically run when you execute the <i>configure-osg.sh</i> script
 
----+++++cemonitor-config.xml
-Located in the <i>$VDT_LOCATION/glite/etc/glite-ce-monitor</i> directory, this configuration file defines
-d29 4
+The <i>$VDT_LOCATION/glite/etc/glite-ce-monitor/cemonitor-config</i>  defines
    * the script used to collect the CE node data and the frequency at which it is run
    * the URL of the <nop>ReSS server and the frequency the data is published
 
@@ -32,74 +30,51 @@ d29 4
 <service id="main-service"
          description="cemonitor service"
          sslkeyfile="/etc/grid-security/http/httpkey.pem"
-<pre>
-&lt; service id="main-service"
-      :
-         sslkeyfile="/etc/grid-security/http/httpkey.pem"        
          sslcertfile="/etc/grid-security/http/httpcert.pem"
-            <i><b>(your HTTP certificates)</b></i>
-      :
-         sslCAfiles="/storage/local/data1/osg-ce/globus/TRUSTED_CA/*.0"   
-             <i><b>(your TRUSTED_CA directory)</b></i>
-&gt;
-     :
-  &lt;sensor id="sensor-osg-ce"
+         sslkeypasswd=""
+         sslCAfiles="/usr/local/osg-ce/globus/TRUSTED_CA/*.0"
+         >
+   :
+  <sensor id="sensor-osg-ce"
           name="OSG CE Sensor"
           type="OSG_CE"
-     :
-     &lt;property name="executionDelay" value="300000" /&gt;
-            <b><i>(frequency in millseconds the information gathered by the script below)</i></b>
-    &lt;property name="scriptURI" value="/storage/local/data1/osg-ce/glite/etc/glite-ce-ce-plugin/glite-ce-info" /&gt;
-            <b><i>(this is the script that gathers the information about the CE node)</i></b>
-     :
+          jarpath="file:/usr/local/osg-ce/glite/share/java/glite-ce-osg-ce-plugin.jar">
+    <property name="executionDelay" value="300000" />
+    <property name="scriptURI" value="/usr/local/osg-ce/glite/etc/glite-ce-ce-plugin/glite-ce-info" />
+    <property name="not_supported_attributes" 
+value="GlueSiteDescription,GlueSiteLocation,GlueSiteWeb,GlueSiteSponsor,
+GlueSiteOtherInfo,GlueForeignKey,GlueChunkKey,createTimestamp,
+GlueCESEBindCEUniqueID,GlueCESEBindCEAccesspoint,GlueCESEBindGroupCEUniqueID,
+GlueCESEBindSEUniqueID,GlueCESEBindGroupSEUniqueID,
+entryTtl,modifyTimestamp,dn,ObjectClass" />
+    <property name="multiple_values_attributes" 
+value="GlueSiteSponsor,GlueSiteOtherInfo,GlueServiceAccessPointURL,
+GlueServiceAccessControlRule,GlueInformationServiceURL,GlueChunkKey,
+GlueForeignKey,GlueCEAccessControlBaseRule,GlueClusterService,GlueHostService,
+GlueHostApplicationSoftwareRunTimeEnvironment,GlueHostLocalFileSystemClient,
+GlueHostRemoteFileSystemServer,GlueCESEBindGroupSEUniqueID,GlueSEHostingSL,
+GlueSEAccessProtocolSupportedSecurity,GlueSLService,GlueSLLocalFileSystemClient,GlueSAAccessControlBaseRule" />
+  </sensor>
+  :
+   <!-- Installed by the VDT -->
+   <subscription id="subscription-https___osg-ress-4_fnal_gov_8443_ig_services_CEInfoCollector-OSG_CE-OLD_CLASSAD"
+         monitorConsumerURL="https://osg-ress-4.fnal.gov:8443/ig/services/CEInfoCollector"
+         sslprotocol="SSLv3"
+         retryCount="-1">
+      <topic name="OSG_CE">
+         <dialect name="OLD_CLASSAD" />
+      </topic>
+      <policy rate="300000">
+         <query queryLanguage="ClassAd"><![CDATA[GlueCEStateWaitingJobs<2]]></query>
+         <action name="SendNotification" doActionWhenQueryIs="true" />
+         <action name="SendExpiredNotification" doActionWhenQueryIs="false" />
+      </policy>
+   </subscription> 
+</verbatim>
 
-&lt;/service&gt;
-     :
-&lt;subscription 
-         id="subscription-https___osg-ress-1_fnal_gov_8443_ig_services_CEInfoCollector-OSG_CE-OLD_CLASSAD"
-         monitorConsumerURL="https://osg-ress-1.fnal.gov:8443/ig/services/CEInfoCollector"
-            <b><i>(the URL of the ReSS server)</i></b>
-     :
-      &lt;topic name="OSG_CE"&gt;
-         &lt;dialect name="OLD_CLASSAD" /&gt;
-      &lt;/topic&gt;
-      &lt;policy rate="300000"&gt;          
-            <b><i>(frequency in millseconds the information is pushed to the IG)</i></b>
-    :
-&lt;/subscription&gt;
-    :
-</pre>
-
-d78 1
 ---++++Activating CEMon
 The <nop>CEMon package is installed, configured and activated automatically when you run the <i>configure-osg.sh</i> script.  CEMon uses both <i>apache</i> and <i>tomcat-5</i>.  
 
----+++++CEMon for OSG 0.5.0
-In this release, <nop>CEMon is not installed.  To install it in a pre-OSG 0.5.1 release, refer to the [[ResourceSelection.CEMonAndGIPInstallationNotes][CEMon installation instructions for OSG 0.4.1 and OSG 0.5.0]].
-
----+++++CEMon for OSG 0.5.1
-The <nop>CEMon package is installed and configured, but not activated, with this release.  CEMon uses both <i>apache</i> and <i>tomcat-5</i>.  To activate it, you will need to (<b>as root</b>):
-
-<OL>
-<LI>Copy the startup scripts to <i>/etc/init.d</i>
-<pre>
-&gt;  cp $VDT_LOCATION/post-install/apache /etc/init.d/.  
-&gt;  cp $VDT_LOCATION/post-install/tomcat-5 /etc/init.d/.  
-</pre>
-        <LI>Activate the services so, they will automatically start when the node is booted.
-<pre>
-&gt;  chkconfig --add  apache
-&gt;  chkconfig  apache on 
-&gt;  chkconfig --add  tomcat-5
-&gt;  chkconfig  tomcat-5 on 
-</pre></li>
-        <LI>Start the services.
-<pre>
-&gt;  /etc/init.d/apache start
-&gt;  /etc/init.d/tomcat-5 start
-</pre></li>
-</ol>
-d87 1
    $ %I% %RED% *NOTE* %ENDCOLOR%: _<nop>CEMon_ requires an =/etc/grid-security/grid-mapfile= to exist.  It can be an empty file, but it must exist.   The =$VDT_LOCATION/vdt/setup/configure_cemon= script checks for this and creates an empty one, if none exists.
 
 ---++++Verifying CEMon is functional
@@ -108,7 +83,6 @@ Check the <i>tomcat</i> <i>CEMon</i> log file, =$VDT_LOCATION/tomcat/v5/logs/gli
 <pre class="programlisting">
 <pre>
 20 Oct 2006 13:39:58,881 org.glite.security.trustmanager.CRLFileTrustManager -
-       Client CN=osg-ress-1.fnal.gov, OU=Services, DC=doegrids, DC=org accepted
        Client CN=osg-ress-4.fnal.gov, OU=Services, DC=doegrids, DC=org accepted
 </pre>
 
@@ -119,10 +93,10 @@ Once you've started publishing to the <nop>CEMon server, you might want to verif
 <pre>
          -pool osg-ress-1.fnal.gov \
          -pool osg-ress-4.fnal.gov \
-  <b><i>(remember to change YOUR_HOST_NAME with your fully
- <b>Remember to change YOUR_HOST_NAME with your fully
-   in the constraint argument)</b></i>
+         -constraint "GlueCEInfoHostName == \"YOUR_HOST_NAME\"" 
 </pre>
+ <b>Remember to change YOUR_HOST_NAME with your fully
+   qualified hostname.  In addition, the backslashes are critical
    in the constraint argument.</b>
 
 Be prepared for a lot of output if you are successful.
