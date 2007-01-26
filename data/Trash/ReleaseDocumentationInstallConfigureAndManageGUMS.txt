@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MichaelThomas" date="1169747123" format="1.1" reprev="1.8" version="1.8"}%
+%META:TOPICINFO{author="JohnWeigand" date="1169840179" format="1.1" reprev="1.9" version="1.9"}%
 %META:TOPICPARENT{name="DocumentationTable"}%
 <!-- This is the default OSG Integration template. 
 Please modify it in the sections indicated to create your topic!
@@ -119,7 +119,7 @@ Run the following commands:
    ssh -l root your.host  #login as root however you like
    cd $VDT_LOCATION/gums-service/sbin
    ./addAdmin "your DN"   #quotes needed due to spaces in DN string</verbatim>
-Output of the addAdmin command:
+
 This will give you administrative access through your GUMS web interface.  This adds you (or the DN you provide) to the <b>admins</b> subGroup in the GUMS database.
 
 Output of the <nop>addAdmin command:
@@ -148,7 +148,7 @@ If you get the following, you have not added yourself correctly to the <b>admins
      Error Message: Authorization denied
 </verbatim>   
 
-   $ %RED% *NOTE* %ENDCOLOR%: =$VDT_LOCATION/gums= is symlinked to =/$VDT_LOCATION/gums-service/var/war=.
+---+++Modify the gums.config file
  A default gums.config file is installed in =$VDT_LOCATION/tomcat/v5/webapps/gums/WEB-INF/classes/gums.config=. This file has two groupMapping elements (i.e., groupMapping with no "s" at the end), both of which need to be replaced.  They fall inside the one <nop>groupMappings element (with an "s").
 
    %NOTE% =$VDT_LOCATION/gums= is symlinked to =/$VDT_LOCATION/gums-service/var/war=.
@@ -350,20 +350,74 @@ This says all the people in the ATLAS VO %RED%(where is this specified? userGrou
 
 Since there is a match, GUMS will use this groupMapping element to determine the account. It looks at the accountMapping, which happens to be composite (there's a pool of accounts and a group account): GUMS will go through the accountMapping elements *in the order listed*, until one returns a value. 
 
-When pool accounts are specified in your <i>gums.config</i>, as defined below in the <i>accountMapping</i> element, you will need to create the account names to be assigned.
+The first is a pool of accounts; if it has any available accounts left, it will return either an assigned account previously assigned to this user, or it will assign a new account to him. If its pool of accounts is exhausted, it will not return an account.  In this case, the next accountMapping element will be used; this one always maps to the same group account, usatlas1.
 
-<accountMapping className='gov.bnl.gums.AccountPoolMapper' persistenceFactory='mysql' name='uscmsPool' />
+
+<!--   POOL ACCOUNTS --------------------------------- -->
+---+++ Using pool accounts
+When pool accounts are specified in your <i>gums.config</i>, as defined below in the <i>accountMapping</i> element, you will need to create the account names to be assigned as shown in the example below:
+<pre>
+&lt;accountMapping className='<b>gov.bnl.gums.AccountPoolMapper</b>' 
+         persistenceFactory='mysql'  
+        <b>name='uscmsPool'</b>/&gt;
+</pre> 
+
+The most difficult task in using pool accounts is in determining how many you need.  To figure this out, you will need to go into the <nop>MySql database and do a couple queries to see how many potential members there are in the VO(s) using pool accounts.  These are a series of steps you can use as a guideline:
+
+First, if you have not already done so, you need to retrieve the VO membership defined by your <i>gums.config</i>
+  <UL><LI>Using a browser containing your certificate  and assuming you are in the <i>admins</i> group and therefore have administrative privileges), go to your GUMS url  (<nop>https://&lt;YOUR_GUMS_HOST&gt;:8443/gums/)
+          <LI>Select <i>Update Members</i> in the menu on the left side of the page.
+          <LI>Then select the <i>Update VO Members Database</i> button.<br>
+                  This may take a little while.
+   </UL>
+
+Now you need to go into <nop>MySql on the GUMS host machine and find the number of potential pool accounts that need to be available. 
+<verbatim>
+> mysql -uroot
+mysql> use GUMS_1_1;
+mysql>  select count(distinct(DN)) from USER 
+            where GROUP_NAME in ('cmsuser', 'cmsuser-null', 'uscmsuser');
 +---------------------+
-To create these account names in GUMS, you need to execute the following command as a user who was previously defined as a gums admin:
+| count(distinct(DN)) |
++---------------------+
+|                 563 |
++---------------------+
+</verbatim>
+
+Now, once you know how many accounts to allocate, you need to allocate them in GUMS. Do this by executing the following command as a user who was previously defined as a gums admin.  You will need a proxy to do this.  Another thing to keep in mind, is that you just determined the current VO membership count using this pool account.  It is likely that the membership will grow, so you may want to allocate more accounts than the current membership.
+
+<pre>
+&gt; source <YOUR_VDT_LOCATION>/setup.sh
+&gt; grid-proxy-init
+&gt; $VDT_LOCATION/gums/bin/gums pool-addRange mysql <b>uscmsPool</b> uscmspool001-600
+</pre>
+This makes available 600 accounts for the <b>uscmsPool</b> <i>accountMapping</i> group.  They will be assigned sequentially as uscmspool001, uscmspool002... thru uscmspool600. As the VO membership grows it may become necessary to add more accounts.  In this example 600 accounts were created.  If you needed to add another 200, you would run this same command specifying 'uscmspool601-800' as the last argument.  It can take several minutes to create a pool of 600 users.
+
+%IMPORTANT% Before doing this, be sure to notify CE nodes using this GUMS server that actual UNIX accounts must be created on all CE/WN nodes.
+
+%NOTE% When you run out of pool accounts, GUMS will stop authorizing any new members (those who have not already been assigned an account).  It will not be at all obvious that this was the reason for denial.  None of the GUMS logs tell you this.  The PRIMA callouts do not tell you this.  You have to be aware when you are troubleshooting an authorization denial, that the user is attempting to authorize with a proxy for a VO using pool accounts.
+
 You can view your used/unused pool account allocations on a periodic basis with the following <nop>MySql commands for each unique pool account:
- > source <YOUR_VDT_LOCATION>/setup.sh
- > grid-proxy-init
- > $VDT_LOCATION/gums/bin/gums pool-addRange mysql uscmsPool uscmspool001-600
+
+Used pool allocations:
+<verbatim>
+mysql> select count(*) from MAPPING where MAP = 'uscmsPool' and DN IS NOT NULL;
 +----------+
-This makes available 600 accounts for the 'uscms' <i>accountMapping</i> group.  They will be assigned sequentially as uscmspool001, uscmspool002... thru uscmspool600. As the VO membership grows it may become necessary to add more accounts.  In this example 600 accounts were created.  If you needed to add another 200, you would run this same command specifying 'uscmspool601-800' as the last argument.  It can take several minutes to create a pool of 500 users.
+| count(*) |
++----------+
 |      567 |
-<b>Important: Before doing this, be sure to notify CE nodes using this gums server that actual UNIX accounts must be created on all CE/WN nodes.</b>
++----------+
+</verbatim>
+
+Unused pool allocations:
+<verbatim>
+mysql> select count(*) from MAPPING where MAP = 'uscmsPool' and DN is NULL;
++----------+
+| count(*) |
++----------+
 |       33 |
++----------+
+</verbatim>
 
 
 
@@ -447,6 +501,7 @@ For significant updates to the topic, consider adding your 'signature' (beneath 
 -- Main.JohnWeigand - 08 Jun 2005 - added gums.config example page<br>
 -- Main.JohnWeigand - 14 Jun 2005 - expanded the pre-requisites TOC section<br>
 -- Main.JohnWeigand - 16 Jun 2005 - expanded the 'Set up CE Authorizations To Use GUMS' TOC section<br>
+-- Main.JohnWeigand - 23 Jun 2005 - modified a fair portion of the "Modify the gums.config TOC for clarity"<br>
 -- Main.JohnWeigand - 08 Jul 2005 - added  Installation and Basic Configuration Postmortem TOC and modified the Connect your GUMS to a VOMS installation section   %BR%  
 -- Main.RobQ - 01 May 2006   %BR%  
 -- Main.JohnWeigand - 26 Jan 2007 - added/update a section on managing pool accounts %BR%
