@@ -1,0 +1,177 @@
+%META:TOPICINFO{author="ForrestChristian" date="1170108222" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="LectureSevenTutorial"}%
+<link rel="stylesheet" type="text/css" href="%PUBURL%/%WEB%/WorkshopTutorialModules/exercises.css">
+
+---+!! Using Condor-G to Submit Jobs to OSG and <nop>TeraGrid
+
+%TOC%
+
+%STARTINCLUDE%
+%EDITTHIS%
+
+_Condor-G_ allows one to use Condor tools to submit jobs to Globus resources. You can think of it as a sophisticated =globus-job-run=. One
+of the useful features is the ability to submit and monitor multiple jobs to grid resources.
+
+<a name="ajob" />
+---+++ Submitting a single job using Condor-G
+In the Condor world, one has to write a submission file that describes the application your are submitting. A sample submission file is below.
+
+<pre class="programlisting">
+%GREEN%########################################
+#                       
+#  A sample condor submission file
+#                                        
+########################################%ENDCOLOR%
+                                         
+executable =  prime
+universe = <b>vanilla</b>
+
+output  = prime.out                
+error   = prime.error             
+log     = prime.log  
+arguments = 107 2 107
+
+queue
+</pre>
+
+
+Note the universe variable. If the universe used is vanilla, the job is infact executed on the submitting site itself. The condor on =gridlab1.phys.utb.edu= is configured to run jobs locally.
+
+To submit jobs to a remote resource, the universe should be set to =grid=. Let's see a submission file for the grid universe.
+
+<pre class="programlisting">
+%GREEN%########################################
+#                       
+#  A sample Condor-G submission file
+#                                        
+########################################%ENDCOLOR%
+
+executable = <replaceable>APPDIR</replaceable>/<replaceable>YOURUSERNAME</replaceable>/prime
+
+transfer_executable = false
+universe       = <b>grid</b>
+grid_resource = <b>gt2 <replaceable>SITE</replaceable>/jobmanager</b>
+log            = prime.log
+arguments      = 100 2 100
+output = prime.out
+
+queue
+</pre>
+
+Submit your prime application using this submission file to a site. You can monitor your application using =condor_q=
+
+<pre class="screen">
+[johndoe@gridlab1 ~]$ <userinput>condor_submit example.sub</userinput>
+Submitting job(s).
+Logging submit event(s).
+1 job(s) submitted to cluster 33.
+
+[johndoe@gridlab1 ~]$ <userinput>condor_q</userinput>
+
+-- Submitter: gridlab1.phys.utb.edu : &lt;206.76.233.104:36236&gt; : gridlab1.phys.utb.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   9.0   training24      7/10 23:39   0+00:00:00 I  0   0.0  prime             
+
+1 jobs; 1 idle, 0 running, 0 held
+d86 16
+</pre>
+
+   $ *%GREEN% TIP %ENDCOLOR%*: If condor_q lists too many entries, you can use the =job-id= to refer your job. In the above example, this is =33= in the line =1 job(s) submitted to cluster 33= returned by =condor_submit=. Now you can just do =condor_q <replaceable>XXX</replaceable>=. You can also try using =condor_q train<replaceable>XX</replaceable>= to enlist jobs submitted by user trainXX.
+
+
+You can try various options like =-long= and =-globus= with condor_q to see more details.
+
+
+<!-- ***  Comments plugin to create comments table for section   ***    -->
+
+<span class="educationWebAddComment">ADD A COMMENT</span>
+%STARTMore%
+
+%TABLE{ }%
+|  *COMMENT*  |  *NAME*  |  *DATE*  |
+| This is test comment 1. | Main.MichaelWilde | 18 Apr 2007 - 12:34 |
+| To start, practice cutting text from your this page in your web browser to run a command or set of commands: cut the pwd command from the box above and paste it into your terminal window to execute it. This is a good way to avoid making typos while entering commands from the examples. | Main.MichaelWilde | 18 Apr 2007 - 12:34 |
+%COMMENT{ type="tableappend" }%
+
+%ENDMore%
+<!-- ***  End Comment                                            ***    -->
+
+
+
+---+++ Checking output
+Check the output file =prime.out=.
+
+<a name="multiple" />
+---+++ Submitting multiple jobs to multiple sites using Condor-G
+
+There are various ways to use Condor-G to submit multiple jobs to multiple sites:
+   * Write multiple submission files and changes attributes manually or using a script. This is clumsy and difficult to manage.
+   * Write a single common submission file and dynamically change only the attributes that need to be changed
+
+First, we must identify the attributes that need to be changed for different instantiations of the application:
+   * range of divisors
+   * site names
+   * application directories
+   * output file names
+
+How do we do this? By passing parameters to =condor_submit=:
+
+
+<tt>condor_submit -a "arguments = $num $start $end" -a "grid_resource = gt2 $site/jobmanager" ...</tt>
+
+The strings that you specify with =-a= option get added to the submission file you specify.
+
+
+Write a common submission file and submit three instantiations of your prime application to three sites. Note that you have to use different output file names for each instantiation. 
+
+Create a submission file named =example.sub= with following contents
+<pre class="programlisting">
+%GREEN%####################
+[johndoe@gridlab1 dprime]$ <userinput>mkdir output</userinput>
+# Submission file for prime number finder
+#
+####################%ENDCOLOR%
+
+transfer_executable = false
+[johndoe@gridlab1 dprime]$ <replaceable>condor_submit -a "arguments = 1000 2 1000" -a "output = output/1.out" -a "grid_resource = gt2 ufgrid05.phys.ufl.edu/jobmanager" -a "executable = APPDIR/YOURUSERNAME/prime" example.sub</replaceable>
+log            = prime.log
+queue
+</pre>
+
+Note that we do not specify the site and arguments.
+
+Create a directory for the output files:
+
+<pre class="screen">
+[%LOGINNAME%@%LOGINHOST% dprime]$ <userinput>mkdir output</userinput>
+[johndoe@gridlab1 dprime]$ <userinput>grep NO output/*</userinput>
+
+Submit a job using the submission file by passing arguments to =condor_submit=:
+
+<pre class="screen">
+[%LOGINNAME%@%LOGINHOST% dprime]$ <replaceable>condor_submit -a "arguments = 1000 2 1000" -a "output = output/1.out" -a "grid_resource = gt2 ufgrid05.phys.ufl.edu/jobmanager" -a "executable = APPDIR/YOURUSERNAME/prime" example.sub</replaceable>
+</pre>
+
+Submit multiple jobs to multiple sites. Note that you have to copy your executables to the site, if it doesn't have it already. Use !GridCat to find the APP variables.
+[johndoe@gridlab1 dprime]$ <userinput>globus-job-run <replaceable>SITE</replaceable> /bin/rm -rf <replaceable>APPDIR</replaceable>/<replaceable>YOURUSERNAME</replaceable></userinput>
+
+---+++ Inspecting the output
+<pre class="screen">
+%STOPINCLUDE%
+
+      * Set LOGINHOST = workshop1.lac.uic.edu
+      * Set LOGINIP = 131.193.181.56
+      * Set GRIDHOST = tg-login.sdsc.teragrid.org
+      * Set OTHERHOST = workshop2.lac.uic.edu
+      * Set CERTSUBJECT = /O=Grid/OU=OSG/CN=Training User 99
+      * Set LOGINNAME = train99
+      * Set HOMEDIR = /home/%LOGINNAME%
+--> 
+
+<!--
+Main.ForrestChristian - 24 Mar 2007 - Added VARIABLES
+-->
+
+%BOTTOMMATTER%
+-- Main.ForrestChristian 2007 Jan 29: pulled from LectureSevenTutorial %BR%
+-- Main.ForrestChristian 2007 Mar 24: adding VARs %BR% 
