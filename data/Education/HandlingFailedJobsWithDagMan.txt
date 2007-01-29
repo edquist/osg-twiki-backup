@@ -1,0 +1,731 @@
+%META:TOPICINFO{author="ForrestChristian" date="1170103606" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WorkshopTutorialModules"}%
+
+---+!! %SPACEOUT{ "%TOPIC%" }%
+
+
+%STARTINCLUDE%
+%EDITTHIS%
+
+DAGMan can handle a situation where some of the nodes in a DAG fails. DAGMan will run as many nodes as possible, then create a rescue DAG making it easy to continue when the problem is fixed.
+
+
+---+++ Create a script
+Let's create a script that will fail so we can see this:
+
+<pre class="screen">
+$ <userinput>cat &gt; myscript2.sh
+#! /bin/sh
+
+echo "I'm process id $$ on" `hostname`
+echo "This is sent to standard error" 1&gt;&2
+date
+echo "Running as binary $0" "$@"
+echo "My name (argument 1) is $1"
+echo "My sleep duration (argument 2) is $2"
+sleep $2
+echo "Sleep of $2 seconds finished.  Exiting"
+echo "RESULT: 1 FAILURE"
+exit 1
+
+<em>[Ctrl+D]</em></userinput>
+
+$ <userinput>cat myscript2.sh</userinput>
+#! /bin/sh
+
+echo "I'm process id $$ on" `hostname`
+echo "This is sent to standard error" 1&gt;&2
+date
+echo "Running as binary $0" "$@"
+echo "My name (argument 1) is $1"
+echo "My sleep duration (argument 2) is $2"
+sleep $2
+echo "Sleep of $2 seconds finished.  Exiting"
+echo "RESULT: 1 FAILURE"
+exit 1
+$ <userinput>chmod a+x myscript2.sh</userinput>
+</pre>
+
+
+---+++ Modify the submit
+Modify job.work2.submit to run myscript2.sh instead of myscript.sh:
+
+<pre class="screen">
+$ <userinput>rm job.work2.submit</userinput>
+$ <userinput>cat &gt; job.work2.submit
+executable=myscript2.sh
+output=results.work2.output
+error=results.work2.error
+log=results.log
+notification=never
+universe=grid
+grid_resource=gt2 gridlab2/jobmanager-fork
+arguments=WorkerNode2 60
+queue
+
+<em><strong>[Ctrl+D]</strong></em>
+</userinput>
+$ <userinput>cat job.work2.submit</userinput>
+executable=myscript2.sh
+output=results.work2.output
+error=results.work2.error
+log=results.log
+notification=never
+universe=grid
+grid_resource=gt2 gridlab2/jobmanager-fork
+arguments=WorkerNode2 60
+queue
+</pre>
+
+---+++ Resubmit the DAG
+Submit the dag again.
+
+<pre class="screen">
+$ <userinput>condor_submit_dag mydag.dag</userinput>
+
+Checking your DAG input file and all submit files it references.
+This might take a while... 
+Done.
+-----------------------------------------------------------------------
+File for submitting this DAG to Condor   : mydag.dag.condor.sub
+Log of DAGMan debugging messages         : mydag.dag.dagman.out
+Log of Condor library debug messages     : mydag.dag.lib.out
+Log of the life of condor_dagman itself  : mydag.dag.dagman.log
+
+Condor Log file for all jobs of this DAG : results.log
+Submitting job(s).
+Logging submit event(s).
+1 job(s) submitted to cluster 15.
+-----------------------------------------------------------------------
+</pre>
+
+
+---+++ Monitor progress
+Use =watch_condor_q= to watch the jobs until they finish.
+
+In separate windows run =tail -f --lines=500 results.log= and =tail -f --lines=500 mydag.dag.dagman.out= to monitor the job's progress.
+
+<pre class="screen">
+$ <userinput>./watch_condor_q</userinput>
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+  15.0   adesmet         7/10 11:11   0+00:00:04 R  0   2.6  condor_dagman -f -
+  16.0   adesmet         7/10 11:11   0+00:00:00 I  0   0.0  myscript.sh       
+  17.0   adesmet         7/10 11:11   0+00:00:00 I  0   0.0  myscript.sh Setup 
+
+3 jobs; 2 idle, 1 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+  16.0   adesmet       UNSUBMITTED fork     gk1   /afs/cs.wisc.edu/u
+  17.0   adesmet       UNSUBMITTED fork     gk1   /afs/cs.wisc.edu/u
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+  15.0   adesmet         7/10 11:11   0+00:00:04 R  0   2.6  condor_dagman -f -
+  16.0    |-HelloWorld   7/10 11:11   0+00:00:00 I  0   0.0  myscript.sh       
+  17.0    |-Setup        7/10 11:11   0+00:00:00 I  0   0.0  myscript.sh Setup 
+
+3 jobs; 2 idle, 1 running, 0 held
+
+
+<em>Output of watch_condor_q truncated</em>
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+
+0 jobs; 0 idle, 0 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+
+0 jobs; 0 idle, 0 running, 0 held
+<userinput><em>[Ctrl+C]</em></userinput>
+</pre>
+
+
+
+---+++ Check your results
+
+<pre class="screen">
+$ <userinput>ls</userinput>
+job.finalize.submit   mydag.dag.condor.sub  myscript.sh           results.output      results.work2.output
+job.setup.submit      mydag.dag.dagman.log  myscript2.sh        results.setup.error   results.workfinal.error
+job.work1.submit      mydag.dag.dagman.out  results.error        results.setup.output  results.workfinal.output
+job.work2.submit      mydag.dag.lib.out     results.finalize.error   results.work1.error   watch_condor_q
+job.workfinal.submit  mydag.dag.lock       results.finalize.output  results.work1.output
+mydag.dag         myjob.submit       results.log           results.work2.error
+$ <userinput>cat results.work2.output</userinput>
+I'm process id 29921 on pc-26
+Thu Jul 10 11:12:42 CDT 2003
+Running as binary /n/uscms_share/home/adesmet2/.globus/.gass_cache/local/md5/87/459c159766cefb36f0d75023de0e35/md5/70/5d82b930ec61460d9c9ca65cbe5a8a/data WorkerNode2 60
+My name (argument 1) is WorkerNode2
+My sleep duration (argument 2) is 60
+Sleep of 60 seconds finished.  Exiting
+RESULT: 1 FAILURE
+$ <userinput>cat mydag.dag.dagman.out</userinput>
+7/10 11:11:55 ******************************************************
+7/10 11:11:55 ** condor_scheduniv_exec.15.0 (CONDOR_DAGMAN) STARTING UP
+7/10 11:11:55 ** $CondorVersion: 6.5.1 Apr 22 2003 $
+7/10 11:11:55 ** $CondorPlatform: INTEL-LINUX-GLIBC22 $
+7/10 11:11:55 ** PID = 27126
+7/10 11:11:55 ******************************************************
+7/10 11:11:55 DaemonCore: Command Socket at &lt;128.105.185.14:34769&gt;
+<em>%STARTMore%</em>
+7/10 11:11:55 argv[0] == "condor_scheduniv_exec.15.0"
+7/10 11:11:55 argv[1] == "-Debug"
+7/10 11:11:55 argv[2] == "3"
+7/10 11:11:55 argv[3] == "-Lockfile"
+7/10 11:11:55 argv[4] == "mydag.dag.lock"
+7/10 11:11:55 argv[5] == "-Condorlog"
+7/10 11:11:55 argv[6] == "results.log"
+7/10 11:11:55 argv[7] == "-Dag"
+7/10 11:11:55 argv[8] == "mydag.dag"
+7/10 11:11:55 argv[9] == "-Rescue"
+7/10 11:11:55 argv[10] == "mydag.dag.rescue"
+7/10 11:11:55 Condor log will be written to results.log
+7/10 11:11:55 DAG Lockfile will be written to mydag.dag.lock
+7/10 11:11:55 DAG Input file is mydag.dag
+7/10 11:11:55 Rescue DAG will be written to mydag.dag.rescue
+7/10 11:11:55 Parsing mydag.dag ...
+7/10 11:11:55 Dag contains 6 total jobs
+7/10 11:11:55 Bootstrapping...
+7/10 11:11:55 Number of pre-completed jobs: 0
+7/10 11:11:55 Submitting Job HelloWorld ...
+7/10 11:11:55    assigned Condor ID (16.0.0)
+7/10 11:11:55 Submitting Job Setup ...
+7/10 11:11:55    assigned Condor ID (17.0.0)
+7/10 11:11:56 Event: ULOG_SUBMIT for Job HelloWorld (16.0.0)
+7/10 11:11:56 Event: ULOG_SUBMIT for Job Setup (17.0.0)
+7/10 11:11:56 0/6 done, 0 failed, 2 submitted, 0 ready, 0 pre, 0 post
+7/10 11:12:16 Event: ULOG_GLOBUS_SUBMIT for Job HelloWorld (16.0.0)
+7/10 11:12:16 Event: ULOG_EXECUTE for Job HelloWorld (16.0.0)
+7/10 11:12:16 Event: ULOG_GLOBUS_SUBMIT for Job Setup (17.0.0)
+7/10 11:12:16 Event: ULOG_EXECUTE for Job Setup (17.0.0)
+7/10 11:12:21 Event: ULOG_JOB_TERMINATED for Job HelloWorld (16.0.0)
+7/10 11:12:21 Job HelloWorld completed successfully.
+7/10 11:12:21 1/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 11:12:31 Event: ULOG_JOB_TERMINATED for Job Setup (17.0.0)
+7/10 11:12:31 Job Setup completed successfully.
+7/10 11:12:31 Submitting Job WorkerNode_1 ...
+7/10 11:12:32    assigned Condor ID (18.0.0)
+7/10 11:12:32 Submitting Job WorkerNode_Two ...
+7/10 11:12:32    assigned Condor ID (19.0.0)
+7/10 11:12:32 Event: ULOG_SUBMIT for Job WorkerNode_1 (18.0.0)
+7/10 11:12:32 Event: ULOG_SUBMIT for Job WorkerNode_Two (19.0.0)
+7/10 11:12:32 2/6 done, 0 failed, 2 submitted, 0 ready, 0 pre, 0 post
+7/10 11:12:47 Event: ULOG_GLOBUS_SUBMIT for Job WorkerNode_Two (19.0.0)
+7/10 11:12:47 Event: ULOG_EXECUTE for Job WorkerNode_Two (19.0.0)
+7/10 11:12:47 Event: ULOG_GLOBUS_SUBMIT for Job WorkerNode_1 (18.0.0)
+7/10 11:12:47 Event: ULOG_EXECUTE for Job WorkerNode_1 (18.0.0)
+7/10 11:13:07 Event: ULOG_JOB_TERMINATED for Job WorkerNode_1 (18.0.0)
+7/10 11:13:07 Job WorkerNode_1 completed successfully.
+7/10 11:13:07 3/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 11:13:57 Event: ULOG_JOB_TERMINATED for Job WorkerNode_Two (19.0.0)
+7/10 11:13:57 Job WorkerNode_Two completed successfully.
+7/10 11:13:57 Submitting Job CollectResults ...
+7/10 11:13:57    assigned Condor ID (20.0.0)
+7/10 11:13:57 Event: ULOG_SUBMIT for Job CollectResults (20.0.0)
+7/10 11:13:57 4/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 11:14:12 Event: ULOG_GLOBUS_SUBMIT for Job CollectResults (20.0.0)
+7/10 11:14:12 Event: ULOG_EXECUTE for Job CollectResults (20.0.0)
+7/10 11:14:32 Event: ULOG_JOB_TERMINATED for Job CollectResults (20.0.0)
+7/10 11:14:32 Job CollectResults completed successfully.
+7/10 11:14:32 Submitting Job LastNode ...
+7/10 11:14:32    assigned Condor ID (21.0.0)
+7/10 11:14:32 Event: ULOG_SUBMIT for Job LastNode (21.0.0)
+7/10 11:14:32 5/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 11:14:47 Event: ULOG_GLOBUS_SUBMIT for Job LastNode (21.0.0)
+7/10 11:14:47 Event: ULOG_EXECUTE for Job LastNode (21.0.0)
+7/10 11:15:02 Event: ULOG_JOB_TERMINATED for Job LastNode (21.0.0)
+7/10 11:15:02 Job LastNode completed successfully.
+7/10 11:15:02 6/6 done, 0 failed, 0 submitted, 0 ready, 0 pre, 0 post
+7/10 11:15:02 All jobs Completed!
+7/10 11:15:02 **** condor_scheduniv_exec.15.0 (condor_DAGMAN) EXITING WITH STATUS 0
+%ENDMore%
+</pre>
+
+Uh oh, DAGMan ran that remaining nodes based on bad data from node work2. Normally DAGMan checks the return code and considers non-zero a failure.  We did modify myscript2.sh to return non-zero.  That would normally work, but we're using Condor-G, not normal Condor.  Condor-G relies on Globus and Globus doesn't return error codes.
+
+
+---+++ Adding a POST script
+If you're interested in having DAGMan notice a failed job and stopping the DAG at that point, you'll need to use a POST script to detect the problem.  One solution is to wrap your executable in a script that will output the executable's return code to stdout and have the POST script scan the stdout for the status.  Of perhaps your executable's normal output contains enough information to make the decision.
+
+In this case, our executable is emitting a well known message.  Let's add a POST script.
+
+
+---++++ Cleaning up
+First, clean up your results.  
+
+   $ *%RED% WARNING %ENDCOLOR%*: Be careful about deleting the =mydag.dag.*= files. Do not delete the =mydag.dag= file. Note the ending =.*=!
+
+<pre class="screen">
+$ <userinput>rm mydag.dag.* results.*</userinput>
+</pre>
+
+
+---+++ Create the script to check output
+Now create a script to check the output.
+
+<pre class="screen">
+$ <userinput>cat &gt; postscript_checker
+#! /bin/sh
+grep 'RESULT: 0 SUCCESS' $1 &gt; /dev/null 2&gt;/dev/null
+
+<strong><em>Ctrl-D</em></strong></userinput>
+
+$ <userinput>cat postscript_checker</userinput>
+#! /bin/sh
+grep 'RESULT: 0 SUCCESS' $1 &gt; /dev/null 2&gt;/dev/null
+$ <userinput>chmod a+x postscript_checker </userinput>
+</pre>
+
+
+
+---++++ Modify dag
+Modify your mydag.dag to use the new script for the nodes. 
+
+<pre class="screen">
+$ <userinput>cat &gt;&gt;mydag.dag
+Script POST Setup postscript_checker results.setup.output
+Script POST WorkerNode_1 postscript_checker results.work1.output
+Script POST WorkerNode_Two postscript_checker results.work2.output
+Script POST CollectResults postscript_checker results.workfinal.output
+Script POST LastNode postscript_checker results.finalize.output
+
+<strong><em>[Ctrl+D]</em></strong></userinput>
+
+$ <userinput>cat mydag.dag</userinput>
+Job HelloWorld myjob.submit
+Job Setup job.setup.submit
+Job WorkerNode_1 job.work1.submit
+Job WorkerNode_Two job.work2.submit
+Job CollectResults job.workfinal.submit
+Job LastNode job.finalize.submit
+PARENT Setup CHILD WorkerNode_1 WorkerNode_Two
+PARENT WorkerNode_1 WorkerNode_Two CHILD CollectResults
+PARENT CollectResults CHILD LastNode
+Script POST Setup postscript_checker results.setup.output
+Script POST WorkerNode_1 postscript_checker results.work1.output
+Script POST WorkerNode_Two postscript_checker results.work2.output
+Script POST CollectResults postscript_checker results.workfinal.output
+Script POST LastNode postscript_checker results.finalize.output
+$ <userinput>ls</userinput>
+job.finalize.submit  job.work1.submit  job.workfinal.submit  myjob.submit  myscript2.sh        watch_condor_q
+job.setup.submit     job.work2.submit  mydag.dag        myscript.sh   postscript_checker
+</pre>
+
+
+---++++ Resubmit the DAG
+Submit the DAG again with the new POST scripts in place.
+
+<pre class="screen">
+$ <userinput>condor_submit_dag mydag.dag</userinput>
+
+Checking your DAG input file and all submit files it references.
+This might take a while... 
+Done.
+-----------------------------------------------------------------------
+File for submitting this DAG to Condor   : mydag.dag.condor.sub
+Log of DAGMan debugging messages         : mydag.dag.dagman.out
+Log of Condor library debug messages     : mydag.dag.lib.out
+Log of the life of condor_dagman itself  : mydag.dag.dagman.log
+
+Condor Log file for all jobs of this DAG : results.log
+Submitting job(s).
+Logging submit event(s).
+1 job(s) submitted to cluster 22.
+-----------------------------------------------------------------------
+</pre>
+
+---++++ Monitor the job
+Watch the job with =watch_condor_q=. 
+
+In separate windows run <tt class="in">tail -f --lines=500 results.log</tt> and <tt><userinput>tail -f --lines=500 mydag.dag.dagman.out</userinput></tt> to monitor the job's progress.
+
+<pre class="screen">
+$ <userinput>./watch_condor_q </userinput>
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+  22.0   adesmet         7/10 11:25   0+00:00:03 R  0   2.6  condor_dagman -f -
+  23.0   adesmet         7/10 11:25   0+00:00:00 I  0   0.0  myscript.sh       
+  24.0   adesmet         7/10 11:25   0+00:00:00 I  0   0.0  myscript.sh Setup 
+
+3 jobs; 2 idle, 1 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+  23.0   adesmet       UNSUBMITTED fork     gk1   /afs/cs.wisc.edu/u
+  24.0   adesmet       UNSUBMITTED fork     gk1   /afs/cs.wisc.edu/u
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+  22.0   adesmet         7/10 11:25   0+00:00:03 R  0   2.6  condor_dagman -f -
+  23.0    |-HelloWorld   7/10 11:25   0+00:00:00 I  0   0.0  myscript.sh       
+  24.0    |-Setup        7/10 11:25   0+00:00:00 I  0   0.0  myscript.sh Setup 
+
+3 jobs; 2 idle, 1 running, 0 held
+
+
+<em>[Output of watch_condor_q truncated]</em>
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+
+0 jobs; 0 idle, 0 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+
+0 jobs; 0 idle, 0 running, 0 held
+<userinput><em>[Ctrl+C]</em></userinput>
+</pre>
+
+
+
+
+---++++ Check your results
+
+<pre class="screen">
+$ <userinput>ls</userinput>
+job.finalize.submit   mydag.dag          mydag.dag.rescue   results.error         results.work1.error
+job.setup.submit      mydag.dag.condor.sub  myjob.submit   results.log         results.work1.output
+job.work1.submit      mydag.dag.dagman.log  myscript.sh      results.output         results.work2.error
+job.work2.submit      mydag.dag.dagman.out  myscript2.sh   results.setup.error   results.work2.output
+job.workfinal.submit  mydag.dag.lib.out     postscript_checker   results.setup.output  watch_condor_q
+$ <userinput>cat mydag.dag.dagman.out</userinput>
+7/10 11:25:35 ******************************************************
+7/10 11:25:35 ** condor_scheduniv_exec.22.0 (CONDOR_DAGMAN) STARTING UP
+7/10 11:25:35 ** $CondorVersion: 6.5.1 Apr 22 2003 $
+7/10 11:25:35 ** $CondorPlatform: INTEL-LINUX-GLIBC22 $
+7/10 11:25:35 ** PID = 27251
+7/10 11:25:35 ******************************************************
+%STARTMore%
+7/10 11:25:35 DaemonCore: Command Socket at &lt;128.105.185.14:34913&gt;
+7/10 11:25:35 argv[0] == "condor_scheduniv_exec.22.0"
+7/10 11:25:35 argv[1] == "-Debug"
+7/10 11:25:35 argv[2] == "3"
+7/10 11:25:35 argv[3] == "-Lockfile"
+7/10 11:25:35 argv[4] == "mydag.dag.lock"
+7/10 11:25:35 argv[5] == "-Condorlog"
+7/10 11:25:35 argv[6] == "results.log"
+7/10 11:25:35 argv[7] == "-Dag"
+7/10 11:25:35 argv[8] == "mydag.dag"
+7/10 11:25:35 argv[9] == "-Rescue"
+7/10 11:25:35 argv[10] == "mydag.dag.rescue"
+7/10 11:25:35 Condor log will be written to results.log
+%STARTMore%
+7/10 11:25:35 DAG Lockfile will be written to mydag.dag.lock
+7/10 11:25:35 DAG Input file is mydag.dag
+7/10 11:25:35 Rescue DAG will be written to mydag.dag.rescue
+7/10 11:25:35 Parsing mydag.dag ...
+7/10 11:25:35 jobName: Setup
+7/10 11:25:35 jobName: WorkerNode_1
+7/10 11:25:35 jobName: WorkerNode_Two
+7/10 11:25:35 jobName: CollectResults
+7/10 11:25:35 jobName: LastNode
+7/10 11:25:35 Dag contains 6 total jobs
+7/10 11:25:35 Bootstrapping...
+7/10 11:25:35 Number of pre-completed jobs: 0
+7/10 11:25:35 Submitting Job HelloWorld ...
+7/10 11:25:35    assigned Condor ID (23.0.0)
+7/10 11:25:35 Submitting Job Setup ...
+7/10 11:25:35    assigned Condor ID (24.0.0)
+7/10 11:25:36 Event: ULOG_SUBMIT for Job HelloWorld (23.0.0)
+7/10 11:25:36 Event: ULOG_SUBMIT for Job Setup (24.0.0)
+7/10 11:25:36 0/6 done, 0 failed, 2 submitted, 0 ready, 0 pre, 0 post
+7/10 11:25:56 Event: ULOG_GLOBUS_SUBMIT for Job HelloWorld (23.0.0)
+7/10 11:25:56 Event: ULOG_EXECUTE for Job HelloWorld (23.0.0)
+7/10 11:25:56 Event: ULOG_GLOBUS_SUBMIT for Job Setup (24.0.0)
+7/10 11:25:56 Event: ULOG_EXECUTE for Job Setup (24.0.0)
+7/10 11:26:01 Event: ULOG_JOB_TERMINATED for Job HelloWorld (23.0.0)
+7/10 11:26:01 Job HelloWorld completed successfully.
+7/10 11:26:01 1/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 11:26:11 Event: ULOG_JOB_TERMINATED for Job Setup (24.0.0)
+7/10 11:26:11 Job Setup completed successfully.
+7/10 11:26:11 Running POST script of Job Setup...
+7/10 11:26:11 1/6 done, 0 failed, 0 submitted, 0 ready, 0 pre, 1 post
+7/10 11:26:16 Event: ULOG_POST_SCRIPT_TERMINATED for Job Setup (24.0.0)
+7/10 11:26:16 POST Script of Job Setup completed successfully.
+7/10 11:26:16 Submitting Job WorkerNode_1 ...
+7/10 11:26:16    assigned Condor ID (25.0.0)
+7/10 11:26:16 Submitting Job WorkerNode_Two ...
+7/10 11:26:17    assigned Condor ID (26.0.0)
+7/10 11:26:17 Event: ULOG_SUBMIT for Job WorkerNode_1 (25.0.0)
+7/10 11:26:17 Event: ULOG_SUBMIT for Job WorkerNode_Two (26.0.0)
+7/10 11:26:17 2/6 done, 0 failed, 2 submitted, 0 ready, 0 pre, 0 post
+7/10 11:26:32 Event: ULOG_GLOBUS_SUBMIT for Job WorkerNode_1 (25.0.0)
+7/10 11:26:32 Event: ULOG_EXECUTE for Job WorkerNode_1 (25.0.0)
+7/10 11:26:32 Event: ULOG_GLOBUS_SUBMIT for Job WorkerNode_Two (26.0.0)
+7/10 11:26:32 Event: ULOG_EXECUTE for Job WorkerNode_Two (26.0.0)
+7/10 11:26:52 Event: ULOG_JOB_TERMINATED for Job WorkerNode_1 (25.0.0)
+7/10 11:26:52 Job WorkerNode_1 completed successfully.
+7/10 11:26:52 Running POST script of Job WorkerNode_1...
+7/10 11:26:52 2/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 1 post
+7/10 11:26:57 Event: ULOG_POST_SCRIPT_TERMINATED for Job WorkerNode_1 (25.0.0)
+7/10 11:26:57 POST Script of Job WorkerNode_1 completed successfully.
+7/10 11:26:57 3/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 11:27:42 Event: ULOG_JOB_TERMINATED for Job WorkerNode_Two (26.0.0)
+7/10 11:27:42 Job WorkerNode_Two completed successfully.
+7/10 11:27:42 Running POST script of Job WorkerNode_Two...
+7/10 11:27:42 3/6 done, 0 failed, 0 submitted, 0 ready, 0 pre, 1 post
+7/10 11:27:47 Event: ULOG_POST_SCRIPT_TERMINATED for Job WorkerNode_Two (26.0.0)
+7/10 11:27:47 POST Script of Job WorkerNode_Two failed with status 1
+7/10 11:27:47 3/6 done, 1 failed, 0 submitted, 0 ready, 0 pre, 0 post
+7/10 11:27:47 ERROR: the following job(s) failed:
+7/10 11:27:47 ---------------------- Job ----------------------
+7/10 11:27:47       Node Name: WorkerNode_Two
+7/10 11:27:47          NodeID: 3
+7/10 11:27:47     Node Status: STATUS_ERROR    
+7/10 11:27:47           Error: POST Script failed with status 1
+7/10 11:27:47 Job Submit File: job.work2.submit
+7/10 11:27:47     POST Script: postscript_checker results.work2.output
+7/10 11:27:47   Condor Job ID: (26.0.0)
+7/10 11:27:47       Q_PARENTS: 1, &lt;END&gt;
+7/10 11:27:47       Q_WAITING: &lt;END&gt;
+
+7/10 11:27:47      Q_CHILDREN: 4, &lt;END&gt;
+7/10 11:27:47 ---------------------------------------   &lt;END&gt;
+7/10 11:27:47 Writing Rescue DAG file...
+7/10 11:27:47 **** condor_scheduniv_exec.22.0 (condor_DAGMAN) EXITING WITH STATUS 1
+%ENDMore%
+</pre>
+
+DAGMan notices that one of the jobs failed.  DAGMan ran as much of the DAG as possible and logged enough information to continue the run when the situation is resolved.
+
+
+---+++ Examine mydag.dag.rescue
+Look at the rescue DAG. It's the same structurally as your original DAG, but notes that finished are marked DONE.  (DAGMan also reorganized the file.) When you submit the rescue DAG, DONE nodes will be skipped.
+
+<pre class="screen">
+$ <userinput>cat mydag.dag.rescue </userinput>
+# Rescue DAG file, created after running
+#   the mydag.dag DAG file
+#
+# Total number of Nodes: 6
+# Nodes premarked DONE: 3
+# Nodes that failed: 1
+#   WorkerNode_Two,&lt;ENDLIST&gt;
+
+JOB HelloWorld myjob.submit DONE
+
+JOB Setup job.setup.submit DONE
+SCRIPT POST Setup postscript_checker results.setup.output
+
+JOB WorkerNode_1 job.work1.submit DONE
+SCRIPT POST WorkerNode_1 postscript_checker results.work1.output
+
+JOB WorkerNode_Two job.work2.submit 
+SCRIPT POST WorkerNode_Two postscript_checker results.work2.output
+
+JOB CollectResults job.workfinal.submit 
+SCRIPT POST CollectResults postscript_checker results.workfinal.output
+
+JOB LastNode job.finalize.submit 
+SCRIPT POST LastNode postscript_checker results.finalize.output
+
+
+PARENT Setup CHILD WorkerNode_1 WorkerNode_Two
+PARENT WorkerNode_1 CHILD CollectResults
+PARENT WorkerNode_Two CHILD CollectResults
+PARENT CollectResults CHILD LastNode
+</pre>
+
+We know there is a problem with the work2 step.  Let's "fix" it.
+
+<pre class="screen">
+$ <userinput>rm myscript2.sh</userinput>
+$ <userinput>cp myscript.sh myscript2.sh</userinput>
+</pre>
+
+---++++ Resubmitting rescue DAG
+Now we can submit our rescue DAG. 
+
+   $ *%RED% NOTE %ENDCOLOR%*: If you didn't fix the problem, DAGMan would have generated another rescue DAG (=mydag.dag.rescue.rescue=).
+
+In separate windows run <tt class="in">tail -f --lines=500 results.log</tt> and <tt class="in">tail -f --lines=500 mydag.dag.dagman.out</tt> to monitor the job's progress.
+
+
+<pre class="screen">
+$ <userinput>condor_submit_dag mydag.dag.rescue </userinput>
+
+Checking your DAG input file and all submit files it references.
+This might take a while... 
+Done.
+-----------------------------------------------------------------------
+File for submitting this DAG to Condor   : mydag.dag.rescue.condor.sub
+Log of DAGMan debugging messages         : mydag.dag.rescue.dagman.out
+Log of Condor library debug messages     : mydag.dag.rescue.lib.out
+Log of the life of condor_dagman itself  : mydag.dag.rescue.dagman.log
+
+Condor Log file for all jobs of this DAG : results.log
+Submitting job(s).
+Logging submit event(s).
+1 job(s) submitted to cluster 27.
+-----------------------------------------------------------------------
+$ <userinput>./watch_condor_q </userinput>
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+  27.0   adesmet         7/10 11:34   0+00:00:01 R  0   2.6  condor_dagman -f -
+  28.0   adesmet         7/10 11:34   0+00:00:00 I  0   0.0  myscript2.sh Worke
+
+2 jobs; 1 idle, 1 running, 0 held
+
+%STARTMore%
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+  28.0   adesmet       UNSUBMITTED fork     gk1   /afs/cs.wisc.edu/u
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+  27.0   adesmet         7/10 11:34   0+00:00:01 R  0   2.6  condor_dagman -f -
+  28.0    |-WorkerNode_  7/10 11:34   0+00:00:00 I  0   0.0  myscript2.sh Worke
+
+2 jobs; 1 idle, 1 running, 0 held
+
+<strong><em>[Output of watch_condor_q truncated]</em></strong>
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+
+0 jobs; 0 idle, 0 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:33785&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+
+0 jobs; 0 idle, 0 running, 0 held
+
+<userinput><em>[Ctrl+C]</em></userinput>
+</pre>
+
+
+
+---+++ Check your results.
+
+<pre class="screen">
+$ <userinput>ls</userinput>
+job.finalize.submit   mydag.dag.lib.out         myscript2.sh          results.work1.error
+job.setup.submit      mydag.dag.rescue         postscript_checker       results.work1.output
+job.work1.submit      mydag.dag.rescue.condor.sub  results.error       results.work2.error
+job.work2.submit      mydag.dag.rescue.dagman.log  results.finalize.error   results.work2.output
+job.workfinal.submit  mydag.dag.rescue.dagman.out  results.finalize.output  results.workfinal.error
+mydag.dag         mydag.dag.rescue.lib.out      results.log          results.workfinal.output
+mydag.dag.condor.sub  mydag.dag.rescue.lock      results.output       watch_condor_q
+mydag.dag.dagman.log  myjob.submit         results.setup.error
+mydag.dag.dagman.out  myscript.sh         results.setup.output
+$ <userinput>cat mydag.dag.rescue.dagman.out</userinput>
+7/10 11:34:33 ******************************************************
+7/10 11:34:33 ** condor_scheduniv_exec.27.0 (CONDOR_DAGMAN) STARTING UP
+7/10 11:34:33 ** $CondorVersion: 6.5.1 Apr 22 2003 $
+7/10 11:34:33 ** $CondorPlatform: INTEL-LINUX-GLIBC22 $
+7/10 11:34:33 ** PID = 27317
+7/10 11:34:33 ******************************************************
+7/10 11:34:33 DaemonCore: Command Socket at &lt;128.105.185.14:35032&gt;
+%STARTMore%
+7/10 11:34:33 argv[0] == "condor_scheduniv_exec.27.0"
+7/10 11:34:33 argv[1] == "-Debug"
+7/10 11:34:33 argv[2] == "3"
+7/10 11:34:33 argv[3] == "-Lockfile"
+7/10 11:34:33 argv[4] == "mydag.dag.rescue.lock"
+7/10 11:34:33 argv[5] == "-Condorlog"
+7/10 11:34:33 argv[6] == "results.log"
+7/10 11:34:33 argv[7] == "-Dag"
+7/10 11:34:33 argv[8] == "mydag.dag.rescue"
+7/10 11:34:33 argv[9] == "-Rescue"
+7/10 11:34:33 argv[10] == "mydag.dag.rescue.rescue"
+7/10 11:34:33 Condor log will be written to results.log
+7/10 11:34:33 DAG Lockfile will be written to mydag.dag.rescue.lock
+7/10 11:34:33 DAG Input file is mydag.dag.rescue
+7/10 11:34:33 Rescue DAG will be written to mydag.dag.rescue.rescue
+7/10 11:34:33 Parsing mydag.dag.rescue ...
+7/10 11:34:33 jobName: Setup
+7/10 11:34:33 jobName: WorkerNode_1
+7/10 11:34:33 jobName: WorkerNode_Two
+7/10 11:34:33 jobName: CollectResults
+7/10 11:34:33 jobName: LastNode
+7/10 11:34:33 Dag contains 6 total jobs
+7/10 11:34:33 Deleting older version of results.log
+7/10 11:34:33 Bootstrapping...
+7/10 11:34:33 Number of pre-completed jobs: 3
+7/10 11:34:33 Submitting Job WorkerNode_Two ...
+7/10 11:34:33    assigned Condor ID (28.0.0)
+7/10 11:34:34 Event: ULOG_SUBMIT for Job WorkerNode_Two (28.0.0)
+7/10 11:34:34 3/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 11:34:54 Event: ULOG_GLOBUS_SUBMIT for Job WorkerNode_Two (28.0.0)
+7/10 11:34:54 Event: ULOG_EXECUTE for Job WorkerNode_Two (28.0.0)
+7/10 11:35:59 Event: ULOG_JOB_TERMINATED for Job WorkerNode_Two (28.0.0)
+7/10 11:35:59 Job WorkerNode_Two completed successfully.
+7/10 11:35:59 Running POST script of Job WorkerNode_Two...
+7/10 11:35:59 3/6 done, 0 failed, 0 submitted, 0 ready, 0 pre, 1 post
+7/10 11:36:04 Event: ULOG_POST_SCRIPT_TERMINATED for Job WorkerNode_Two (28.0.0)
+7/10 11:36:04 POST Script of Job WorkerNode_Two completed successfully.
+7/10 11:36:04 Submitting Job CollectResults ...
+7/10 11:36:04    assigned Condor ID (29.0.0)
+7/10 11:36:04 Event: ULOG_SUBMIT for Job CollectResults (29.0.0)
+7/10 11:36:04 4/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 11:36:19 Event: ULOG_GLOBUS_SUBMIT for Job CollectResults (29.0.0)
+7/10 11:36:19 Event: ULOG_EXECUTE for Job CollectResults (29.0.0)
+7/10 11:36:34 Event: ULOG_JOB_TERMINATED for Job CollectResults (29.0.0)
+7/10 11:36:34 Job CollectResults completed successfully.
+7/10 11:36:34 Running POST script of Job CollectResults...
+7/10 11:36:34 4/6 done, 0 failed, 0 submitted, 0 ready, 0 pre, 1 post
+7/10 11:36:39 Event: ULOG_POST_SCRIPT_TERMINATED for Job CollectResults (29.0.0)
+7/10 11:36:39 POST Script of Job CollectResults completed successfully.
+7/10 11:36:39 Submitting Job LastNode ...
+7/10 11:36:39    assigned Condor ID (30.0.0)
+7/10 11:36:39 Event: ULOG_SUBMIT for Job LastNode (30.0.0)
+7/10 11:36:39 5/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 11:36:54 Event: ULOG_GLOBUS_SUBMIT for Job LastNode (30.0.0)
+7/10 11:36:54 Event: ULOG_EXECUTE for Job LastNode (30.0.0)
+7/10 11:37:09 Event: ULOG_JOB_TERMINATED for Job LastNode (30.0.0)
+7/10 11:37:09 Job LastNode completed successfully.
+7/10 11:37:09 Running POST script of Job LastNode...
+7/10 11:37:09 5/6 done, 0 failed, 0 submitted, 0 ready, 0 pre, 1 post
+7/10 11:37:14 Event: ULOG_POST_SCRIPT_TERMINATED for Job LastNode (30.0.0)
+7/10 11:37:14 POST Script of Job LastNode completed successfully.
+7/10 11:37:14 6/6 done, 0 failed, 0 submitted, 0 ready, 0 pre, 0 post
+%ENDMore%
+7/10 11:37:14 All jobs Completed!
+7/10 11:37:14 **** condor_scheduniv_exec.27.0 (condor_DAGMAN) EXITING WITH STATUS 0
+$ <userinput>cat results.work2.output</userinput>
+I'm process id 30478 on pc-26
+Thu Jul 10 11:34:46 CDT 2003
+Running as binary /n/uscms_share/home/adesmet2/.globus/.gass_cache/local/md5/23/61b50cd9b278330cac68107dd390d6/md5/5e/004f7216b8b846d548357da00985f4/data WorkerNode2 60
+My name (argument 1) is WorkerNode2
+My sleep duration (argument 2) is 60
+Sleep of 60 seconds finished.  Exiting
+RESULT: 0 SUCCESS
+$ <userinput>exit</userinput>
+%ENDMore%
+</pre>
+
+%STOPINCLUDE%
+
+%BOTTOMMATTER%
+-- Main.ForrestChristian - 25 Jan 2007 (edited original)
+
