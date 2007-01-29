@@ -1,0 +1,306 @@
+%META:TOPICINFO{author="ForrestChristian" date="1170104199" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WorkshopTutorialModules"}%
+<link rel="stylesheet" type="text/css" href="%PUBURL%/%WEB%/WorkshopTutorialModules/exercises.css">
+
+---+!! Tutorial: Using the Grid Application Toolkit 
+
+
+%TOC%
+
+---++ Getting started
+The Grid Application Toolkit is installed in =/opt/gat/=. The adaptors are located at =/opt/gat/lib/GAT/adaptors=. To set the environment variables, logon to =gridlab1.phys.utb.edu= and do the following:
+
+%NOTE% Replace _XX_ with your team number.
+d38 1
+<pre class="screen">
+gridlab1$ <userinput>source /opt/gat/gatenv.sh</userinput>
+</pre>
+
+This will export two environment variables: 
+   1. =GAT_LOCATION= which points to the folder where the Grid Application Toolkit engine is installed. 
+   2. =GAT_ADAPTOR_PATH= tells the engine the location of the adaptors which are to be loaded when the engine starts.
+
+<pre class="screen">
+gridlab1$ <userinput>echo $GAT_LOCATION</userinput>
+/opt/gat
+gridlab1$ <userinput>echo $GAT_ADAPTOR_PATH</userinput>
+/opt/gat/lib/GAT/adaptorlistc
+</pre>
+
+The =GAT_ADAPTOR_PATH= variable points to a text file that contains the names of adaptor libraries.
+
+<pre class="screen">
+gridlab1$ <userinput>cat $GAT_ADAPTOR_PATH</userinput>
+</pre>
+
+In this exercise we will write GAT programs to move files between resources using the GridFTP
+adaptor that uses the gsiftp protocol to transfer files and to submit jobs using the GAT. In order to test file transfer we will as before create files:
+
+<pre class="screen">
+gridlab1$ <userinput>dd if=/dev/zero of=./testfile<replaceable>YOURNAME</replaceable> bs=1M count=10</userinput>
+gridlab1$ <userinput>dd if=/dev/zero of=./testfileYOURNAME bs=1M count=10</userinput>
+</pre>
+
+Again to check the size
+
+<pre class="screen">
+gridlab1$ <userinput>ls lh</userinput>
+./testfileYOURNAME
+</pre>
+
+
+---++ GAT Program to transfer files
+Make a directory that will house your gat programs:
+
+<pre class="screen">
+gridlab1$ <userinput>mkdir gatprg</userinput>
+gridlab1$ <userinput>cd gatprg</userinput>
+</pre>
+
+
+---++ Creating copyfile.c
+Create the C program ( =copyfile.c= )that will copy files locally and between machines.
+
+<noautolink>
+<pre class="screen">
+gridlab1$ <userinput>cat > copyfile.c
+/* System Header Files */
+#include &lt;stdio.h>
+
+/* GAT Header Files */
+#include "GAT.h"
+#include "GATTestUtils.h"
+
+int main (int argc, char *argv[])
+{
+  GATContext context = NULL;
+  GATLocation name1 = NULL;
+  GATLocation name2 = NULL;
+  GATFile file1 = NULL;
+  GATResult retval = GAT_FAIL;
+  
+  /* check for correct invocation */
+  if ( argc < 2 )
+  {
+    printf ("\n\tUsage: %s &lt;src> &lt;target>\n"
+  		"\n\tprogram does:\n"
+  		"\n\t\tcp &lt;name1> &lt;name2>\n\n" , argv[0]);
+    exit (1);
+  }
+  
+  /* initialize GAT: create context */
+  context = GATContext_Create ();
+  
+  /* create URLs for all file names */
+  name1 = GATLocation_Create (argv[1]);
+  name2 = GATLocation_Create (argv[2]);
+  
+  /* create initial file object */
+  file1 = GATFile_Create (context, name1, 0);
+  
+  /* cp &lt;name1> &lt;name2> */
+  retval = GATFile_Copy (file1, name2, GATFileMode_Overwrite);
+  GAT_TEST_TRACE(retval == GAT_SUCCESS, context);
+  
+  /* clean up */
+  GATFile_Destroy (&file1);
+  GATLocation_Destroy (&name1);
+  GATLocation_Destroy (&name2);
+  GATContext_Destroy (&context);
+  
+  return (0);
+}
+<em><strong>[Ctrl+D]</strong></em></userinput>
+</pre>
+</noautolink>
+
+Test if your file is there&#8230;
+
+<pre class="screen">
+$ <userinput>cat copyfile.c</userinput>
+</pre>
+
+
+---++ Compiling our GAT program
+Next we need to compile our GAT program. We will need a Makefile that will ease this job. We will also need to do a =grid-proxy-init= to be able to use gisftp to transfer files.
+
+
+<pre class="screen">
+$ <userinput>cp /home/architk/gatprg/Makefile .</userinput>
+$ <userinput>make</userinput>
+</pre>
+
+Now generate a proxy that we will use to transfer files and submit jobs using GridFTP and GRAM.
+
+<pre class="screen">
+$ <userinput>grid-proxy-init</userinput>
+</pre>
+
+
+Now you will see an executable file with the name of the C source file (without the extension) that you created
+
+<pre class="screen">
+$ <userinput>./copyfile /home/trainXX/testfileYOURNAME /home/trainXX/testfile</userinput>
+</pre>
+
+Check if your file exists.
+
+
+---+++ Transferring files to remote systems
+
+Now we will switch the adaptor used by GAT and use the same program to transfer files.
+
+The environment variable =GAT_ADAPTOR_PATH= points to a file containing the list of adaptors available to GAT. These can be switched by modifying this file.
+
+We will create a new adaptor-list with the gridftp adaptor to use gridftp to transfer files.
+
+<pre class="screen">
+$ <userinput>cat > adaptor-list-globus
+/opt/gat/lib/GAT/adaptors/libgridftp_adaptor.so
+# /opt/gat/lib/GAT/adaptors/libgram_adaptor.so
+/opt/gat/lib/GAT/adaptors/libfileops_adaptor.so
+/opt/gat/lib/GAT/adaptors/liblogicalfile_adaptor.so
+/opt/gat/lib/GAT/adaptors/libresourcebroker_adaptor.so
+/opt/gat/lib/GAT/adaptors/libservicebroker_adaptor.so
+/opt/gat/lib/GAT/adaptors/libfilestream_adaptor.so
+/opt/gat/lib/GAT/adaptors/libendpoint_adaptor.so
+/opt/gat/lib/GAT/adaptors/libadvertservice_adaptor.so
+<strong><em>CtrlD</em></strong></userinput>
+
+$ <userinput>export GAT_ADAPTOR_PATH=/home/trainXX/gatprg/adaptor-list-globus</userinput>
+</pre>
+
+Now execute:
+
+<pre class="screen">
+$ <userinput>./copyfile gsiftp://gridlab1.phys.utb.edu/home/trainXX/testfileYOURNAME
+gsiftp://gridlab2.phys.utb.edu/home/trainXX/testfile</userinput>
+</pre>
+
+Logon to gridlab2 to check if the file exists.
+
+
+---++ Submitting Jobs
+Now we will write a GAT Program that reads a command line argument that is the name of an
+executable and some arguments and executes it on the local system. Type out/paste the following program. The program can be found at the Syllabus page. To get it
+from there use:
+
+<pre class="screen">
+$ <userinput>wget http://osg.ivdgl.org/twiki/pub/SummerGridWorkshop/SummerGridSyllabus2006/submitjob.c</userinput>
+</pre>
+
+In the file find the line that reads
+
+<pre class="programlisting">
+GATTable_Add_String(attributes, "stdout", "/home/train36/result.out");
+</pre>
+
+and change =train36= to your userid (=train<em>XX</em>=).
+
+Now as before we will compile and link the C program using the make command. To do this simply
+type the make command that uses the Makefile that we wrote earlier.
+
+<pre class="screen">
+$ <userinput>make</userinput>
+</pre>
+
+This will generate the executable file submitjob.
+
+<pre class="screen">
+$ <userinput>./submitjob /bin/date</userinput>
+</pre>
+
+This will submit /bin/date to the local system.
+
+Now we will submit a job to a remote machine via GRAM. We will replace the local resourcebroker adaptor with the GRAM adaptor:
+
+Use an editor to edit =/home/trainXX/gatprg/adaptor-list-globus= to look like the below listing.
+
+%NOTE% The =#= in front of the gram adaptor entry is deleted to enable the GRAM adaptor.
+
+<pre class="programlisting">
+/opt/gat/lib/GAT/adaptors/libgridftp_adaptor.so
+/opt/gat/lib/GAT/adaptors/libgram_adaptor.so
+/opt/gat/lib/GAT/adaptors/libfileops_adaptor.so
+/opt/gat/lib/GAT/adaptors/liblogicalfile_adaptor.so
+/opt/gat/lib/GAT/adaptors/libresourcebroker_adaptor.so
+/opt/gat/lib/GAT/adaptors/libservicebroker_adaptor.so
+/opt/gat/lib/GAT/adaptors/libfilestream_adaptor.so
+/opt/gat/lib/GAT/adaptors/libendpoint_adaptor.so
+/opt/gat/lib/GAT/adaptors/libadvertservice_adaptor.so
+# /opt/gat/lib/GAT/adaptors/libtracing_adaptor.so
+</pre>
+
+
+Now create a file that will hold a list of remote resources that you can submit to:
+
+<pre class="screen">
+$ <userinput>cat > resources.ini
+[resources.gridlab2globus]
+memory.size = 0.256000
+memory.accesstime = 0.25
+memory.str = 1
+machine.type = unknown
+machine.node = gridlab2.phys.utb.edu
+machine.nodecount = 1
+machine.address = gridlab2.phys.utb.edu
+machine.maxpos = 2
+machine.minpos = 1
+rms.name = none
+rms.host = gridlab2.phys.utb.edu
+rms.version = 10.000000
+rms.queues = none
+rms.availableprocs = 2
+rms.load = 45
+rms.maxtime = 0:45
+rms.maxwalltime = 4:00
+cpu.type = unknown
+cpu.speed = 3.000000
+cpu.count = 1
+vm.count = 4
+disk.size = 10.000000
+disk.virtualsize = 1000
+disk.filesystem = ext3
+disk.accesstime = 0.01
+disk.str = 1
+bandwidth = 130
+latency = 0.1
+interconnect.type = none
+ssh_type = globus
+ssh_port = 2222
+<strong><em>[Ctrl+D]</em></strong></userinput>
+</pre>
+
+Now do:
+
+<pre class="screen">
+$ <userinput>export GAT_RESOURCE_INI=/home/trainXX/gatprg/resources.ini</userinput>
+</pre>
+
+Now run the same submit job program again:
+
+<pre class="screen">
+$ <userinput>./submitjob /bin/date</userinput>
+</pre>
+
+Log on to gridlab2 and look for result.out in your home directory. You should see todays date and current time in the file.
+
+
+---++ EXTRA CREDIT
+Write a GAT Program that transfers a binary (write a small program if needed) to a remote system and then submits it to the machine.
+
+
+---++ Sample Files
+
+   * [[%ATTACHURL%/copyfile.c][copyfile.c]]: GAT File copy Example
+   * [[%ATTACHURL%/submitjob.c][submitjob.c]]: GAT Job Submission Example
+   * [[%ATTACHURL%/submitgramjob.c][submitgramjob.c]]: GAT Gram submission program
+   * [[%ATTACHURL%/gat_resources.ini][gat_resources.ini]]: GAT GRAM Resource file
+
+---++!! Major Updates
+-- Main.ForrestChristian - 29 Jan 2007: edited from original
+
+%META:FILEATTACHMENT{name="gat_resources.ini" attr="" autoattached="1" comment="GAT GRAM Resource file" date="1170103280" path="gat_resources.ini" size="2138" user="Main.ForrestChristian" version="1"}%
+%META:FILEATTACHMENT{name="submitgramjob.c" attr="" autoattached="1" comment="GAT Gram submission program" date="1170103261" path="submitgramjob.c" size="5949" user="Main.ForrestChristian" version="1"}%
+%META:FILEATTACHMENT{name="submitjob.c" attr="" autoattached="1" comment="GAT Job Submission Example" date="1170103242" path="submitjob.c" size="5539" user="Main.ForrestChristian" version="1"}%
+%META:FILEATTACHMENT{name="copyfile.c" attr="" autoattached="1" comment="GAT File copy Example" date="1170103217" path="copyfile.c" size="1122" user="Main.ForrestChristian" version="1"}%
