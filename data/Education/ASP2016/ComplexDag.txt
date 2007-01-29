@@ -1,0 +1,788 @@
+%META:TOPICINFO{author="ForrestChristian" date="1170103475" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WorkshopTutorialModules"}%
+<link rel="stylesheet" type="text/css" href="%PUBURL%/%WEB%/WorkshopTutorialModules/exercises.css">
+
+---+!! Running a job with a more complex DAG
+
+%STARTINCLUDE%
+%EDITTHIS%
+
+Typically each node in a DAG will have its own Condor submit file. Create some more submit files by copying our existing file.  For simplicity during this tutorial, we'll keep the submit files very similar, notably using the same executable. In real-world use, your submit files and executables can differ.
+
+<pre class="screen">
+$ <userinput>cp myjob.submit job.setup.submit</userinput>
+$ <userinput>cp myjob.submit job.work1.submit</userinput>
+$ <userinput>cp myjob.submit job.work2.submit</userinput>
+$ <userinput>cp myjob.submit job.workfinal.submit</userinput>
+$ <userinput>cp myjob.submit job.finalize.submit</userinput>
+</pre>
+
+Edit the various submit files.  Change the output and error entries to point to =results.NODE.output= and =results.NODE.error= files where "NODE" is actually the middle word in the submit file (=job.NODE.submit=). So =job.finalize.error= would include:
+
+<pre class="programlisting">
+output=results.finalize.output
+error=results.finalize.error
+</pre>
+
+Here is one possible set of settings for the output entries:
+
+<pre class="screen">
+$ <userinput>grep '^output=' job.*.submit</userinput>
+job.finalize.submit:output=results.finalize.output
+job.setup.submit:output=results.setup.output
+job.work1.submit:output=results.work1.output
+job.work2.submit:output=results.work2.output
+job.workfinal.submit:output=results.workfinal.output
+</pre>
+
+This prevents the various nodes from overwriting each other's output.
+
+Do not change the log entries.  DAGMan requires that all nodes output their logs in the same location.  Condor will ensure that the different jobs will not overwrite each other's entries in the log. 
+
+%NOTE% Never versions of DAGMan lift this requirement, and allow each job to use its own log file &mdash; but you may want to use one common log file anyway because it's convenient to have all of your job status information in a single place.
+
+Change the arguments entries so that the first argument is something unique to each node (perhaps the NODE name).
+
+For node work2, change the second argument to 120 so that it looks something like:
+
+<pre class="programlisting">
+arguments=MyWorkerNode2 120
+</pre>
+
+Add the new nodes to your DAG:
+
+<pre class="screen">
+$ <userinput>cat mydag.dag </userinput>
+Job HelloWorld myjob.submit
+$ <userinput>cat &gt;&gt; mydag.dag
+Job Setup job.setup.submit
+Job WorkerNode_1 job.work1.submit
+Job WorkerNode_Two job.work2.submit
+Job CollectResults job.workfinal.submit
+Job LastNode job.finalize.submit
+PARENT Setup CHILD WorkerNode_1 WorkerNode_Two
+PARENT WorkerNode_1 WorkerNode_Two CHILD CollectResults
+PARENT CollectResults CHILD LastNode
+<em>[Ctrl+D]</em></userinput>
+$ <userinput>cat mydag.dag </userinput>
+Job HelloWorld myjob.submit
+Job Setup job.setup.submit
+Job WorkerNode_1 job.work1.submit
+Job WorkerNode_Two job.work2.submit
+Job CollectResults job.workfinal.submit
+Job LastNode job.finalize.submit
+PARENT Setup CHILD WorkerNode_1 WorkerNode_Two
+PARENT WorkerNode_1 WorkerNode_Two CHILD CollectResults
+PARENT CollectResults CHILD LastNode
+<userinput><em>[Ctrl+D]</em></userinput>
+</pre>
+
+---+++ Change watch_condor_q script
+=condor_q -dag= will organize jobs into their associated DAGs. Change =watch_condor_q= to use this:
+
+<pre class="screen">
+$ <userinput>rm watch_condor_q</userinput>
+$ <userinput>cat &gt; watch_condor_q
+#! /bin/sh
+while true; do
+    echo ....
+    echo .... Output from condor_q
+    echo ....
+     condor_q
+    echo ....
+    echo .... Output from condor_q -globus
+    echo ....
+     condor_q -globus
+    echo ....
+    echo .... Output from condor_q -dag
+    echo ....
+     condor_q -dag
+     sleep 10
+done
+<em>[Ctrl+D]</em></userinput>
+$ <userinput>cat watch_condor_q</userinput>
+#! /bin/sh
+while true; do
+    echo ....
+    echo .... Output from condor_q
+    echo ....
+     condor_q
+    echo ....
+    echo .... Output from condor_q -globus
+    echo ....
+     condor_q -globus
+    echo ....
+    echo .... Output from condor_q -dag
+    echo ....
+     condor_q -dag
+     sleep 10
+done
+$ <userinput>chmod a+x watch_condor_q </userinput>
+</pre>
+
+Submit your new DAG and monitor it.
+
+In separate windows, run <tt><userinput>tail -f --lines=500 results.log</tt></userinput> and <tt><userinput>tail -f --lines=500 mydag.dag.dagman.out</tt></userinput> to monitor the job's progress.
+
+<pre class="screen">
+$ <userinput>condor_submit_dag mydag.dag</userinput>
+
+Checking your DAG input file and all submit files it references.
+This might take a while... 
+Done.
+-----------------------------------------------------------------------
+File for submitting this DAG to Condor   : mydag.dag.condor.sub
+Log of DAGMan debugging messages         : mydag.dag.dagman.out
+Log of Condor library debug messages     : mydag.dag.lib.out
+Log of the life of condor_dagman itself  : mydag.dag.dagman.log
+
+Condor Log file for all jobs of this DAG : results.log
+Submitting job(s).
+Logging submit event(s).
+1 job(s) submitted to cluster 8.
+-----------------------------------------------------------------------
+$ <userinput>./watch_condor_q</userinput>
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:00:08 R  0   2.6  condor_dagman -f -
+   5.0   adesmet         7/10 17:45   0+00:00:00 I  0   0.0  myscript.sh TestJo
+   6.0   adesmet         7/10 17:45   0+00:00:00 I  0   0.0  myscript.sh Setup 
+
+3 jobs; 2 idle, 1 running, 0 held
+
+%STARTMore%
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   5.0   adesmet       UNSUBMITTED fork     gk2   /tmp/<em>username</em>-cond
+   6.0   adesmet       UNSUBMITTED fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:00:08 R  0   2.6  condor_dagman -f -
+   5.0    |-HelloWorld   7/10 17:45   0+00:00:00 I  0   0.0  myscript.sh TestJo
+   6.0    |-Setup        7/10 17:45   0+00:00:00 I  0   0.0  myscript.sh Setup 
+
+3 jobs; 2 idle, 1 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:00:12 R  0   2.6  condor_dagman -f -
+   5.0   adesmet         7/10 17:45   0+00:00:00 I  0   0.0  myscript.sh TestJo
+   6.0   adesmet         7/10 17:45   0+00:00:00 I  0   0.0  myscript.sh Setup 
+
+3 jobs; 2 idle, 1 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   5.0   adesmet       UNSUBMITTED fork     gk2   /tmp/<em>username</em>-cond
+   6.0   adesmet       UNSUBMITTED fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:00:12 R  0   2.6  condor_dagman -f -
+   5.0    |-HelloWorld   7/10 17:45   0+00:00:00 I  0   0.0  myscript.sh TestJo
+   6.0    |-Setup        7/10 17:45   0+00:00:00 I  0   0.0  myscript.sh Setup 
+
+3 jobs; 2 idle, 1 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:00:42 R  0   2.6  condor_dagman -f -
+   5.0   adesmet         7/10 17:45   0+00:00:24 R  0   0.0  myscript.sh TestJo
+   6.0   adesmet         7/10 17:45   0+00:00:24 R  0   0.0  myscript.sh Setup 
+
+3 jobs; 0 idle, 3 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   5.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+   6.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:00:42 R  0   2.6  condor_dagman -f -
+   5.0    |-HelloWorld   7/10 17:45   0+00:00:24 R  0   0.0  myscript.sh TestJo
+   6.0    |-Setup        7/10 17:45   0+00:00:24 R  0   0.0  myscript.sh Setup 
+
+3 jobs; 0 idle, 3 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:01:12 R  0   2.6  condor_dagman -f -
+   5.0   adesmet         7/10 17:45   0+00:00:54 R  0   0.0  myscript.sh TestJo
+   6.0   adesmet         7/10 17:45   0+00:00:54 R  0   0.0  myscript.sh Setup 
+
+3 jobs; 0 idle, 3 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   5.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+   6.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:01:12 R  0   2.6  condor_dagman -f -
+   5.0    |-HelloWorld   7/10 17:45   0+00:00:54 R  0   0.0  myscript.sh TestJo
+   6.0    |-Setup        7/10 17:45   0+00:00:54 R  0   0.0  myscript.sh Setup 
+
+3 jobs; 0 idle, 3 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:01:42 R  0   2.6  condor_dagman -f -
+   7.0   adesmet         7/10 17:46   0+00:00:00 I  0   0.0  myscript.sh work1 
+   8.0   adesmet         7/10 17:46   0+00:00:00 I  0   0.0  myscript.sh Worker
+
+3 jobs; 2 idle, 1 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   7.0   adesmet       UNSUBMITTED fork     gk2   /tmp/<em>username</em>-cond
+   8.0   adesmet       UNSUBMITTED fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:01:42 R  0   2.6  condor_dagman -f -
+   7.0    |-WorkerNode_  7/10 17:46   0+00:00:00 I  0   0.0  myscript.sh work1 
+   8.0    |-WorkerNode_  7/10 17:46   0+00:00:00 I  0   0.0  myscript.sh Worker
+
+3 jobs; 2 idle, 1 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:02:12 R  0   2.6  condor_dagman -f -
+   7.0   adesmet         7/10 17:46   0+00:00:27 R  0   0.0  myscript.sh work1 
+   8.0   adesmet         7/10 17:46   0+00:00:27 R  0   0.0  myscript.sh Worker
+
+3 jobs; 0 idle, 3 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   7.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+   8.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:02:12 R  0   2.6  condor_dagman -f -
+   7.0    |-WorkerNode_  7/10 17:46   0+00:00:27 R  0   0.0  myscript.sh work1 
+   8.0    |-WorkerNode_  7/10 17:46   0+00:00:27 R  0   0.0  myscript.sh Worker
+
+3 jobs; 0 idle, 3 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:02:42 R  0   2.6  condor_dagman -f -
+   7.0   adesmet         7/10 17:46   0+00:00:57 R  0   0.0  myscript.sh work1 
+   8.0   adesmet         7/10 17:46   0+00:00:57 R  0   0.0  myscript.sh Worker
+
+3 jobs; 0 idle, 3 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   7.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+   8.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:02:43 R  0   2.6  condor_dagman -f -
+   7.0    |-WorkerNode_  7/10 17:46   0+00:00:58 R  0   0.0  myscript.sh work1 
+   8.0    |-WorkerNode_  7/10 17:46   0+00:00:58 R  0   0.0  myscript.sh Worker
+
+3 jobs; 0 idle, 3 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:03:13 R  0   2.6  condor_dagman -f -
+   8.0   adesmet         7/10 17:46   0+00:01:28 R  0   0.0  myscript.sh Worker
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   8.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:03:13 R  0   2.6  condor_dagman -f -
+   8.0    |-WorkerNode_  7/10 17:46   0+00:01:28 R  0   0.0  myscript.sh Worker
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:03:43 R  0   2.6  condor_dagman -f -
+   8.0   adesmet         7/10 17:46   0+00:01:58 R  0   0.0  myscript.sh Worker
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   8.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:03:43 R  0   2.6  condor_dagman -f -
+   8.0    |-WorkerNode_  7/10 17:46   0+00:01:58 R  0   0.0  myscript.sh Worker
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:04:13 R  0   2.6  condor_dagman -f -
+   9.0   adesmet         7/10 17:49   0+00:00:02 R  0   0.0  myscript.sh workfi
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   9.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:04:13 R  0   2.6  condor_dagman -f -
+   9.0    |-CollectResu  7/10 17:49   0+00:00:02 R  0   0.0  myscript.sh workfi
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:04:43 R  0   2.6  condor_dagman -f -
+   9.0   adesmet         7/10 17:49   0+00:00:32 R  0   0.0  myscript.sh workfi
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   9.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:04:43 R  0   2.6  condor_dagman -f -
+   9.0    |-CollectResu  7/10 17:49   0+00:00:32 R  0   0.0  myscript.sh workfi
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:05:13 R  0   2.6  condor_dagman -f -
+   9.0   adesmet         7/10 17:49   0+00:01:02 R  0   0.0  myscript.sh workfi
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+   9.0   adesmet       DONE fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:05:13 R  0   2.6  condor_dagman -f -
+   9.0    |-CollectResu  7/10 17:49   0+00:01:02 C  0   0.0  myscript.sh workfi
+
+1 jobs; 0 idle, 1 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:05:43 R  0   2.6  condor_dagman -f -
+  10.0   adesmet         7/10 17:50   0+00:00:13 R  0   0.0  myscript.sh Final 
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+  10.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:05:44 R  0   2.6  condor_dagman -f -
+  10.0    |-LastNode     7/10 17:50   0+00:00:13 R  0   0.0  myscript.sh Final 
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:06:14 R  0   2.6  condor_dagman -f -
+  10.0   adesmet         7/10 17:50   0+00:00:43 R  0   0.0  myscript.sh Final 
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+  10.0   adesmet       ACTIVE fork     gk2   /tmp/<em>username</em>-cond
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+   4.0   adesmet         7/10 17:45   0+00:06:14 R  0   2.6  condor_dagman -f -
+  10.0    |-LastNode     7/10 17:50   0+00:00:43 R  0   0.0  myscript.sh Final 
+
+2 jobs; 0 idle, 2 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+
+0 jobs; 0 idle, 0 running, 0 held
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+
+
+-- Submitter: puffin.cs.wisc.edu : &lt;128.105.185.14:35688&gt; : puffin.cs.wisc.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+
+0 jobs; 0 idle, 0 running, 0 held
+
+<em><userinput>[Ctrl+C]</userinput></em>
+%ENDMore%
+</pre>
+
+Watching the logs or the condor_q output, you'll note that the CollectResults node (=workfinal=) wasn't run until both of the WorkerNode nodes (=work1= and =work2=) finished.
+
+<!-- ***  Comments plugin to create comments table for section   ***    -->
+
+---+++ Examine your results.
+
+<pre class="screen">
+$ <userinput>ls</userinput>
+job.finalize.submit   mydag.dag.condor.sub  myscript.sh           results.setup.error   results.workfinal.error
+job.setup.submit      mydag.dag.dagman.log  results.error        results.setup.output  results.workfinal.output
+job.work1.submit      mydag.dag.dagman.out  results.finalize.error   results.work1.error   watch_condor_q
+job.work2.submit      mydag.dag.lib.out     results.finalize.output  results.work1.output
+job.workfinal.submit  mydag.dag.lock       results.log           results.work2.error
+mydag.dag         myjob.submit       results.output        results.work2.output
+$ <userinput>tail --lines=500 results.*.error</userinput>
+==&gt; results.finalize.error &lt;==
+This is sent to standard error
+
+==&gt; results.setup.error &lt;==
+This is sent to standard error
+
+==&gt; results.work1.error &lt;==
+This is sent to standard error
+%STARTMore%
+==&gt; results.work2.error &lt;==
+This is sent to standard error
+
+==&gt; results.workfinal.error &lt;==
+This is sent to standard error
+$ <userinput>tail --lines=500 results.*.output</userinput>
+
+I'm process id 29614 on gk2
+I'm process id 29614 on %LOGINHOST%
+Running as binary /n/uscms_share/home/adesmet2/.globus/.gass_cache/local/md5/0d/7c60aa10b34817d3ffe467dd116816/md5/de/03c3eb8a20852948a2af53438bbce1/data Finalize 1
+Running as binary %HOMEDIR%/.globus/.gass_cache/local/md5/0d/7c60aa10b34817d3ffe467dd116816/md5/de/03c3eb8a20852948a2af53438bbce1/data Finalize 1
+My name (argument 1) is Finalize
+My sleep duration (argument 2) is 1
+Sleep of 1 seconds finished.  Exiting
+
+I'm process id 29337 on gk2
+I'm process id 29337 on %LOGINHOST%
+Running as binary /n/uscms_share/home/adesmet2/.globus/.gass_cache/local/md5/a5/fab7b658db65dbfec3ecf0a5414e1c/md5/f4/e9a04ae03bff43f00a10c78ebd60fd/data Setup 1
+Running as binary %HOMEDIR%/.globus/.gass_cache/local/md5/a5/fab7b658db65dbfec3ecf0a5414e1c/md5/f4/e9a04ae03bff43f00a10c78ebd60fd/data Setup 1
+My name (argument 1) is Setup
+My sleep duration (argument 2) is 1
+Sleep of 1 seconds finished.  Exiting
+
+I'm process id 29444 on gk2
+I'm process id 29444 on %LOGINHOST%
+Running as binary /n/uscms_share/home/adesmet2/.globus/.gass_cache/local/md5/2e/17db42df4e113f813cea7add42e03e/md5/f6/f1bd82a2fec9a3a372a44c009a63ca/data WorkerNode1 1
+Running as binary %HOMEDIR%/.globus/.gass_cache/local/md5/2e/17db42df4e113f813cea7add42e03e/md5/f6/f1bd82a2fec9a3a372a44c009a63ca/data WorkerNode1 1
+My name (argument 1) is WorkerNode1
+My sleep duration (argument 2) is 1
+Sleep of 1 seconds finished.  Exiting
+
+I'm process id 29432 on gk2
+I'm process id 29432 on %LOGINHOST%
+Running as binary /n/uscms_share/home/adesmet2/.globus/.gass_cache/local/md5/ea/9a3c8d16346b2fea808cda4b5969fa/md5/f6/f1bd82a2fec9a3a372a44c009a63ca/data WorkerNode2 120
+Running as binary %HOMEDIR%/.globus/.gass_cache/local/md5/ea/9a3c8d16346b2fea808cda4b5969fa/md5/f6/f1bd82a2fec9a3a372a44c009a63ca/data WorkerNode2 120
+My name (argument 1) is WorkerNode2
+My sleep duration (argument 2) is 120
+Sleep of 120 seconds finished.  Exiting
+
+I'm process id 29554 on gk2
+I'm process id 29554 on %LOGINHOST%
+Running as binary /n/uscms_share/home/adesmet2/.globus/.gass_cache/local/md5/c9/7ba5d43acad3d9ebdfa633839e75c3/md5/11/cd84efa75305d54100f0f451b46b35/data WorkFinal 1
+Running as binary %HOMEDIR%/.globus/.gass_cache/local/md5/c9/7ba5d43acad3d9ebdfa633839e75c3/md5/11/cd84efa75305d54100f0f451b46b35/data WorkFinal 1
+My name (argument 1) is WorkFinal
+My sleep duration (argument 2) is 1
+Sleep of 1 seconds finished.  Exiting
+%ENDMore%
+</pre>
+
+---+++ Examine your log
+
+<pre class="screen">
+000 (005.000.000) 07/10 17:45:24 Job submitted from host: <128.105.185.14:35688>
+000 (005.000.000) 07/10 17:45:24 Job submitted from host: <%LOGINHOST%:35688>
+    DAG Node: HelloWorld
+000 (006.000.000) 07/10 17:45:24 Job submitted from host: <128.105.185.14:35688>
+000 (006.000.000) 07/10 17:45:24 Job submitted from host: <%LOGINHOST%:35688>
+    DAG Node: Setup
+...
+017 (006.000.000) 07/10 17:45:42 Job submitted to Globus
+    RM-Contact: gk2:/jobmanager-fork
+    JM-Contact: https://gk2:2349/914/1057877133/
+    Can-Restart-JM: 1
+001 (006.000.000) 07/10 17:45:42 Job executing on host: gk2
+001 (006.000.000) 07/10 17:45:42 Job executing on host: gt2 %LOGINHOST%/jobmanager-fork
+...
+
+%STARTMore%
+
+    RM-Contact: gk2:/jobmanager-fork
+    JM-Contact: https://gk2:2348/915/1057877133/
+    JM-Contact: https://%LOGINHOST%:2348/915/1057877133/
+    Can-Restart-JM: 1
+...
+001 (005.000.000) 07/10 17:45:42 Job executing on host: gk2
+...
+005 (005.000.000) 07/10 17:46:50 Job terminated.
+   (1) Normal termination (return value 0)
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+   0  -  Run Bytes Sent By Job
+   0  -  Run Bytes Received By Job
+   0  -  Total Bytes Sent By Job
+   0  -  Total Bytes Received By Job
+...
+005 (006.000.000) 07/10 17:46:50 Job terminated.
+   (1) Normal termination (return value 0)
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+   0  -  Run Bytes Sent By Job
+   0  -  Run Bytes Received By Job
+   0  -  Total Bytes Sent By Job
+   0  -  Total Bytes Received By Job
+000 (007.000.000) 07/10 17:46:55 Job submitted from host: <128.105.185.14:35688>
+000 (007.000.000) 07/10 17:46:55 Job submitted from host: <%LOGINHOST%:35688>
+    DAG Node: WorkerNode_1
+000 (008.000.000) 07/10 17:46:56 Job submitted from host: <128.105.185.14:35688>
+000 (008.000.000) 07/10 17:46:56 Job submitted from host: <%LOGINHOST%:35688>
+    DAG Node: WorkerNode_Two
+...
+    RM-Contact: gk2:/jobmanager-fork
+    JM-Contact: https://gk2:2364/1037/1057877219/
+    JM-Contact: https://%LOGINHOST%:2364/1037/1057877219/
+    Can-Restart-JM: 1
+001 (008.000.000) 07/10 17:47:09 Job executing on host: gk2
+001 (008.000.000) 07/10 17:47:09 Job executing on host: gt2 %LOGINHOST%/jobmanager-fork
+...
+    RM-Contact: gk2:/jobmanager-fork
+    JM-Contact: https://gk2:2367/1040/1057877220/
+    JM-Contact: https://%LOGINHOST%:2367/1040/1057877220/
+    Can-Restart-JM: 1
+001 (007.000.000) 07/10 17:47:09 Job executing on host: gk2
+001 (007.000.000) 07/10 17:47:09 Job executing on host: gt2 %LOGINHOST%/jobmanager-fork
+...
+005 (007.000.000) 07/10 17:48:17 Job terminated.
+   (1) Normal termination (return value 0)
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+   0  -  Run Bytes Sent By Job
+   0  -  Run Bytes Received By Job
+   0  -  Total Bytes Sent By Job
+   0  -  Total Bytes Received By Job
+...
+005 (008.000.000) 07/10 17:49:18 Job terminated.
+   (1) Normal termination (return value 0)
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+   0  -  Run Bytes Sent By Job
+   0  -  Run Bytes Received By Job
+   0  -  Total Bytes Sent By Job
+   0  -  Total Bytes Received By Job
+000 (009.000.000) 07/10 17:49:22 Job submitted from host: <128.105.185.14:35688>
+000 (009.000.000) 07/10 17:49:22 Job submitted from host: <%LOGINHOST%:35688>
+    DAG Node: CollectResults
+...
+    RM-Contact: gk2:/jobmanager-fork
+    JM-Contact: https://gk2:2383/1185/1057877366/
+    JM-Contact: https://%LOGINHOST%:2383/1185/1057877366/
+    Can-Restart-JM: 1
+001 (009.000.000) 07/10 17:49:35 Job executing on host: gk2
+001 (009.000.000) 07/10 17:49:35 Job executing on host: gt2 %LOGINHOST%/jobmanager-fork
+...
+005 (009.000.000) 07/10 17:50:42 Job terminated.
+   (1) Normal termination (return value 0)
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+   0  -  Run Bytes Sent By Job
+   0  -  Run Bytes Received By Job
+   0  -  Total Bytes Sent By Job
+   0  -  Total Bytes Received By Job
+000 (010.000.000) 07/10 17:50:42 Job submitted from host: <128.105.185.14:35688>
+000 (010.000.000) 07/10 17:50:42 Job submitted from host: <%LOGINHOST%:35688>
+    DAG Node: LastNode
+...
+    RM-Contact: gk2:/jobmanager-fork
+    JM-Contact: https://gk2:2392/1247/1057877446/
+    JM-Contact: https://%LOGINHOST%:2392/1247/1057877446/
+    Can-Restart-JM: 1
+001 (010.000.000) 07/10 17:50:55 Job executing on host: gk2
+001 (010.000.000) 07/10 17:50:55 Job executing on host: gt2 %LOGINHOST%/jobmanager-fork
+...
+005 (010.000.000) 07/10 17:52:02 Job terminated.
+   (1) Normal termination (return value 0)
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Remote Usage
+      Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+   0  -  Run Bytes Sent By Job
+   0  -  Run Bytes Received By Job
+   0  -  Total Bytes Sent By Job
+   0  -  Total Bytes Received By Job
+...
+%ENDMore%
+</pre>
+
+Examine the DAGMan log
+
+<pre class="screen">
+$ <userinput>cat mydag.dag.dagman.out</userinput>
+7/10 17:45:24 ******************************************************
+7/10 17:45:24 ** $CondorVersion: 6.5.1 Apr 22 2003 $
+7/10 17:45:24 ** $CondorVersion: 6.8.4 Apr 22 2006 $
+7/10 17:45:24 ** $CondorPlatform: INTEL-LINUX-GLIBC22 $
+7/10 17:45:24 ** PID = 18826
+7/10 17:45:24 DaemonCore: Command Socket at <128.105.185.14:35774>
+7/10 17:45:24 DaemonCore: Command Socket at <%LOGINHOST%:35774>
+7/10 17:45:24 argv[0] == "condor_scheduniv_exec.4.0"
+7/10 17:45:24 argv[1] == "-Debug"
+%STARTMore%
+7/10 17:45:24 argv[2] == "3"
+7/10 17:45:24 argv[3] == "-Lockfile"
+7/10 17:45:24 argv[4] == "mydag.dag.lock"
+7/10 17:45:24 argv[5] == "-Condorlog"
+7/10 17:45:24 argv[6] == "results.log"
+7/10 17:45:24 argv[7] == "-Dag"
+7/10 17:45:24 argv[8] == "mydag.dag"
+7/10 17:45:24 argv[9] == "-Rescue"
+7/10 17:45:24 argv[10] == "mydag.dag.rescue"
+7/10 17:45:24 Condor log will be written to results.log
+7/10 17:45:24 DAG Lockfile will be written to mydag.dag.lock
+7/10 17:45:24 DAG Input file is mydag.dag
+7/10 17:45:24 Rescue DAG will be written to mydag.dag.rescue
+7/10 17:45:24 Parsing mydag.dag ...
+7/10 17:45:24 Dag contains 6 total jobs
+7/10 17:45:24 Bootstrapping...
+7/10 17:45:24 Number of pre-completed jobs: 0
+7/10 17:45:24 Submitting Job HelloWorld ...
+7/10 17:45:24    assigned Condor ID (5.0.0)
+7/10 17:45:24 Submitting Job Setup ...
+7/10 17:45:24    assigned Condor ID (6.0.0)
+7/10 17:45:25 Event: ULOG_SUBMIT for Job HelloWorld (5.0.0)
+7/10 17:45:25 Event: ULOG_SUBMIT for Job Setup (6.0.0)
+7/10 17:45:25 0/6 done, 0 failed, 2 submitted, 0 ready, 0 pre, 0 post
+7/10 17:45:45 Event: ULOG_GLOBUS_SUBMIT for Job Setup (6.0.0)
+7/10 17:45:45 Event: ULOG_EXECUTE for Job Setup (6.0.0)
+7/10 17:45:45 Event: ULOG_GLOBUS_SUBMIT for Job HelloWorld (5.0.0)
+7/10 17:45:45 Event: ULOG_EXECUTE for Job HelloWorld (5.0.0)
+7/10 17:46:55 Event: ULOG_JOB_TERMINATED for Job HelloWorld (5.0.0)
+7/10 17:46:55 Job HelloWorld completed successfully.
+7/10 17:46:55 Event: ULOG_JOB_TERMINATED for Job Setup (6.0.0)
+7/10 17:46:55 Job Setup completed successfully.
+7/10 17:46:55 Submitting Job WorkerNode_1 ...
+7/10 17:46:55    assigned Condor ID (7.0.0)
+7/10 17:46:55 Submitting Job WorkerNode_Two ...
+7/10 17:46:56    assigned Condor ID (8.0.0)
+7/10 17:46:56 Event: ULOG_SUBMIT for Job WorkerNode_1 (7.0.0)
+7/10 17:46:56 Event: ULOG_SUBMIT for Job WorkerNode_Two (8.0.0)
+7/10 17:46:56 2/6 done, 0 failed, 2 submitted, 0 ready, 0 pre, 0 post
+7/10 17:47:11 Event: ULOG_GLOBUS_SUBMIT for Job WorkerNode_Two (8.0.0)
+7/10 17:47:11 Event: ULOG_EXECUTE for Job WorkerNode_Two (8.0.0)
+7/10 17:47:11 Event: ULOG_GLOBUS_SUBMIT for Job WorkerNode_1 (7.0.0)
+7/10 17:47:11 Event: ULOG_EXECUTE for Job WorkerNode_1 (7.0.0)
+7/10 17:48:21 Event: ULOG_JOB_TERMINATED for Job WorkerNode_1 (7.0.0)
+7/10 17:48:21 Job WorkerNode_1 completed successfully.
+7/10 17:48:21 3/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 17:49:21 Event: ULOG_JOB_TERMINATED for Job WorkerNode_Two (8.0.0)
+7/10 17:49:21 Job WorkerNode_Two completed successfully.
+7/10 17:49:21 Submitting Job CollectResults ...
+7/10 17:49:22    assigned Condor ID (9.0.0)
+7/10 17:49:22 Event: ULOG_SUBMIT for Job CollectResults (9.0.0)
+7/10 17:49:22 4/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 17:49:37 Event: ULOG_GLOBUS_SUBMIT for Job CollectResults (9.0.0)
+7/10 17:49:37 Event: ULOG_EXECUTE for Job CollectResults (9.0.0)
+7/10 17:50:42 Event: ULOG_JOB_TERMINATED for Job CollectResults (9.0.0)
+7/10 17:50:42 Job CollectResults completed successfully.
+7/10 17:50:42 Submitting Job LastNode ...
+7/10 17:50:42    assigned Condor ID (10.0.0)
+7/10 17:50:42 Event: ULOG_SUBMIT for Job LastNode (10.0.0)
+7/10 17:50:42 5/6 done, 0 failed, 1 submitted, 0 ready, 0 pre, 0 post
+7/10 17:50:57 Event: ULOG_GLOBUS_SUBMIT for Job LastNode (10.0.0)
+7/10 17:50:57 Event: ULOG_EXECUTE for Job LastNode (10.0.0)
+7/10 17:52:02 Event: ULOG_JOB_TERMINATED for Job LastNode (10.0.0)
+7/10 17:52:02 Job LastNode completed successfully.
+7/10 17:52:02 6/6 done, 0 failed, 0 submitted, 0 ready, 0 pre, 0 post
+7/10 17:52:02 All jobs Completed!
+7/10 17:52:02 **** condor_scheduniv_exec.4.0 (condor_DAGMAN) EXITING WITH STATUS 0
+
+%ENDMore%
+</pre>
+
+Clean up your results.  Be careful about deleting the =mydag.dag.*= files, you do not want to delete the =mydag.dag= file, just =mydag.dag.*=.
+
+<pre class="screen">
+$ <userinput>rm mydag.dag.* results.*</userinput>
+</pre>
+
+
+<a name="optional_multi_resource"></a>
+---+++ Optional: Multiple Globus Schedulers
+If you're ahead of schedule, you can try redoing this section, but with other Grid sites.  Modify some of the grid_resource entries in your submit files to point to =evitable.uchicago.edu=, =terminable.uchicago.edu or gridlab3/jobmanager-condor=.  A single DAG can send jobs to a variety of sites.  Condor-G is capable of managing jobs being distributed to many different sites simultaneously.
+If you're ahead of schedule, you can try redoing this section, but with other Grid sites.  Modify some of the grid_resource entries in your submit files to point to other servers (such as =evitable.uchicago.edu=, =terminable.uchicago.edu=  or =workshop3/jobmanager-condor=).  A single DAG can send jobs to a variety of sites.  Condor-G is capable of managing jobs being distributed to many different sites simultaneously.
+
+
+-- Main.ForrestChristian - 29 Jan 2007 (edited from original)
+-- Main.ForrestChristian - 24 Mar 2007 - Added VARIABLES    %BR%
