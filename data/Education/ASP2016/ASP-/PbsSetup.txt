@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BurtHolzman" date="1172250262" format="1.1" version="1.4"}%
+%META:TOPICINFO{author="CraigPrescott" date="1172251506" format="1.1" reprev="1.5" version="1.5"}%
 %META:TOPICPARENT{name="Sandbox.TierThreePrerequisiteDocument"}%
 ---++Introduction
 PBS stands for "Portable  Batch System".  It is a popular networked subsystem for submitting, monitoring, and controlling a work load of batch jobs on one or more systems.  PBS has a long history, and is available nowadays in three flavors: 
@@ -8,11 +8,11 @@ PBS stands for "Portable  Batch System".  It is a popular networked subsystem fo
 
 <nop>OpenPBS still works, and you can use it, but you should be aware that the focus of the open source development effort has moved on to Torque for some time now.  If you want to run <nop>OpenPBS and support is important to you, you may purchase it from Altair Engineering.  Personally, I am not aware of a technical argument to prefer <nop>OpenPBS to Torque.  
 
-PBS Pro is a fine product.  It is reasonably priced compared to competing commercial batch systems and has dedicated support from Altair Engineering should you desire it.  We use it where I work, and I have no serious complaints.  The most recent releases of PBS Pro (versions 7.x and later) have features that <nop>OpenPBS and Torque do not, as well as a more flexible resource specification than its open source counterparts.  If I recall correctly, you should be able to get a trial version of PBS Pro before you buy - contact Altair for info.
+PBS Pro is a fine product.  It is reasonably priced compared to competing commercial batch systems and has dedicated support from Altair Engineering should you desire it.  We use it where I work, and I have no serious complaints.  The most recent releases of PBS Pro (versions 7.x and later) have features that <nop>OpenPBS and Torque do not, as well as a more flexible resource specification than its open source counterparts.  If I recall correctly, you should be able to get a trial version of PBS Pro before you buy - contact Altair for info.  Prior to versions 7.x, you could plug in the MAUI scheduler in place of the FIFO scheduler that is included with PBS Pro.  With versions 7.x and later, this no longer seems to work.
 
-As mentioned previously, Torque is the open source PBS project which is being actively developed, and the user community has followed suit.  Iin its current 2.x versions, it has also matured into a quality product and should be more than capable of scaling to typical Tier3 cluster sizes.
+As mentioned previously, Torque is the open source PBS project which is being actively developed, and the user community has followed suit.  Iin its current 2.x versions, it has also matured into a quality product and should be more than capable of scaling to typical Tier3 cluster sizes.  In addition, you have the option of using the more flexible and open source MAUI scheduler in place of the FIFO scheduler included with Torque, should you wish it.
 
-The above are my personal opinions.  In this document, I will specifically describe deployment and configuration of Torque as the batch system backing an an OSG computing element.  The configuration steps outlined below, however, should apply nearly equally well to <nop>OpenPBS or PBS Pro.
+The above are my personal opinions.  In this document, I will specifically describe deployment and configuration of Torque and its FIFO scheduler as the batch system backing an an OSG computing element.  The configuration steps outlined below, however, should apply nearly equally well to <nop>OpenPBS or PBS Pro.
 
 ---+++Useful Links
 It is always handy to have a few reference links at your fingertips, so I enclose a few here.  As always, Google is your friend and a wealth of information.
@@ -24,11 +24,21 @@ It is always handy to have a few reference links at your fingertips, so I enclos
 
 ---++Obtaining Torque
 
-Point your web browser to http://clusterresources.com/downloads/torque.  Select the most recent version and save it to a file (at the time of this writing, version 2.1.7 is just released).  Copy it to the node you intend to use as your OSG computing element headnode.
+Point your web browser to http://clusterresources.com/downloads/torque.  Select the most recent version and save it to a file (at the time of this writing, version 2.1.7 is just released).  Copy the tarball to the node you intend to use as your OSG computing element headnode.
 
 ---++Building Torque
-Unpack the tarball and change directory to the top level of the source tree.  You may do this as a normal user, if you like.
 
+If your head node runs an RPM-based Linux distribution and you don't want to build Torque yourself, you can skip this section and use some pre-built RPM packages I have prepared.  They should work on any RHEL4-compatible machine.  They may also work on other distributions - your mileage may vary.  The RPM packages for i386 and x86_64 are available here:
+d34 1
+   * http://lorien.phys.ufl.edu/~prescott/centos/4.3/contrib/i386/
+   * http://lorien.phys.ufl.edu/~prescott/centos/4.4/contrib/x86_64/
+
+As implied by the URLs, I built the i386 packages on a <nop>CentOS 4.3 machine, and the x86_64 packages on <nop>CentOS 4.4.  Download the packages appropriate for your architecture, copy them to your head node, and skip to "Installing Torque on the Head Node".
+As implied by the URLs, I built the i386 packages on a <nop>CentOS 4.3 machine, and the x86_64 packages on <nop>CentOS 4.4.  Download the packages appropriate for your architecture, copy them to your head node, and skip to the next secction.
+
+We have a couple of options in ways to build Torque: you can either build binaries as one normally does from a tarball, or you can build RPMs.  In my opinion, if you are running a  Red Hat/RPM-based Linux distribution, you should build the RPMs - having RPMs makes deploying Torque components on multiple machines easy, and the RPMs can likely be integrated into a cluster management tool like Rocks very trivially.
+
+Unpack the tarball and change directory to the top level of the source tree.  You may do this as a normal user, if you like.    If you are *not* going to make RPMs, you will find it convenient later to do this in an NFS-shared area.  If you are going to make RPMs, it doesn't matter where you do this.
 
 <verbatim>
 tar xvzf torque-2.1.7.tar.gz
@@ -65,7 +75,7 @@ On an Red Hat-based machine, everything will be built if you have these packages
    * xorg-x11-xauth
 
 Probably you have (almost?) all this stuff installed already.
-Ok, we have all of that installed and available.  Now we configure the source tree to prepare for building the package.  If you desire the installation directory to reside in a place other than <code>/usr/local</code>, then you should specify it with the <code>--prefix=...</code> option.  I want to install to <code>/usr/local</code>, so I just say:
+
 Ok, we have all of that installed and available.  Now we configure the source tree to prepare for building the package.  I am happy to accept the default installation path (you can control it with the <code>--prefix=...</code> option if you like), so I just say:
 
 <verbatim>
@@ -99,12 +109,18 @@ The former command will simply build binaries.  The latter command will build bi
 /usr/src/redhat/RPMS/i386/torque-devel-2.1.7-1cri.i386.rpm
 /usr/src/redhat/RPMS/i386/torque-pam-2.1.7-1cri.i386.rpm
 </verbatim>
+
 ---++Installing Torque on the Head Node
+
 Now we are ready to deploy some packages on our head node.  If you didn't create RPMs in the steps above, you need to *become root* on the head node and type <code>make install</code> from the top level of the Torque source tree.  Everything will be installed into <code>/usr/local</code> unless you specified an alternate installation path at <code>configure</code> time.
----++Installing Torque
+
 On the other hand, if you have RPMs read on.  On our head node, we at least want to install the Torque server and scheduler, and have commands available to submit, monitor, and remove jobs.  If you want your head node to be able to run batch jobs, you will also need to install the "MOM" package here.  You may also like to install the documentation and GUI tools.  To do all this, *become root*, go to the directory where the RPMs reside, and type:
+
+<verbatim>
+rpm -Uvh  torque-server-2.1.7-1cri.i386.rpm  torque-scheduler-2.1.7-1cri.i386.rpm torque-mom-2.1.7-1cri.i386.rpm \
+torque-client-2.1.7-1cri.i386.rpm torque-docs-2.1.7-1cri.i386.rpm torque-gui-2.1.7-1cri.i386.rpm torque-2.1.7-1cri.i386.rpm
 </verbatim>
--- Main.CraigPrescott - 22 Feb 2007
+
 ---++ Installing Torque on the Compute Nodes
 PBS_DAEMON="/usr/sbin/pbs_server -h <hostname> -S <hostname> -M <hostname>"
 where <hostname> is the same hostname you used when you created the server instance.  Once this is done, you can restart the <code>pbs_server</code> from the <code>init.d</code> script:
