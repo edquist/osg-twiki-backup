@@ -1,7 +1,8 @@
-%META:TOPICINFO{author="CraigPrescott" date="1172251885" format="1.1" reprev="1.6" version="1.6"}%
+%META:TOPICINFO{author="CraigPrescott" date="1172258571" format="1.1" reprev="1.7" version="1.7"}%
 %META:TOPICPARENT{name="Sandbox.TierThreePrerequisiteDocument"}%
 ---++Introduction
 PBS stands for "Portable  Batch System".  It is a popular networked subsystem for submitting, monitoring, and controlling a work load of batch jobs on one or more systems.  PBS has a long history, and is available nowadays in three flavors: 
+
    * <nop>OpenPBS - the original PBS developed for NASA in the early to mid-1990s, available as open source
    * PBS Pro - a commercial version of PBS from Altair Engineering
    * Torque - the open source successor to <nop>OpenPBS
@@ -116,11 +117,54 @@ Now we are ready to deploy some packages on our head node.  If you didn't create
 On the other hand, if you have RPMs read on.  On our head node, we at least want to install the Torque server and scheduler, and have commands available to submit, monitor, and remove jobs.  If you want your head node to be able to run batch jobs, you will also need to install the "MOM" package here.  You may also like to install the documentation and GUI tools.  To do all this, *become root*, go to the directory where the RPMs reside, and type:
 
 <verbatim>
-rpm -Uvh torque-server-2.1.7-1cri.i386.rpm  torque-scheduler-2.1.7-1cri.i386.rpm torque-mom-2.1.7-1cri.i386.rpm \
-    torque-client-2.1.7-1cri.i386.rpm torque-docs-2.1.7-1cri.i386.rpm torque-gui-2.1.7-1cri.i386.rpm torque-2.1.7-1cri.i386.rpm
+rpm -Uvh torque-server-2.1.7-1cri.i386.rpm \
+    torque-scheduler-2.1.7-1cri.i386.rpm \
+    torque-mom-2.1.7-1cri.i386.rpm \
+    torque-client-2.1.7-1cri.i386.rpm \
+    torque-docs-2.1.7-1cri.i386.rpm \
+    torque-gui-2.1.7-1cri.i386.rpm \
+    torque-2.1.7-1cri.i386.rpm
 </verbatim>
 
 ---++ Installing Torque on the Compute Nodes
+
+On the compute nodes, we need to be able to run jobs.  As an administrator, I also find it occasionally convenient to query the batch system from compute nodes, so installing client tools would be handy, too.
+
+If you *don't* have RPMs, *become root* on one of your compute nodes, go to the top level directory of your NFS-shared Torque source tree, and type =make install=.  Repeat this step for every compute node you want to add to the batch system.
+If you *don't* have RPMs, *become root* on one of your compute nodes, go to the top level directory of your NFS-shared Torque source tree, and type <code>make install</code>.  Repeat this step for every compute node you want to add to the batch system.
+
+If you *do* have RPMs, go to the directory where they reside (copy them over if you need to), and say:
+
+<verbatim>
+rpm -Uvh torque-mom-2.1.7-1cri.i386.rpm \
+   torque-client-2.1.7-1cri.i386.rpm \
+   torque-2.1.7-1cri.i386.rpm
+</verbatim>
+d173 1
+---++ Configuring SSH for PBS
+Now restart sshd with <code>/etc/init.d/sshd restart</code>.  Copy the <code>/etc/ssh/ssh_config</code>, <code>/etc/ssh/sshd_config</code>, <code>/etc/ssh/ssh_known_hosts</code>, and <code>/etc/hosts.equiv</code> files to each of your compute nodes and restart sshd there, too.  You should now be able to authenticate as a normal user between hosts across your cluster without having to enter a password.
+
+The Torque configuration files live underneath <code>/var/spool/torque</code> by default.  Underneath this directory, you will see the following files and subdirectories:
+Here, we will initialize the server and create some queues.  You will need to do these steps *as root*.  My recommendation is to create a routing queue which can submit jobs to one or more execution queues, where the jobs will actually run.  The presence of the routing queue will allow some flexibility in the case you wish to have multiple execution queues.
+You will need to run the server and scheduler services.  In my experience, MOM is not usually run on the head node, as head nodes usually have plenty to do already.  They typically offer lots of key cluster infrastructure services like NFS, DNS, LDAP/NIS, etcetera; allowing compute and memory-intensive jobs to run on the head node can have adverse effects upon the entire cluster.  So feel free to simply turn MOM off on the head node:
+
+<verbatim>
+aux/         mom_logs/  pbs_environment  sched_priv/   server_name   spool/
+checkpoint/  mom_priv/  sched_logs/      server_logs/  server_priv/  undelivered/
+d169 35
+In the configuration steps which follow, we will be poking around this area on the head and compute nodes.
+
+---+++ PBS Server
+
+We can initialize the batch system thusly:
+pbs_server -t create [-h <hostname>]
+<verbatim>
+pbs_server -t create [-h <hostname>] [-S <hostname>] [-M <hostname>]
+The <code>-h <hostname></code> option is only needed if the hostname corresponding to your head node's LAN address is *not* the same as the output of the <code>hostname</code> command.  In this case, you will also want to create <code>/etc/sysconfig/pbs_server</code> with the following contents:
+
+The <code>-h &lt;hostname&gt;</code>, <code>-M &lt;hostname&gt;</code> and <code>-S &lt;hostname&gt;</code> options are only useful if the hostname corresponding to your head node's LAN address is *not* the same as the output of the <code>hostname</code> command; these options tell the server to use the supplied <code>&lt;hostname&gt;</code> for server, scheduler, and MOM communications, respectively.  In this case, you will also want to create <code>/etc/sysconfig/pbs_server</code> with the following contents:
+PBS_DAEMON="/usr/local/sbin/pbs_server -h <hostname>"
+<verbatim>
 PBS_DAEMON="/usr/sbin/pbs_server -h <hostname> -S <hostname> -M <hostname>"
 where <hostname> is the same hostname you used when you created the server instance.  Once this is done, you can restart the <code>pbs_server</code> from the <code>init.d</code> script:
 
