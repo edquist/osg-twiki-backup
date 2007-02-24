@@ -1,0 +1,780 @@
+%META:TOPICINFO{author="ForrestChristian" date="1172278280" format="1.1" version="1.19"}%
+%META:TOPICPARENT{name="DocumentationTable"}%
+%LINKCSS%
+
+---+!!<nop>OSG VOMS 0.5.n Installation Instructions
+%TOC%
+%EDITTHIS%
+
+%STARTINCLUDE%
+---++ Introduction
+The [[http://hep-project-grid-scg.web.cern.ch/hep-project-grid-scg/voms.html][Virtual Organization Membership Service (VOMS)]] has three main parts: 
+   * !MySQL database which is a persistent repository for VO membership information, 
+   * VOMS admin which provides the Web UI/services to maintain the VO membership. This requires Apache/Tomcat.
+   * VOMS server, a daemon process which services the <i>voms-proxy-init</i> requests.
+
+Also included in the installation is a VOMS client containing the <i>voms-proxy-init</i> for testing.
+
+Here we describe how to install and configure VOMS on your Linux machine. When you install VOMS as described here, you get all three parts.  It comes with a test VO called VDT. We suggest that you use it for testing. You're going to need to create your real VO with the appropriate name. Instructions for doing that are also on this page.
+
+We also describe how to remove a VO from VOMS if the need arises.
+
+%INCLUDE{"OsgConventions"}%
+%INCLUDE{"OperatingSystems"}%
+%INCLUDE{"OSGInstallationMethod"}%
+%INCLUDE{"InstallationAssistance"}%
+%INCLUDE{"VomsReleaseChanges}%
+%INCLUDE{"VdtReleaseNotes}%
+
+%INCLUDE{"VomsSoftware"}%
+%INCLUDE{"VomsKnownProblems"}%
+
+%INCLUDE{"PacmanInfo"}%
+
+%INCLUDE{"VomsPreInstallationChecklist"}%
+
+---++ VOMS Pre-requisites Checklist
+
+---+++ Certificates
+%NOTE% These instructions assume that you already have the necessary certificates on this host. Although it can be done as a post-install step, we recommend you get them in advance.
+
+Instructions for getting the certificate can be found at the [[http://www.cs.wisc.edu/vdt/requesting_cert.html][VDT site]]. Also refer to =$VDT_LOCATION/vdt/post-install/README= for related instructions.
+
+---++++ HOST certificate
+During the installation and configure process (using the =configure_voms= script) to create a VO, the HOST certificate is added to the VOMS Global ACL list for the VO being created. This allows the root user on this machine to update the VOMS VO using the =voms-admin= command, so that, in effect, the root user is already a VO-Admin in this VO. This is the only purpose for this certificate at this time.
+
+The host certificate should be installed in =/etc/grid-security= with ownership and permissions as:
+
+<pre class="screen">
+-rw-r--r--  1 root   root    1176 Nov  7 16:38 hostcert.pem
+-r--------  1 root   root     887 Nov  7 16:38 hostkey.pem
+</pre>
+
+
+---++++HTTP certificate
+Used by Apache. and the VOMS server.
+
+The HTTP certificate for your system should be installed in =/etc/grid-security/http= with ownership and permission as:
+
+<pre class="screen">
+> <b>/etc/grid-security</b>
+drwxr-xr-x    2 root     root         4096 Aug 31 23:00 http
+
+> <b>/etc/grid-security/http</b>
+-rw-r--r--    1 daemon   daemon       1169 May  8 10:38 httpcert.pem
+-r--------    1 daemon   daemon        887 May  8 10:38 httpkey.pem
+</pre>
+
+
+
+---+++Previous installations
+If you have an OSG VOMS running and you're about to reinstall or if any of the following daemons are installed and running on your machine, see the [[#ShutdownGuide][Shutdown instructions]] below. 
+
+In addition, if you have a previous installation with the <i>cloned</i> HOST certificate (<i>/etc/grid-security/vomscert.pem - vomskey.pem</i>), you should remove them. The HTTP certificate described above will replace them.
+
+You should also remove the <i>/etc/init.d/edg-crl-upgraded</i> process.  The EDG CRL upgrade is invoked using <i>root</i> cron.
+
+
+
+
+
+---++Installing VOMS
+
+---+++Installation user
+Must be done as root.
+
+---+++Installation package
+After installing pacman:
+
+<pre class=screen">
+> <b>cd <i>PACMAN_DIR</i></b>
+> <b>source setup.sh</b>
+</pre>
+
+---+++Installation location
+Wherever you like.  Shown below as as the VDT_LOCATION variable.
+
+<pre class="screen">
+&gt; <b>VDT_LOCATION=/usr/local/osg</b>
+&gt; <b>mkdir $VDT_LOCATION</b>
+</pre>
+
+---+++Installation Cache
+ITB:voms-0.5.0
+d104 4
+<pre class="screen">
+> cd $VDT_LOCATION
+> pacman -get  OSG:voms   <b>....for the current OSG release</b>   
+   <b>...or ....</b>
+> pacman -get  ITB:voms   <b>....for the current ITB release</b> 
+&gt; <b>cd $VDT_LOCATION</b>
+&gt; <b>pacman -get  ITB:voms-0.5.0</b>
+</pre>
+
+---+++Installation output/questions
+%NOTE% Some of the questions related to 'trusted caches' and 'unrecognized platforms' may not appear depending on your host and any pacman variables already set in your environment.
+
+<pre class="screen">
+     :
+Do you want to add [http://hep.uchicago.edu/ivdgl/] to [trusted.caches]? (y or n): <b>y</b>
+   :   -----------------------------------------------------
+Do you want to add [http://vdt.cs.wisc.edu/vdt_1311_cache] to [trusted.caches]? (y or n): <b>y</b>
+   :   -----------------------------------------------------
+The VDT is unable to recognize your platform.  This version of the VDT is
+supported on several Linux releases:
+
+    RedHat 7 x86
+    RedHat 9 x86
+    RedHat Enterprise Linux 3 AS x86, x86-64 and ia64
+    RedHat Enterprise Linux 4 AS x86
+    Fedora Core 3 x86
+    Fedora Core 4 x86
+    Debian 3.1 x86
+    ROCKS 3.3 x86 
+    Fermi Scientific Linux 3.0 x86
+    SuSE Linux 9 ia64
+
+The VDT may work on other platforms, but it's not guaranteed.  If you
+encounter problems and send mail to the VDT team for support please mention 
+that you are installing the VDT on an unsupported platform.
+
+Do you wish to continue? [y/n] <b>y</b>
+   :   -----------------------------------------------------
+   :
+VDT 1.3.11 installs a variety of software, each with its own license.
+In order to continue, you must agree to the licenses.
+You can view the licenses on-line at:
+
+     http://vdt.cs.wisc.edu/licenses/1.3.11
+
+After the installation has completed, you will also be able to
+view the licenses in the "licenses" directory.
+
+Do you agree to the licenses? [y/n]  <b>y</b>
+   :   -----------------------------------------------------
+   :
+If you would like, we can configure VOMS to start automatically at boot time.
+
+Configuring the VOMS daemon requires
+  - changes to /etc/init.d (or /etc/rc.d/init.d)
+  - starting up a MySQL server
+  - starting up an Apache and Tomcat server
+
+Would you like to enable the VOMS server to run automatically?
+
+Possible Answers:
+     y: Yes. Please remove any old instances of the service and run
+        this one..
+     n: No. Please remove any old instances of the service, but don't
+        run this one.
+     s: Skip. Don't run the service from this installation, and if
+        there is already an instance running, leave it alone.
+ 
+   <b>y</b>
+    :   -----------------------------------------------------
+    :
+The VDT typically installs public certificates and signing policy files
+for the well-known public CA's. This is necessary in order for you to
+perform GSI authentication with any remote Grid services (that have
+service/host certificates signed by these CA's).
+
+For more information please refer to the VDT documentation:
+http://vdt.cs.wisc.edu/setup_ca.html
+
+Where would you like to install CA files?
+Choices:
+        r (root)  - install into /etc/grid-security/certificates
+            (existing CA files will be preserved)
+        l (local) - install into $VDT_LOCATION/globus/share/certificates
+        n (no)    - do not install
+<b>r</b>
+   :   -----------------------------------------------------   
+   :
+Do you want to run a cron job that will upate the CA certificate
+revocation lists automatically? This will use the fetch-crl program
+that comes with the VDT. The cron job will run at a random time
+between midnight and 6:00am. We select a random time to avoid having
+all VDT installations fetching CRLs at the same time.
+
+Do you want to update the CA certification revocation lists (CRLs) automatically? [y/n]
+<b>y</b>
+   :   -----------------------------------------------------   
+   :
+Several services provided by the VDT create unbounded log files.  If you wish, we can rotate those file on a daily basis.
+
+Would you like to setup daily rotation of VDT log files?
+Possible Answers:
+     y: Yes. Please remove any old instances of the service and run
+        this one..
+     n: No. Please remove any old instances of the service, but don't
+        run this one.
+     s: Skip. Don't run the service from this installation, and if
+        there is already an instance running, leave it alone.
+<b>y</b>
+   :   -----------------------------------------------------
+   :
+   :
+Downloading [voms-server-1.6.16-7-x86_rh_9.tar.gz] from [http://vdt.cs.wisc.edu/software//voms/1.6.16-7]...
+</pre>
+
+The above line should be the last line of output you see.  The version number of the tarball may be different than that shown above.  Do not be concerned with this.
+
+
+---+++Verify the  installation completed successfully
+To verify  the pacman installation was successful, there should be a setup.(c)sh in the VDT_LOCATION.   If present, source it.
+
+<pre class="screen">
+&gt; <b>cd $VDT_LOCATION</b>
+&gt; <b>source setup.sh</b>
+</pre>
+
+%IMPORTANT% This does not necessarily indicated that everything was installed and configured successfully.  It just verifies that the pacman installation completed successfully.  There is a lot of other magic that occurs during the process that should be validated.
+d41 1
+
+%INCLUDE{"VomsInstallationVerification"}%
+If all the required certificates were in place prior to the pacman installation, a default VO called <i>VDT</i> has been created already and all the daemon services should be up and running. This section will take you through the steps necessary to verify that and can also serve as a basic operational trouble shooting guide.
+</pre>
+If the certificates were installed <b>after</b> the pacman installation, you will probably fail on most of the verification steps and will have to restart each daemon manually.
+All the daemon services should be up and running. This section will take you through the steps necessary to verify that and can also serve as a basic operational trouble shooting guide.
+
+For  all the verifications, you will need to source the VDT setup.(c)sh script:
+
+<pre class="screen">
+&gt; <b>cd <em>VDT_LOCATION</em></b>
+&gt; <b>source setup.sh</b>
+</pre>
+
+---+++ Verifying  the CRL update cron
+The EDG CRL update process (essential if you are collaborating with EDG people) updates the certificate revocation lists on a daily (default) basis.  With the OSG-0.5.0 release, this process is now invoked as a <i>root</i> cron process. 
+
+<pre class="programlisting">
+33 5 * * * YOUR_VDT_LOCATION/fetch-crl/share/doc/fetch-crl-2.6.0/fetch-crl.cron
+</pre>
+
+The time (05:33 in this case) was selected randomly at installation time and should be different for each installation. This was done to avoid contention on the CA hosts.
+
+To verify it is running is a little more difficult now that it is a cron process.  If the time has past for the cron <i>fetch-crl.cron</i> process to run, you can simply go to your certificates directory and see if the <i>*.r0</i> files exist and have time stamps close to the cron time.  If they exist and have a timestamp close to the cron time, all is well.
+
+<pre class="screen">
+&gt; <b>cd <em>VDT_LOCATION</em></b>
+&gt; <b>source setup.sh</b>
+&gt; <b>cd $X509_CADIR</b>
+&gt; <b>ls -l *.r0</b>
+<i>....(some sample output)....</i>
+-rw-r--r--    1 root     root        10024 Sep  1 05:33 9dd23746.r0
+-rw-r--r--    1 root     root        62032 Sep  1 05:33 a317c467.r0
+-rw-r--r--    1 root     root        17723 Sep  1 05:33 a692434d.r0
+</pre>
+
+If it does not look like it is working, you can run the <i>fetch-crl.cron</i> process manually and review the output.  
+
+The current <i>fetch-crl.cron</i> script checks a variable called <i>QUIET</i> to suppress output.  Set and export this variable, then run the script as seen in the crontab.
+
+<pre class="screen">
+&gt; <b>export QUIET=no</b>
+</pre>
+
+%NOTE% The number of CRL files does not directly correlate to the number of CAs, but there should be at least one and they should never be more than a day old unless the cron or cron job is not working.
+
+
+Apache and Tomcat are used to access the WEB user interface of  VOMS. 
+<pre class="screen">
+> <b>/etc/init.d</b>
+-rwxr-xr-x    1 root     root         4069 Aug 31 23:04 apache
+-rwxr-xr-x    1 root     root         3304 Aug 31 23:05 tomcat-5
+</pre>
+a282 1
+---+++ Verifying  the apache/tomcat daemon
+To verify that Apache is running:
+<pre class="screen">
+&gt; <b>ps -efwww |  grep  apache  |grep httpd</b>
+  <em>(there will be a number of these)</em>
+root        25014        1  0 Aug31 ?    00:00:03 /usr/local/osg-voms/apache/bin/httpd 
+                    -d /usr/local/osg-voms/apache -k start -f /usr/local/osg-voms/apache/conf/httpd.conf
+daemon   30034 25014  0 Aug31 ?    00:00:00 /usr/local/osg-voms/apache/bin/httpd 
+                    -d /usr/local/osg-voms/apache -k start -f /usr/local/osg-voms/apache/conf/httpd.conf
+      :
+</pre>
+
+%NOTE% Verify that it is the only one running with <i>init (pid=1)</i> as it's parent and the path contains your VDT_LOCATION.  
+
+d311 1
+To verify Tomcat is running:
+<pre class="screen">
+&gt; <b>ps -efwww |  grep tomcat</b>
+daemon   30097     1  0 Aug31 ?        00:00:12 /usr/local/osg-voms/jdk1.4/bin/java            
+                  -Djava.endorsed.dirs=/usr/local/osg-voms/tomcat/v5/common/endorsed 
+                  -classpath /usr/local/osg-voms/jdk1.4/lib/tools.jar:/usr/local/osg-voms/tomcat/v5/bin/bootstrap.jar:/usr/local/osg-voms/tomcat/v5/bin/commons-logging-api.jar      
+                  -Dcatalina.base=/usr/local/osg-voms/tomcat/v5 -Dcatalina.home=/usr/local/osg-voms/tomcat/v5 
+                  -Djava.io.tmpdir=/usr/local/osg-voms/tomcat/v5/temp org.apache.catalina.startup.Bootstrap start
+    :
+    :
+</pre>
+
+%NOTE% Verify that it is the only one running with <tt>init (pid=1)</tt> as it's parent and the path contains your VDT_LOCATION.  
+
+
+---+++Verifying  the mysql daemon
+<nop>MySql  is used to provide persistent storage of the VOMS VO membership data.
+<nop>MySql  is used to provide persistent storage of the VOMS VO membership data. To verify it is running:
+
+>  <b>/etc/init.d</b>
+-rwxr-xr-x    1 root     root         6644 Aug 31 23:03 mysq
+</pre>
+
+To verify it is running:
+
+<pre class="screen">
+<pre class="screen">
+&gt; <b>ps -efwww |  grep  mysql</b>
+root     22826     1  0 Aug31 ?        00:00:00 /bin/sh /usr/local/osg-voms/mysql/real-bin/mysqld_safe 
+                   --defaults-file=/usr/local/osg-voms/mysql/var/my.cnf 
+                   --datadir=/usr/local/osg-voms/vdt-app-data/mysql/var
+                   --pid-file=/usr/local/osg-voms/vdt-app-data/mysql/var/cms-xen3.fnal.gov.pid
+    :
+    :
+</pre>
+
+%NOTE% Verify that it is the only one running with <i>init (pid=1)</i> as it's parent and the path contains your VDT_LOCATION. 
+
+---+++Verifying the VOMS WEB UI
+If all the certificates were in place prior to the pacman installation, a default VO called <i>VDT</i> was configured.
+To verify it is accessible:
+
+   1. Point a certificate-enabled browser window to https://<i>your.host.name</i>:8443/voms/VDT
+      * You should be prompted for your certificates passphrase
+      * You should get a <i>Welcome to the VDT VO</i> page
+   1. In the left hand menu under <i>FOR VO USERS</i>, select *My membership details*. The membership details page should say <i>You are not currently a member of this VO</i>, which you  are not yet.
+   1. Go <i>Back</i>  in your browser.
+   1. Click *Administer the VO* under *FOR VO MANAGERS* on the left menu, then click *Create a New VO User*.  You should get <i>Access denied</i>.
+   1. Go <i>Back</i> twice in your browser to return to the main page.
+   1. Click *Configuration information* under *Configuration*. The 3 items displayed provide the syntax and data content used for the various authorization modes available on the grid  for your VO.  
+
+At this point, you know your VOMS WEB UI is functional.
+
+The VOMS server's only purpose is to service <i>voms-proxy-init</i> requests for your VO.
+a343 7
+To verify the VOMS server is running:
+<pre class="screen">
+&gt; <b>ps -efwww | grep edg-voms</b>
+daemon   28440     1  0 Aug31 ?        00:00:00 /usr/local/osg-voms/glite/sbin/edg-voms 
+                                       --conf /usr/local/osg-voms/glite/etc/voms/VDT/voms.conf
+daemon   29287     1  0 Aug31 ?        00:00:00 /usr/local/osg-voms/glite/sbin/edg-voms 
+                                      --conf /usr/local/osg-voms/glite/etc/voms/VDT/voms.conf
+</pre>
+
+%NOTE% There are individual <i>VOMS servers</i> for each VO, each using a unique port to service requests.
+%NOTE% There are usually 2 <i>edg-voms</i> processes that are running for each VO. There are times when only 1 is running and the server works fine. This is one of those mysteries in life that one just accepts.
+%NOTE% Verify that  the path contains your <i>VDT_LOCATION</i>.
+
+---+++Verifying the VOMS version
+The voms-admin and voms server versions can be verified using the following command:
+<pre class="screen">
+&gt; <b>voms-admin -vo VDT  -version</b>
+voms-admin v1.2.13-1
+server side is v1.2.15
+</pre>
+
+If the versions do not display, then there is a problem with either the web interface or the VOMS server.
+
+---++Securing your server
+All access to VOMS is through apache and tomcat, even the command line <i>voms-admin</i> command.  To secure your server and require only authenticated access, run the following command.
+
+<pre class="screen">
+&gt; <b>source $VDT_LOCATION/setup.sh</b>
+&gt; <b>$VDT_LOCATION/vdt/setup/configure_apache --secure</b>
+&gt; <b>/etc/init.d/apache restart</b>
+restart
+</pre>
+
+---++Securing the <nop>MySQL database
+The installation does <b>not</b> set the <i>root</i> password for the <nop>MySQL database used by VOMS.  
+
+%NOTE% Once the <i>root</i> password is set, you will be prompted for your password on all subsequent =configure_voms= and =voms-admin= admin commands.
+
+To set the <i>root</i> password:
+
+<pre class="screen">
+&gt; <b>source $VDT_LOCATION/setup.sh</b>
+&gt; <b>mysqladmin -uroot  password 'YOUR_ROOT_PASSWORD'</b>
+</pre>
+
+
+---++Configuring VOMS - the configure_voms script
+The <i>$VDT_LOCATION/vdt/setup/configure_voms</i> script has been provided for creating and removing VOs from VOMS.
+
+You may be wondering why you are being told about this script before describing the installation process.  During the VOMS installation process, this script is executed and creates a 'test' VO called <i>VDT</i>.  After the installation completes, the verification process  uses this <i>VDT</i> test VO to determine the success of the installation.  By reviewing this section of the documentation now, you will be more aware of what to look for when you create your own VO(s).
+
+The <i>configure_voms</i> script is also used to remove any VOs that are no longer needed and will be documented here as well.
+
+---+++Creating a VO
+All VOs should be created using the <i>configure_voms</i> script.
+
+Syntax:
+<pre>
+configure_voms --server &lt y,n &gt
+               --vo &lt vo name &gt
+               --mail-from &lt from address on voms mail &gt
+               --smtp-host &lt outgoing smtp host &gt
+               --vdt-install &lt VDT installation root &gt
+</pre>
+
+%NOTE% The =$VDT_LOCATION/vdt-install.log= contains all messages from its execution not visible in stdout/err on the command line.
+
+
+The <i>configure_voms</i> script does the following (note: the examples that follow show the files for the <i>VDT</i> test VO that is created):
+<ol>
+  <li>Creates a <nop>MySql database called <i>voms_VDT</i>.
+<pre class="screen">
+&gt; <b>mysql -uroot</b>
+mysql&gt; <b>show databases;</b>
++----------------+
+| Database       |
++----------------+
+| mysql          |
+| test           |
+| voms_VDT       |
++----------------+
+</pre>
+  </li>
+  <li>Creates all the necessary VOMS configuration files for your VO.
+<pre>
+> ls <b>$VDT_LOCATION/vdt-app-data/voms  </b>
+-rw-r--r--    1 root    root        5 Sep  1 10:45 last_port   <em>(Maintains the last port number 
+                                                                assigned a  VO's server)</em>
+drwxr-xr-x    6 root    root     4096 Sep  1 10:45 voms        <em>(VOMS server configuration data
+                                                                for each VO)</em>
+drwxr-xr-x    6 root    root     4096 Sep  1 10:45 voms-admin  <em>(WEB UI configuration data for 
+                                                                each VO)</em>
+drwxr-xr-x    2 root    root     4096 Sep  1 10:45 vomses      <em>(voms-proxy-init configuration file 
+                                                                for each VO)</em>
+
+> ls <b>$VDT_LOCATION/vdt-app-data/voms/voms/VDT</b>
+-rw-r-----    1 daemon  daemon    367 Aug 31 23:06 voms.conf
+-rw-r-----    1 daemon  daemon     23 Aug 31 23:05 voms.pass
+ 
+> ls <b>$VDT_LOCATION/vdt-app-data/voms/voms-admin/VDT</b>
+-rw-r--r--    1 root    daemon    946 Aug 31 23:05 voms-admin-VDT.xml
+-rw-r-----    1 daemon  daemon    921 Aug 31 23:05 voms.database.properties
+-rw-r--r--    1 root    root     9354 Aug 31 23:06 voms.service.properties
+-rw-r--r--    1 root    daemon     95 Aug 31 23:05 vomses
+
+> ls <b>$VDT_LOCATION/vdt-app-data/voms/vomses</b>
+-rw-r--r--    1 root     root          100 Aug 31 23:06 VDT    <em>(voms-proxy-init configuration file
+                                                                for the VDT VO)</em>
+
+&gt <b>cat VDT</b>
+"VDT" "cms-xen3.fnal.gov" "15000" "/DC=org/DC=doegrids/OU=Services/CN=cms-xen3.fnal.gov" "VDT" "32"
+</pre>
+
+  </li>
+  <li>Updates the apache, tomcat and glite configuration files for the new VOMS VO.</li>
+  <li>Restarts all the necessary services including the VOMS server.</li>
+  <li>A Global-ACL is created for the HOST certificate for this server with <i>allow all</i> capabilities.  This lets the <i>root</i> user on this machine update the VOMS VO using the =voms-admin= command, so <i>root</i> is, in effect, already a VO-Admin  in this VO.  It is not, however, a member of the VO, which is an important distinction. %BR% %BR% This <i>root</i> user capability can be removed after an individual  is assigned the VO-Admin role as described in the next section. </li>
+</ol>
+
+Many default values were applied during this process.  The values applied can  be viewed in the 
+<i>$VDT_LOCATION/vdt-install.log</i> and searching for 'This is voms-admin-configure'.
+
+
+---+++Removing a VO 
+The <i>configure_voms</i> script is also used to remove a VO from the VOMS installation:
+
+<pre class="screen">
+&gt; <b>source  $VDT_LOCATION/setup.sh</b>
+&gt; <b>$VDT_LOCATION/vdt/setup/configure_voms  -vo &lt vo name &gt  --remove</b>
+</pre>
+
+No output indicates success, hopefully.
+
+%NOTE% If you have set the <i>root</i> password for <nop>MySQL, you will be prompted for the password when you execute the script.
+
+The script will:
+   * stop the VO's VOMS server, 
+   * remove the associated !MySql database, 
+   * remove all configuration files for the VO
+   * restart tomcat and apache
+
+
+---++Enabling a VOMS VO - the voms-admin command
+Several things have to be done to actually enable your VO to begin accepting membership, used for voms proxy generation, and used for the Compatibility and Full  Privilege [[OsgCEAuthorization][authorization modes]] on compute (CE) and storage (SE) element  nodes.
+
+The following sub-sections will reference the default <i>VDT</i> in the text and examples.  When enabling your 'real' VO, the same steps are required and, where different, it will be noted.
+
+
+---+++Establishing a VO-Admin
+A person (or persons) can be designated as the VO-Admin for the VOMS VO created.  This person(s) has administrative capability within VOMS that the normal VO member will not have.  
+
+There are 2 options for adding this capability to an individual:
+
+<ol>
+  <li>The individual <u>is not</u> a member of the VO.   A Global-ACL for that individual with <i>allow all</i> capability allows a person to administer the VO's VOMS from the command line and WEB UI.
+    <ul>
+      <li>Individual's certificate file is available:
+<pre class="screen">
+&gt; <b>source $VDT_LOCATION/setup.sh</b>
+&gt; <b>voms-admin -vo <em>VO</em> add-acl-entry Global-ACL \
+        allow all <em>usercert.pem</em></b>
+</pre>
+      </li>
+      <li>Individual's certificate file is <u>not</u> available:
+<pre class="screen">
+&gt; <b>voms-admin -vo <em>VO</em>  -nousercert  add-acl-entry  Global-ACL \
+  allow all \
+ "<em>USER DN</em>" "<em>USER CA</em>"</b>
+</pre>
+      </li>
+    </ul>
+  </li>
+  <li>The individual <u>is</u> a member of the VO.  This can be accomplished by giving the individual the Global-ACL capability above or by first adding them to the VO as a member (described in the next section) and then assigning them the <i>VO-Admin</i> role with the following command:
+    <ul>
+      <li>Individual's certificate file is available:     
+<pre class="screen">
+&gt; <b>voms-admin -vo <em>VO</em> assign-role  <em>GROUP</em> \
+                 VO-Admin <em>usercert.pem</em></b>
+</pre>
+	  </li>
+      <li>Individual's certificate file is <u>not</u> available:
+<pre class="screen">
+&gt; <b>voms-admin -vo <em>VO</em> assign-role  <em>GROUP</em> \
+                 VO-Admin  \
+                 "<em>USER DN</em>" "<em>USER CA</em>"</b>
+</pre>
+	  </li>
+    </ul>
+  </li>
+</ol>
+
+---+++Adding  a user to the VO
+Individuals with the <i>VO-Admin</i> role or the  <i>allow all</i> Global-ACL are referred to as VO Managers in VOMS and are the only ones who can add new members via the web UI.
+
+In normal practice, users will request VO membership by accessing the <i>New user registration</i> menu item on the main VOMS web page.  This document will not go into the details of that process here, nor will it address the basic usage and navigation of the VOMS web ui.
+
+The purpose of this section is to show you how to add a user for the purposes of assigning the <i>VO-Admin</i> role as a part of the initial setup.   
+
+Four data items are required for each user:
+   * DN
+   * CA
+   * Common Name (CN part of the DN or just 1st and last name so you can be easily identified)
+   * email address 
+
+
+If you have the user's certificate file available, then these 4 items are derived from that.
+<ul>
+  <li>Individual's certificate file is available:     
+<pre class="screen">
+&gt; <b>voms-admin -vo <em>VO</em> add-member  \
+       <em>GROUP</em>  <em>usercert.pem</em></b>
+</pre>
+  </li>
+  <li>Individual's certificate file is <u>not</u> available:
+<pre class="screen">
+&gt; <b>voms-admin -vo <em>VO</em> add-member  \
+       <em>GROUP</em>   \
+       "<em>USER DN</em>" "<em>USER CA</em>"  \
+       "<em>USER CN</em>" <em>USER EMAIL</em>"</b>
+</pre>
+  </li>
+</ul>
+
+If you have added the user for the purpose of assigning the <i>VO-Admin</i> role, you will want to re-visit [[VomsWhatToDo#Establishing_a_VO_Admin][Establishing a VO-Admin]] to assign the role.
+
+
+---+++Verifying you are a VO-Admin
+If you've established yourself with the <i>VO-Admin</i> role or with the <i>allow all</i> Global-ACL, you can now go back the VOMS web ui in a browser with your certificate and from the main menu:
+   1. Under <i>For VO Managers</i>, select <i>Administer the VO</i>
+   1. Then, select <i>Global ACL</i>
+
+You should no longer see the <i>Access Denied</i> error and should be able to see the Global-ACL's  that have been created.   As a <i>VO-Admin</i>, you can do anything you want.  
+
+%NOTE% A user with the <i>VO-Admin</i> role only has these privileges in the VOMS web ui.  The command line <i>voms-admin</i>  does not authorize using the VOMS roles.  It allow <i>voms-admin</i> command line capability, you must establish a Global-ACL with the capability you desire.  By default, only the <i>root</i> user has this on initial installation.
+
+
+---+++Enabling read-only access to your VO
+Another Global-ACL needs to be created with <i>allow list</i> capabilities for anyone that presents a certificate issued by a known VO.  The purpose for this is two-fold:
+   * Those sites using [[GumsAdmins][GUMS servers]] will be able to access your VO without the VO-Admin having to individually provide this  Global-ACL capability on a case by case basis.  
+   * It allows VO members or (those that think they are VO members) to query the VOMS to troubleshoot problems in getting voms proxies and verify their membership in various groups and role assignments. 
+
+To enable read-only access, execute the following command:
+
+<pre class="screen">
+&gt; <b>source $VDT_LOCATION</b>
+&gt; <b>voms-admin --vo <em>VO</em>  --nousercert add-acl-entry \
+   Global-ACL allow list \
+   "/O=VOMS/O=System/CN=Any Authenticated User" \
+   "/O=VOMS/O=System/CN=Dummy Certificate Authority"</b>
+</pre>
+
+
+---++Testing access to your VO's VOMS server
+There are several functions on the grid that access your VOMS VO:
+   1. voms proxy generation through =voms-proxy-init= command
+   1. grid-mapfile generation on the CE nodes
+      * <i>edg-mkgridmap</i> for Grid3 authorization mode</UL>
+   1. GUMS  interface for Compatibility and Full Privilege authorization modes
+
+---+++ Testing voms-proxy-init
+The =voms-proxy-init= client command was included in the installation. It uses a configuration file containing the necessary arguments to access a VO's VOMS server. On the VOMS server node, this file is  located in the =$VDT_LOCATION/glite/etc/vomses= directory and looks like this for the <i>VDT</i> VO:
+
+<pre class="screen">
+&gt; <b>cd $VDT_LOCATION/glite/etc</b>
+&gt; <b>ls -ld vomses</b>
+lrwxrwxrwx    1 root     root           44 Sep  4 23:03 vomses -> /usr/local/osg-voms/vdt-app-data/voms/vomses
+
+&gt; <b>cat vomses/VDT</b>
+"VDT" "cms-xen3.fnal.gov" "15000" "/DC=org/DC=doegrids/OU=Services/CN=cms-xen3.fnal.gov" "VDT" "32"
+</pre>
+
+Tokens in the above =vomses/VDT= file:
+   1. Considered a "nickname"  and , although the default is the VO name, it can be any value you desire to identify the VO you wish to get a proxy from.
+   1. The hostname of the voms server
+   1. Port number the server is listening on.
+   1. DN of the server's VOMS certificate
+   1. VO name
+   1. Globus version supported
+
+The <i>vomses</i> file syntax/values for each VO you create, can be viewed on the WEB UI of  your VO by selecting <i>Configuration information</i> on the left hand menu of the main page.
+
+On the server, there is no need to create a <i>$HOME/.glite/vomses</i> file containing the VOMS servers you wish to access.  The <i>voms-proxy-init</i> command will search the <i>vomses</i> directory on this server for this file. 
+
+To test the =voms-proxy-init= command, make sure that you have already added yourself as a member of the VO. As yourself (not <i>root</i> user), run the following commands:
+
+<pre class="screen">
+&gt; <b>source $VDT_LOCATION/setup.sh</b>
+&gt; <b>voms-proxy-init --voms VDT:/VDT</b>
+<em>...output follows.. </em>
+Cannot find file or dir: $prefix/etc/vomses
+Your identity: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+Enter GRID pass phrase: <b><em>[PASSPHRASE]</em></b>
+Creating temporary proxy ............................................... Done
+Contacting  cms-xen3.fnal.gov:15000 [/DC=org/DC=doegrids/OU=Services/CN=cms-xen3.fnal.gov] "VDT"  Done
+Creating proxy ................................. Done
+Your proxy is valid until Tue Sep  5 23:03:02 2006
+</pre>
+
+A couple of things about the output shown above that you might want to be aware of:
+   * The warning about not finding a <i>$prefix/etc/vomses</i> is not a problem.  It should have already picked up the VO server from the <i>$VDT_LOCATION/glite/etc/vomses/VDT</i> file.  This may be a legacy PATH when the vomses file was in <i>$VDT_LOCATION./voms/etc/vomses</i>.
+   * The "temporary proxy" it generates is the good old grid proxy.  This is used for the access to VOMS and, as it says, just temporary.
+
+To verify the output of the voms proxy has the extended attributes the VOMS service provides, run the =voms-proxy-info= command as shown below. The extended attribute and location of the proxy file are highlighted in the output:
+
+<pre class="screen">
+&gt; <b>voms-proxy-info --all</b>
+<em>... output follows....</em>
+WARNING: Unable to verify signature! Server certificate possibly not installed.
+Error: Cannot find certificate of AC issuer for vo VDT
+subject   : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491/CN=proxy
+issuer    : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+identity  : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+type      : proxy
+strength  : 512 bits
+path      : /tmp/x509up_u9789
+timeleft  : 11:59:36
+=== VO VDT extension information ===
+VO        : VDT
+subject   : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+issuer    : /DC=org/DC=doegrids/OU=Services/CN=cms-xen3.fnal.gov
+attribute : /VDT/Role=NULL/Capability=NULL
+timeleft  : 11:59:36
+</pre>
+
+Again, ignore the <i>WARNING</i> and <i>Error</i> in the output above, as all is fine.
+
+
+Now try one for a group you do not belong to, e.g., _/MyGroup_:
+
+<pre class="screen">
+&gt; <b>voms-proxy-init --voms VDT:/MyGroup</b>
+<em>...output follows.. </em>
+Cannot find file or dir: $prefix/etc/vomses
+Your identity: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+Enter GRID pass phrase: <b>[PASSWORD]</b>
+Creating temporary proxy .......................................... Done
+Contacting  cms-xen3.fnal.gov:15000 [/DC=org/DC=doegrids/OU=Services/CN=cms-xen3.fnal.gov] "VDT" Failed
+
+Error: VDT: Unable to satisfy G/MyGroup Request!
+
+Failed to contact servers for VDT.
+</pre>
+
+%NOTE% If a subsequent attempt at a voms proxy fails, as ours did here, the previously generated proxy is still in effect. You can do another <i>voms-proxy-info --all</i> to verify this.
+
+
+
+---+++ Testing edg-mkgridmap
+The <i>edg-mkgridmap</i> is run on a site's Compute Element (CE) node to generated a <i>grid-mapfile</i> file.  This script is not provided as a part of the VOMS installation, so you will have to go a CE node to test this.  You do not have to be the <i>root</i> user on the CE node, but you will need to have a personal certificate available.
+
+The <i>mkgridmap</i> file syntax/values for each VO you create, can be viewed on the WEB UI for your VO by selecting <i>Configuration information</i> on the left hand menu of the main page.
+
+<pre class="programlisting">
+group vomss://cms-xen3.fnal.gov:8443/voms/VDT  .VDT
+</pre>
+
+%NOTE% The <i>.VDT</i> (3rd token) is an EDG format for the account name.   You will likely want to change it to the group account you want assigned for your CE node.  The example above is for a <i>group</i> account assignment.
+
+To test, you will need to do this on a CE node.
+
+<ul>
+  <li>In some writable area, create a <i>edg-mkgridmap.conf</i> file and populate it with the example configuration file on your VOMS server.  It will be the only entry.
+<pre class="screen">
+&gt; <b>echo 'group vomss://cms-xen3.fnal.gov:8443/voms/VDT  .VDT' >./edg-mkgridmap.conf</b>
+</pre>
+  </li>
+  <li>Execute the edg-mkgridmap allowing the output to go to stdout:
+<pre class="screen">
+&gt; <b>source $VDT_LOCATION/setup.sh</b>
+&gt; <b>edg-mkgridmap --conf ./edg-mkgridmap.conf </b>
+  Enter PEM pass phrase: 
+  <b><em>... enter your pass phrase...</em></b>
+  <em>... output follows ...</em>
+  "/DC=org/DC=doegrids/OU=People/CN=John Weigand 458491" .VDT
+  "/DC=org/DC=doegrids/OU=Services/CN=cms-xen3.fnal.gov"  .VDT
+</pre>
+  </li>
+</ul>
+
+
+---+++ Testing the GUMS interface
+The GUMS authorization server periodically 'pulls' the VO membership data for it's authorization and account assignment  functions from the various VO's VOMS servers.  
+
+Unfortunately, there is no way of testing this except with an installed GUMS server which this document does not address.
+
+
+#ShutdownGuide
+---++ Shutdown Guide
+The OSG VOMS starts up several processes.  If you try to re-install/upgrade the OSG VOMS without shutting them down it will fail.  Run the following commands to turn off the OSG VOMS 0.5.0 services before upgrading:
+
+<pre class="screen">
+> <b>/etc/init.d/apache stop</b>
+> <b>/etc/init.d/tomcat-5  stop</b>
+> <b>/etc/init.d/voms stop</b>
+> <b>/etc/init.d/mysql stop</b>
+</pre>
+
+With OSG VOMS 0.5.0, CRL updates are no longer performed using the <i>edg-crl-upgraded</i> daemon.  A <i>root</i> cron job now performs this task.  You should probably turn off this cron entry.
+
+<pre class="programlisting">
+    6 1 * * * YOUR_VDT_LOCATION/fetch-crl/share/doc/fetch-crl-2.6.0/fetch-crl.cron
+</pre>
+
+If you are upgrading from a release prior to 0.5.0, you should also stop the following process and remove it from your =/etc/init.d= directory (assuming you activate it):
+
+<pre class="screen">
+> <b>/etc/init.d/edg-crl-upgraded stop</b>
+</pre>
+
+%STOPINCLUDE%
+
+
+%BOTTOMMATTER%
+<!--Future editors should add their signatures beneath yours!-->
+-- Main.AlanSill - 29 Sep 2005<br>
+-- Main.AnneHeavey - 18 May 2005<br>
+-- Main.JohnWeigand - 13 May 2005<br>
+-- Main.JohnWeigand - 14 Jun 2005 - added reference for requesting http certificates<br>
+-- Main.JohnWeigand - 28 Feb 2006 - updated for OSG 0.3.6 release<br>
+-- Main.RobQ - 01 May 2006 %BR%
+-- Main.JohnWeigand - 05 Sep 2005 - updated for OSG 0.5.0 %BR%
+
+
+%META:TOPICMOVED{by="ForrestChristian" date="1166058324" from="Integration.VomsWhatToDo050" to="Integration/ITB_0_5.VomsWhatToDo"}%
