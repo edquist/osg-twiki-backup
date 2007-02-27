@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1172261800" format="1.1" reprev="1.3" version="1.3"}%
+%META:TOPICINFO{author="JohnWeigand" date="1172593820" format="1.1" reprev="1.4" version="1.4"}%
 %META:TOPICPARENT{name="CEInstallGuide"}%
 %LINKCSS%
 
@@ -9,15 +9,116 @@
 ---++CE Troubleshooting Guide 
 %EDITTHIS%
 
-As you install, monitor the $VDT_LOCATION/vdt-install.log.  
+%INCLUDE{"CELogFiles"}%
 
-   * If pacman tries to retrieve something from a website that's having problems, you'll get an error message that's unrelated to the real problem because pacman can't recognize 404 errors when downloading tarballs.  For example, when the PRIMA download site was down, it told us the file wasn't in the correct format:
-<pre>
-vdt-untar is untarring prima-0.3.x86_rh_9.tar.gz
-gzip: stdin: not in gzip format 
+---+++ CE pre-ws client side errors
+There may be several reasons causing a client side error condition.  These are a list of the known ones.
+
+---++++ error code 47
+The user was authorized to submit a job, but the UNIX account assigned did not exist.
+<pre class="screen">
+> globus-job-run cms-xen1.fnal.gov:2119/jobmanager-fork /bin/date
+GRAM Job submission failed because the gatekeeper failed to run the job manager (error code 47)
+</pre>
+The =VDT_LOCATION/globus/var/globus.gatekkeeper.log= will show:
+<pre class="programlisting">
+TIME: Tue Feb 27 09:51:34 2007
+ PID: 16564 -- Failure: getpwname() failed to find uscmspool591
 </pre>
 
-%INCLUDE{"CELogFiles"}%
+---+++ CE web services client side errors
+---++++ error code 200
+The user was authorized to submit a job, but the CE nodes =/etc/sudoers= file is misconfigured.
+<pre class="screen">
+> globusrun-ws -submit -F cms-xen1.fnal.gov:9443 -Ft Fork -c /bin/date
+Submitting job...Done.
+Job ID: uuid:5d85bb28-c67c-11db-ac3b-00163e010001
+Termination time: 02/28/2007 16:05 GMT
+Current job state: Failed
+Destroying job...Done.
+globusrun-ws: Job failed: Error code: 200
+Sudo is misconfigured to run the globus-job-manager-script.pl script for user uscmspool591.
+ERROR: Job FAILED with return code (255)
+</pre>
+The =VDT_LOCATION/globus/var/container-real.log= will show:
+<pre class="programlisting">
+2007-02-27 10:02:32,138 INFO  exec.StateMachine [RunQueueThread_15,logJobAccepted:3492] 
+     Job ee6b5450-c67b-11db-8fab-bf5150c2cbdd accepted for local user 'uscmspool591'
+2007-02-27 10:02:32,260 WARN  
+     exec.StateMachine [RunQueueThread_15,createFaultFromErrorCode:3264] 
+     Unhandled fault code 200
+</pre>
+The misconfiguration is likely associated with first entry in the =sudoers= file which is associated with authorizations for the globus-ws container user:
+<pre class="programlisting">
+/usr/local/osg-ce/globus/libexec/globus-job-manager-script.pl *
+</pre>
+
+---++++ error code 201
+The user was authorized to submit a job, but the UNIX account assigned did not exist.
+<pre class="screen">
+> globusrun-ws -submit -F cms-xen1.fnal.gov:9443 -Ft Fork -c /bin/date
+Submitting job...Done.
+Job ID: uuid:099303dc-c67b-11db-a358-00163e010001
+Termination time: 02/28/2007 15:56 GMT
+Current job state: Failed
+Destroying job...Done.
+globusrun-ws: Job failed: Error code: 201
+Script stderr:
+/usr/bin/sudo: no passwd entry for uscmspool591!
+ERROR: Job FAILED with return code (255)
+</pre>
+The =VDT_LOCATION/globus/var/container-real.log= will show:
+<pre class="programlisting">
+2007-02-27 10:02:32,138 INFO  exec.StateMachine [RunQueueThread_15,logJobAccepted:3492] 
+     Job ee6b5450-c67b-11db-8fab-bf5150c2cbdd accepted for local user 'uscmspool591'
+2007-02-27 10:02:32,260 WARN  
+     exec.StateMachine [RunQueueThread_15,createFaultFromErrorCode:3264] 
+     Unhandled fault code 201
+</pre>
+
+---++++ Invalid file permissions on stdout
+The user was authorized to submit a job, but the CE nodes =/etc/sudoers= file is misconfigured.
+This only error will only occur when output is "streamed" back to the client as either stdout/stderr or in the form of a file.
+<pre class="screen">
+> globusrun-ws -submit -F cms-xen1.fnal.gov:9443 -Ft Fork -s -c /bin/date
+       <b>...or....</b>
+> globusrun-ws -submit -F cms-xen1.fnal.gov:9443 -Ft Fork -s -job-description-file /tmp/myjob
+ 
+Delegating user credentials...Done.
+Submitting job...Done.
+Job ID: uuid:fd40d51c-c67c-11db-ae39-00163e010001
+Termination time: 02/28/2007 16:10 GMT
+Current job state: Failed
+Destroying job...Done.
+Cleaning up any delegated credentials...Done.
+globusrun-ws: Job failed: Invalid file permissions on stdout /fd40d51c-c67c-11db-ae39-00163e010001.0.stdout.
+starter: the job manager failed to open stdout
+ERROR: Job FAILED with return code (255)
+</pre>
+The =VDT_LOCATION/globus/var/container-real.log= will show:
+<pre class="programlisting">
+2007-02-27 10:10:11,655 INFO  authorization.ServiceAuthorizationChain 
+      [RunQueueThread_1,authorize:285] Authorized "/DC=org/DC=doegrids/OU=People/CN=John Weigand 458491"
+       to invoke "{http://www.globus.org/namespaces/2004/10/rft}start".
+2007-02-27 10:10:18,309 ERROR service.TransferWork [WorkThread-3389,run:724] Terminal transfer error:
+Error deleting a file
+ "/fd40d51c-c67c-11db-ae39-00163e010001.0.stdout" 
+  [Caused by: Server refused performing the request. Custom message: Server refused deleting file (error code 1) 
+  [Nested exception message:  Custom message: Unexpected reply: 500-Command failed : 
+  globus_gridftp_server_file.c:globus_l_gfs_file_delete:724:
+500-System error in unlink: No such file or directory
+500-A system call failed: No such file or directory
+500 End.]]
+Error deleting a file
+ "/fd40d51c-c67c-11db-ae39-00163e010001.0.stdout"
+<b>.... followed by a java stacktrace.....</b>
+</pre>
+The misconfiguration is likely associated with second entry in the =sudoers= file which is associated with the processing of the delegated proxy for the globus-ws container user:
+<pre class="programlisting">
+/usr/local/osg-ce/globus/libexec/globus-gram-local-proxy-tool *
+</pre>
+%NOTE% After the =/etc/sudoers= file is corrected, a restart of the =globus-ws= container will be required to effect the change.
+
 
 %STOPINCLUDE%
 %WHU%
