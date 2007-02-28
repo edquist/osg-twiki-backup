@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="CraigPrescott" date="1172258571" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="CraigPrescott" date="1172637222" format="1.1" version="1.8"}%
 %META:TOPICPARENT{name="Sandbox.TierThreePrerequisiteDocument"}%
 ---++Introduction
 PBS stands for "Portable  Batch System".  It is a popular networked subsystem for submitting, monitoring, and controlling a work load of batch jobs on one or more systems.  PBS has a long history, and is available nowadays in three flavors: 
@@ -144,14 +144,26 @@ d173 1
 ---++ Configuring SSH for PBS
 Now restart sshd with <code>/etc/init.d/sshd restart</code>.  Copy the <code>/etc/ssh/ssh_config</code>, <code>/etc/ssh/sshd_config</code>, <code>/etc/ssh/ssh_known_hosts</code>, and <code>/etc/hosts.equiv</code> files to each of your compute nodes and restart sshd there, too.  You should now be able to authenticate as a normal user between hosts across your cluster without having to enter a password.
 
-The Torque configuration files live underneath <code>/var/spool/torque</code> by default.  Underneath this directory, you will see the following files and subdirectories:
+---++ Configuring the Head Node 
+
 Here, we will initialize the server and create some queues.  You will need to do these steps *as root*.  My recommendation is to create a routing queue which can submit jobs to one or more execution queues, where the jobs will actually run.  The presence of the routing queue will allow some flexibility in the case you wish to have multiple execution queues.
+In the "usual" case, where a dual-homed head node has a public interface exposed to the WAN and a private interface dedicated for LAN traffic, it makes sense to configure Torque to use the LAN interface.  I will assume this is the case.  
+
+You will need to run the server and scheduler services.  Often, MOM is not run on the head node, as head nodes typically offer lots of key cluster infrastructure services like NFS, DNS, LDAP/NIS, etcetera; allowing compute and memory-intensive jobs to run on the head node can have adverse effects upon the entire cluster.  So feel free to simply turn MOM off on the head node:
+
 You will need to run the server and scheduler services.  In my experience, MOM is not usually run on the head node, as head nodes usually have plenty to do already.  They typically offer lots of key cluster infrastructure services like NFS, DNS, LDAP/NIS, etcetera; allowing compute and memory-intensive jobs to run on the head node can have adverse effects upon the entire cluster.  So feel free to simply turn MOM off on the head node:
+
+<verbatim>
+chkconfig pbs_mom off
+</verbatim>
+
+If you wish to allow your head node to run jobs, you should make sure the <code>/var/spool/torque/server_name</code> file contains the hostname corresponding the LAN address of your head node.
+
+The Torque configuration files live underneath <code>/var/spool/torque</code> by default.  On the head node, you will see the following files and subdirectories underneath <code>/var/spool/torque</code>:
 
 <verbatim>
 aux/         mom_logs/  pbs_environment  sched_priv/   server_name   spool/
 checkpoint/  mom_priv/  sched_logs/      server_logs/  server_priv/  undelivered/
-d169 35
 In the configuration steps which follow, we will be poking around this area on the head and compute nodes.
 
 ---+++ PBS Server
@@ -191,11 +203,76 @@ qmgr -c 'set queue batchq started = true'
 qmgr -c 'set queue batchq enabled = true'
 qmgr -c 'set server resources_default.nodes = 1'
 
+</verbatim>
+d284 1
+Start the scheduler *as root* with <code>/etc/init.d/pbs_sched start</code>.  The scheduler logs will go to <code>/var/spool/torque/sched_logs/<yyyymmdd></code>; each day will have its own scheduler log.
+
 
 where <code>&lt;hostname&gt;</code> is the same hostname you used for the <code>pbs_server</code> setup.  This is a dirty trick.  But the fact is that the built-in Torque scheduler will only listen on the interface that corresponds to the output of <code>gethostname</code>, so the gloves may have to come off.
+
+Start the scheduler *as root* with <code>/etc/init.d/pbs_sched start</code>.  The scheduler logs will go to <code>/var/spool/torque/sched_logs/&lt;yyyymmdd&gt;</code>; each day will have its own scheduler log.
+
+---++ Configuring the Compute Nodes
+
+As mentioned above, <code>/var/spool/torque/server_name</code> on each compute node needs to contain the correct value for the PBS server hostname.  Additional MOM configuration directives can be entered into <code>/var/spool/torque/mom_priv/config</code>.  For now, we will not put anything into the MOM config file, but we do need to create it or the MOM startup will complain.  *As root*, do the following:
+
+The MOM logs will go to  <code>/var/spool/torque/mom_logs/<yyyymmdd></code> (one log file per day).
+touch /var/spool/torque/mom_priv/config
 /etc/init.d/pbs_mom start
 </verbatim>
+
+The MOM logs will go to  <code>/var/spool/torque/mom_logs/&lt;yyyymmdd&gt;</code> (one log file per day).
+
+---++ Adding Compute Nodes to PBS
+
+Now we are ready to add compute nodes to the batch system.  Go back to the head node, and *as root* add compute nodes via <code>qmgr</code>:
+where <code><fqdn></code> is the fully qualified domain name of your compute node and <code><ncpus></code> is the number of processors it has.  Do this for each compute node you want to add to PBS.
+<verbatim>
 qmgr -c 'create node <fqdn> np=<ncpus>' 
+</verbatim>
+
+where <code>&lt;fqdn&gt;</code> is the fully qualified domain name of your compute node and <code><ncpus></code> is the number of processors it has.  Do this for each compute node you want to add to PBS.
+
+---++ Testing the Installation
+---+++ Query the Server and Queue Configuration
+
+The following command will dump the server and queue configuration to stdout:
+
+<verbatim>
+qmgr -c 'print server'
+</verbatim>
+
+You should see something similar to:
+
+<verbatim>
+#
+# Create queues and set their attributes.
+#
+#
+# Create and define queue defaultq
+#
+create queue defaultq
+set queue defaultq queue_type = Route
+set queue defaultq route_destinations = batchq
+set queue defaultq enabled = True
+set queue defaultq started = True
+#
+# Create and define queue batchq
+#
+create queue batchq
+set queue batchq queue_type = Execution
+set queue batchq enabled = True
+set queue batchq started = True
+#
+# Set server attributes.
+#
+set server scheduling = True
+set server log_events = 511
+set server mail_from = adm
+set server query_other_jobs = True
+set server resources_default.ncpus = 1
+set server resources_default.nodes = 1
+set server scheduler_iteration = 600
 set server node_check_rate = 150
 The <code>qstat</code> command is used to display queue and job status.  By itself, if will print out the list of jobs that are in the queue, and their status.  <code>qstat</code> has a number of interesting options - see <code>man qstat</code> for more info.  Since we don't have any jobs running yet, <code>qstat</code> won't show us anything too interesting.
 ---+++ Submitting a Job
