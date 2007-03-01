@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="CraigPrescott" date="1172702832" format="1.1" reprev="1.11" version="1.11"}%
+%META:TOPICINFO{author="CraigPrescott" date="1172715029" format="1.1" version="1.12"}%
 %META:TOPICPARENT{name="Sandbox.TierThreePrerequisiteDocument"}%
 ---++Introduction
 PBS stands for "Portable  Batch System".  It is a popular networked subsystem for submitting, monitoring, and controlling a work load of batch jobs on one or more systems.  PBS has a long history, and is available nowadays in three flavors: 
@@ -169,21 +169,17 @@ In the configuration steps which follow, we will be poking around this area on t
 ---+++ PBS Server
 
 We can initialize the batch system thusly:
-pbs_server -t create [-h <hostname>]
+
 <verbatim>
 pbs_server -t create [-h <hostname>] [-S <hostname>] [-M <hostname>]
-The <code>-h &lt;hostname&gt;</code> option is only needed if the hostname corresponding to your head node's LAN address is *not* the same as the output of the <code>hostname</code> command.  In this case, you will also want to create <code>/etc/sysconfig/pbs_server</code> with the following contents:
+</verbatim>
 
 The <code>-h &lt;hostname&gt;</code>, <code>-M &lt;hostname&gt;</code> and <code>-S &lt;hostname&gt;</code> options are only useful if the hostname corresponding to your head node's LAN address is *not* the same as the output of the <code>hostname</code> command; these options tell the server to use the supplied <code>&lt;hostname&gt;</code> for server, scheduler, and MOM communications, respectively.  In this case, you will also want to create <code>/etc/sysconfig/pbs_server</code> with the following contents:
-PBS_DAEMON="/usr/local/sbin/pbs_server -h <hostname>"
+PBS_DAEMON="/usr/local/sbin/pbs_server -h <hostname> -S <hostname> -M <hostname>"
 <verbatim>
 PBS_DAEMON="/usr/sbin/pbs_server -h <hostname> -S <hostname> -M <hostname>"
-where <hostname> is the same hostname you used when you created the server instance.  Once this is done, you can restart the <code>pbs_server</code> from the <code>init.d</code> script:
-
-<verbatim>
-/etc/init.d/pbs_server restart
 </verbatim>
-d189 2
+
 where <code>&lt;hostname&gt;</code> is the same hostname you used when you created the server instance.
 
 We can now configure the server.  This is done with the <code>qmgr</code> command.  If <code>qmgr</code> is executed without any options, it will put you in an interactive shell from which you can just type in PBS commands.  But you can also feed commands to <code>qmgr</code> with the <code>-c</code> option.  Let's turn on scheduling, create a routing queue and an execution queue, and take care of some defaults:
@@ -196,17 +192,30 @@ qmgr -c 'create queue batchq'
 qmgr -c 'set queue batchq queue_type = execution'
 qmgr -c 'set queue defaultq started = true'
 qmgr -c 'set queue defaultq route_destinations = batchq'
-qmgr -c 'set queue batchq queue_type = execution'
 qmgr -c 'set queue defaultq enabled = true'
 qmgr -c 'set server default_queue = defaultq'
 qmgr -c 'set queue batchq started = true'
 qmgr -c 'set queue batchq enabled = true'
 qmgr -c 'set server resources_default.nodes = 1'
 
+The last command permits users to query the status of all jobs in the queue - not just their own.  I think this is what most people expect and want, so I include it.
+
+Once this is done, you can restart the <code>pbs_server</code> from the <code>init.d</code> script:
+
+<verbatim>
+/etc/init.d/pbs_server restart
 </verbatim>
 d284 1
 ---+++ PBS Scheduler
 
+The scheduler configuration file can be found at =/var/spool/torque/sched_priv/sched_config=.  It is documented.  There is no need to change any of the values at this time, though.  If you ever do change them, be sure to restart the scheduler.
+The scheduler configuration file can be found at <code>/var/spool/torque/sched_priv/sched_config</code>.  It is documented.  There is no need to change any of the values at this time, though.  If you ever do change them, be sure to restart the scheduler.
+
+PBS_DAEMON="/bin/sh -c 'h=`hostname`; hostname <hostname> ; /usr/local/sbin/pbs_sched; hostname \$h'"
+
+<verbatim>
+PBS_DAEMON="/bin/sh -c 'h=`hostname`; hostname <hostname> ; /usr/sbin/pbs_sched; hostname \$h'"
+</verbatim>
 
 where <code>&lt;hostname&gt;</code> is the same hostname you used for the <code>pbs_server</code> setup.  This is a dirty trick.  But the fact is that the built-in Torque scheduler will only listen on the interface that corresponds to the output of <code>gethostname</code>, so the gloves may have to come off.
 
@@ -275,10 +284,6 @@ set server resources_default.nodes = 1
 set server scheduler_iteration = 600
 set server node_check_rate = 150
 set server tcp_timeout = 6
----+++ Querying Queue Status
-
-The <code>qstat</code> command is used to display queue and job status.  By itself, if will print out the list of jobs that are in the queue, and their status.  <code>qstat</code> has a number of interesting options - see <code>man qstat</code> for more info.  Since we don't have any jobs running yet, <code>qstat</code> won't show us anything too interesting.
-d303 2
 set server pbs_version = 2.1.7
 </verbatim>
 
@@ -299,7 +304,7 @@ invigo.local
 </verbatim>
 
 The state *free* means that the machine has capacity to run jobs, and *np* signifies the number of processors offerered.  
-A PBS job is just a script - typically, a shell script.  In each job script, you can tell things to PBS with special shell comments.  Fire up your favorite editor and let's create a job script with the following contents:
+
 ---+++ Creating and Submitting a Job
 
 A PBS job is just a script - typically, a shell script.  In each job script, you can tell things to PBS with special shell comments.  As a *normal user*, fire up your favorite editor and let's create a job script with the following contents:
@@ -315,7 +320,7 @@ A PBS job is just a script - typically, a shell script.  In each job script, you
 date
 hostname
 sleep 20
-I saved the above into a file called <code>testjob.job</code>.  As you can see, the job just runs the <code>date</code> command, the <code>hostname</code> command, sleeps for 20 seconds, and runs the <code>date</code> command again.  The funny <code>#PBS</code> comments at the top of the script are directives for PBS.  <code>#PBS -N</code> sets the job name.  <code>#PBS -o</code> sets the job <code>stdout</code> file, and <code>#PBS -e</code> sets the <code>stderr</code> file.  The <code>#PBS -M</code> directive sets the email address to use for job summary reports.
+date
 </verbatim>
 
 I saved the above into a file called <code>testjob.job</code>.  As you can see, the job just runs the <code>date</code> command, the <code>hostname</code> command, sleeps for 20 seconds, and runs the <code>date</code> command again.  The funny <code>#PBS</code> comments at the top of the script are directives for PBS.  <code>#PBS -N</code> sets the job name.  <code>#PBS -o</code> sets the job <code>stdout</code> file, and <code>#PBS -e</code> option sets filename for the <code>stderr</code> output.  The <code>#PBS -M</code> directive sets the email address to use for job summary reports.  Finally, the <code>#PBS -l walltime=00:01:00</code> is a resource request that asks PBS for one minute of walltime for the job.  There are many types of resource requests you can make - the job will be killed by PBS if it does not complete before that resource is exhausted.
@@ -323,7 +328,57 @@ I saved the above into a file called <code>testjob.job</code>.  As you can see, 
 You use the <code>qsub</code> command to submit the job to the batch system; just give qsub the name of your job script, like so:
 
 <verbatim>
----+++ Querying a Job
+qsub testjob.job
+</verbatim>
+
+The PBS id of the job will return to you on standard output.
+
+---+++ Querying Job and Queue Status
+
+The <code>qstat</code> program is used to query jobs and queue status.  If we just type <code>qstat</code>, we will see the job we just submitted (submit it again if it is already finished):
+
+<verbatim>
+Job id              Name             User            Time Use S Queue
+------------------- ---------------- --------------- -------- - -----
+0.osg               testjob          prescott               0 R batchq
+</verbatim>
+
+We see its full job ID, job name, user who submitted the job, how much time it has used, the state of the job (<code>R</code> means "running") and what queue
+it is running in.  In our setup, the job was routed by the routing queue into the "batchq" execution queue, where it currently runs.
+
+We can get oodles of information about a job with <code>qstat -f &lt;job_id&gt;</code>.  In our case, <code>qstat -f 0</code> yields:
+
+<verbatim>
+Job Id: 0.osg.local
+    Job_Name = testjob
+    Job_Owner = prescott@osg.local
+    job_state = R
+    queue = batchq
+    server = osg.local
+    Checkpoint = u
+    ctime = Wed Feb 28 20:37:21 2007
+    Error_Path = osg.hpc.ufl.edu:/home/prescott/testjob.err
+    exec_host = invigo.local/0
+    Hold_Types = n
+    Join_Path = n
+    Keep_Files = n
+    Mail_Points = a
+    Mail_Users = prescott@hpc.ufl.edu
+    mtime = Wed Feb 28 20:37:21 2007
+    Output_Path = osg.hpc.ufl.edu:/home/prescott/testjob.out
+    Priority = 0
+    qtime = Wed Feb 28 20:37:21 2007
+    Rerunable = True
+    Resource_List.nodect = 1
+    Resource_List.nodes = 1
+    Resource_List.walltime = 00:01:00
+    session_id = 1325
+    Variable_List = PBS_O_HOME=/home/prescott,PBS_O_LANG=en_US.UTF-8,
+        PBS_O_LOGNAME=prescott,
+        PBS_O_PATH=/usr/kerberos/bin:/usr/local/bin:/bin:/usr/bin:/usr/X11R6/
+        bin,PBS_O_MAIL=/var/spool/mail/prescott,PBS_O_SHELL=/bin/bash,
+        PBS_O_HOST=osg.hpc.ufl.edu,PBS_O_WORKDIR=/home/prescott,
+                          Exit_status=0 resources_used.cput=00:00:00
 ---++ Final Words
 
 Hopefully this note will help you get your Torque batch system up and running, and give you a bit of familiarity with the typical procedures and tools available.  If you have further questions, I highly recommend to look at the Admin Manual and numerous man pages included with the Torque packages, and to consult the <code>torqueuser</code> mailing list (archives at http://www.supercluster.org/pipermail/torqueusers/).  Torque is highly configurable; in this short tutorial, we have only done enough to get you started.  While what we've done so far may be perfectly adequate for many environments, you should be aware that configuration options exist to add user and group ACLs, resource attributes handy for heterogenous environments, optimizations for job output relay, multiple execution queues with their own scheduling priorities, considerations for running parallel jobs, dropping in of powerful third party schedulers such as Maui, etcetera.  Good luck!
