@@ -1,0 +1,207 @@
+%META:TOPICINFO{author="BenClifford" date="1174518727" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="MidwestSyllabus"}%
+<link rel="stylesheet" type="text/css" href="%PUBURL%/%WEB%/WorkshopTutorialModules/exercises.css">
+
+---+!! Tutorial: Grid Workflow
+%TOC%
+
+%STARTINCLUDE%
+---++ A simple DAG
+
+First, we will make a simple one-node dag.
+
+First make a simple condor submission file:
+
+d225 13
+<pre class="screen">
+$ <userinput>cat &gt; myjob.submit
+executable=/bin/echo
+arguments=hello world
+output=results.output
+error=results.error
+log=results.log
+notification=never
+universe=vanilla
+queue
+<em>Ctrl+D</em></userinput>
+</pre>
+
+and a simple DAG file:
+
+<pre class="screen">
+$ <userinput>cat &gt; mydag.dag
+Job HelloWorld myjob.submit
+<em>Ctrl+D</em></userinput>
+$ <userinput>cat mydag.dag</userinput>
+Job HelloWorld myjob.submit
+</pre>
+
+This DAG file defines a single job.
+
+We can run the DAG like this:
+
+<pre class="screen">
+condor_submit_dag mydag.dag
+</pre>
+
+and then you can watch your dag execute with:
+
+<pre class="screen">
+condor_q -dag
+</pre>
+
+There will be one condor job for the dag, and then another condor job for the Hello World job.
+
+When the DAG has run, you should see the output file:
+
+<pre class="screen">
+$ <userinput>cat results.output</userinput>
+Hello World
+</pre>
+
+---++ Dependencies in a DAG
+
+A DAG file can contain many jobs and information about which order to run the jobs.
+
+Make two more submit files, job2.sub and job3.sub by copying mydag.dag and changing the "hello world" message and the
+output=, error= and log= files to new names.
+
+Then make a new DAG file like this:
+
+<pre class="screen">
+$ <userinput>cat &gt; mydag.dag
+Job HelloWorld myjob.submit
+Job SecondJob job2.sub
+Job ThirdJob job3.sub
+PARENT HelloWorld CHILD SecondJob
+PARENT HelloWorld CHILD ThirdJob
+<em>Ctrl+D</em></userinput>
+</pre>
+
+This means that <nop>HelloWorld must run before <nop>SecondJob and <nop>ThirdJob. But it does not matter which order <nop>SecondJob and <nop>ThirdJob execute.
+
+Submit your dag:
+
+<pre class="screen">
+$ <userinput>  </userinput>
+<span class="out">  </span>
+</pre>
+
+
+
+---++ An FMRI application in DAGman
+
+In the following exercises, we will implement the FMRI workflow shown in the presentation.
+
+There are five applications: 
+   * align_warp
+   * reslice
+   * softmean
+   * slicer
+   * convert
+
+There are ten input data files, in pairs:
+   * anatomy1.img anatomy1.hdr
+   * anatomy2.img anatomy2.hdr
+   * anatomy3.img anatomy3.hdr
+   * anatomy4.img anatomy4.hdr
+   * reference.img reference.hdr
+
+   1. Align each anatomy pair with the reference pair, using =align_warp=.
+   1. Slice the results using =reslice=, giving two output files per pair.
+   1. Average the files  into a single data file (=atlas.l=) using =softmean= 
+
+---+++ Exercise: Process an input pair on the command line
+
+On the command line, process one pair of input files using align_warp:
+<pre class="screen">
+$ <userinput>align_warp reference.img anatomy1.img warp1.warp -m 12 -q </userinput>
+</pre>
+
+This will produce the output file =warp1.warp=.
+
+---+++ Exercise: Process an input pair using Condor
+
+   1. Write a condor _.sub_ file named =align_warp2.sub= that will process =anatomy2.img= and output to =warp2.warp=
+   1. Use =condor_submit= to run the job.
+   1. Check that the file =warp2.warp= was created.
+
+---+++ Exercise: Submit files for each job
+Now write _.sub_ files for:
+   * *align_warp*: to run align_warp on the four input files
+      * =align_warp1.sub=
+      * =align_warp2.sub=
+      * =align_warp3.sub=
+      * =align_warp4.sub=
+   * *reslice*: these must run reslice and generate corresponding resliced files
+      * =reslice1.sub=
+      * =reslice2.sub=
+      * =reslice3.sub=
+      * =reslice4.sub=
+
+For example:
+<pre class="screen">
+$ <userinput>reslice warp1.warp resliced1.img </userinput>
+</pre>
+
+This will output two files, =resliced1.hdr= and =resliced1.img=.
+
+---++++ softmean
+softmean runs only once, to combine each reslice file into a brain atlas. Write a submit file called softmean.sub to run the following
+
+<pre class="screen">
+$ <userinput>softmean atlas.img y null resliced1.img resliced2.img resliced3.img resliced4.img </userinput>
+</pre>
+
+This will generate a output files (the brain atlas) called =atlas.img= and =atlas.hdr=.
+
+---++++ slicer
+slicer will slice the brain atlas in three different ways, to give a view of the brain from three different directions. The output images will be in pgm format.
+
+Write three .sub files:
+   * =slicerx.sub=
+   * =slicery.sub=
+   * =slicerz.sub=
+
+Here is a commandline for slicerx.sub:
+
+<pre class="screen">
+$ <userinput>slicer atlas.img -x .5 atlas-x.pgm </userinput>
+</pre>
+
+---++++ convert
+Finally, you need to convert the PGM images into GIF format for viewing. Make three .sub files to convert the pgm images. Here is an example command line:
+
+<pre class="screen">
+$ <userinput>convert atlas-x.pgm atlas-x.gif </userinput>
+</pre>
+
+Now you should have 15 submit files.
+
+---+++ Build a .dag file
+
+Now write a DAGman .dag file that tells DAGman about each of the 15 dag files. You must make sure the jobs are executed in the correct order by specifying PARENT and CHILD relationships.
+
+---+++ Run your DAG
+
+<pre class="screen">
+$ <userinput>condor_submit_dag fmri.dag </userinput>
+</pre>
+
+You can use condor_q to see if your jobs are running. When your DAG is finished, you should see the following files in your working directory:
+   * =atlas-x.gif=
+   * =atlas-y.gif=
+   * =atlas-z.gif=
+
+      * Set LOGINIP = 131.193.181.56
+      * Set GRIDHOST = tg-login.sdsc.teragrid.org
+      * Set OTHERHOST = workshop2.lac.uic.edu
+      * Set CERTSUBJECT = /O=Grid/OU=OSG/CN=Training User 99
+      * Set LOGINNAME = train99
+      * Set HOMEDIR = /home/%LOGINNAME%
+
+Main.BenClifford - 2007 Mar 
+Main.ForrestChristian - 24 Mar 2007 - Added VARIABLES
+-->
+
+%META:FILEATTACHMENT{name="fmri.png" attachment="fmri.png" attr="" comment="" date="1174671715" path="fmri.png" size="22428" stream="fmri.png" user="Main.BenClifford" version="1"}%
