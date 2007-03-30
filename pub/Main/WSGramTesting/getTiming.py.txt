@@ -1,0 +1,134 @@
+#!/usr/bin/python
+
+import sys, csv, re, os 
+
+def get_time(timeString):
+  """Convert condor timestamp to a unix timestamp"""
+  import time
+  if timeString == "":
+    return None
+  
+  parts = timeString.split(" ")
+  realTime = parts[0] + "/" + str(time.gmtime()[0]) + " " +  parts[1]
+  return time.mktime(time.strptime(realTime, '%m/%d/%Y %H:%M:%S'))
+
+def convert_to_seconds(timeString):
+  """Convert time values in HH:MM:SS format to seconds"""
+  import time
+  if timeString == "":
+    return None
+  
+  parts = timeString.split(":")
+  return int(parts[0]) * 3600 + int(parts[1]) *  60 + int(parts[2])
+  
+job_regex = re.compile("000 \((\d+\.\d+)\.\d{3}\) (\d{2}/\d{2} \d{2}:\d{2}:\d{2}) Job submitted from host")
+start_regex = re.compile("0\d7\s+\((\d+\.\d+)\.\d{3}\)\s+(\d\d\/\d\d\s+\d{2}:\d{2}:\d{2})\s+Job submitted to (.*)")
+execution_regex = re.compile("001\s+\((\d+\.\d+)\.\d{3}\)\s+(\d\d\/\d\d\s+\d{2}:\d{2}:\d{2})\s+Job executing")
+termination_regex = re.compile("005\s+.*Job terminated")
+finish_regex = re.compile("005 \((\d+\.\d+)\.\d{3}\) (\d\d/\d\d \d{2}:\d{2}:\d{2}) Job terminated.\n" + 
+                          "\s+.*\s(\w+) termination.*value (\d+).*\n" +
+                          "\s+Usr.*?(\d+:\d+:\d+), Sys.*?(\d+:\d+:\d+)\s.*\n" +
+                          "\s+Usr.*?(\d+:\d+:\d+), Sys.*?(\d+:\d+:\d+)\s.*\n" +
+                          "\s+Usr.*?(\d+:\d+:\d+), Sys.*?(\d+:\d+:\d+)\s.*\n" +
+                          "\s+Usr.*?(\d+:\d+:\d+), Sys.*?(\d+:\d+:\d+)\s.*\n" +
+                          "\s+(\d+).*Run Bytes Sent.*\n" +
+                          "\s+(\d+).*Run Bytes Received.*\n" +
+                          "\s+(\d+).*Total Bytes Sent.*\n" +
+                          "\s+(\d+).*Total Bytes Received.*\n")
+
+jobs = {}
+
+input_file = open(sys.argv[1], "r")
+file_buffer = input_file.read(os.stat(sys.argv[1]).st_size)
+input_file.close()
+
+regex_iter = job_regex.finditer(file_buffer)
+for match in regex_iter:
+  time_stamp = get_time(match.group(2))
+  job_id = match.group(1)
+  jobs[job_id] = {'submit_time' : time_stamp, 
+                  'globus_time' : '', 
+                  'grid_time' : '',  
+                  'execute_time' : '',
+                  'termination_time' : '',
+                  'status' : '',
+                  'return_code' : '',
+                  'run_remote_usr' : '',
+                  'run_remote_sys' : '',
+                  'total_remote_usr' : '',
+                  'total_remote_sys' : '',
+                  'run_local_usr' : '',
+                  'run_local_sys' : '',
+                  'total_local_usr' : '',
+                  'total_local_sys' : ''}
+                  
+regex_iter = start_regex.finditer(file_buffer)     
+for match in regex_iter:
+  job_id = match.group(1)
+  if not jobs.has_key(job_id):
+    continue
+  
+  time_stamp = get_time(match.group(2))
+  component = match.group(3)
+  if component == "Globus":
+    jobs[job_id]['globus_time'] = time_stamp
+  elif component == "grid resource":
+    jobs[job_id]['grid_time'] = time_stamp
+  else:
+    continue
+    
+regex_iter = execution_regex.finditer(file_buffer)     
+for match in regex_iter:
+  job_id = match.group(1)
+  if not jobs.has_key(job_id):
+    continue
+  
+  time_stamp = get_time(match.group(2))
+  jobs[job_id]['execute_time'] = time_stamp
+  
+regex_iter = finish_regex.finditer(file_buffer, re.M)     
+for match in regex_iter:
+  job_id = match.group(1)
+  if not jobs.has_key(job_id):
+    continue
+
+  time_stamp = get_time(match.group(2))
+  jobs[job_id]['termination_time'] = time_stamp
+  jobs[job_id]['status'] = match.group(3).lower()
+  jobs[job_id]['return_code'] = int(match.group(4))
+  jobs[job_id]['run_remote_usr'] = convert_to_seconds(match.group(5))
+  jobs[job_id]['run_remote_sys'] = convert_to_seconds(match.group(6))
+  jobs[job_id]['run_local_usr'] = convert_to_seconds(match.group(7))
+  jobs[job_id]['run_local_sys'] = convert_to_seconds(match.group(8))
+  jobs[job_id]['total_remote_usr'] = convert_to_seconds(match.group(9))
+  jobs[job_id]['total_remote_sys'] = convert_to_seconds(match.group(10))
+  jobs[job_id]['total_local_usr'] = convert_to_seconds(match.group(11))
+  jobs[job_id]['total_local_sys'] = convert_to_seconds(match.group(12))
+  jobs[job_id]['run_bytes_sent'] = int(match.group(13))
+  jobs[job_id]['run_bytes_recv'] = int(match.group(14))
+  jobs[job_id]['total_bytes_sent'] = int(match.group(15))
+  jobs[job_id]['total_bytes_recv'] = int(match.group(16))
+  
+
+job_list = jobs.keys()
+job_list.sort()
+output_file = csv.writer(open(sys.argv[1] + "-results.csv", "wb"))
+output_file.writerow(['Job Id', 'Local Submit Time', 'Globus Submit Time', 'Jobmanager Submit Time', 'Job Execution Start Time',
+                      'Termination Time', 'Status', 'Return Code', 'Remote user run time', 
+                      'Remote sys run time', 'Local user run time', 'Local sys run time', 
+                      'Total remote user time', 'Total remote sys time', 'Total local user time',
+                      'Total local sys time', 'Run bytes sent', 'Run bytes received', 'Total bytes sent', 
+                      'Total bytes received'])                      
+for job in job_list:
+  output_file.writerow([job, jobs[job]['submit_time'], jobs[job]['globus_time'], jobs[job]['grid_time'], 
+                       jobs[job]['execute_time'], jobs[job]['termination_time'], jobs[job]['status'],
+                       jobs[job]['return_code'], jobs[job]['run_remote_usr'], jobs[job]['run_remote_sys'],
+                       jobs[job]['run_local_usr'], jobs[job]['run_local_sys'], jobs[job]['total_remote_usr'],
+                       jobs[job]['total_remote_sys'], jobs[job]['total_local_usr'], jobs[job]['total_local_sys'],
+                       jobs[job]['run_bytes_sent'], jobs[job]['run_bytes_recv'], jobs[job]['total_bytes_sent'],
+                       jobs[job]['total_bytes_recv']])
+                       
+
+
+
+
