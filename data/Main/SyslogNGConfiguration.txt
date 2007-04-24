@@ -1,0 +1,260 @@
+%META:TOPICINFO{author="SuchandraThapa" date="1177451786" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="SuchandraThapa"}%
+---+  <noop>Syslog-ng Install
+%TOC%
+
+---++ Overview
+The following describes a system of two syslog-ng servers: one providing a source of logging data, the second providing a central logging host which can receive logging information from a number of syslog-ng hosts.  Here is what was done to setup an initial two-host system:
+   * Install syslog-ng on a central logging host (uct3-edge5.uchicago.edu); configure with the standard template for a central logging host.
+   * Install syslog-ng on VTB / WS-GRAM site services host; configure with a socket for a specific WS-GRAM/OSG logfiles and forward to the central logging host.
+   * Create a bootscripts for these hosts.
+   * Launch services on each host by executing the boot scripts.
+   * Validate by writing a test message into the service host (into its socket), look for it on the central logging host.
+ 
+---++ Installing Syslog-ng software
+Instructions for an independent syslog-ng instance on any host.  Here we focus on installations which do not override or replace the systems native syslog program.
+   * Obtain sources from http://www.balabit.com/downloads/syslog-ng/2.0/src/, put them in /opt/src/.
+   * Syslog-ng 2.0.3 fails with syntax error on make 
+   * Then:
+<pre>
+cd /opt/src/
+tar xvzf eventlog-0.2.5.tar.gz
+tar xvzf syslog-ng-2.0.2.tar.gz
+cd eventlog-0.2.5
+./configure --prefix=/opt/eventlog
+make
+make install
+#
+cd ../syslog-ng-2.0.2
+export EVTLOG_CFLAGS="-I/opt/eventlog/include/eventlog"
+export EVTLOG_LIBS="-L/opt/eventlog/lib/ -levtlog"
+./configure --prefix=/opt/syslog-ng
+make
+make install
+</pre>
+
+
+---++ Configuration of the sourceservice host
+After installing the syslog-ng software, you need a configuration file and a boot script.
+
+This configuration file will go into =/opt/syslog-ng/etc/syslog-ng.conf=:
+
+<pre><b>
+options {
+   #time_sleep(50);  # polling interval, in ms (helps reduce CPU)
+   time_sleep(1000);  # polling interval, in ms (make this once per second)
+# Note - time_sleep(1000) does not seem to work, should this be 100 ?
+   use_fqdn(yes);  # use fully qualified domain names
+   ts_format(iso);  # use ISO8601 timestamps
+   #
+   # for normal load
+   flush_lines (10); # number of lines to buffer before writing to disk
+   log_fifo_size(100); 
+   #
+   # for heavy load
+   #flush_lines (1000); # number of line to buffer before writing to disk
+   #log_fifo_size(1000); 
+   #
+   stats_freq(3600);  # number of seconds between syslog-ng internal stats events; these are useful
+                               # for ensuring syslog-ng is not getting overloaded
+};
+#
+# /tmp/container.socket is the destination of 'tail -F container-real.log | logger -t dq2 -u /tmp/container.socket' (See boot script below)
+#
+source container_src { 
+       unix-stream("/tmp/container.socket");
+ };
+#
+# syslog-ng internal logs; useful for testing syslog-ng config
+source syslog_ng {
+       internal();
+};
+#
+# define the Forwarding Destination
+destination container_dst { 
+       tcp("osg-log.uchicago.edu" port(5142)); 
+};
+destination syslog_ng_dst {
+  file ("/tmp/syslog-ng.log" perm(0644) );
+};
+#
+# forward sources to destination
+log { 
+   source(container_src); destination(container_dst); flags(flow-control);
+   source(gatekeeper_src); destination(gatekeeper_dst); flags(flow-control);
+   source(gridftp_src); destination(gridftp_dst); flags(flow-control);
+};
+# for syslog-ng debugging
+log {
+  source(syslog_ng); destination(syslog_ng_dst);
+};
+</b></pre>
+
+---+++ Boot script for the WS-GRAM service host
+Capture and forward globus  logfile .
+<pre><b>
+#! /bin/sh
+#
+# Source function library
+. /etc/rc.d/init.d/functions
+#
+BINDIR=/opt/syslog-ng/sbin
+syslog=syslog-ng
+config=/opt/syslog-ng/etc/syslog-ng.conf
+syslog_pid="/var/run/syslog-ng.pid"
+#
+# check config and programs
+test -s ${config}         || {
+    echo 1>&2 "${config} does not exist"
+    if test "$1" == "stop" ; then exit 0 ; else exit 6 ; fi
+}
+test -x ${BINDIR}/$syslog || {
+    echo 1>&2 "${BINDIR}/$syslog is not installed"
+    if test "$1" == "stop" ; then exit 0 ; else exit 5 ; fi
+}
+#
+case "$1" in
+   start)
+#       startproc -u nobody -p ${syslog_pid} ${BINDIR}/${syslog} -f $config
+       daemon ${BINDIR}/${syslog} "-f $config"  
+       echo  "Starting syslog-ng service"
+       # create streams for log files here; note dq2 is a tag for the source.
+       tail -F $GLOBUS_LOCATION/globus/var/container-real.log | logger  -t dq2 -u /tmp/container.socket > /tmp/syslog-ng-tailer.log 2>&1 &
+       tail -F $GLOBUS_LOCATION/globus/var/globus-gatekeeper.log | logger  -t dq2 -u /tmp/gatekeeper.socket > /tmp/syslog-ng-tailer.log 2>&1 &
+       tail -F $GLOBUS_LOCATION/globus/var/log/gridftp.log | logger  -t dq2 -u /tmp/gridftp.socket > /tmp/syslog-ng-tailer.log 2>&1 &
+       ;;
+   stop)
+       echo "Shutting down syslog-ng service"
+       # killproc ${syslog_pid} TERM
+       killproc ${syslog} TERM 
+       ;;
+   restart)
+       echo "restarting syslog-ng service"
+       $0 stop
+       $0 start
+       ;;
+     *)
+       echo "Usage: $0 {start|stop|restart}"
+       exit 1
+       ;;
+esac
+</b></pre>
+
+
+
+---++ Configuration of central logging host
+This will be uct3-edge5.uchicago.edu.   
+
+This configuration file will go into =/opt/syslog-ng/etc/syslog-ng.conf=:
+<pre class="screen"><b>
+options {
+   time_sleep(50);  # polling interval, in ms (helps reduce CPU)
+   create_dirs(yes);  # create output directories
+   use_fqdn(yes);  # use fully qualified domain names
+   ts_format(iso);  # use ISO8601 timestamps (syslog-ng 2.0 only)
+   #
+   # for normal load
+   flush_lines (10); # number of line to buffer before writing to disk
+   log_fifo_size(100);
+   #
+   # for heavy load
+   #flush_lines (1000); # number of line to buffer before writing to disk
+   #log_fifo_size(1000);
+   flush_timeout(500); # in ms
+   #
+   stats_freq(3600);
+};
+#
+#
+# define the source: any host sending to port 5142
+source network {
+   tcp(port(5142) max-connections(500));
+   internal();  # internal syslog-ng messages
+};
+#
+#
+# Define the destination, automatically creating new directories
+#    for each month and new host.
+destination vtb {
+     file ("/var/log/vtb/logfiles/$YEAR.$MONTH/vtb.$HOST.log"
+           perm(0644) dir_perm(0755) create_dirs(yes)
+          template("$ISODATE $HOST $MSG\n") );
+};
+#
+#
+log { source(network);
+     destination(vtblogs); flags (flow-control);
+};
+</b></pre>
+
+---+++ Bootscript for the central logging host
+Note - this is a special central logging host - it also hosts OSG-VTB gatekeeper services, so we may also collecting globus-gatekeeper, gridftp, and container logfiles.
+<pre><b>
+#! /bin/sh
+#
+# Source function library
+. /etc/rc.d/init.d/functions
+#
+BINDIR=/opt/syslog-ng/sbin
+syslog=syslog-ng
+config=/opt/syslog-ng/etc/syslog-ng.conf
+syslog_pid="/var/run/syslog-ng.pid"
+#
+# check config and programs
+test -s ${config}         || {
+    echo 1>&2 "${config} does not exist"
+    if test "$1" == "stop" ; then exit 0 ; else exit 6 ; fi
+}
+test -x ${BINDIR}/$syslog || {
+    echo 1>&2 "${BINDIR}/$syslog is not installed"
+    if test "$1" == "stop" ; then exit 0 ; else exit 5 ; fi
+}
+#
+case "$1" in
+   start)
+#       startproc -u nobody -p ${syslog_pid} ${BINDIR}/${syslog} -f $config
+       daemon ${BINDIR}/${syslog} "-f $config"
+       echo  "Starting syslog-ng service"
+       ;;
+   stop)
+       echo "Shutting down syslog-ng service"
+       killproc ${syslog} TERM
+       # should the tails get killed off too? If so, what is the best way to do this? Possibly 
+       #  should move the tail commands to a separate boot script that runs after this script
+       ;;
+   restart)
+       echo "restarting syslog-ng service"
+       $0 stop
+       $0 start
+       ;;
+     *)
+       echo "Usage: $0 {start|stop|restart}"
+       exit 1
+       ;;
+esac
+</b></pre>
+
+---++ Validation
+Write a message into the log sockets on the source host :
+<pre>
+[root@uct2-grid1 syslog-ng]# /usr/bin/logger -t test -u /tmp/gatekeeper.socket "this is a test message"
+</pre>
+
+On the destination side (the central logging host), check to see that the message arrived.  This directory  =/working/syslog-ng/dq2/logfiles/2007.03= was created.  Then =[root@uct3-edge6 2007.03]$grep test dq2.uct2-grid1.uchicago.edu.log= yields:
+<pre>
+2007-03-27T08:39:24-05:00 uct2-grid1.uchicago.edu test: this is a test message
+</pre>
+Message arrived. %Y%
+
+Repeating this test with a very long (>400 bytes) message shows that messages are getting truncated.  The syslog-ng docs say that the default message length limit
+is 8192 bytes, but this does not seem to match experiment.  I am currently investigating...  Charles
+
+
+---++ References
+   * http://www.balabit.com/products/syslog-ng/  (note- website is unstable)
+   * http://www.cedps.net/wiki/index.php/Syslog-ng
+   * http://www.balabit.com/products/syslog_ng/reference-2.0/syslog-ng.html/index.html
+   * http://sial.org/howto/logging/syslog-ng/
+   * http://www.campin.net/syslog-ng/faq.html
+a6 1
+-- Main.SuchandraThapa - 24 Apr 2007
