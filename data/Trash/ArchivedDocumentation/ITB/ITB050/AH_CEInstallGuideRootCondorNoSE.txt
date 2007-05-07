@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnneHeavey" date="1178230303" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="AnneHeavey" date="1178562615" format="1.1" reprev="1.8" version="1.8"}%
 %LINKCSS%
 ---+!!<nop>OSG CE 0.6.n Installation Instructions, Install as root, use Condor, do not have an SE
 
@@ -175,6 +175,8 @@ Two files need to be copied to the =/etc/grid-security= directory: =prima-authz.
 # <b>cp $VDT_LOCATION/post-install/prima-authz.conf /etc/grid-security/. </b>
 </pre>
 %RED% The file editing should no longer be necessary since we set VDT_GUMS_HOST before the CE install.
+%ENDCOLOR%
+
 Edit the =/etc/grid-security/prima-authz.conf= file, changing the <b>imsContact</b> attribute to point to your GUMS service.  By default, the installation has the log file verbosity set to 'debug'.  You may want to change this to 'info' (just comment and uncomment the lines shown).
 
 The <i>gums.authz</i> entry is only used if you wish to use the <i>gums</i> client tool to test specific mappings from this host.  Documentation of this can be found on the [[http://grid.racf.bnl.gov/GUMS/][GUMS web site]].  This same functionality can be executed using the GUMS web UI.
@@ -183,7 +185,6 @@ The <i>gums.authz</i> entry is only used if you wish to use the <i>gums</i> clie
 <em>... in this example cmssrv09 was the CE node...</em>
 imsContact https://<b>cmssrv09.fnal.gov</b>:8843/gums/services/GUMSAuthorizationServicePort
 
-%RED%Does this say that GUMS is on the CE node?  Why does it show the CE node?%ENDCOLOR%
 # logging levels supported are debug, info, error, none
 The GUMS-Client package, installed with OSG CE install, has its essential files under =$VDT_LOCATION/gums=.
 #logLevel    info
@@ -193,15 +194,15 @@ Edit the =$VDT_LOCATION/gums/etc/gums-client.properties= configuration file to p
 %ENDCOLOR%
 
 <pre class="programlisting">
-The <i>gums.authz</i> entry is only used if you wish to use the <i>gums</i> client tool to test specific mappings from this host.  Documentation of this can be found on the [[http://grid.racf.bnl.gov/GUMS/][GUMS web site]].  This same functionality can be executed using the GUMS web UI.
+
 
 See [[OsgCEAuthorization]] for more information (discusses all authorization methods).
  gums.authz=https://cmssrv09:8443/gums/services/GUMSAuthorizationServicePort
 </pre>
 In the earlier test case, you only authorized yourself as a local user.  Now go to  [[OsgCEAuthorization][Osg CE Authorization]] and authorize other users before performing the *OSG Registration* of your service (otherwise no one but you will be able to access it!).  Do this before doing the rest of the monitoring configuration steps below, otherwise you may  have to repeat the steps later, particularly if your site is using GUMS.
----++++ Full privilege test grid3-user-vo-map generation
+%RED%From here on, this document is unreliable -- work is continuing %ENDCOLOR%
 
-To test the =grid3-user-vo-map= generation, you need to run as <i>root</i>.  This uses the host certificate.
+%RED% Run the "retest full privilege config" as described in OsgCEAuthorization? %ENDCOLOR%
 d266 2
 ---++++ Full privilege test osg-user-vo-map generation
 %RED%How does this compare with testing full priv configuration?%ENDCOLOR%
@@ -227,11 +228,39 @@ To test the =osg-user-vo-map= generation, you need to run as <i>root</i>.  This 
   #---- accounts for vo: Test3userGroup ----#
   osg01account test3
     <em>.... and so on</em>
-%INCLUDE{"GumsHostCron"}%
+</pre>
 %RED% JW says this whole part has changed %ENDCOLOR%
+If it fails, an error  similar to "<i>No map was found for the host xyz.dhcp.fnal.gov</i>" will occur.  Contact your GUMS administrator(s).  The problem is likely in the GUMS server's gums.config file:
+   * GUMS 1.1 syntax: your host is not in the <i>cn</i> attribute of the <i>hostGroup</i> element.
+
+
+---++++Full privilege mode cron - gums-host-cron
+%RED% JW says this whole part has changed.  We did something similar above -- do we need to do any of this now? %ENDCOLOR%
+
+The =$VDT_LOCATION/monitoring/osg-user-vo-map-txt= needs to be updated regularly from your GUMS server.  A script (<i>gums-host-cron</i>) has been provided in <i>$VDT_LOCATION/gums/bin/gums-host-cron</i> in order to do this. It and its actions are described in [[GumsHostCron]].
+
+At the completion of each successful run, it creates an empty =$VDT_LOCATION/monitoring/osg-user-vo-map.last-checked= file as a time stamp.  This makes it easy to check how current the =$VDT_LOCATION/monitoring/osg-user-vo-map-txt= file.
+
+To test the <i>gums-host-cron</i> script, run (as <i>root</i>):
+
+<pre class="screen">
+# <b>$VDT_LOCATION/gums/bin/gums-host-cron</b>
+</pre>
+
+This installs a cron file in =$VDT_LOCATION/post-install/gums-host-cron=.  The default interval is every 6 hours. Example cron:
+
+<pre class="programlisting">
+  0 0,6,12,18 * * * root &lt;VDT_LOCATION&gt;/gums/bin/gums-host-cron
+</pre>
+
+%RED%When I do "more gums/bin/gums-host-cron" I see a long file that looks like a script. Where do I find the above? %ENDCOLOR%
+
+To implement the cron (as <i>root</i>):
 
 <pre class="screen">
 # <b>cd  /etc/cron.d</b>
+# <b>ln -s $VDT_LOCATION/post-install/gums-host-cron</b>
+</pre>
 %RED%I don't find =$VDT_LOCATION/post-install/gums-host-cron=.%ENDCOLOR%
 d261 1
 ---+++ Retest Full Privilege Configuration
@@ -256,12 +285,12 @@ d318 1
 When  authorizing in full privilege mode, you will see the following extra entry in your =$VDT_LOCATION/globus/var/globus-gatekeeper.log= file when jobs are submitted:
 
 <pre class="programlisting">
-<verbatim>
+ PID: 20269 -- PRIMA INFO  Mapping service "https://fermigrid3.fnal.gov:8443/gums/services/GUMSAuthorizationServicePort" returned local user "uscms112" for globus user "/DC=org/DC=doegrids/OU=People/CN=John Weigand 458491" 
 </pre>
 
 %NOTE% In RHEL4/SL4/Rocks 4, PRIMA requires a shared library =/usr/lib/libcom_err.so.3.0.0= which is not part of most default Redhat-like installations.  It's provided by the rpm compat-libcom_err.
 
-</verbatim>
+---++ Installing and Configuring Globus Web Services
 Instructions and configuration of WS-GRAM can be viewed [[InstallAndConfigureGlobusWebServices][here]].
 %RED% First part "basics" contains commands that are only informational; go to Authorization Modes %ENDCOLOR%
 For full privilege setup, all you need is:
