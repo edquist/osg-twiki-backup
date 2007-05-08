@@ -1,0 +1,170 @@
+#!/usr/bin/env python
+
+import os, sys, re, getopt
+
+# default configuration values
+PID_FILE_LOCATION = "/var/run/log_daemon.pid"
+CONFIG_FILE_LOCATION = "/etc/log_settings.ini"
+LOG_SOCKET_DIRECTORY = "/tmp/"
+LOGGER_BINARY = "/usr/bin/logger"
+
+  
+def get_config_values(config_file_location = CONFIG_FILE_LOCATION):
+  """Read configuration file for paramaters"""
+  config = {}
+  config["pid_file_location"] = PID_FILE_LOCATION
+  config["config_file_location"] = CONFIG_FILE_LOCATION
+  config["logger_binary"] = LOGGER_BINARY
+  import ConfigParser
+  try:
+    config_file = ConfigParser.ConfigParser()
+    config_file.read(config_file_location)
+    if config_file.has_section("Main"):
+      if config_file.has_option("Main", "pid_file_location"):
+        config["pid_file_location"] = config_file.get("Main", "pid_file_location")
+      if config_file.has_option("Main", "log_socket_directory"):
+        config["log_socket_directory"] = config_file.get("Main", "log_socket_directory")        
+      if config_file.has_option("Main", "logger_binary"):
+        config["logger_binary"] = config_file.get("Main", "logger_binary")        
+    if config_file.has_section("Log Files"):
+      logs = config_file.options("Log Files")
+      log_files = {}
+      for entry in logs:
+        log_files[entry] = config_file.get("Log Files", entry)
+      config["log_files"] = log_files
+  except:
+    sys.exit(1)  
+  return config
+  
+def kill_processes(pid_file_location = PID_FILE_LOCATION):
+  """Read pids of the currently running processes and stop them"""
+  if pid_file_location == None:
+    return 0
+   
+  current_processes = get_processes(pid_file_location)
+  for pid in current_processes.keys():
+    os.system("kill -9 %s" % pid)
+  return 0
+  
+def start_logging(socket_directory = None, log_files = None, logger_binary = None):
+  """Get a list of log files and start tail processes to monitor each log file, 
+     returning the pids for logger processes"""
+  processes = {}
+  if log_files is None or socket_directory is None or logger_binary is None:
+    return 0
+  
+  for tag in log_files.keys():
+    pid = os.fork()
+    socket_file = os.path.join(socket_directory, "%s.socket" % tag )
+    process_cmd = "/usr/bin/tail -F %s " % log_files[tag]
+    process_cmd += "| %s -t %s -u %s &" % (logger_binary,
+                                           tag,
+                                           socket_file)
+    if pid == 0:
+      os.system(process_cmd)
+      os._exit(0)
+    else:
+      process_pid = get_pid(log_files[tag])
+      processes[process_pid] = process_cmd
+  return processes
+  
+def start_loggers(cmds = None):
+  """Given a list of logger commands, run each and then return the pids for the commands"""
+  processes= {}
+  for cmd in cmds:
+    pid = os.fork()
+    if pid == 0:
+      os.system(cmd)
+      os._exit(0)
+    else:
+      log_regex = re.compile(r'/usr/bin/tail -F (.*?) ')
+      match = log_regex.search(cmd)
+      process_pid = get_pid(match.group(1))
+      processes[process_pid] = cmd
+  return processes
+    
+
+def write_processes(processes = {}, pid_file_location = PID_FILE_LOCATION):
+  """Write out the process's pids to a file"""
+  pid_file = open(pid_file_location, "w")
+  for pid in processes.keys():
+    pid_file.write("%s %s\n" % (pid, processes[pid]))
+
+def get_processes(pid_file_location = "/var/run/logger.pid"):
+  """Read the processes and commands from the pid file"""
+  pid_file = open(pid_file_location, "r")
+  processes = {}
+  for line in pid_file.readlines():
+    temp = line.split(" ")
+    processes[temp[0]] = " ".join(temp[1:]).strip()
+  return processes
+  
+def get_pid(log_file = None):
+  """Check for the pid of the tail process that is checking for a given log file"""
+  if log_file == None:
+    return None
+    
+  process_regex = re.compile(r'\w+\s+([0-9]+).*' + log_file)
+  (child_stdin, child_stdout) = os.popen2("ps auxw")
+  for line in child_stdout:
+    match = process_regex.search(line)
+    if match:
+      return match.group(1)
+  return None
+  
+def check_processes(socket_directory = None, log_files = None, pid_file_location = PID_FILE_LOCATION):
+  """Read pid file and check to see if the processes are still running, restart processes
+  if needed"""
+  # build a list of tail commands we should see
+  cmds = []
+  for log in log_files.values():
+    cmds.append("/usr/bin/tail -F %s" % log)
+  log_processes = get_processes(pid_file_location)
+  (child_stdin, child_stdout) = os.popen2("ps auxw")
+  running_processes = {}
+  process_regex = re.compile(r'\w+\s+([0-9]+).*\d+:\d+ (.*?)$')
+  # get the pids of all running processes
+  for line in child_stdout:
+    match = process_regex.search(line)
+    if match and match.group(2) in cmds:
+      running_processes[match.group(1)] = match.group(2)
+  dead_processes = {}
+  # see if the processes we've recorded are in the list of running processes
+  for pid in log_processes.keys():
+    if not running_processes.has_key(pid):
+      dead_processes[pid] = log_processes[pid]
+      del log_processes[pid]
+      
+  for pid in dead_processes:
+    cmds = []
+    cmds.append(dead_processes[pid])
+    new_processes = start_loggers(cmds)
+    for process_pid in new_processes:
+      log_processes[process_pid] = new_processes[process_pid]
+  write_processes(log_processes, pid_file_location)
+
+optionlist, args = getopt.getopt(sys.argv[1:], "c:tks")
+test_processes = False
+stop_processes = False
+start_processes = False
+config = get_config_values()
+for pair in optionlist:
+  if pair[0] == '-c':
+    config = get_config_values(pair[1])
+  elif pair[0] == '-t':
+    test_processes = True
+  elif pair[0] == '-k':
+    stop_processes = True
+  elif pair[0] == '-s':
+    start_processes = True
+
+if test_processes:
+  check_processes(config['log_socket_directory'], config['log_files'], config['pid_file_location'])
+elif stop_processes:
+  kill_processes(config['pid_file_location'])
+  os.unlink(config['pid_file_location'])
+elif start_processes:
+  processes = start_logging(config['log_socket_directory'], 
+                            config['log_files'], 
+                            config['logger_binary'])
+  write_processes(processes, config['pid_file_location'])
