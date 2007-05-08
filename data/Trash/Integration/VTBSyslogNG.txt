@@ -1,0 +1,414 @@
+%META:TOPICINFO{author="SuchandraThapa" date="1178661804" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICPARENT{name="SysLogNg"}%
+---+  <noop>Syslog-ng Install
+%TOC%
+
+---++ Overview
+The following describes a system of two syslog-ng servers: one providing a source of logging data, the second providing a central logging host which can receive logging information from a number of syslog-ng hosts.  Here is what was done to setup an initial two-host system:
+   * Install syslog-ng on a central logging host (uct3-edge5.uchicago.edu); configure with the standard template for a central logging host.
+   * Install syslog-ng on VTB / WS-GRAM site services host; configure with a socket for a specific WS-GRAM/OSG logfiles and forward to the central logging host.
+   * Create a bootscripts for these hosts.
+   * Launch services on each host by executing the boot scripts.
+   * Validate by writing a test message into the service host (into its socket), look for it on the central logging host.
+ 
+---++ Installing Syslog-ng software
+Instructions for an independent syslog-ng instance on any host.  Here we focus on installations which do not override or replace the systems native syslog program.
+   * Obtain sources from http://www.balabit.com/downloads/syslog-ng/2.0/src/, put them in /opt/src/.
+   * Syslog-ng 2.0.3 fails with syntax error on make 
+   * Then:
+<pre  class="screen">
+cd /opt/src/
+tar xvzf eventlog-0.2.5.tar.gz
+tar xvzf syslog-ng-2.0.2.tar.gz
+cd eventlog-0.2.5
+./configure --prefix=/opt/eventlog
+make
+make install
+#
+cd ../syslog-ng-2.0.2
+export EVTLOG_CFLAGS="-I/opt/eventlog/include/eventlog"
+export EVTLOG_LIBS="-L/opt/eventlog/lib/ -levtlog"
+./configure --prefix=/opt/syslog-ng
+make
+make install
+</pre>
+
+
+---++ Configuration of the sourceservice host
+After installing the syslog-ng software, you need a configuration file and a boot script.  In addition, a cron job for the attached python script needs to be added to periodically check the logger processes.  Something like =log_cron.py -c [path_to_ini_file] -t= will do the trick.
+
+This configuration file will go into =/opt/syslog-ng/etc/syslog-ng.conf=:
+
+<pre class="screen"><b>
+
+options {
+   #time_sleep(50);  # polling interval, in ms (helps reduce CPU)
+   time_sleep(500);  # polling interval, in ms (make this once per second)
+# Note - time_sleep(1000) does not seem to work, should this be 100 ?
+   use_fqdn(yes);  # use fully qualified domain names
+   ts_format(iso);  # use ISO8601 timestamps
+   #
+   # for normal load
+   flush_lines (10); # number of lines to buffer before writing to disk
+   log_fifo_size(100); 
+   #
+   # for heavy load
+   #flush_lines (1000); # number of line to buffer before writing to disk
+   #log_fifo_size(1000); 
+   #
+   stats_freq(3600);  # number of seconds between syslog-ng internal stats events; these are useful
+                               # for ensuring syslog-ng is not getting overloaded
+};
+#
+# /tmp/container.socket is the destination of 'tail -F container-real.log | logger -t dq2 -u /tmp/container.socket' (See boot script below)
+#
+source wsgram_src { 
+       unix-stream("/tmp/wsgram.socket");
+ };
+
+source gatekeeper_src { 
+       unix-stream("/tmp/gatekeeper.socket");
+ };
+
+source gridftp_src { 
+       unix-stream("/tmp/gridftp.socket");
+ };
+# comment out if not using condor
+source condor_src { 
+       unix-stream("/tmp/condor.socket");
+ };
+
+#
+# syslog-ng internal logs; useful for testing syslog-ng config
+source syslog_ng {
+       internal();
+};
+
+#
+# define the Forwarding Destination
+destination vtb_dst {
+        tcp("osg-log.uchicago.edu" port(5145));
+};
+
+destination syslog_ng_dst {
+  file ("/tmp/syslog-ng.log" perm(0644) );
+};
+#
+# forward sources to destination
+log {
+   source(wsgram_src); destination(vtb_dst); flags(flow-control);
+};
+
+log {
+   source(gridftp_src); destination(vtb_dst); flags(flow-control);
+};
+
+log {
+   source(gatekeeper_src); destination(vtb_dst); flags(flow-control);
+};
+log {
+   source(condor_src); destination(vtb_dst); flags(flow-control);
+};
+
+
+# for syslog-ng debugging
+log {
+  source(syslog_ng); destination(syslog_ng_dst);
+};
+</b></pre>
+
+---+++ Boot script for the WS-GRAM service host
+Capture and forward globus  logfile .
+<pre  class="screen"><b>
+#!/bin/bash
+#
+# Source function library
+. /etc/rc.d/init.d/functions
+#
+BINDIR=/opt/syslog-ng/sbin
+syslog=syslog-ng
+config=/opt/syslog-ng/etc/syslog-ng.conf
+syslog_pid="/var/run/syslog-ng.pid"
+logging_script="/usr/local/bin/log_cron.py"
+script_ini="/usr/local/etc/log_settings.ini"
+#
+# check config and programs
+test -s ${config}         || {
+    echo 1>&2 "${config} does not exist"
+    if test "$1" == "stop" ; then exit 0 ; else exit 6 ; fi
+}
+test -x ${BINDIR}/$syslog || {
+    echo 1>&2 "${BINDIR}/$syslog is not installed"
+    if test "$1" == "stop" ; then exit 0 ; else exit 5 ; fi
+}
+#
+case "$1" in
+   start)
+#       startproc -u nobody -p ${syslog_pid} ${BINDIR}/${syslog} -f $config
+       daemon ${BINDIR}/${syslog} "-f $config"  
+       echo  "Starting syslog-ng service"
+       # create streams for log files here; note dq2 is a tag for the source.
+       $logging_script -c $script_ini -s
+       ;;
+   stop)
+       echo "Shutting down syslog-ng service"
+       # killproc ${syslog_pid} TERM
+       killproc ${syslog} TERM 
+       $logging_script -c $script_ini -k
+       ;;
+   restart)
+       echo "restarting syslog-ng service"
+       $0 stop
+       $0 start
+       ;;
+     *)
+       echo "Usage: $0 {start|stop|restart}"
+       exit 1
+       ;;
+esac
+</b></pre>
+
+---+++ Ini file settings for log_cron.py script
+With the default settings given in the boot script, this file should be located in =/usr/local/etc/log_settings.ini=: 
+<pre class="screen"><b>
+[Main]
+pid_file_location = /var/run/processes.pid
+log_socket_directory = /tmp/
+logger_binary = /usr/bin/logger
+
+[Log Files]
+wsgram = /opt/osg/globus/var/container-real.log
+gridftp = /opt/osg/globus/var/gridftp.log
+gatekeeper = /opt/osg/globus/var/globus-gatekeeper.log
+condor = /opt/condor/local.t2dev-01/log/SchedLog
+</b></pre>
+
+Remove the condor entries if condor logs should not be sent or if condor is not being used.  
+
+---++ Configuration of central logging host
+This will be uct3-edge5.uchicago.edu.   
+
+This configuration file will go into =/opt/syslog-ng/etc/syslog-ng.conf=:
+<pre class="screen"><b>
+options {
+   time_sleep(50);  # polling interval, in ms (helps reduce CPU)
+   create_dirs(yes);  # create output directories
+   use_fqdn(yes);  # use fully qualified domain names
+   ts_format(iso);  # use ISO8601 timestamps (syslog-ng 2.0 only)
+   #
+   # for normal load
+   flush_lines (10); # number of line to buffer before writing to disk
+   log_fifo_size(100);
+   #
+   # for heavy load
+   #flush_lines (1000); # number of line to buffer before writing to disk
+   #log_fifo_size(1000);
+   flush_timeout(500); # in ms
+   #
+   stats_freq(3600);
+};
+#
+
+#define filters for separating logs
+filter gridftp_filter {
+    match("gridftp");
+};
+
+filter gatekeeper_filter {
+    match("gatekeeper");
+};
+
+filter condor_filter {
+    match("condor");
+};
+
+filter wsgram_filter {
+    match("container");
+};
+
+#
+# define the source: any host sending to port 5142
+source network_wsgram {
+   tcp(port(5142) max-connections(500));
+};
+source network_gatekeeper {
+   tcp(port(5143) max-connections(500));
+};
+source network_gridftp {
+   tcp(port(5144) max-connections(500));
+};
+source osg_network {
+   tcp(port(5145) max-connections(500));
+};
+
+source local_wsgram {
+   unix-stream("/tmp/container.socket");
+};
+source local_gatekeeper {
+   unix-stream("/tmp/gatekeeper.socket");
+};
+source local_gridftp {
+   unix-stream("/tmp/gridftp.socket");
+};
+#
+#
+# Define the destination, automatically creating new directories
+#    for each month and new host.
+destination wsgram_logs {
+     file ("/var/log/vtb/wsgram/$YEAR.$MONTH/vtb.$HOST.log"
+           perm(0644) dir_perm(0755) create_dirs(yes)
+          template("$ISODATE $HOST $MSG\n") );
+};
+
+destination gatekeeper_logs {
+     file ("/var/log/vtb/gatekeeper/$YEAR.$MONTH/vtb.$HOST.log"
+           perm(0644) dir_perm(0755) create_dirs(yes)
+          template("$ISODATE $HOST $MSG\n") );
+};
+
+destination gridftp_logs {
+     file ("/var/log/vtb/gridftp_logs/$YEAR.$MONTH/vtb.$HOST.log"
+           perm(0644) dir_perm(0755) create_dirs(yes)
+          template("$ISODATE $HOST $MSG\n") );
+};
+#
+#
+destination condor_logs {
+     file ("/var/log/vtb/condor_logs/$YEAR.$MONTH/vtb.$HOST.log"
+           perm(0644) dir_perm(0755) create_dirs(yes)
+          template("$ISODATE $HOST $MSG\n") );
+};
+
+log { 
+     source(network_wsgram);
+     destination(wsgram_logs); 
+     flags (flow-control);
+};
+log { 
+     source(network_gatekeeper);
+     destination(gatekeeper_logs); 
+     flags (flow-control);
+};
+log { 
+     source(network_gridftp);
+     destination(gridftp_logs); 
+     flags (flow-control);
+};
+log { 
+     source(local_wsgram);
+     destination(wsgram_logs); 
+     flags (flow-control);
+};
+log { 
+     source(local_gatekeeper);
+     destination(gatekeeper_logs); 
+     flags (flow-control);
+};
+log { 
+     source(local_gridftp);
+     destination(gridftp_logs); 
+     flags (flow-control);
+};
+log { 
+     source(osg_network);
+     destination(gridftp_logs); 
+     filter(gridftp_filter);
+     flags (flow-control);
+};
+log { 
+     source(osg_network);
+     destination(gatekeeper_logs); 
+     filter(gatekeeper_filter);
+     flags (flow-control);
+};
+log { 
+     source(osg_network);
+     destination(condor_logs); 
+     filter(condor_filter);
+     flags (flow-control);
+};
+log { 
+     source(osg_network);
+     destination(wsgram_logs); 
+     filter(wsgram_filter);
+     flags (flow-control);
+};
+</b></pre>
+
+---+++ Bootscript for the central logging host
+Note - this is a special central logging host - it also hosts OSG-VTB gatekeeper services, so we may also collecting globus-gatekeeper, gridftp, and container logfiles.
+<pre><b>
+#!/bin/bash
+#
+# Source function library
+. /etc/rc.d/init.d/functions
+#
+BINDIR=/opt/syslog-ng/sbin
+syslog=syslog-ng
+config=/opt/syslog-ng/etc/syslog-ng.conf
+syslog_pid="/var/run/syslog-ng.pid"
+logging_script="/usr/local/bin/log_cron.py"
+script_ini="/usr/local/etc/log_settings.ini"
+#
+# check config and programs
+test -s ${config}         || {
+    echo 1>&2 "${config} does not exist"
+    if test "$1" == "stop" ; then exit 0 ; else exit 6 ; fi
+}
+test -x ${BINDIR}/$syslog || {
+    echo 1>&2 "${BINDIR}/$syslog is not installed"
+    if test "$1" == "stop" ; then exit 0 ; else exit 5 ; fi
+}
+#
+case "$1" in
+   start)
+#       startproc -u nobody -p ${syslog_pid} ${BINDIR}/${syslog} -f $config
+       daemon ${BINDIR}/${syslog} "-f $config"  
+       echo  "Starting syslog-ng service"
+       # create streams for log files here; note dq2 is a tag for the source.
+       $logging_script -c $script_ini -s
+       ;;
+   stop)
+       echo "Shutting down syslog-ng service"
+       # killproc ${syslog_pid} TERM
+       killproc ${syslog} TERM 
+       $logging_script -c $script_ini -k
+       ;;
+   restart)
+       echo "restarting syslog-ng service"
+       $0 stop
+       $0 start
+       ;;
+     *)
+       echo "Usage: $0 {start|stop|restart}"
+       exit 1
+       ;;
+esac
+</b></pre>
+
+---++ Validation
+Write a message into the log sockets on the source host :
+<pre>
+[root@uct2-grid1 syslog-ng]# /usr/bin/logger -t test -u /tmp/gatekeeper.socket "this is a test message"
+</pre>
+
+On the destination side (the central logging host), check to see that the message arrived.  This directory  =/working/syslog-ng/dq2/logfiles/2007.03= was created.  Then =[root@uct3-edge6 2007.03]$grep test dq2.uct2-grid1.uchicago.edu.log= yields:
+<pre>
+2007-03-27T08:39:24-05:00 uct2-grid1.uchicago.edu test: this is a test message
+</pre>
+Message arrived. %Y%
+
+Repeating this test with a very long (>400 bytes) message shows that messages are getting truncated.  The syslog-ng docs say that the default message length limit
+is 8192 bytes, but this does not seem to match experiment.  I am currently investigating...  Charles
+
+
+---++ References
+   * http://www.balabit.com/products/syslog-ng/  (note- website is unstable)
+   * http://www.cedps.net/wiki/index.php/Syslog-ng
+   * http://www.balabit.com/products/syslog_ng/reference-2.0/syslog-ng.html/index.html
+   * http://sial.org/howto/logging/syslog-ng/
+   * http://www.campin.net/syslog-ng/faq.html
+
+-- Main.SuchandraThapa - 24 Apr 2007
+
+%META:FILEATTACHMENT{name="log_cron.py.txt" attachment="log_cron.py.txt" attr="" comment="script to check tail processes and start/stop them" date="1178660665" path="log_cron.py" size="6244" stream="log_cron.py" user="Main.SuchandraThapa" version="2"}%
