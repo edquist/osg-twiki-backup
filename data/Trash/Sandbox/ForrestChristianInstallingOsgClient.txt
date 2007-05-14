@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ForrestChristian" date="1179171613" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="ForrestChristian" date="1179181155" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="ForrestChristianSandbox"}%
 %LINKCSS%
 
@@ -37,18 +37,136 @@ _for AFS servers:_ On AFS space, from your $HOME directory, issue the following 
 Do not ignore the last step of changing the access rights.
 
 <pre class="screen">
-$ <userinput>openssl pkcs12 -in mycertificate.p12 -nocerts -out usercert.pem</userinput>
+$ <userinput>openssl pkcs12 -in mycertificate.p12 -nokeys -out usercert.pem</userinput>
   Enter Import Password: <replaceable>*********</replaceable>
   MAC verified OK
 $ <userinput>openssl pkcs12 -in mycertificate.p12 -nocerts -out userkey.pem</userinput>
-  Enter Import Password: 
+  Enter Import Password:   <replaceable>*********</replaceable> 
   MAC verified OK
-  Enter PEM pass phrase:
-  Verifying - Enter PEM pass phrase:
+  Enter PEM pass phrase:   <replaceable>*********</replaceable>
+  Verifying - Enter PEM pass phrase:   <replaceable>*********</replaceable>
 $ <userinput>chmod go-rw *.pem</userinput>
 </pre>
 
-
-
+Stopping for now.
 
 -- Main.ForrestChristian - 11 May 2007 %BR%
+
+
+I use a PowerBook G4, so this doesn't work on my system. I have to scp the p12 file to the remote server. Which is harder than it should be because the of the incompatibility of my ssh software and this server, but who's complaining? Ex-systems administrators for swiss banks can get a file where it needs to go. Results:
+
+<pre class="screen">
+$ <userinput>ll *pem</userinput>
+-rw-------   1 forrestc users     5034 May 14 14:51 usercert.pem
+-rw-------   1 forrestc users     1919 May 14 14:51 userkey.pem
+</pre>
+
+The instructions (somewhere) say to install my credentials into =~/.globus=, which I took to be the same as =$HOME/.globus=. That didn't work: something's still wrong.
+
+<pre class="screen">
+$ grid-proxy-init
+Your identity: /DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1
+Enter GRID pass phrase for this identity:
+Creating proxy ........................................................ Done
+
+
+ERROR: Could not verify the signature of the generated proxy certificate
+       This is likely due to a non-matching user key and cert
+
+Use -debug for further information.
+d84 1
+</pre>
+
+Using =grid-proxy-init -debug=:
+
+<pre class="screen">
+$ <userinput>grid-proxy-init -debug</userinput>
+$ grid-proxy-init -debug
+
+User Cert File: /home/forrestc/.globus/usercert.pem
+User Key File: /home/forrestc/.globus/userkey.pem
+
+Trusted CA Cert Dir: (null)
+
+Output File: /tmp/x509up_u11067
+Your identity: /DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1
+Enter GRID pass phrase for this identity:
+Creating proxy ...........++++++++++++
+..++++++++++++
+ Done
+
+
+ERROR: Could not verify the signature of the generated proxy certificate
+       This is likely due to a non-matching user key and cert
+
+
+grid_proxy_init.c:1086:globus_gsi_cred_handle.c:globus_gsi_cred_verify_cert:1829:
+Error verifying credential: Failed to verify credential
+OpenSSL Error: a_verify.c:162: in library: asn1 encoding routines, function ASN1_verify: EVP lib
+OpenSSL Error: rsa_eay.c:580: in library: rsa routines, function RSA_EAY_PUBLIC_DECRYPT: padding check failed
+OpenSSL Error: rsa_pk1.c:100: in library: rsa routines, function RSA_padding_check_PKCS1_type_1: block type is not 01
+</pre>
+
+That can't be good, since I created the pem files from a single p12 file. I then tried =grid-proxy-info= to see if it got set anyway, but there wasn't a valid proxy.
+
+<hr />
+
+Okay, so I went poking around. I have now opened a new ssh window and run some configure scripts in =$HOME/osg-client/vdt/setup= which may be run automajically by genies. I ran, in this order:
+   * configure_environment
+   * configure_cert_request
+   * configure_fetch_crl
+   * configure_condor
+   
+<pre class="screen">
+$ <userinput>./configure_condor</userinput>
+Command failed:
+    ./condor_configure 
+    Exited with value 255
+</pre>
+
+That's so very helpful. 
+
+   * configure_globus_ws
+   * configure_srm (didn't work because I'm not sure what the parameters are)
+   * configure_vdt_logrotate
+   * configure_condor
+<pre class="screen">
+$ <userinput>./configure_condor --vdt-install /home/forrestc/osg-client/vdt --server n</userinput>
+Command failed:
+    ./condor_configure 
+    Exited with value 127
+</pre>
+
+At least it fails with a different value.
+
+Still no joy with =grid-proxy-init=. 
+
+<blockquote><p>Just an aside here: I've not had this much difficulty installing software since I tried to get X running on my DEC Alpha under RH 6. And there I had to create my own drivers. </p></blockquote>
+
+A README somewhere in this =vdt= tree has this to say:
+
+<pre class="programlisting">
+Because you are not root, we could not set up the certificates for Globus.
+Because the Globus web services do not run as root, you need to copy the
+host certificate and give the user that the Globus WS container runs as
+(currently USERID) permission to use it. To the best of our knowledge you
+cannot use service certificates. Specifically you should do:
+
+cd /etc/grid-security/
+
+cp hostkey.pem containerkey.pem
+
+cp hostcert.pem containercert.pem
+
+chown USERID: containerkey.pem containercert.pem
+
+The globus-ws init script has been installed but cannot be started until
+the install is complete.  We hope to address this issue in a future version
+of the VDT.
+</pre>
+
+The point of not being root is partly because I'm on a shared box. There already IS a =containerkey.pem= that is owned by =daemon=, the user that the web server on this box runs as.
+
+So I'm calling it a day and saying that this is ridiculous.
+
+But what can  you do? It's time to leave.
