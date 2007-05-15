@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ForrestChristian" date="1179259138" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="ForrestChristian" date="1179265498" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="ForrestChristianSandbox"}%
 %LINKCSS%
 
@@ -248,5 +248,322 @@ $ <userinput>condor_q</userinput>
 $ <userinput>condor_q -run</userinput>
 </pre>
    * Cancel your job by running =condor_rm <replaceable>&lt;job id></replaceable>=. 
+
 Hmm. I don't know who to hit up against. So I'm using something from the [[http://fermigrid.fnal.gov/user-guide-new.html#Voms-Proxy-Init][FermiGrid Users' Guide]]:
+
+---+++ Using voms-proxy-init with Credentials from the Fermilab KCA:
+Here is an example of a =voms-proxy-init= against the Fermilab VOMS server using a Fermilab KCA [Kerberos] certificate and the =noregen= qualifier. (This instructs =voms-proxy-init= to use the tickets stored in your Kerberos ticket cache.)
+
+<pre class="screen">
+$ <userinput>kx509</userinput>
+$ <userinput>kxlist -p</userinput>
+Service kx509/certificate
+ issuer= /DC=gov/DC=fnal/O=Fermilab/OU=Certificate Authorities/CN=Kerberized CA
+ subject= /DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Forrest Christian/UID=forrestc
+ serial=59BC61
+ hash=7219a0ef
+</pre>
+
+The next step is supposed to be:
+
+<pre class="screen">
+$ <userinput>voms-proxy-init -noregen -voms fermilab:/fermilab -userconf $HOME/.glite/vomses</userinput>
+Your identity: /DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Keith Chadwick/USERID=chadwick
+Your proxy is valid until Tue Dec  5 02:49:35 2006
+
+Contacting  fermigrid2.fnal.gov:15001 [/DC=org/DC=doegrids/OU=Services/CN=host/fermigrid2.fnal.gov] "fermilab"
+ Done
+Creating proxy .................................................. Done
+Your proxy is valid until Tue Dec  5 02:49:35 2006
+</pre>
+
+But I get the following:
+
+<pre class="screen">
+Cannot find file or dir: $prefix/etc/vomses
+Your identity: /DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Forrest Christian/USERID=forrestc
+Contacting  fermigrid2.fnal.gov:15001 [/DC=org/DC=doegrids/OU=Services/CN=host/fermigrid2.fnal.gov] "fermilab" Failed
+
+Error: fermilab: User unknown to this VO.
+
+Failed to contact servers for fermilab.
+</pre>
+
+I decide to use something from Steve Timm that's farther down the page:
+   * =voms-proxy-init voms fermilab:/fermilab=
+   * =globus-job-run fermigrid1.fnal.gov/jobmanager-condor /usr/bin/printenv=
+Maybe there's a problem with =fermilab:/fermilab= these days; the FermiGrid documentation may not be up to date.
+
+<pre class="screen">
+$ <userinput>voms-proxy-init -noregen -voms fermigrid1.fnal.gov:/fermilab1 -userconf $HOME/.glite/vomses</userinput>
+Cannot find file or dir: $prefix/etc/vomses
+VOMS Server for fermigrid1.fnal.gov not known!
+</pre>
+
+So let's try asking Main.ChrisGreen:
+
+He sent a script for logging in that he has created (=grid-init=). I took a look at it, and this is what it looks like (click more to see it):
+
+%STARTMore%
+<pre class="programlisting">
+#!/bin/bash
+
+# Script to (maybe) update grid proxy info
+
+default_vo="fermilab:/fermilab"
+
+noregen_arg="-noregen"
+
+# Set up grid software and certificates
+[[ -n "$VDT_LOCATION" ]] || \
+. /export/osg/grid/setup.sh 2>/dev/null || \
+. /local/ups/grid/setup.sh 2>/dev/null || \
+. /opt/vdt/setup.sh 2>/dev/null
+
+function time_remaining() {
+  if [ -z "$1" ]; then return; fi
+  echo $(( `date -d "$1" +%s` - `date +%s` ))
+}
+
+function grid-user-name() {
+    voms-proxy-info -subject 2>/dev/null | sed -e 's/^.*\/CN=\([^\/]*.*\)\/CN=proxy.*$/\1/' -e 's/USERID=/UID=/'
+    return $?
+}
+
+function usage() {
+cat 1>&2 <<EOF
+usage:	${0##*/} [-f]
+        -c <cert> Use certificate <cert>; probably -k option is also required.
+	-d        Debug script execution.
+	-D        Use DOE certs (default is KCA). Cert and key expected in
+                  ~/.globus unless -c and -k are used.
+	-f	  Force new credentials even if they would not extend the
+		  lifetime of the proxy.
+        -h        This help.
+        -i        Show voms-proxy-info output.
+        -k <key>  Use key <key>; probably -c option is also required.
+        -m        Initialize myproxy with obtained credentials.
+        -r        Role (default no role).
+        -v <VO>   Specify full VO and group (default fermilab:/fermilab/miniboone).
+EOF
+}
+
+while getopts :c:Ddhfik:mr:v: OPT; do
+    case $OPT in
+        c)
+            if [[ -r "${OPTARG}" ]]; then
+		cert_arg="-cert \"${OPTARG}\""
+	    elif [[ -r ~/.globus/"${OPTARG}" ]]; then
+                cert_arg="-cert \""$HOME/.globus/"${OPTARG}\""
+	    elif [[ -r ~/.globus/usercert-"${OPTARG}".pem ]]; then
+                cert_arg="-cert \""$HOME/.globus/usercert-"${OPTARG}.pem\""
+            else
+		echo "Unable to find specified cert $OPTARG or reasonable variations" 1>&2
+                exit 2
+            fi
+            ;;
+	D)
+	    noregen_arg=""
+	    ;;
+        d)
+            set -x
+            ;;
+        h)
+            usage
+            exit 1
+	    ;;
+	i)
+	    voms_info=1
+	    ;;
+	f)
+            force=1
+	    ;;
+        k)
+            if [[ -r "${OPTARG}" ]]; then
+		key_arg="-key \"${OPTARG}\""
+	    elif [[ -r ~/.globus/"${OPTARG}" ]]; then
+                key_arg="-key \""$HOME/.globus/"${OPTARG}\""
+	    elif [[ -r ~/.globus/userkey-"${OPTARG}".pem ]]; then
+                key_arg="-key \""$HOME/.globus/userkey-"${OPTARG}.pem\""
+            else
+		echo "Unable to find specified key $OPTARG or reasonable variations" 1>&2
+                exit 2
+            fi
+            ;;
+	m)
+	    get_myproxy=1
+	    ;;
+	r)
+	    role_arg="/Role=$OPTARG"
+            ;;
+        v)
+	    wanted_vo="$OPTARG"
+	    ;;
+	*)
+	    usage
+	    exit 1
+    esac
+done
+shift $[ OPTIND - 1 ]
+
+if [[ -n "$key_arg" ]] && [[ -z "$cert_arg" ]]; then
+  cert_arg=${key_arg//key/cert}
+elif [[ -z "$key_arg" ]] && [[ -n "$cert_arg" ]]; then
+  key_arg=${cert_arg//cert/key}
+fi
+
+# Assume noregen is for KCA cert only
+[[ -n "$cert_arg" ]] && noregen_arg=""
+
+if [[ -n "$wanted_vo" ]]; then
+  vo="$wanted_vo"
+else
+  vo="$default_vo"
+fi
+
+if [[ "$vo" != *:* ]]; then
+  vo="fermilab:${vo}"
+fi
+
+if [[ "$vo" != */* ]]; then
+  vo=${vo/:/:\/fermilab\/}
+fi
+
+if [[ -n "$wanted_vo" ]] && [[ "$wanted_vo" != "$vo" ]]; then
+  echo "Info: incompletely specified VO \"$wanted_vo\" corrected to \"$vo\"" \
+   1>&2
+fi
+
+if [[ ! -r "$VDT_LOCATION/glite/etc/vomses" ]]; then
+  vomsargs="-userconf $HOME/.glite/vomses"
+fi
+
+
+if [[ -n "$noregen_arg" ]]; then # use KCA
+
+  # First, check how long we're good for:
+  renew_date="`klist -f | grep -A 1 -e tgt | sed -ne 's/^.*renew until \(.*\),.*/\1/p'`"
+
+  if [ -z "$renew_date" ]; then
+    printf "Your TGT is not renewable! Please request a renewable ticket" 1>&2
+    echo " with -r 168h." 1>&2
+    exit 1
+  fi
+
+  (( time_left = `time_remaining "$renew_date"` ))
+
+  if [ $(( $time_left < 30 * 60 * 60 )) -eq 1 ]; then
+    echo "Warning: your ticket is valid for < 30h. Did you request a" 1>&2
+    echo "renewable ticket with -r 168h?" 1>&2
+  fi
+
+  # Check to see if our current certificate is better
+  (( voms_time = `voms-proxy-info -timeleft 2>/dev/null || echo 0` ))
+
+  if [ -z "$force" \
+       -a $(( ${voms_time} < `time_remaining "$renew_date"` )) -eq 0 ]; then
+    printf "Current credentials would not extend proxy validity: not renewing proxy.\n" 1>&2
+    exit 1
+  fi
+
+  # Update our credentials
+  if [[ "$SHELLOPTS" == *xtrace* ]]; then
+    get-cert.sh </dev/null 
+  else
+    get-cert.sh </dev/null >/dev/null 2>&1
+  fi
+  status=$?
+  (( $status == 0 )) || exit $status
+fi
+
+eval echo "Executing voms-proxy-init ${cert_arg} ${key_arg} ${noregen_arg} $vomsargs \
+-voms \"${vo}${role_arg}\" -valid 168:0"
+
+output="`eval voms-proxy-init ${cert_arg} ${key_arg} ${noregen_arg} $vomsargs \
+        -voms \"${vo}${role_arg}\" -valid 168:0 2>&1`"
+status=$?
+name=`voms-proxy-info -subject 2>/dev/null | sed -e 's/^.*\/CN=\([^\/]*\).*CN=proxy.*$/\1/'`
+echo "Proxy obtained for $name." 1>&2
+echo "$output" | tail -2 | head -1 1>&2
+
+[[ -n "$voms_info" ]] && voms-proxy-info -all
+
+if (( $status == 0 )) && [[ -n "$get_myproxy" ]]; then
+  X509_USER_KEY=/tmp/x509up_u`id -u`; export X509_USER_KEY
+  X509_USER_CERT=/tmp/x509up_u`id -u`; export X509_USER_CERT
+  GT_PROXY_MODE=old; export GT_PROXY_MODE
+  name="`grid-user-name`"
+  output="`myproxy-init -v -s myproxy.fnal.gov -t 0 -c 0 -d -R \"$name\" >/dev/null 2>&1`"
+  status=$?
+  if (( $status == 0 )); then
+    echo "Proxy registered with myproxy.fnal.gov for $name" 1>&2
+  else
+    echo "Unable to register proxy with myproxy.fnal.gov: please check" 1>&2
+  fi
+  unset name
+fi
+exit $status
+</pre>
+
+%ENDMore%
+
+<pre class="screen">
+[forrestc@cmssrv09 ~]$ <userinput>cd osg-client/</userinput>
+[forrestc@cmssrv09 osg-client]$ <userinput>source setup.sh</userinput>
+[forrestc@cmssrv09 osg-client]$ <userinput>kx509</userinput>
+[forrestc@cmssrv09 osg-client]$ <userinput>vi grid-init</userinput>   #filled with his grid-init
+[forrestc@cmssrv09 osg-client]$ <userinput>chmod go-rw grid-init</userinput>
+[forrestc@cmssrv09 osg-client]$ <userinput>chmod 765 grid-init</userinput>
+[forrestc@cmssrv09 osg-client]$ <userinput>./grid-init -d -D</userinput>   # debug & use KCA
++ getopts :c:Ddhfik:mr:v: OPT
++ case $OPT in
++ noregen_arg=
++ getopts :c:Ddhfik:mr:v: OPT
++ shift 2
++ [[ -n '' ]]
++ [[ -z '' ]]
++ [[ -n '' ]]
++ [[ -n '' ]]
++ [[ -n '' ]]
++ vo=fermilab:/fermilab
++ [[ fermilab:/fermilab != *:* ]]
++ [[ fermilab:/fermilab != */* ]]
++ [[ -n '' ]]
++ [[ ! -r /home/forrestc/osg-client/glite/etc/vomses ]]
++ [[ -n '' ]]
++ eval echo 'Executing voms-proxy-init     -voms "fermilab:/fermilab" -valid 168:0'
+++ echo Executing voms-proxy-init -voms fermilab:/fermilab -valid 168:0
+Executing voms-proxy-init -voms fermilab:/fermilab -valid 168:0
+++ eval voms-proxy-init -voms fermilab:/fermilab -valid 168:0
++ output='+++ voms-proxy-init -voms fermilab:/fermilab -valid 168:0
+Cannot find file or dir: $prefix/etc/vomses
+user certificate not found
+        Cert File=/home/forrestc/.globus/usercert.pem
+Function: proxy_init_cred'
++ status=3
+++ voms-proxy-info -subject
+++ sed -e 's/^.*\/CN=\([^\/]*\).*CN=proxy.*$/\1/'
++ name='/DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Forrest Christian/USERID=forrestc'
++ echo 'Proxy obtained for /DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Forrest Christian/USERID=forrestc.'
+Proxy obtained for /DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Forrest Christian/USERID=forrestc.
++ echo '+++ voms-proxy-init -voms fermilab:/fermilab -valid 168:0
+Cannot find file or dir: $prefix/etc/vomses
+user certificate not found
+        Cert File=/home/forrestc/.globus/usercert.pem
+Function: proxy_init_cred'
++ tail -2
++ head -1
+        Cert File=/home/forrestc/.globus/usercert.pem
++ [[ -n '' ]]
++ ((  3 == 0  ))
++ exit 3
+[forrestc@cmssrv09 osg-client]$ 
+</pre>
+
+Still not happy about that
+<pre class="screen">
+Cannot find file or dir: $prefix/etc/vomses
+user certificate not found
+        Cert File=/home/forrestc/.globus/usercert.pem
+</pre>
 But what can  you do? It's time to leave.
