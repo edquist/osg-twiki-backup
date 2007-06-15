@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ChrisGreen" date="1181855881" format="1.1" version="1.10"}%
+%META:TOPICINFO{author="ChrisGreen" date="1181873473" format="1.1" reprev="1.11" version="1.11"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! OSG Accounting Services - Gratia
 
@@ -7,10 +7,10 @@
 -->
 
 The Gratia accounting services consists of three services: 
-   * The [[Accounting.ProbeInstallation][probes]];
+   * The [[Accounting.ProbeInstallation][probes]]; please read the general preliminary notes in addition to those specific to each probe as some things have changed. In particular, note item 3 of the preliminary notes. The RPMs now use =/etc/cron.d= instead of root's crontab: The VDT packages may benefit from the same change; 
    * Gratia reporting (installed via [[http://gratia.fnal.gov/Files/gratia_reporting_v%ReleaseVersion%.tar][gratia_reporting_v%ReleaseVersion%.tar]]), which contains the server side report application;
-   * Gratia services (installed via [[http://gratia.fnal.gov/Files/gratia_services_v%ReleaseVersion%.tar][gratia_services_v0.%ReleaseVersion%.tar]]), which contains the gratia services that collect information from the probes and write to the database;
-   * See also the [[http://gratia.fnal.gov/Files/][Full listing of files]]
+   * Gratia services (installed via [[http://gratia.fnal.gov/Files/gratia_services_v%ReleaseVersion%.tar][gratia_services_v%ReleaseVersion%.tar]]), which contains the gratia services that collect information from the probes and write to the database;
+   * See also the [[http://gratia.fnal.gov/Files/][Full listing of files]].
 
 ---++ Requirements
    * !MySQL >= 5.0 (not tested with !MySQL >= 5.1.0);
@@ -69,7 +69,7 @@ The Apache configuration under the same VDT installation must include the follow
 </verbatim>
 
 ---++ Installing the Services
-To begin installation of the services, unntar all tarballs and copy all *.war files from =./gratia/gratia_reporting= and =./gratia/gratia_services= under =./tomcat/v55/webapps=
+To begin installation of the services, untar all tarballs and copy all *.war files from =./gratia/gratia_reporting= and =./gratia/gratia_services= under =./tomcat/v55/webapps=:
    * gratia-administration.war
    * gratia-reporting.war
    * gratia-reports.war
@@ -79,7 +79,7 @@ To begin installation of the services, unntar all tarballs and copy all *.war fi
    * gratia-soap.war
    * gratia-util.war
 
-_If you are going to manually deploy the services under Tomcat,_ you must deploy =gratia_services.war=; then you may deploy the other war files in any order. 
+_If you are going to manually deploy the services under Tomcat,_ you must deploy =gratia_services.war= firt; then you may deploy the other war files in any order. 
 
    $ %H% *%RED% NOTE %ENDCOLOR%*: If you have configured Tomcat to auto-deploy the war files (not the default under VDT), it will deploy the services in the correct order.
 
@@ -88,8 +88,8 @@ Follow the instructions below for the customization of each package:
 ---+++ gratia_services_v%ReleaseVersion%.tar
 This requires !MySQL 5.0, Tomcat v55 and JDK 1.5.
 <ol>
-  <li> Untar the file under =$VDT_LOCATION= to populate =./tomcat/v55/gratia=: %BR% =tar xf gratia_services_v0.11.tar= </li>
-  <li> %RED% *If and only if* %ENDCOLOR% it does not already exist, create the empty database schema ( =CREATE DATABASE `gratia`;= ) as well as two users: one that has full control and one that has only read access.</li>
+  <li> Untar the file under =$VDT_LOCATION= to populate =./tomcat/v55/gratia=: %BR% =tar xf gratia_services_v%ReleaseVersion%.tar= </li>
+  <li> %RED% *If and only if* %ENDCOLOR% it does not already exist, create the empty database schema ( =CREATE DATABASE `gratia`;= ) as well as two users: one that has full control over the gratia schema from =localhost= and one that has only SELECT and EXECUTE privilege.</li>
   <li> Modify =./tomcat/v55/gratia/service-configuration.properties= to contain the correct database and user information you defined in the previous step, as well as the correct name for the Birt services:
   <verbatim>  service.mysql.driver=com.mysql.jdbc.Driver
   service.mysql.url=jdbc:mysql://DBHOSTNAME:DBPORT/gratia
@@ -103,6 +103,12 @@ This requires !MySQL 5.0, Tomcat v55 and JDK 1.5.
   </li>
   <li> Set permissions for =./gratia/var= and all subdirectories to allow everyone read, write and execute access.</li>
   <li> Deploy =./gratia/gratia_services/!GratiaService.war= under Tomcat. It uses the non-ssl port 8880.</li>
+  <li> Modify the =$VDT_LOCATION/tomcat/v55/gratia/post-install.sh= making sure that it is mode =0700= and owned by the tomcat-executing user: the line requiring configuration reads:
+<verbatim>
+mysql -B --force -unbuffered --user=root --password=ROOTPASS  --host=localhost --port=PORT gratia < MAGIC_VDT_LOCATION/tomcat/v55/gratia/${proc}
+</verbatim>
+=ROOTPASS=, =PORT= and =MAGIC_VDT_LOCATION= must all be substituted correctly for the command to work.
+</li>
 </ol>
 
 ---++++ Example =service-configuration.properties= file
@@ -120,47 +126,21 @@ This requires !MySQL 5.0, Tomcat v55 and JDK 1.5.
    
 For this version of gratia-services, you must start and stop the service by starting tomcat
    * Start the service using Tomcat: %BR% =service tomcat-55 start= 
-   * Wait for the gratia-service to start
-   * Stop Tomcat:  %BR%   =service tomcat-55 stop=
-   * Modify and execute =$VDT_LOCATION/tomcat/v55/gratia/gratia-db-post-install.sh= so that the summary tables and stored procedures are created.
+   * In contrast to previous versions, all schema updates are handled from within tomcat in the right order. However, =post-install.sh= *must* be configured properly to enable execution of those SQL fragments that require SUPER privilege (see above). 
 
-<verbatim>
-  mysql -v --force -unbuffered --user=root --password=ROOTPASS  --host=localhost --port=PORT gratia < MAGIC_VDT_LOCATION/tomcat/v55/gratia/build-summary-tables.sql
-  mysql -v --force -unbuffered --user=root --password=ROOTPASS  --host=localhost --port=PORT gratia < MAGIC_VDT_LOCATION/tomcat/v55/gratia/build-stored-procedures.sql
-</verbatim>
+*NOTE* Database updates may take place during the initial deployment of the collector which may take some time, especially if the schema contains a large amount of data.
 
----+++ gratia_reporting_v0.11.tar
-   1. Deploy =birt.war= under Tomcat (required).
-   1. Modify =<nop>$VDT_LOCATION/tomcat/v55/webapps/gratia-report-configuration/ReportingConfig.xml= :
-      * Point the database to the correct one (see gratia_services installation),
-      * Set =user= and =password= for the user with only only read access.
-      * Set =MAGIC_VDT_LOCATION= to the full path of the VDT.
-
-        The following are the lines that need to be modified:
-<verbatim>
-  <ReportingConfig>
-  <DataSourceConfig
-    url="jdbc:mysql://DBHOSTNAME:DBPORT/gratia"
-    user="reader"
-    password="reader"
-   />
-</verbatim>      
-
----++++ Example <nop>ReportingConfig.xml 
-<verbatim>
-  <PathConfig
-    reportsFolder="MAGIC_VDT_LOCATION/tomcat/v55/webapps/gratia-reporting/"
-    engineHome="MAGIC_VDT_LOCATION/tomcat/v55/webapps/Birt/"
-    webappHome="MAGIC_VDT_LOCATION/tomcat/v55/webapps/gratia-reporting/"
-  />
-  </ReportingConfig>
-</verbatim>
-   $ *%RED% NOTE %ENDCOLOR%*: Ensure that <nop>engineHome points to the Birt top level directory, if different from above 
+---+++ gratia_reporting_v%ReleaseVersion%.tar
+   1. Deploy all =.war= files under Tomcat.
 
 %INCLUDE{ "Documentation.ToolsBottomMatter" }%
 
--- Main.PenelopeConstanta - 30 Aug 2006 %BR%
--- Main.ChrisGreen - 11 Oct 2006 %BR%
--- Main.ForrestChristian - 03 Jan 2007 (edits only for linking from ITB) %BR%
+-- Main.PenelopeConstanta - 30 Aug 2006
+
+-- Main.ChrisGreen - 11 Oct 2006
+
+-- Main.ForrestChristian - 03 Jan 2007 (edits only for linking from ITB)
+
+-- Main.ChrisGreen - 14 Jun 2007 - Update for major release 0.24
 
 %META:TOPICMOVED{by="ChrisGreen" date="1175886836" from="Accounting.InstallationGuide" to="Accounting.InstallationGuideVDT"}%
