@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TimSilvers" date="1182442665" format="1.1" reprev="1.13" version="1.13"}%
+%META:TOPICINFO{author="ChrisGreen" date="1182460634" format="1.1" reprev="1.14" version="1.14"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! OSG Accounting Services - Gratia
 
@@ -10,16 +10,16 @@ The Gratia accounting services consists of three services:
    * The [[Accounting.ProbeInstallation][probes]]; please read the general preliminary notes in addition to those specific to each probe as some things have changed. In particular, note item 3 of the preliminary notes. The RPMs now use =/etc/cron.d= instead of root's crontab: The VDT packages may benefit from the same change; 
    * Gratia reporting (installed via [[http://gratia.fnal.gov/Files/gratia_reporting_v%ReleaseVersion%.tar][gratia_reporting_v%ReleaseVersion%.tar]]), which contains the server side report application;
    * Gratia services (installed via [[http://gratia.fnal.gov/Files/gratia_services_v%ReleaseVersion%.tar][gratia_services_v%ReleaseVersion%.tar]]), which contains the gratia services that collect information from the probes and write to the database;
-   * See also the [[http://gratia.fnal.gov/Files/][Full listing of files]]. %RED% You'll want to right-click these links and use a utility like wget to download the files on your Linux node where you'll be performing this installation. %ENDCOLOR%
+   * See also the [[http://gratia.fnal.gov/Files/][Full listing of files]]. You might want to right-click these links and use a utility like wget to download the files on your Linux node where you'll be performing this installation.
 
 ---++ Requirements
-   * !MySQL >= 5.0 (not tested with !MySQL >= 5.1.0);
+   * !MySQL >= 5.0 (not tested with !MySQL >= 5.1.0; does *not* work with !MySQL 4.x);
    * JRE >= 5 (1.5) (not tested with JRE > 5);
-   * Tomcat >= 5.5 (not tested with Tomcat >=6.0); %RED% To get it, pacman -get http://vdt.cs.wisc.edu/vdt_161_cache:Tomcat-5.5 %ENDCOLOR%
-   * Port 8880 under Tomcat 5.5 must be defined as a non-ssl port. To implement this, modify =$VDT_LOCATION/tomcat/v55/conf/server.xml=:
+   * Tomcat >= 5.5 (not tested with Tomcat >=6.0; does *not* work with Tomcat 5.0); to get it, (eg) <tt>pacman -get http://vdt.cs.wisc.edu/vdt_161_cache:Tomcat-5.5</tt>
+   * Port 8080 under Tomcat 5.5 must be defined as a non-ssl port. To implement this, modify =$VDT_LOCATION/tomcat/v55/conf/server.xml=:
 <verbatim>
-  <!--  Define a non-SSL HTTP/1.1 Connector on port 8880 -->
-   <Connector port="8880" maxHttpHeaderSize="8892"
+  <!--  Define a non-SSL HTTP/1.1 Connector on port 8080 -->
+   <Connector port="8080" maxHttpHeaderSize="8892"
               maxThreads="150" minSpareThreads="25" maxSpareThreads="75"
               enableLookups="false" redirectPort="8443" acceptCount="100"
               connectionTimeout="20000" disableUploadTimeout="true" />
@@ -55,10 +55,6 @@ The Apache configuration under the same VDT installation must include the follow
          SSLVerifyClient optional
      </Location>
 
-     JkMount /gratia-report-configuration/* tomcat55
-     <Location /gratia-report-configuration>
-         SSLVerifyClient optional
-     </Location>
      JkMount /gratia-reporting/* tomcat55
      <Location /gratia-reporting>
          SSLVerifyClient optional
@@ -71,7 +67,7 @@ The Apache configuration under the same VDT installation must include the follow
 </verbatim>
 
 ---++ Installing the Services
-To begin installation of the services, untar all %RED% the two tarballs containing the gratia services and gratia reporting packages %ENDCOLOR% tarballs and copy all *.war files from =./gratia/gratia_reporting= and =./gratia/gratia_services= under %RED% to %ENDCOLOR% =./tomcat/v55/webapps=:
+To begin installation of the services, untar the two tarballs containing the gratia services and gratia reporting packages and copy all *.war files from =./gratia/gratia_reporting= and =./gratia/gratia_services= to =./tomcat/v55/webapps=:
    * gratia-administration.war
    * gratia-reporting.war
    * gratia-reports.war
@@ -88,13 +84,27 @@ _If you are going to manually deploy the services under Tomcat,_ you must deploy
 Follow the instructions below for the customization of each package:
 
 ---+++ gratia_services_v%ReleaseVersion%.tar
-%RED% This portion needs to be further explained. Some of us aren't experts with MySQL. How are these accounts created and how do you grant privileges of SELECT and EXECUTE to these new users. Do you suggest account names for the two accounts? It might be wise to. %ENDCOLOR%
+
 This requires !MySQL 5.0, Tomcat v55 and JDK 1.5.
 <ol>
   <li> Untar the file under =$VDT_LOCATION= to populate =./tomcat/v55/gratia=: %BR% =tar xf gratia_services_v%ReleaseVersion%.tar= </li>
-  <li> %RED% *If and only if* %ENDCOLOR% it does not already exist, create the empty database schema ( =CREATE DATABASE `gratia`;= ) as well as two users: one that has full control over the gratia schema from =localhost= and one that has only SELECT and EXECUTE privilege.</li>
+  <li> %RED% *If and only if* %ENDCOLOR% it does not already exist, create and configure the DB schema:
+  <ol>
+    <li>Create the empty database schema ( =CREATE DATABASE `gratia`;= )</li>
+    <li>Create two users: one that has full control over the gratia schema from =localhost= and one that has only SELECT and EXECUTE privilege. We suggest using "gratia" and "reader" for the full-control and restricted users, respectively. We suggest using the =mysql-administrator= utility from the !MySQL-GUI-tools package available from the =mysql.com= website. You'll probably need to run it from the !MySQL server and connect to =localhost= as the DB user =root= to have the necessary privileges. First create the user, then add hosts. We recommend specifying IPs only (not DNS names). Use the tabs to find the schema privileges and use the selection mechanism to initiate the desired privileges for each user *for each host*. We recommend against having wild cards, especially for the root user. For the coomand-line =mysql= client, this would be something like:
+<verbatim>
+grant all on gratia.* to admin@localhost identified by 'pwd';
+grant select,execute on gratia.* to reader@localhost identified by 'pwd';
+</verbatim>
+</li>
+  </ol>
+  </li>
   <li> Modify =./tomcat/v55/gratia/service-configuration.properties= to contain the correct database and user information you defined in the previous step, as well as the correct name for the Birt services:
-  <verbatim>  service.mysql.driver=com.mysql.jdbc.Driver
+ <verbatim>  service.rmi.rmibind=//HOSTNAME:17000
+  service.rmi.rmilookup=rmi://HOSTNAME:17000
+  service.mysql.driver=com.mysql.jdbc.Driver
+  service.open.connection=http://HOSTNAME:8080
+  service.secure.connection=https://HOSTNAME:8443
   service.mysql.url=jdbc:mysql://DBHOSTNAME:DBPORT/gratia
   service.mysql.user=DBUSER
   service.mysql.password=DBPASSWORD
@@ -102,28 +112,17 @@ This requires !MySQL 5.0, Tomcat v55 and JDK 1.5.
   service.reporting.user=reader
   service.reporting.password=reader
 
-  service.birt.engine.home=BIRT-HOME</verbatim>
+  service.reporting.engine.home=BIRT-HOME</verbatim>
+
+  For the current release, =BIRT-HOME= should be =birt-v20=.
   </li>
-  <li> Set permissions for =./gratia/var= and all subdirectories to allow everyone read, write and execute access.</li>
-  <li> Deploy =./gratia/gratia_services/!GratiaService.war= under Tomcat. It uses the non-ssl port 8880.</li>
   <li> Modify the =$VDT_LOCATION/tomcat/v55/gratia/post-install.sh= making sure that it is mode =0700= and owned by the tomcat-executing user: the line requiring configuration reads:
 <verbatim>
-mysql -B --force -unbuffered --user=root --password=ROOTPASS  --host=localhost --port=PORT gratia < MAGIC_VDT_LOCATION/tomcat/v55/gratia/${proc}
+cat MAGIC_VDT_LOCATION/tomcat/v55/gratia/${proc} | mysql -B --force --unbuffered --user=root --password=ROOTPASS --host=localhost --port=PORT gratia
 </verbatim>
 =ROOTPASS=, =PORT= and =MAGIC_VDT_LOCATION= must all be substituted correctly for the command to work.
 </li>
 </ol>
-
----++++ Example =service-configuration.properties= file
-<verbatim>
-        service.mysql.url=jdbc:mysql://fermigrid1.fnal.gov:49154/gratia
-        service.mysql.user=admin-user-name
-        service.mysql.password=admin-user-password
-
-        service.birt.user=reader-user-name
-        service.birt.password=reader-user-password
-
-</verbatim>
 
 ---++++ Starting and Stopping Gratia Services
    
