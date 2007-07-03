@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ForrestChristian" date="1182277974" format="1.1" version="1.99"}%
+%META:TOPICINFO{author="ForrestChristian" date="1183493892" format="1.1" reprev="1.100" version="1.100"}%
 %META:TOPICPARENT{name="Main.ForrestChristian"}%
 %LINKCSS%
 
@@ -47,6 +47,140 @@ Your $HOME directory: <input name="homedir" type="text" size="60" value="/home/%
 
 %STARTINCLUDE%
 %STOPINCLUDE%
+
+---++ Upgrading dCache
+
+---+++ Caltech Experience from Ilya Narsky:
+<blockquote>
+
+We have successfully upgraded to dcache 1.7.0-36 at Caltech. Thanks a lot to Neha and others for help. Below is a summary of problems we encountered during installation.
+
+In fairness, the VDT install script did not make our lives much harder. There was no single problem that stood out. We lost most of the time (2-3 hrs) because we accidentally deleted the control directory on the dcache pool we were using for tests. Entirely our fault. But we fixed many small-scale problems during two days we spent completing the upgrade. And so - the VDT install script did not make our lives much easier either.
+
+-Ilya
+
+---++++ Problems due to our mistakes:
+
+1) After reinstalling dcache on the pnfs node, the pnfs content disappeared. pnfs was running the whole time on the node during installation because we had no intention of reinstalling it. Restart of pnfs fixed it.
+
+2) We accidentally deleted the control directory on the pool we used for testing. The pool was accessible from the admin interface but did not show up on the dcache web monitor page and all transfers to the pool failed. There were no obvious errors in the pool logs. Neha noticed that the control directory was missing. The control dir was restored following Tigran's recipe.
+
+
+---++++ Problems due to the VDT install scripts:
+
+1) It seems that the most natural way of propagating the install scripts to all cluster nodes is to put them on an nfs shared partition. But the install script directs log and err output to the same file and this file is written over when you install on a new node. Michael made a patch to the install script (attached) that
+appends the hostname to the file names and puts all logs into a
+separate subdir.
+
+2) The [[http://vdt.cs.wisc.edu/extras/InstallingDcacheForOSG.html#Configuring_Installation][instructions]] do not say anything about setting DCACHE_REPLICA_MANAGER. After I set it to FQHN where the replica manager is expected to run, the install script correctly set replicaManager=yes in node_config on the replica manager node. But in dCacheSetup there is a block that says:
+
+<pre class="screen">
+#  ---- Will the Replica Manager be started?
+#   Values:  no, yes
+#   Default: no
+#
+#   This has to be set to 'yes' on every node, if there is a replica
+#   manager in this dCache instance. Where the replica manager is started
+#   is controlled in 'etc/node_config'. If it is not started and this is
+#   set to 'yes' there will be error messages in log/dCacheDomain.log. If
+#   this is set to 'no' and a replica manager is started somewhere, it will
+#   not work properly.
+</pre>
+
+The way I am reading this, we need to set replicaManager=yes in
+dCacheSetup on every node. The install script did not do this.
+
+3) The script asks for FQHN's for all admin nodes. The name of the
+pnfs node, I think, is only used to set ADMIN_NODE in node_config and
+consequently it is only used to mount pnfs on door nodes. Our nodes
+are on both WAN and LAN and they have both public and private
+names. To mount pnfs, we definitely need to use a private name
+(pnfs-0-0) instead of a public name (cithep131.ultralight.org). The
+install script attempted to mount cithep131.ultralight.org:/fs and
+this broke the install.
+
+4) The install script attempted to mount pnfs on another admin node
+where no doors or pnfs or pnfs manager is running. Not clear to me
+why. Pnfs does not need to be mounted there at all. Pnfs was already
+mounted there from the older dcache install - just for convenience
+purposes. The script choked on mounting pnfs on that node because it
+was mounted as
+
+<pre class="screen">
+pnfs-0-0:/pnfsdoors /pnfs/ultralight.org
+</pre>
+
+and the install script wanted to mount it as
+
+<pre class="screen">
+pnfs-0-0:/fs /pnfs/fs
+</pre>
+
+and then make a symbolic link:
+
+<pre class="screen">
+cd /pnfs
+ln -s fs/usr ultralight.org
+</pre>
+
+5) There is no way to do a customized install of postgres using the
+VDT script. We like to install postgres not in the standard /var/lib
+location but on a raid1. This gives reliability and also the raid
+partition is not touched when the node is reinstalled. If we install
+postgres manually and have it running, the dcache install script skips
+not only postgres install (which is good) but also initialization of
+postgres users and databases (which is not good). I am hardly an
+expert on postgres but - isn't there a way to query the running
+postgres process if a certain user or database exists and create one if
+it doesn't?
+
+6) The install script on each pool node does not respect the old max
+pool size setting in pool/setup and puts a different number into
+pool_path. As per discussion in osg-storage, the setting in pool/setup
+overrides the one in pool_path. Not a big deal then.
+
+7) Server and host keys were not installed in /opt/d-cache/config on
+the admin node where adminDoor runs. This prevented me from connecting
+to the dcache admin interface.
+
+8) Upgrading to 1.7.0-36 breaks interaction with older srm clients
+because they want to use dcap protocol first instead of gsiftp. The
+right solution, I think, is the one posted by Jon - set
+srmIgnoreClientProtocolOrder=true in dCacheSetup on the srm server.
+
+9) After upgrading to the latest dcache client, 'export
+LD_PRELOAD=/opt/d-cache/dcap/lib/libdcap.so' no longer works on our
+site. The library can be loaded but 'ls -l' no longer returns the
+correct file size.  We used this option to verify the size of files
+downloaded by Phedex. We reverted to srm-get-metadata which opens more
+JVM's on the phedex node and occasionally exhausts node memory. The
+preload dcap lib is not working either on our 64-bit nodes or on the
+phedex node, which is still 32-bit. Not resolved.
+
+10) We specified USE_MULTI_MOVER_QUEUES=yes in site-info.def:
+
+<pre class="programlisting">
+USE_MULTI_MOVER_QUEUES:gsiftpIoQueue=WAN \
+USE_MULTI_MOVER_QUEUES:gsidcapIoQueue=LAN \
+USE_MULTI_MOVER_QUEUES:dcapIoQueue=LAN \
+USE_MULTI_MOVER_QUEUES:poolIoQueue=default,WAN,LAN \
+</pre>
+
+But dcap transfers from node to node are going over WAN. Even if I
+specify dcap source using a node name mapped to private ip, for
+example, dcap://compute-0-19:22125/path. All our nodes are both on WAN
+and LAN. Not resolved.
+
+</blockquote>
+
+
+
+
+
+---
+
+
+
 
 ---+!! Using Certificates
 ---+++ Default Credential Location
