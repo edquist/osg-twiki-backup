@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MichaelThomas" date="1187197309" format="1.1" reprev="1.20" version="1.20"}%
+%META:TOPICINFO{author="MichaelThomas" date="1187203955" format="1.1" reprev="1.21" version="1.21"}%
 %META:TOPICPARENT{name="DocumentationTable"}%
 %LINKCSS%
 
@@ -154,44 +154,76 @@ If you get the following, you have not added yourself correctly to the <b>admins
 </pre>   
 
 ---+++Modify the gums.config file
- A default gums.config file is installed in =$VDT_LOCATION/tomcat/v5/webapps/gums/WEB-INF/classes/gums.config=. This file has two groupMapping elements (i.e., groupMapping with no "s" at the end), both of which need to be replaced.  They fall inside the one <nop>groupMappings element (with an "s").
+ A default empty gums.config file is installed in =$VDT_LOCATION/vdt-app-data/gums/config/gums.config=.
 
 %NOTE% =$VDT_LOCATION/gums= is symlinked to =/$VDT_LOCATION/gums-service/var/war=.
 
 You can choose to follow the "instant gratification" path, below, or follow the GumsConfigStepByStep path.
 
+<b>(Note from MichaelThomas:</b>  I think we should include an 'instant gratification' gums.config file with only the OSG vo in the VDT.  Setting up this initial VO using the GUI involves 5 different UI sections, which defeats the purpose of 'instant gratification')
+
 To get some instant gratification:
 <ol>
-  <li> first replace the groupMapping elements with the following element:
+  <li> Add a 'VomsServers' section before the 'UserGroup' section.  Make sure the <b>sslKey</b>, <b>sslCertfile</b>, and <b>sslCAFiles</b> point to the correct locations for your installation.
 <verbatim>
-  <groupMapping name='osg' accountingVo='osg' accountingDesc='OSG'>
-    <userGroup className='gov.bnl.gums.VOMSGroup'
-        url='https://grid03.uits.indiana.edu:8443/edg-voms-admin/vos/services/VOMSAdmin'
-        persistenceFactory='mysql' name='osg' voGroup="/vos/osg"
-        sslCertfile='/etc/grid-security/http/httpcert.pem'
-        sslKey='/etc/grid-security/http/httpkey.pem' ignoreFQAN="true"/>
-    <accountMapping className='gov.bnl.gums.GroupAccountMapper' 
-        groupName='osg' />
-  </groupMapping>
-</verbatim>
-Note that this sample <b>groupMapping</b> element points to a VOMS server at Indiana and to the <b>/vos/osg</b> group, that it uses group account mapping (the <b>className</b> attribute of <b>accountMapping</b> element contains the <b>GroupAccountMapper</b> class), and the group account which it maps to is <b>osg</b> (the <b>groupName</b> attribute of <b>accountMapping</b> element).</li>
-   <li>In the <b>hostGroup</b> element, below, change the <b>groups</b> attribute to <b><i>osg</i></b> to match the inserted element (delete groupA and groupB) and change the <b>wildcard</b> attribute value from '<b>*.site.com</b>' to the CE or gatekeeper host(s) that the group mappings apply to (*.fnal.gov shown in example below).  As indicated, you can use a wildcard to specify a set of hosts.   
+        <vomsServers>
+                <vomsServer
+                        name='osg'
+                        description=''
+                        persistenceFactory='mysql'
+                        baseUrl='https://voms.opensciencegrid.org:8443/voms/osg/services/VOMSAdmin'
+                        sslKey='/etc/grid-security/http/httpkey.pem'
+                        sslCertfile='/etc/grid-security/http/httpcert.pem'
+                        sslKeyPasswd=''
+                        sslCAFiles='/etc/grid-security/certificates/*.0'/>
+        </vomsServers>
+</verbatim></li>
+   <li>Add a new 'VomsUserGroup' for the OSG vo inside the existing 'UserGroups' section:
 <verbatim>
- <hostGroups>
-  <hostGroup className='gov.bnl.gums.WildcardHostGroup' 
-              cn='*.fnal.gov,host/*.fnal.gov' 
-                groups='osg'   />
- </hostGroups>
+                <vomsUserGroup
+                        access='read self'
+                        name='osg'
+                        description=''
+                        vomsServer='osg'
+                        matchFQAN='vo'
+                        acceptProxyWithoutFQAN='true'
+                        voGroup='/osg'/>
+</verbatim></li>
+   <li>Replace the existing (empty) accountMappers, groupToAccountMappings, and hostToGroupMappings sections with the following.  Make sure to change the <b>cn='*.site.com</b> attribute to match your hostname, such as <b>cn='*.fnal.gov'</b> (wildcards are allowed).
+<verbatim>
+        <accountMappers>
+                <groupAccountMapper
+                        name='osg'
+                        description=''
+                        accountName='osg'/>
+        </accountMappers>
+
+        <groupToAccountMappings>
+                <groupToAccountMapping
+                        name='osg'
+                        description=''
+                        accountingVoSubgroup='osg'
+                        accountingVo='OSG'
+                        userGroups='osg'
+                        accountMappers='osg'/>
+        </groupToAccountMappings>
+
+        <hostToGroupMappings>
+                <hostToGroupMapping
+                        groupToAccountMappings='osg'
+                        description=''
+                        cn='*.site.com'/>
+        </hostToGroupMappings>
 </verbatim></li>
    <li>On your GUMS web interface at =<nop>https://your-gums-server:8443/gums=, 
-    <ul><li>click "Update Members" in the left pane
+    <ul><li>click "Update VO Members" in the left pane
              <li>then the "Update VO Members Database" button
    </ul>This retrieves the members of the <b>/vos/osg</b> group from the Indiana VOMS server, and inserts them into the !MySql GUMS database.</li>
    <li>Still on your GUMS web interface, 
       <ul><li>Click on "Generate Grid Mapfile," 
        <li>Enter the hostname that you want to generate the grid mapfile for<br>
         <b>Key point</b>: In step 3, you specified certain hosts in the 
-        <b>cn</b> attribute of the <b>hostGroup</b> element that these
+        <b>cn</b> attribute of the <b>hostToGroupMapping</b> element that these
         mappings applied to.  This is the value you would enter here. 
         For example, if you had entered <b>cn="*.fnal.gov"</b>, you can
         enter any host with a .fnal.gov domain.  Some host certificates are prepended with an extra string, 'host/.'  It is recommended that you also add this regex to the cn attribute to avoid possible problems with some gatekeepers (see above as an example).</li>
@@ -213,7 +245,7 @@ A few notes about maintenance:
    * You'll need to be notified of changes to the list of VOs in order to maintain this.
 
 ---+++Setting up email notification for GUMS errors
-GUMS has the capability to notify an administrator via email of any errors that may occur. The =$VDT_LOCATION/tomcat/v5/webapps/gums/WEB-INF/classes/log4j.properties= contains these entries but are commented out.  Look for these lines:
+GUMS has the capability to notify an administrator via email of any errors that may occur. The =$VDT_LOCATION/tomcat/v55/webapps/gums/WEB-INF/classes/log4j.properties= contains these entries but are commented out.  Look for these lines:
 
 <pre class="programlisting">
   #log4j.appender.mail=org.apache.log4j.net.SMTPAppender
@@ -246,19 +278,24 @@ Towards the top of the same file (line 22) under the heading "Log for GUMS admin
 
 Comment out the first line and uncomment the second so that the resource info that you need to get comes to you via email in addition to going to a file.
    
-After you change these files, stop and restart tomcat-5.  
+After you change these files, stop and restart tomcat-55.
 
-To test for notification, force an error.  E.g., in gums.config, give an incorrect groupMapping name:  
+To test for notification, force an error.  E.g., in gums.config, give an incorrect sslCACertificates path:  
 <verbatim>
-     <groupMapping name='osg_anne' accountingVo='osg' accountingDesc='OSG'>
+                <vomsServer
+                        name='osg'
+                        ...
+                        sslCAFiles='/dev/null/*.0'/>
 </verbatim>
 
 Now go to the GUMS-Admin UI <tt>https://your.gums.host:8443/gums</tt>, click Update Members. You should get an error which (among other text) should contain "Error Message: GUMS is misconfigured: please check the resource admin log for errors, and the gums.config file."
 
-You should receive one or more email notifications as well. (The error shown above generated three messages.)  One of them contains the solution: 
+You should receive one or more email notifications as well. (The error shown above generated two messages.)  One of them contains the solution: 
 
 <pre class="programlisting">
-19 May 2005 10:31:00,169 [FATAL]: The configuration wasn't read properly. GUMS is not operational: Error at (32, 97: The groupMapping 'osg' is used within a hostGroup, but it was not defined.
+15 Aug 2007 11:44:35,198 [WARN ]: VOMSGroup: remainderUrl='' - voGroup='/osg' - role='' wasn't updated successfully:  [Couldn't retrieve users from VOMS server: ; nested exception is: 
+	java.lang.Exception: The trusted certificate authority certificates reading failed:  java.io.IOException: No CA files found matching "/dev/null/*.0]
+15 Aug 2007 11:44:35,201 [ERROR]: GridID[/DC=org/DC=doegrids/OU=People/CN=Michael Thomas 725374] - Failed to update all groups - Some groups weren't updated correctly: consult the logs for more details. Check GUMS configuration or the status of the VO servers.
 </pre>
 
 Don't forget to fix your error now! .... and restart tomcat!!!
