@@ -1,0 +1,128 @@
+%META:TOPICINFO{author="BrianTierney" date="1187827048" format="1.1" reprev="1.6" version="1.6"}%
+%META:TOPICPARENT{name="VDTSyslogNG"}%
+%LINKCSS%
+
+<!-- This is the default OSG Integration template. Please modify it in the sections indicated to create your topic! --> 
+
+<!-- By default the title is the WikiWord used to create this topic !-->
+<!-- if you want to modify it to something more meaningful, just replace %TOPIC% below with i.e "My Topic"!-->
+
+---+!! %SPACEOUT{ "Using syslog-ng with stunnel" }%
+%TOC%
+
+Here are sample instructions for securing syslog-ng using stunnel for OSG. Additional examples are 
+http://gentoo-wiki.com/HOWTO_create_a_logserver_with_syslog-ng and
+http://www.stunnel.org/examples/syslog-ng.html
+These instructions assume that you do not wish to modify the system /etc/stunnel/stunnel.conf file.
+
+First install stunnel4 package, eg:
+<pre  class="screen">
+apt-get install stunnel4
+</pre>
+
+Next create stunnel certificates on the server host:
+
+<pre  class="screen">
+cd /etc/grid-security
+cat hostcert.pem hostkey.pem > stunnel.pem
+chmod 600 /etc/grid-security/stunnel.pem
+
+# copy hostcert to client host
+scp hostcert.pem YOURCLIENT:/opt/vdt/stunnel/syslog-ng-server.pem
+</pre>
+
+The on the client host:
+
+<pre  class="screen">
+cd /etc/grid-security
+cat hostcert.pem hostkey.pem > stunnel.pem
+chmod 600 /etc/grid-security/stunnel.pem
+
+# copy hostcert to the server (or email them to server admin)
+scp  hostcert.pem  server-host:
+cat client-cacert.pem >> /opt/vdt/stunnel/syslog-ng-client.pem
+</pre>
+
+Then create /opt/vdt/stunnel/stunnel.conf files.
+
+Client side:
+<pre  class="screen">
+pid = /opt/vdt/tmp/stunnel4.pid
+client = yes
+cert = /etc/grid-security/stunnel.pem
+# use this to verify who you are sending too
+CAfile = /opt/vdt/stunnel/syslog-ng-server.pem
+verify = 3
+
+[grid_logs]
+accept = 127.0.0.1:1999
+connect = serverhost:5101
+</pre>
+
+Server side:
+<pre  class="screen">
+pid = /opt/vdt/tmp/stunnel4.pid
+cert = /etc/grid-security/stunnel.pem
+# the following 2 lines ensure identity of which hosts are sending you logs
+CAfile = /opt/vdt/stunnel/syslog-ng-client.pem
+verify = 3
+
+[grid_logs]
+accept = serverhost:5101
+connect = 127.0.0.1:1999
+</pre>
+
+
+Then add something like this to the syslog-ng.conf file on the sending hosts:
+<pre  class="screen">
+# where to send the logs. stunnel will forward these to the host defined in the stunnel.conf
+destination remote {tcp("127.0.0.1" port(1999));};
+# connect your system log sources to the remote server
+log {source(src);destination(remote);};
+</pre>
+
+
+and add something like this to the syslog-ng.conf file on the receiving hosts:
+<pre  class="screen">
+# where to find the logs that stunnel will get from the clients.
+source secure_log {tcp(ip("127.0.0.1")  port(1999));}
+log {source(secure_log); destination(remote);};
+</pre>
+
+
+Finally, restart syslog-ng and stunnel on both the server and clients.
+
+<pre  class="screen">
+stunnel4 /opt/vdt/stunnel/stunnel.conf  # write a boot script to do this
+/etc/init.d/syslog-ng restart
+ </pre>
+Also add a boot script for stunnel.
+
+If you are using TCP-wrappers, you may need to add the following to /etc/hosts.allow:
+
+<pre  class="screen">
+# clients:
+1999:127.0.0.1 : ALLOW
+
+# server:
+5101:list of clients : ALLOW
+</pre>
+
+To test if it worked:
+<pre  class="screen">
+logger -u /tmp/syslog-ng-test "test message"
+ </pre>
+
+-----
+
+---++ Simplified Verison
+
+If you don't care about verifying the send or receive hosts, but only care about encrypting the data, you can simplify
+things as follows:
+
+Just remove the 'CAfile =' and 'verify =' lines from the stunnel config files, and you dont have to worry about copying certs
+between client and server.
+
+
+
+-- Main.BrianTierney - 03 Jul 2007
