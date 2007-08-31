@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnneHeavey" date="1188585985" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="AnneHeavey" date="1188594297" format="1.1" reprev="1.2" version="1.2"}%
 %LINKCSS%
 
 <!-- This is the default OSG Integration template. Please modify it in the sections indicated to create your topic! --> 
@@ -17,9 +17,13 @@ There are many different Certificate Authorities that OSG sites can choose to re
 
 <!-- cOr follow the instructions in [[CEConfigurePKI#Get_a_Personal_Grid_Certificate][Configuring Public Key Infrastructure]]. -->
 
-See [[Documentation/CertificateGet][How do I get or renew a DOEGrids Digital PKI/X509 Personal Certificate?]] for instructions on obtaining one and exporting it from your browser.  When you export it, it will be in what's called "p12" format. After you export it, you'll need to copy it to your =$HOME/.globus= directory on the host on which you'll be doing OSG work.
+---++ Get a certificate in your browser, export it and convert it
 
-Next, convert it to the right format for grid work. To convert it, run (replacing ={cert}= with the filename of your p12 cert file): 
+See [[Documentation/CertificateGet][How do I get or renew a DOEGrids Digital PKI/X509 Personal Certificate?]] for instructions on obtaining one and exporting it from your browser.  
+
+Your certificate may not be in the right format for OSG work. Most grid certificates are in a certificate & key combination file (*.p12). We need to separate these into two files, =usercert.pem= and =userkey.pem=. The =userkey.pem= file contains the encrypted private key and should have restrictive permissions such that only the owner can read or write to it. The =usercert.pem= file is the certificate, containting the public key; it is not encrypted and can be distributed freely.
+
+After you export it, you'll need to copy it to your =$HOME/.globus= directory on the host on which you'll be doing OSG work. Now log on to that host as yourself (not as root). Next, convert it to the right format for grid work. To convert it, run (replacing ={cert}= with the filename of your p12 cert file): 
 
 <pre class="screen">
 > cd $HOME/.globus
@@ -28,14 +32,92 @@ Next, convert it to the right format for grid work. To convert it, run (replacin
 </pre>
 Then delete the p12 file (store it somewhere else, on a different machine for security reasons). Set permissions as follows:
 <pre class="screen">
-chmod go-w  usercert.pem
-chmod go-rw userkey.pem
+> chmod go-w  usercert.pem
+> chmod go-rw userkey.pem
 </pre>
 In =$HOME/.globus= you should end up with:
 <pre class="screen">
 -rw-r--r--  1 root    root   1440 Aug 30 14:33 usercert.pem
 -r--------  1 root    root   1176 Aug 30 14:32 userkey.pem
 </pre>
+
+---++ Alternate (non-browser) way to get user certificate
+
+If you don't need a certificate for your browser, you can request one directly from the host where you'll be doing OSG work. Log in to the user account where you will normally initiate grid actions.  The commands below will place your certificate in the globus default location ( =~/.globus= ).  You should specify _OSG_ for the RA affiliation and also for the VO unless you already know the more appropriate values to use.
+
+<pre class="screen">
+> <b>source $VDT_LOCATION/setup.sh</b>
+> <b>cert-request -ou p</b>
+</pre>
+%RED%What type of interface do you get for inputting all the needed info (e.g., email address)?%ENDCOLOR%
+
+Look for email notification that the certificate has been issued. Once you receive it, you can retrieve it with the following command, using the serial number given in the email notice.
+
+<pre class="screen">
+> <b>source $VDT_LOCATION/setup.sh</b>
+> <b>cert-retrieve -certnum <i>0xYYYY</i></b>
+</pre>
+
+---++ Update the Fermi VOMS information (e.g., after renewing): 
+%RED%What about other VOMS instances? And do you have to do this initially too? ONLY after renewing? Clarify when it's needed. %ENDCOLOR%
+
+<pre class="screen">
+> <userinput>cd $HOME/.globus</userinput>
+> <userinput>openssl x509 -in .globus/usercert.pem -subject -serial -noout</userinput>
+</pre>
+
+---++ Test your credentials:
+
+%NOTE% This example is for the Fermilab VO. Customize the commands for your VO's environment. 
+
+%RED%How to generalize this so that it's not just for the osg-client?  If you're installing the osg-ce, do you cd to $VDT_LOCATION and run setup.sh?  %BR%
+Can we say: "cd to the directory containing your OSG software and source the setup script"?
+
+Do we want to use the blue formatting for commands? Doesn't seem to be used throughout rel docs.
+%ENDCOLOR%
+
+<pre class="screen">
+> <userinput>cd osg-client</userinput>
+> <userinput>source setup.sh</userinput>
+> <userinput>voms-proxy-init -voms <replaceable>fermilab:/fermilab</replaceable></userinput>
+Cannot find file or dir: $prefix/etc/vomses
+Your identity: /DC=org/DC=doegrids/OU=People/CN=E. Forrest Christian 802298
+Enter GRID pass phrase:
+Creating temporary proxy ............................................................................. Done
+Contacting  fermigrid2.fnal.gov:15001 [/DC=org/DC=doegrids/OU=Services/CN=host/fermigrid2.fnal.gov] "fermilab" Done
+Creating proxy .................................. Done
+Your proxy is valid until Wed May 30 01:28:09 2007
+> <userinput>globusrun -a -r <replaceable>fermigrid1.fnal.gov</replaceable>/jobmanager-fork</userinput>
+
+GRAM Authentication test successful
+[forrestc@cmssrv09 osg-client]$ 
+</pre>
+
+Now attempt to get a grid proxy by using either the =grid-proxy-init= or =voms-proxy-init= command.
+
+<pre class="screen">
+> <userinput>voms-proxy-init -voms <replaceable>fermilab:/fermilab</replaceable></userinput>
+Cannot find file or dir: $prefix/etc/vomses
+Your identity: /DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Forrest Christian/USERID=forrestc
+Contacting  fermigrid2.fnal.gov:15001 [/DC=org/DC=doegrids/OU=Services/CN=host/fermigrid2.fnal.gov] "fermilab" Done
+Creating proxy ............................................ Done
+Your proxy is valid until Wed May 23 21:35:09 2007
+
+</pre>
+
+---++ Troubleshooting
+
+If this doesn't work, check that the "gatekeeper" &mdash; the Grid component that accepts and executes remote jobs &mdash; can correctly authenticate you:
+
+%NOTE% This example is against the Fermilab site. Customize it for your VO and site.
+
+<pre class="screen">
+> <userinput>globusrun -a -r <replaceable>fermigrid2.fnal.gov</replaceable>/jobmanager-fork</userinput>
+GRAM Authentication test successful
+> 
+</pre>
+
+
 ---
 
 | *Links:* | | [[Documentation/AdminDocHub][Documentation for Resource and Service Providers]]  | |  [[Documentation/WebHome][Documentation Hub]]  | |  [[DocumentationTable][Release Documentation table]] |
