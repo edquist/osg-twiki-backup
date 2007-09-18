@@ -1,0 +1,153 @@
+%META:TOPICINFO{author="StevenTimm" date="1190145808" format="1.1" reprev="1.1" version="1.1"}%
+%LINKCSS%
+
+<!-- This is the default OSG Integration template. Please modify it in the sections indicated to create your topic! --> 
+
+<!-- By default the title is the WikiWord used to create this topic !-->
+<!-- if you want to modify it to something more meaningful, just replace %TOPIC% below with i.e "My Topic"!-->
+
+---+!! %SPACEOUT{ "%TOPIC%" }%
+%TOC%
+
+%STARTINCLUDE%
+%EDITTHIS%
+---++What is gLexec and why do you need it
+gLexec is adapted from apache's suexec to use grid credentials to run jobs as another 
+user.  It is meant to be used by VO's that run pilot jobs.  In a pilot job one
+user submits a job, either PANDA or Condor Glide-in, which then contacts the 
+VO's server and requests a workload once it has gotten the slot.  gLexec is 
+used to authenticate the workload and verify that it is a authorized user from 
+the VO who has submitted the workload. 
+
+gLexec has a number of authentication plugins and can be used both by 
+EGEE LCAS/LCMAPS and by OSG with GUMS and SAZ.   It is an suid
+program and thus must be installed on every single worker node individually. 
+It cannot and must not be NFS-exported.
+
+---++Installing the gLexec package
+
+It is recommended that the gLexec package be installed within the OSG
+Worker Node Client area because most of its dependencies are the same 
+as those within the worker node client.  <b>gLexec must be installed as root</b>
+To install:
+
+<pre>
+pacman -get http://vdt.cs.wisc.edu/vdt_180_cache:Glexec
+</pre>
+The tail of the install will look like this:
+<pre>
+Downloading [Glexec-1.8.0.tar.gz] from [http://vdt.cs.wisc.edu/software/questions/1.8.0]...
+Downloading [configure_glexec-1-18.tar.gz] from [http://vdt.cs.wisc.edu/software//configure_glexec/1]...
+Downloading [configure_prima-1-240.tar.gz] from [http://vdt.cs.wisc.edu/software//configure_prima/1]...
+Downloading [prima-0.6.x86_rhas_3.tar.gz] from [http://vdt.cs.wisc.edu/software//prima/0.6]...
+Downloading [glexec-0.1-x86_rhas_3.tar.gz] from [http://vdt.cs.wisc.edu/software//glexec/0.1]...
+</pre>
+
+Note that the setup.sh file is not changed to put the glexec binary into your path.
+The install will create config files under /etc/glexec, create the /var/log/glexec
+directory if it does not exist, and change the glexec binary to be suid.
+
+---++Post-install Configuration of gLexec
+The following steps need to be executed manually after the 
+glexec pacman install completes:
+
+--+++Configure each node with host cert or proxy
+Each node which is executing glexec needs to have either a host
+certificate or a host proxy distributed from the gatekeeper.
+There is a distribution script located at 
+http://fermigrid.fnal.gov/files/glexec/host_dist_latest.tgz
+which can be installed on your gatekeeper and will automatically create
+a proxy from your gatekeeper's host certificate and push it out to /etc/grid-security/hostproxy.pem and /etc/grid-security/hostproxykey.pem.
+The /etc/grid-security/certificates directory should also be pointing to a 
+set of current CA Certificates and CRL files.
+
+---+++Modify /etc/glexec/contrib/gums_interface/getmapping.cfg
+
+Modify the file /etc/glexec/contrib/gums_interface/getmapping.cfg
+to point to the correct location of your GUMS server.  The gums_url variable
+is the only variable you should have to change.
+<pre>
+
+[root@fgitb111 lib]# more /etc/glexec/contrib/gums_interface/getmapping.cfg
+# gums_interface/getmapping config file
+#
+# this is a shell script that gets sourced
+#
+
+vdt_location=/usr/local/grid
+log_dir=/var/log/glexec
+
+# GUMS config parameters
+host_x509_file="/etc/grid-security/hostproxy.pem"
+host_key_file="/etc/grid-security/hostproxykey.pem"
+gums_url="https://fermigrid3.fnal.gov:8443/gums/services/GUMSAuthorizationServicePort"
+
+
+# Optional SAZ command
+# Leave it blank if you don't use SAZ
+sazcmd_location=
+sazcfg=
+
+# if set to 1, will map even if SAZ fails
+saz_warn_only=0
+
+# monitoring program
+# leave empty if none should be used
+# if set, it will accept arguments
+#   mon_pid log_dir job_id target_uid user_DN [vo issuer [user_FQAN]*]
+monitor_exe=/usr/local/grid/glexec-osg/contrib/glexec_monitor/glexec_monitor
+
+</pre>
+
+---+++Set up /etc/ld.so.conf and symlinks
+gLexec does not use the standard LD_LIBRARY_PATH because it 
+is an suid executable.  Therefore it is necessary to change /etc/ld.so.conf
+so it can find its own libraries.  Add the following to the end of /etc/ld.so.conf
+(presuming that gLexec is installed in /usr/local/grid)
+<pre>
+/usr/local/grid/glexec-osg/lib
+/usr/local/grid/globus/lib
+/usr/local/grid/expat/lib
+</pre>
+Make the following symlink
+<pre>
+cd /usr/lib
+ln -s /usr/local/grid/glite/lib/libvomsapi-nog.so.0 libvomsapi.so.0
+</pre>
+
+Then execute, as root, the command "ldconfig"
+<p>
+
+
+---++Testing gLexec
+
+Now as a non-privileged user, do the following (where xxxx below is replaced by the number of your uid):
+<pre>
+cd $VDT_LOCATION
+. setup.sh
+voms-proxy-init -voms yourvo:/yourvo 
+export GLEXEC_CLIENT_CERT=/tmp/x509up_uxxxx
+glexec-osg/sbin/glexec /usr/bin/id
+It appears that the value of pthread_mutex_init is 10603520
+uid=13160(fnalgrid) gid=9767(fnalgrid)
+</pre>
+If gLexec is successful, it will print out the uid and gid that your
+proxy would normally be mapped to by your gums server.
+The gLexec utility also has a process called glexec_monitor which 
+runs as root through the life of the glexec'ed process.
+
+%RED% Note a patch is in the works to insert a fixed LIBRARY_PATH
+into the glexec.conf and make the ld.so.conf as well as the libvomsapi symlink
+unnecessary. %ENDCOLOR
+
+
+
+
+
+
+
+%STOPINCLUDE%
+
+%BOTTOMMATTER%
+
+-- Main.StevenTimm - 18 Sep 2007
