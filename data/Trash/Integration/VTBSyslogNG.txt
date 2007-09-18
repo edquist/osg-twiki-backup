@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="SuchandraThapa" date="1179158416" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="SuchandraThapa" date="1190148776" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="SysLogNg"}%
 ---+  <noop>Syslog-ng Install
 %TOC%
@@ -19,7 +19,7 @@ Instructions for an independent syslog-ng instance on any host.  Here we focus o
 <pre  class="screen">
 cd /opt/src/
 tar xvzf eventlog-0.2.5.tar.gz
-tar xvzf syslog-ng-2.0.2.tar.gz
+tar xvzf syslog-ng-2.0.4.tar.gz
 cd eventlog-0.2.5
 ./configure --prefix=/opt/eventlog
 make
@@ -34,12 +34,12 @@ make install
 </pre>
 
 
----++ Configuration of the sourceservice host
+---++ Configuration of the source service host
 After installing the syslog-ng software, you need a configuration file and a boot script.  In addition, a cron job for the attached python script needs to be added to periodically check the logger processes.  Something like =log_cron.py -c [path_to_ini_file] -t= will do the trick.
 
 This configuration file will go into =/opt/syslog-ng/etc/syslog-ng.conf=:
 
-<pre class="screen"><b>
+<pre class="screen">
 
 options {
    #time_sleep(50);  # polling interval, in ms (helps reduce CPU)
@@ -59,30 +59,20 @@ options {
    stats_freq(3600);  # number of seconds between syslog-ng internal stats events; these are useful
                                # for ensuring syslog-ng is not getting overloaded
 };
-#
-# /tmp/container.socket is the destination of 'tail -F container-real.log | logger -t dq2 -u /tmp/container.socket' (See boot script below)
-#
-source wsgram_src { 
-       unix-stream("/tmp/wsgram.socket");
- };
-
-source gatekeeper_src { 
-       unix-stream("/tmp/gatekeeper.socket");
- };
-
-source gridftp_src { 
-       unix-stream("/tmp/gridftp.socket");
- };
-# comment out if not using condor
-source condor_src { 
-       unix-stream("/tmp/condor.socket");
- };
 
 #
-# syslog-ng internal logs; useful for testing syslog-ng config
-source syslog_ng {
-       internal();
-};
+#
+source gatekeeper_log { file ("/opt/itb-0.7.0/globus/var/gatekeeper.log" follow-freq(1) flags(no-parse) log_prefix('gatekeeper_log ') ); };
+source accounting_log { file ("/opt/itb-0.7.0/globus/var/accounting.log" follow-freq(1) flags(no-parse) log_prefix('accounting_log ') ); };
+source error_log { file ("/opt/itb-0.7.0/apache/logs/error_log" follow-freq(1) flags(no-parse) log_prefix('error_log ') ); };
+source access_log { file ("/opt/itb-0.7.0/apache/logs/access_log" follow-freq(1) flags(no-parse) log_prefix('access_log ') ); };
+source edg_mkgridmap_log { file ("/opt/itb-0.7.0/edg/log/edg-mkgridmap.log" follow-freq(1) flags(no-parse) log_prefix('edg_mkgridmap_log ') ); };
+source gridftp_auth_log { file ("/opt/itb-0.7.0/globus/var/log/gridftp-auth.log" follow-freq(1) flags(no-parse) log_prefix('gridftp_auth_log ') ); };
+source gridftp_log { file ("/opt/itb-0.7.0/globus/var/log/gridftp.log" follow-freq(1) flags(no-parse) log_prefix('gridftp_log ') ); };
+source globus_gatekeeper_log { file ("/opt/itb-0.7.0/globus/var/globus-gatekeeper.log" follow-freq(1) flags(no-parse) log_prefix('globus_gatekeeper_log ') ); };
+source container_log { file ("/opt/itb-0.7.0/globus/var/container.log" follow-freq(1) flags(no-parse) log_prefix('container_log ') ); };
+source container_real_log { file ("/opt/itb-0.7.0/globus/var/container-real.log" follow-freq(1) flags(no-parse) log_prefix('container_real_log ') ); };
+source syslog_ng { internal(); };
 
 #
 # define the Forwarding Destination
@@ -95,31 +85,29 @@ destination syslog_ng_dst {
 };
 #
 # forward sources to destination
-log {
-   source(wsgram_src); destination(vtb_dst); flags(flow-control);
-};
-
-log {
-   source(gridftp_src); destination(vtb_dst); flags(flow-control);
-};
-
-log {
-   source(gatekeeper_src); destination(vtb_dst); flags(flow-control);
-};
-log {
-   source(condor_src); destination(vtb_dst); flags(flow-control);
-};
-
+# Define what should be forwarded to the destinations
+# Definitions
+log { source(gatekeeper_log); destination(central_dest); flags(flow-control); };
+log { source(accounting_log); destination(central_dest); flags(flow-control); };
+log { source(error_log); destination(central_dest); flags(flow-control); };
+log { source(access_log); destination(central_dest); flags(flow-control); };
+log { source(edg_mkgridmap_log); destination(central_dest); flags(flow-control); };
+log { source(gridftp_auth_log); destination(central_dest); flags(flow-control); };
+log { source(gridftp_log); destination(central_dest); flags(flow-control); };
+log { source(globus_gatekeeper_log); destination(central_dest); flags(flow-control); };
+log { source(container_log); destination(central_dest); flags(flow-control); };log { source(container_real_log); destination(central_dest); flags(flow-control); };
 
 # for syslog-ng debugging
-log {
-  source(syslog_ng); destination(syslog_ng_dst);
-};
-</b></pre>
+log { source(syslog_ng); destination(syslog_ng_dest); };
+
+# This let us verify that syslog-ng is working by using logger (or
+# logger-ng) to push things directly to syslog-ng
+log { source(test_src); destination(test_dest); };
+</pre>
 
 ---+++ Boot script for the WS-GRAM service host
 Capture and forward globus  logfile .
-<pre  class="screen"><b>
+<pre  class="screen">
 #!/bin/bash
 #
 # Source function library
@@ -129,8 +117,6 @@ BINDIR=/opt/syslog-ng/sbin
 syslog=syslog-ng
 config=/opt/syslog-ng/etc/syslog-ng.conf
 syslog_pid="/var/run/syslog-ng.pid"
-logging_script="/usr/local/bin/log_cron.py"
-script_ini="/usr/local/etc/log_settings.ini"
 #
 # check config and programs
 test -s ${config}         || {
@@ -147,14 +133,11 @@ case "$1" in
 #       startproc -u nobody -p ${syslog_pid} ${BINDIR}/${syslog} -f $config
        daemon ${BINDIR}/${syslog} "-f $config"  
        echo  "Starting syslog-ng service"
-       # create streams for log files here; note dq2 is a tag for the source.
-       $logging_script -c $script_ini -s
        ;;
    stop)
        echo "Shutting down syslog-ng service"
        # killproc ${syslog_pid} TERM
        killproc ${syslog} TERM 
-       $logging_script -c $script_ini -k
        ;;
    restart)
        echo "restarting syslog-ng service"
@@ -166,11 +149,11 @@ case "$1" in
        exit 1
        ;;
 esac
-</b></pre>
+</pre>
 
 ---+++ Ini file settings for log_cron.py script
 With the default settings given in the boot script, this file should be located in =/usr/local/etc/log_settings.ini=: 
-<pre class="screen"><b>
+<pre class="screen">
 [Main]
 pid_file_location = /var/run/processes.pid
 log_socket_directory = /tmp/
@@ -181,7 +164,7 @@ wsgram = /opt/osg/globus/var/container-real.log
 gridftp = /opt/osg/globus/var/gridftp.log
 gatekeeper = /opt/osg/globus/var/globus-gatekeeper.log
 condor = /opt/condor/local.t2dev-01/log/SchedLog
-</b></pre>
+</pre>
 
 Remove the condor entries if condor logs should not be sent or if condor is not being used.  
 
@@ -189,7 +172,7 @@ Remove the condor entries if condor logs should not be sent or if condor is not 
 This will be uct3-edge5.uchicago.edu.   
 
 This configuration file will go into =/opt/syslog-ng/etc/syslog-ng.conf=:
-<pre class="screen"><b>
+<pre class="screen">
 options {
    time_sleep(50);  # polling interval, in ms (helps reduce CPU)
    create_dirs(yes);  # create output directories
@@ -333,7 +316,7 @@ log {
      filter(wsgram_filter);
      flags (flow-control);
 };
-</b></pre>
+</pre>
 
 Finally, a cron job needs to be added to insure that the tail processes remain running.  Something like:
 <pre class="screen">
@@ -343,7 +326,7 @@ will do.
 
 ---+++ Bootscript for the central logging host 
 Note - this is a special central logging host - it also hosts OSG-VTB gatekeeper services, so we may also collecting globus-gatekeeper, gridftp, and container logfiles.
-<pre><b>
+<pre>
 #!/bin/bash
 #
 # Source function library
@@ -390,7 +373,7 @@ case "$1" in
        exit 1
        ;;
 esac
-</b></pre>
+</pre>
 
 ---++ Validation
 Write a message into the log sockets on the source host :
