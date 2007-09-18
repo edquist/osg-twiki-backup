@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="StevenTimm" date="1190144345" format="1.1" reprev="1.22" version="1.22"}%
+%META:TOPICINFO{author="StevenTimm" date="1190152842" format="1.1" reprev="1.23" version="1.23"}%
 %META:TOPICPARENT{name="DocumentationTable"}%
 %LINKCSS%
 
@@ -13,8 +13,7 @@
 %EDITTHIS%
 
 This should be done before installing the CE.
-This is a minimal set of executables that need to be made available to the worker nodes in a Compute Element. It must be installed in a location visible to jobs executing on the worker node.   No host cert/key files are necessary for the worker node client 
-installation.
+The worker node client is a minimal set of executables that need to be made available to the worker nodes in a Compute Element. It must be installed in a location visible to jobs executing on the worker node.   No host cert/key files are necessary for the worker node client installation.
 
 
 ---++ Package listing
@@ -43,12 +42,13 @@ You have installed a subset of VDT version 1.8.0e:
 These client programs need to be available from the worker node so that jobs which need to access grid-enabled mass storage during the job (e.g. via globus-url-copy, VDS, or srmcp) can do so.  The worker node also has to have either via NFS or locally a good set of certificate authority files with up to date certificate revocation lists (CRL's) for those clients to work properly.
 
 ---++ Installation Options
-There are two installation options:
+There are three installation options:
 
    1. _Suggested Installation:_ Install the wn-client package on the file server separate from the CE that you use for $APP. You will be installing the fetch-crl program onto this node, which requires root access, and adds a script into cron. The updates require outgoing network access from the node it is installed on.  (Should arrange to make it accessible from the CE as well). %BR% %BR%  
    2. _CE installation:_ Install the wn-client package on your CE. While we do not suggest you do this, we provide instructions, and support this installation as an option.  
-
-There is actually a third option: you can use some mechanism of your choice to install the software on each node. However, if you do this, do *not* run the fetch-crl program on each node. If all worker nodes in OSG run fetch-crl, it may create high load on the CRL web servers. If they are synchronized, it may be indistinguishable from a denial of service attack. It is better to use something like rsync to copy the CA certificates and CRLs from another local node that fetches them regularly. We plan for a future version of the OSG software stack to include a facility to do this reliably.  It is also possible to use the Squid package, available from the VDT to cache the Certificates and CRL updates and reduce the load.
+   3. _Local installation:_  Install the worker node client software on each node.  However, modifications have to be made to the fetch-crl configuration so that hundreds of worker nodes do not attempt to contact the certificate authority servers independently.  You can use Squid as a front end or you can use rsync to 
+copy the CA Certificates and CRL files from another node.  Instructions on 
+both options are given below.
 
 In all cases you need to choose a path that is common to all worker nodes and the CE. You will be prompted for this path when running the =configure-osg.sh= script on the gatekeeper in order to set the =$OSG_GRID= variable.
 
@@ -359,7 +359,20 @@ It then asks where you would like to install the CA files and whether to run the
 For the suggested installation option, i.e. option (1) where you install this worker node client package on the file server that serves $APP, and you have no previous installation of the fetch-crl cron script, you should answer =l= (lowercase letter L) for the location and =y= to run the fetch-crl cron.
 
 ---+++ !Option 2
-If you are installing this worker node client on the OSG CE, i.e. option (2) answer =l= (lowercase letter L) for local location of CRL and =n= on running the cron script.  %RED%Why? The CE install says to answer r. Seems inconsistent.%ENDCOLOR%
+If you are installing this worker node client on the OSG CE, i.e. option (2) answer =l= (lowercase letter L) for local location of CRL and =n= on running the cron script.  You will change the symlink to point to the main VDT location, =$VDT_LOCATION/globus/share/certificates= once the OSG CE is installed.
+
+---+++!Option 3
+If you are installing this worker node client on every single worker node, i.e. option (3), answer =l= for local location of CRL and "y" on running the cron. But this should not 
+be attempted without adding a squid proxy to the configuration.  This is done 
+by creating the file
+/etc/sysconfig/fetch-crl
+with contents
+<pre>
+export http_proxy=fermigrid4.fnal.gov:3128
+</pre>
+where fermigrid4.fnal.gov would be replaced with whatever the name of your
+site Squid server is.
+
 
 ---++Automation
 The Worker Node Client installation process can be automated for any 
@@ -420,7 +433,7 @@ lrwxrwxrwx  1 root root 41 Mar 16 15:44 TRUSTED_CA -> /usr/local/grid/globus/sha
 ---++ Notes
 %IMPORTANT% If you are installing this package on a head node / compute element where an OSG CE install will also be done afterwards, it is recommended that you log out and log back in before continuing with the main OSG CE Install, otherwise all the wn-client stuff will be in your path and confuse everything.
 %IMPORTANT% A side effect of the worker node client as currently configured, is that $GLOBUS_LOCATION can and does wind up in a different location on the head node than it does on the worker node.  The environment at the beginning of the job will give you $GLOBUS_LOCATION on the head node.  You have to source =$OSG_GRID/setup.sh= to get where $GLOBUS_LOCATION is available to you on the worker node. %BR% %BR%   To avoid this, it is required to add an appropriate softlink on every worker node such that $GLOBUS_LOCATION as defined on the head node points to the place where it is located on the worker node after the wn client installation. E.g., CMS analysis jobs submitted via Resource Broker will presently fail without this softlink. %RED% It has been claimed that in OSG 0.8.0/VDT 1.8.x, the vdt-job-environment routines which are called by the Globus jobmanager.pm to 
-insert all the OSG variables into the job environment, will fix the $GLOBUS_LOCATION too%ENDCOLOR%.
+insert all the OSG variables into the job environment, will fix the $GLOBUS_LOCATION too, but in fact the problem still persists.%ENDCOLOR%.
 
 
 ---++ Current WN Contents
