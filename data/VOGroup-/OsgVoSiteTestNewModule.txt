@@ -1,0 +1,211 @@
+%META:TOPICINFO{author="ChrisGreen" date="1190749492" format="1.1" reprev="1.15" version="1.15"}%
+%META:TOPICPARENT{name="OsgVoSiteTests"}%
+<style type="text/css">
+  pre.code { border-style: solid; border-color: black; border-width: thin; background-color: #eeeeee; color: blue }
+  pre.command { color: blue }
+  span.comment { color: red; font-weight: bold }
+  span.command { font-family: courier; color: blue }
+  span.code-snippet { font-family: courier; color: blue; background-color: #eeeeee }
+  span.command-output { font-family: courier; color: blue }
+  span.env-var { font-family: courier; font-size: larger }
+  span.filename { font-family: courier; font-style: italic; font-weight: bold; padding-right: 0.7em }
+  span.arg { font-family: courier; font-style: italic }
+  span.paren01 { font-weight: 500; color: #d03000 }
+  span.paren02 { font-weight: 500; color: #30d000 }
+  span.paren03 { font-weight: 600; color: #d03010 }
+  span.paren04 { font-weight: 600; color: #30d010 }
+  span.paren05 { font-weight: 700; color: #d03020 }
+  span.paren06 { font-weight: 700; color: #30d020 }
+  span.paren07 { font-weight: 800; color: #d03030 }
+  span.paren08 { font-weight: 800; colo#30d030 }
+  span.paren09 { font-weight: 900; color: #d03040 }
+  span.paren10 { font-weight: 900; color: #30d040 }
+  span.hash-key { font-weight: bold; color: #555555  }
+  span.hash-value { font-weight: bold; color: #007722 }
+  span.boiler-plate { background-color: #a0a0a0 }
+</style>
+
+
+---+!! Making your own Test Module
+
+%TOC%
+<hr />
+
+%STARTINCLUDE%
+%EDITTHIS%
+
+In order to fit a test module of your own into the testing infrastructure you should create a perl module that inherits from an existing <span class="filename">.pm</span>. The most basic test module from which to inherit is <span class="filename">Test.pm</span> (refer to it in code as <span class="code-snippet">gridSite::Test</span>). all test modules inherit from <span class="filename">Test.pm</span> either directly or indirectly.
+
+---+++ Overview of procedure
+
+   1. Choose the location of your module code:
+      * Placing your module in <span class="filename">lib/gridSiteTest/</span> will render your module visible without further configuration.
+      * Placing your module in <span class="filename">&lt;my-dir&gt;/lib/&lt;my-lib-top&gt;/</span> will separate your code from the main test infrastructure to enable easy updates of same; but will require an argument <span class="command">--module-include-dir <span class="filename"><span class="arg">&lt;my-dir&gt;/lib</span></span></span> to <span class="command">gridSiteTest</span> to enable it to find your modules.
+   1. Create a <span class="filename">.pm</span> file inheriting from your chosen parent module, using the prescribed boiler plate below.
+   1. Refer to your new module in a control script:
+      * Placing your control script in <span class="filename">control/</span> will render your control script visible without further configuration.
+      * Placing your control script in <span class="filename">&lt;my-dir&gt;/</span> will separate your code from the main test infrastructure to insulate it from updates to the main code; but will require an argument <span class="command">--module-list-dir <span class="filename"><span class="arg">&lt;my-dir&gt;</span></span></span> to <span class="command">gridSiteTest</span> to enable it to find your control script.
+
+---+++ Boilerplate for a test module
+
+The example below is taken from the <span class="code-snippet">gridSiteTest::Ping</span> module. The boilerplate has a darker gray background than the module-specific or optional code.
+
+<pre class="code"><span class="boiler-plate">package gridSiteTest::Ping;
+
+use strict;
+use vars qw(@ISA); <span class="comment"># Perl export mechanism.</span>
+
+require gridSiteTest::Test;
+@ISA = qw(gridSiteTest::Test); <span class="comment"># Module from which to inherit.</span>
+<span class="comment"># One may also wish to take advantage of @EXPORT or @EXPORT_OK as necessary, and maybe tags: see any good Perl book for details.</span>
+
+sub new {
+  my $class = shift;
+  my $self = gridSiteTest::Test->new("CE ping test"); <span class="comment"># Instantiate the super-class.</span>
+</span>
+  $self->mark_as_prerequisite(); <span class="comment"># This test must be successful for others to follow for this site.</span>
+<span class="boiler-plate">
+  return bless $self, $class; <span class="comment"># Return the instantiate class object.</span>
+}
+
+sub execute {
+  my $self = shift; <span class="comment"># Instance methods receive the class object as the first argument.</span>
+  $self->SUPER::execute(@_); <span class="comment"># Execute super-class boilerplate.</span>
+</span>
+  my $gatekeeper = $self->site_address(); <span class="comment"># Site address</span>
+  $self->set_status($self->logged_system_command(undef,
+                                                  "ping",
+                                                  "-c",
+                                                  "1",
+                                                  "$gatekeeper")); <span class="comment"># set_status() is the "return code" for the module.</span>
+  <span class="comment"># logged_system_command() saves stdout and stderr in the result details.</span>
+  if ($self->status() != 0) {
+    $self->set_status($self->logged_system_command(undef,
+                                                   "globusrun",
+                                                   "-r",
+                                                   "$gatekeeper",
+                                                   "-a"));
+  }
+  if ($self->status() == 0) {
+    $self->add_result("Ping", "OK", $self->{SUCCESS}); <span class="comment"># Successful result with color coding as appropriate.</span>
+  } else {
+    $self->add_result("Ping",
+                      sprintf("NO PING (%s)",$self->status()),
+                      $self->{FAILURE}); <span class="comment"># Failure, with appropriate color coding.</span>
+  }
+<span class="boiler-plate">}</span></pre>
+
+---+++ Test.pm
+
+The following methods of <span class="code-snippet">gridSiteTest::Test</span> may be useful to a test writer; they are grouped by category:
+
+---++++ Constructor
+   $ <span class="command">new(<span class="arg">?&lt;test-description&gt;</span>)</span>: Construct the basic test module: see [[#Boilerplate_for_a_test_module][boiler plate section]] for more details.
+
+---++++ Test execution
+
+   $ <span class="command">execute(<span class="arg">?&lt;site-name&gt;</span>, <span class="arg">?&lt;site-address&gt;</span>, <span class="arg">?&lt;jobmanager&gt;</span>, <span class="arg">?&lt;FQAN&gt;</span>)</span>: Basic test execution boiler plate: see [[#Boilerplate_for_a_test_module][boiler plate section]] for more details.
+
+---++++ Declaring characteristics of your module
+
+<dl>
+  <dt><a name="MarkAsPreReq"/><span class="command">mark_as_prerequisite()</span></dt>
+  <dd>Mark this module as one which prevents those following it being executed if it has a non-zero exit status.</dd>
+  <dt><a name="MarkForkable"/><span class="command">mark_forkable()</span></dt>
+  <dd>Mark this module has being executable in parallel with other tests (advisory).</dd>
+  <dt><a name="SetCommand"/><span class="command">set_command(...)</span></dt>
+  <dd>For record-keeping purposes, set the command executed to be the contents of <span class="code-snippet">@_</span>.</dd>
+</dl>
+
+---++++ Obtain useful information
+
+   $ <span class="command">status()</span>: Obtain the current status (0 is success) for the test.
+   $ <span class="command">is_prerequisite()</span>: Returns true (1) if the test has been marked as a [[#MarkAsPreReq][prerequisite]].
+   $ <span class="command">can_fork()</span>: Returns true (1) if the test is [[#MarkForkable][forkable]].
+   $ <span class="command">command()</span>: Returns the test's [[#SetCommand][set command]].
+   $ <span class="command">site()</span>: Returns the VORS name of the site upon which the test will be run.
+   $ <span class="command">site_address()</span>: Returns the DNS name of the gatekeeper upon which the test will be run.
+   $ <span class="command">jobmanager()</span>: Returns the jobmanager used to run jobs on the site.
+   $ <span class="command">fqan()</span>: Returns the FQAN of the current VOMS proxy credentials.
+   $ <span class="command">vo()</span>: Returns the set VO.
+   $ <span class="command">test_description()</span>: Return the descriptive text for this test.
+
+---++++ Managing status, results and details
+
+<dl>
+   <dt><span class="command">has_test_details()</span></dt>
+   <dd>Returns true(1) if the test has detailed results.</dd>
+   <dt><span class="command">details_keys()</span></dt>
+   <dd>Returns the detailed keys as an array.</dd>
+   <dt><span class="command">has_results()</span></dt>
+   <dd>Returns true(1) if the test has summary results.</dd>
+   <dt><span class="command">results_keys()</span></dt>
+   <dd>Returns the summary result keys as an array.</dd>
+   <dt><span class="command">results(<span class="arg">?&lt;result-key&gt;</span>)</span></dt>
+   <dd><ul>
+       <li>Without arguments, return the summary results hash (in scalar context); or an array of results in the format, <span class="command-output">key: result</span>.</li>
+       <li>Return the summary result that has the provided argument as its key.</li>
+       </ul>
+   </dd>
+   <dt><span class="command">test_details(<span class="arg">?&lt;result-key&gt;</span>)</span></dt>
+   <dd><ul>
+       <li>Without arguments, return the detailed results hash.</li>
+       <li>Return the detailed result that has the provided argument as its key.</li>
+       </ul>
+   </dd>
+   <dt><span class="command">add_result(<span class="arg">&lt;result-key&gt;</span>, <span class="arg">&lt;result-value&gt;</span>, <span class="arg">?&lt;result-classifier&gt;</span>, <span class="arg">?&lt;append-flag&gt;</span>)</span></dt>
+   <dd>Add the summary result identified by the given key with the desired value and optionally specified [[#Result_classifiers][result classifier]].</dd>
+   <dt><span class="command">add_detail(<span class="arg">&lt;detail-key&gt;</span>, <span class="arg">&lt;detail-value&gt; ...</span>)</span></dt>
+   <dd>Add the detailed result identified by the given key with the desired value(s). If multiple value arguments are presented, they will be joined by <span class="code-snippet">"\n"</span>.</dd>
+   <dt><span class="command">add_to_detail(<span class="arg">&lt;result-key&gt;</span>, <span class="arg">&lt;result-value&gt; ...</span> )</span></dt>
+   <dd>Append the given value(s) to the detailed result identified by the given key (with a <span class="code-snippet">"\n"</span> between them). If multiple value arguments are presented, they will be joined by <span class="code-snippet">"\n"</span></dd>
+   <dt><span class="command">output()</span></dt>
+   <dd>Returns the <span class="hash-key">"output"</span> detail as a string.</dd>
+   <dt><span class="command">add_output(<span class="arg">&lt;result-value&gt; ...</span>)</span></dt>
+   <dd>Append the given values to the <span class="hash-key">"output"</span> detail.</dd>
+   <dt><span class="command">reset_output(<span class="arg">&lt;result-value&gt; ...</span>)</span></dt>
+   <dd>Replace the value of the <span class="hash-key">"output"</span> detail with the given values.</dd>
+   <dt><span class="command">error()</span></dt>
+   <dd>Returns the <span class="hash-key">"error"</span> detail as a string.</dd>
+   <dt><span class="command">add_error(<span class="arg">&lt;result-value&gt; ...</span>)</span></dt>
+   <dd>Append the given values to the <span class="hash-key">"error"</span> detail.</dd>
+   <dt><span class="command">reset_error(<span class="arg">&lt;result-value&gt; ...</span>)</span></dt>
+   <dd>Replace the value of the <span class="hash-key">"error"</span> detail with the given values.</dd>
+</dl>
+
+---++++ Result classifiers
+
+   * Result classifiers allow for extra labeling or HTML formatting of results in the summary table.
+   * The standard result classifiers are listed below; but it is possible for a test to define its own:
+      1. Each classifier is a subroutine accepting a single optional text argument:
+         * If the argument is <span class="arg">"text"</span>, the routine must return a text string;
+         * If the argument is <span class="arg">"style"</span>, the routine must return a CSS style directive (eg <span class="code-snippet">background-color: green</span>;
+         * if the argument is <span class="arg">undef</span> or empty, the routine must return a key argument (see next).
+      1. A reference to the subroutine must be placed in the test's <span class="code-snippet">self->{result_classifiers}</span> hash, with a key which matches the return value from the routine itself with no arguments.
+   * Example:<pre class="code">sub TEST_FAILURE {
+	my ($format) = @_;
+	if ($format) {
+		return "FAIL" if ($format eq "text");
+		return "background-color: red" if ($format eq "style");
+	} else {
+		return 1;
+	}
+}</pre>, with <span class="code-snippet">$self->{<span class="hash-key">result_classifiers</span>}->{<span class="hash-key">1</span>} = <span class="hash-value">\&TEST_FAILURE</span></span>.
+   * Standard result classifiers:
+      * <span class="code-snippet">&gridSiteTest::Test::TEST_SUCCESS</span>;
+      * <span class="code-snippet">&gridSiteTest::Test::TEST_FAILURE</span>;
+      * <span class="code-snippet">&gridSiteTest::Test::TEST_INFO</span>;
+
+---++++ Other useful functions
+<dl>
+   <dt><span class="command">logged_system_command(<span class="arg">&lt;input-ref&gt;</span>, <span class="arg">&lt;command-args&gt ...;</span>)</span></dt>
+   <dd>Execute the command specified taking standard input from <span class="arg">&lt;input-ref&gt;</span> (may be <span class="arg">undef</span>); standard output and error will be logged to the details "output" and "error" respectively.</dd>
+   <dt><span class="command">system_command(<span class="arg">&lt;input-ref&gt;</span>, <span class="arg">&lt;output-ref&gt;</span>, <span class="arg">&lt;error-ref&gt;</span>, <span class="arg">&lt;command-args&gt ...;</span>)</span></dt>
+   <dd>More general version of the above, taking references into which to direct standard output and standard error from the command.</dd>
+   <dt><span class="command">process_results_hash()</span></dt>
+   <dd>This routine is called after execution of the test to produce summary results columns based on the [[OsgVoSiteTests#results-hash-example][results hashes]] specified in the [[OsgVoSiteTests#General_test_configuration_detai][control script]]. You may wish to override it in order to extend the results-hash interface, for example like the <span class="code-snippet">[[OsgVoSiteTests#VORS][gridSiteTest::VORS]]</span> or <span class="code-snippet">[[OsgVoSiteTests#ReSS][gridSiteTest::ReSS]]</span> modules.</dd>
+</dl>
+
+%STOPINCLUDE%
+
+-- Main.ChrisGreen - 24 Sep 2007
