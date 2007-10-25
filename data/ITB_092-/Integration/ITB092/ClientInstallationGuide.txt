@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RobGardner" date="1193260818" format="1.1" reprev="1.26" version="1.26"}%
+%META:TOPICINFO{author="JeffPorter" date="1193338698" format="1.1" reprev="1.27" version="1.27"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
@@ -117,21 +117,53 @@ Choices:
 
 Answer =l= (lowercase "L") so that the CA files will be installed inside of your installation directory.
 
-At this point you are almost done. The client will complete with the following output:
+If all goes well, the client's pacman installation will complete with the following output:
 
 <pre class="screen">
-The VDT version 1.6.1 has been installed.
+The VDT version 1.8.1 has been installed.
 
-The OSG Client package ITB version 0.5.2 has been installed.
+The OSG Client package ITB version 0.7.1 has been installed.
+</pre>
+
+If you encounter and problems, look at the tail end of the *vdt-install.log* file.  You can view what has been installed by:
+
+<pre class="screen">
+> source <i>your-osg-client-dir</i>/setup.(c)sh
+> vdt-version
+You have installed a subset of VDT version 1.8.1a:
+    CA Certificates v32 (includes IGTF 1.17 CAs)
+    Condor/Condor-G 6.8.6
+    cURL 7.16.2
+    Fetch CRL 2.6.2
+    Globus Toolkit, pre web-services, client 4.0.5
+    Globus Toolkit, web-services, client 4.0.5
+    GPT 3.2
+    GSI-Enabled OpenSSH 4.0
+    Java 5 SDK 1.5.0_12
+    KX509 20031111
+    lcg-info 1.11.0-1
+    lcg-infosites 2.6-2
+    Logrotate 3.7
+    MyProxy 3.9
+    Pegasus 2.0.1
+    PPDG Cert Scripts 2.5
+    pyGlobus gt4.0.1-1.13
+    PyGlobus URL Copy 1.1.2.11
+    RLS, client 3.0.041021
+    SRM V1 Client 1.25
+    SRM V2 Client 2.2.0.3
+    UberFTP 1.24
+    Wget 1.10.2
 </pre>
 
 ---++ Run a test
-Log back on as yourself. Now that the OSG Client has been installed, you will have to configure it with your grid user certificate in order to start submitting jobs.  First, get a proxy certificate:
+Log back on as yourself. Now that the OSG Client has been installed, you will have to configure it with your grid user certificate in order to start submitting jobs.  First, setup your environment and get a proxy certificate:
 <pre class="screen">
-> voms-proxy-init <i>or</i> 
-> grid-proxy-init
+> source <i>your-osg-client-dir</i>/setup.(c)sh
+> voms-proxy-init .... <i>or</i> 
+> grid-proxy-init ....
 </pre>
-You will be prompted to enter your password.
+Use *-help* in the proxy-init commands to find out options (%RED% link to more detailed instructions?%ENDCOLOR%). You will be prompted to enter your certificate password.
 
 Just to make sure your proxy is working, pick a known node and run =globusrun=. The node shown is just an example:
 <pre class="screen">
@@ -142,45 +174,64 @@ If successful, this returns:
 GRAM Authentication test successful
 </pre>
 
+
 ---++ Start services
-Logon as root. In the install directory, source the setup script:
+Logon as root or as the owner of the client package and source the setup script:
 <pre class="screen">
-# source setup.[c]sh
+# source <i>your-osg-client-dir</i>/setup.[c]sh
 </pre>
-First register the services you'll need for condor-g submissions: =fetch-crl= and =condor=.
+
+You can determine which services are configured by running *vdt-control --list*. (For a more detailed review of turning VDT services on and off, consult [[http://vdt.cs.wisc.edu/releases/1.8.1/man/vdt-control.html][vdt-control]] and OSG StartingServices documentation written for the Compute Element).
+
+If you answered %BLUE%y%ENDCOLOR% to the questions during the install, you will find:
+
 <pre class="screen">
-# vdt-register-service --name fetch-crl --enable
-# vdt-register-service --name condor --enable
+# vdt-control --list
+Service            | Type   | Desired State
+-------------------+--------+--------------
+fetch-crl          | cron   | enable
+condor             | init   | enable
+vdt-rotate-logs    | cron   | enable
+globus-ws          | init   | do not enable
 </pre>
-Then turn on the services:
+
+For condor-g submissions: =fetch-crl= and =condor= are needed. Do not worry about =globus-ws= as it is disabled and its inclusion is an artifact of the vdt installation.  Turning on all configured services is done by:
+
 <pre class="screen">
 # vdt-control --on
+enabling cron service fetch-crl... ok
+enabling init service condor... ok
+enabling cron service vdt-rotate-logs... ok
+skipping init service 'globus-ws' -- marked as disabled
 </pre>
-To see if a particular service got turned on, run
+
+You can verify the services are running by 
 <pre class="screen">
-# chkconfig --list | grep <service name>
+# crontab -l
 </pre>
-For example, using condor:
+
+for =fetch-crl= and =vdt-rotate-logs= and by
 <pre class="screen">
-# chkconfig --list | grep condor
+# ps -elf | grep condor
 </pre>
-There's no reason to enable =vdt-rotate-logs= or =globus-ws=; the latter is an artifact of the VDT packaging.
+
+for =condor=. More detailed validation of the client services can be found in the Validate Client documentation.
 
 
 ---++  Firewall Considerations
-Some GRAM job initiation and management operations require call backs to the client machine. If your client is running a firewall blocking ephemeral ports, an ephemeral port range should be intentified for use and opened for incoming connections.  Opening the port range may depend on your firewall implementation.  Indentifying the port range in the client tools is done in two ways:
+Some GRAM job initiation and management operations require call backs to the client machine. If your client is running a firewall blocking ephemeral ports, an ephemeral port range should be intentified for use and opened for incoming connections.  Opening the port range may depend on your firewall implementation. If you are doing a personal non-root installation, check with your administrator to determine which ports are open for you to use.  Then, indentifying the port range in the client tools is done in two ways (numbers shown here are just examples):
 
-   * specifiy the GLOBUS_TCP_PORT_RANGE variable in the $VDT_LOCATION/setup.sh script:
+   * specifiy the GLOBUS_TCP_PORT_RANGE variable in the $VDT_LOCATION/setup.sh (and setup.csh) script:
 
- <pre class="screen">
-GLOBUS_TCP_PORT_RANGE=20000,20200
+<pre class="screen">
+GLOBUS_TCP_PORT_RANGE=20000,22000
 export GLOBUS_TCP_PORT_RANGE
 </pre>
 
    * specify range in for use by Condor-g in the $CONDOR_CONFIG file ( *Note:* condor must be restarted):
 
 <pre class="screen">
-HIGHPORT = 20200 
+HIGHPORT = 22000 
 LOWPORT  = 20000
 </pre>
 
