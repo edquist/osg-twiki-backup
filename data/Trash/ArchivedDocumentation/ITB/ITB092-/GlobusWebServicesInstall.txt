@@ -1,0 +1,100 @@
+%META:TOPICINFO{author="RobGardner" date="1193350889" format="1.1" reprev="1.25" version="1.25"}%
+%META:TOPICPARENT{name="ComputeElementInstall"}%
+---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+%STARTINCLUDE%
+%BR%
+---+ _%INCLUDEHEADING%  %SPACEOUT{ "%TOPIC%" }%_
+%EDITTHIS%
+%BR%
+
+WS GRAM is the web services component of the Globus toolkit.  The necessary software for WS-GRAM using the =grid-mapfile= for authorizing access has already been installed during the OSG installation process.  Much of the configuration has also been completed, but the service has not been activated as there remain items that depend on the authorization mode of the CE, =grid-mapfile= file or =Privilege=.  
+
+---++ Notes on Initial Installation from VDT
+
+WS GRAM service files and configurations are downloaded during the pacman installation of =OSG:ce= and =OSG:Globus-XXX-Setup= (where XXX is Condor, LSF, PBS, or SGE) and configured with internal calls to =$VDT_LOCATION/vdt/setup/configure_globus_ws=. (Consult the log file, =$VDT_LOCATION/vdt-install.log=, for details.) Unlike <i>pre-ws</i> GRAM, the WS GRAM service does <b>not</b> run as <i>root</i> but as a non-privileged user.  Therefore, the installation will also:
+
+   * configure the service to run under the ==globus== user, if it exists. Otherwise it will assume the ==daemon== user. Directory and file permissions are set accordingly.
+   * clone a cert =containercert.pem/containerkey.pem= from the =hostcert=, install the clone in =/etc/grid-security/=, and set permissions (for ==globus== or ==daemon==) accordingly 
+      * <b>Note:</b> When you renew your host certificate, be sure to clone it into these =container*.pem= files as well.
+
+In addition, <b>Sudo</b> must be installed and configured on the server.  For general information, see [[http://www.gratisoft.us/sudo/][Sudo Documentation]]. Configuring Sudo for WS-GRAM is discussed in the below.
+
+---++ OSG Configuration step
+
+Executing the OSG configuration script, =configuration-osg.sh=, finish much of the remaining configuration if you answer =y= to the question:
+<pre class="screen">
+Information needed for the WS-GRAM services.
+-----------------------------------------------
+WS-GRAM services are being used.
+
+Would you like to use the WS-GRAM service [y] (y/n): 
+</pre>
+
+----+++  !!Privileged Authorization Mode
+
+The default authorization mode as configured by the installation is using the =grid-mapfile=.  The execution of =configuration-osg.sh= script checks for the alternative =privileged= authorization mode via the existence of the file,
+
+   * <pre class="screen"> /etc/grid-security/prima-authz.conf </pre>
+
+If that file exists, the script extracts <i>Your-GUMS-Server</i> information from the file and executes the command:
+
+   * <pre class="screen"> $VDT_LOCATION/vdt/setup/configure_prima_gt4 --enable -gums-server <i>Your-GUMS-Server</i> </pre>
+
+which modifies the necessary configuration files for activating WS-GRAM prima-callout functionality for the =Privilege= authorization mode. Otherwise the default =grid-mapfile= mode will remain configured.
+
+----+++ !!Configuring Sudo
+
+Both authorization modes, =grid-map-file= and =Privileged=, require that service being run a non-privileged user (<b>globus</b> or <b>daemon</b>) submit jobs as different users. Sudo must be configured to allow this to work (a safer model than running the service as root as is done for <i>pre-ws</i> GRAM).  The configuration requires editing the =/etc/sudoers= file by hand.  The administrator should do this with the =visudo= editor which provides some safeguards against simultaneous edits and syntax errors. To facilitate this modification, the =configure-osg.sh= script produces necessary addtions for the =/etc/sudoers= file and writes them into a new file =$VDT_LOCATION/monitoring/sudo-setup.txt= .  The administrator should simply copy and paste the content of that file into the =/etc/sudoers= file using =visudo=.
+
+%IMPORTANT% The executables and config files referenced by the text put into the =sudo-setup.txt= are done using the explicit paths because soft links will not work in this context. Therefore, if you have your $VDT_LOCATION (e.g. =/opt/osg/ce-0.8/=) soft linked from a generic directory (e.g. =/opt/osg/ce=), it is the explicit path (=ce-0.8=) required to be used in the =/etc/sudoers= file.  If you install another version of the software into a different directory, you must change the =/etc/sudoers= to reflect the new installation since making a softlink will not work.
+%RED% New VDT just makes a /etc/sudoers that includes both options, grid-mapfile and prima.  This works and no 
+mods are needed to /etc/sudoers S. Timm %ENDCOLOR%
+---++ Running the Service
+
+WS-GRAM runs as a container and, in OSG installs, listens on port <b>9443</b>. Client access to the service must include the port designation (e.g. <i> hostname</i>:9443).  Unlike <i>pre-ws</i> GRAM which runs as a xinetd process, WS-GRAM is run from a startup script. The startup script, =globus-ws=, is configured and placed into the =$VDT_LOCATION/post-install= directory.  With =globus-ws= service enabled, starting or stoping the service is done via the ==vdt-control==  commands:
+
+<pre class="screen">
+&gt; source $VDT_LOCATION/setup.sh
+&gt; vdt-control --on globus-ws
+<b>   or</b>
+&gt; vdt-control --off globus-ws
+</pre>
+
+Turning the service on via ==vdt-control --on globus-ws== moves the init file into ==/etc/init.d/==, runs the scripts with the ==start== input argument, and enables automatic startup on boot using ==chkconfig== command.  Turning it off reverses these steps: runs the scripts with the ==stop== argument and removes the file from the ==/etc/init.d/== area.
+
+---++ Performance Enhancement Recommendations 
+
+Scaling tests performed against WS-GRAM servers have indicated some configuration details can be modified to improve performance in high use environments. These configuration changes were evaluated during an OSG evaluation and recorded on [[https://twiki.grid.iu.edu/twiki/bin/view/Integration/AddendaToInstallingAndConfiguringGlobusWebServices][AddendaToInstallingAndConfiguringGlobusWebServices]]. They have also been incorporated into the [[http://www-unix.globus.org/toolkit/docs/4.0/execution/wsgram/WS_GRAM_Performance_Guide.html][Globus Documentation]].
+
+---++ Testing the Service
+
+To test that the service is running and to validate that WS-GRAM is properly configured, you should run through a series of tests from a separate client host. These tests, which include accessing the service with Condor-G, are included in a separate Validation Document, ValidateGramWebServices.
+
+---++ Caveats
+---+++ !!Fork jobs hang with Globus WS GRAM installed on NFS
+
+The performance enhancement documents (see above) note that the persistant directory used by the service should be on a local disk. In addition, we've found a specific problem when Globus is installed on an NFS mounted disk.  The logging information automatically go to two files in ==$GLOBUS_LOCATION/var==: ==container-real.log== and ==globus-fork.log== .  The latter file is configured with permission '622' . There are no problems as long as this file is on a local disk. If it is on an NFS system, any Fork jobs hang as the service tries to open/write to this file.   While changing the permissions of this file to 666 fixes the problem, the most maintainable change is to put the log file onto a local disk and point to that file in ==$GLOBUS_LOCATION/etc/globus-fork.conf==.
+
+---+++!! Prima authorization
+See also PrimaauthzConfAndVerifyACBehavior.
+
+<a name="faultcode200"/a>
+---+++ !!Unhandled fault code 200 in container-real.log
+The log file for the service is ==$VDT_LOCATION/var/container-real.log==.   Messages like that shown below, although not flagged as an error, will not allow web services to function correctly.
+<pre class="programlisting">
+2007-02-26 13:07:07,441 WARN  exec.StateMachine [RunQueueThread_1,createFaultFromErrorCode:3264]
+   Unhandled fault code 200
+2007-02-26 13:07:12,438 INFO  exec.StateMachine [RunQueueThread_1,logJobFailed:3522] 
+   Job 28e66010-c5c4-11db-971d-c95a3d1cbb7e failed
+</pre>
+
+It is generally caused by something wrong in the =/etc/sudoers= file.  It may even be a mis-typed command.  So scrutinize the entries very carefully and always use the =visudo= command to update it.  Double check that you did <i> copy and paste </i> from the generated ==sudo-setup.txt== file and that you are not trying to softlink to a a different installation.
+
+
+%STOPINCLUDE%
+%BR%
+%COMPLETE2% %BR%
+%RESPONSIBLE% Main.CharlesBacon - 25 Oct 2007 %BR%
+%REVIEW%
