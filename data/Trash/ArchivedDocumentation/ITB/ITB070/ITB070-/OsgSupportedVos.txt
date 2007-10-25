@@ -1,0 +1,123 @@
+%META:TOPICINFO{author="RobGardner" date="1193347753" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICPARENT{name="ComputeElementAuthorization"}%
+---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+%STARTINCLUDE%
+%BR%
+---+ _%INCLUDEHEADING%  %SPACEOUT{ "%TOPIC%" }%_
+%EDITTHIS%
+%BR%
+
+---++ Checking supported VOs and Unix accounts
+Beginning with OSG 0.6.0, there are 3 files that are created during the execution of the _edg-mkgridmap_ and _gums-host-cron_ scripts that are intended to aid in verifying that you have configured your authorization service for all the VOs you intend to support and, also that all the Unix accounts have been created on your CE node.  This verification/validation can only be determined on each of the CE nodes your authorization service supports.
+   * VDT_LOCATION/monitoring/osg-user-vo-map.txt
+   * VDT_LOCATION/monitoring/osg-undefined-accounts.txt
+   * VDT_LOCATION/monitoring/osg-supported-vos-list.txt
+
+The _osg-user-vo-map.txt_ is a critical component to the [[https://twiki.grid.iu.edu/twiki/bin/view/Accounting/WebHome][OSG Accounting Services]] in accurately collecting grid resource usage and metrics by VO.   It is also used by the [[GenericInformationProviders][Generic Information Provider (GIP)]] in advertising resource availability on a VO basis.
+
+The _osg-supported-vos-list.txt_ file provides a easy means of determining which VOs your sites support will support bases on your authorization service.
+
+The _osg-undefined-accounts.txt_ file provides a list of those UNIX accounts that can be assigned by your authorization service, but have not been defined on your CE node.
+
+These files should never be manually modified if either the _edg-mkgridmap_ or _gums-host-cron_ are enabled (both are cron initiated processes).
+
+
+---+++!! osg-user-vo-map.txt
+The _osg-user-vo-map.txt_ file provides the ability to map from a UNIX account (assigned by the CE's authorization service) back to  the grid user's VO subgroup and VO.
+
+<pre class="programlisting">
+<b>Example content: (this example will be referred to by the other subsections on this topic)</b>
+
+#voi cdf fermilab  uscms  miniboone usatlas
+#VOc CDF FERMILAB CMS FERMILAB USATLAS
+cdf cdf
+fnalgrid fermilab
+uscms124 uscms
+uscms132 uscms
+minboone miniboone
+</pre>
+The file is interpreted as follows:
+   * The uncommented lines are the mapping of UNIX account (token 1) to VO subgroup (token 2).
+   * The mapping from subgroup to VO is performed using the tokens on the _#voi_ and _#VOc_ lines for which there is a one-to-one positional relation:%BR%
+       - The _#voi_ lines represent the VO subgroup (currently only used by fermigrid).%BR%
+       - The _#VOc_ lines represent the VO
+
+Thus, from the above example, the mappings would result in:
+|  __UNIX%BR%Account__  |  __VO%BR%Subgroup__  |  __VO__  |
+|  cdf  |  cdf  |  CDF  |
+|  fnalgrid  |  fermilab  |  FERMILAB  |
+|  uscms124  |  uscms  |  CMS  |
+|  uscms132  |  uscms  |  CMS  |
+|  minboone  |  miniboone  |  FERMILAB  |
+
+As mentioned earlier, those CE nodes using either the _edg-mkgridmap_ or _gums-host-cron_ cron processes will have the 3 files programmatically maintained based on these lines in the respective configuration files:
+
+__edg-mkgridmap.conf__ %BR%
+<pre class="programlisting">
+# USER-VO-MAP cdf CDF 
+group vomss://voms.cnaf.infn.it:8443/voms/cdf cdf
+</pre>%BR%
+The _# USER-VO-MAP_ identifies this as a candidate for the _osg-user-vo-map.txt_ file%BR%
+   * the 3rd token (_cdf_) is the VO subgroup
+   * the 4th token (_CDF_) is the VO.
+Any uncommented line(s) following the  _# USER-VO-MAP_ line identify the source of the VO membership and account to be assigned
+   * the 3rd token (_cdf_) is the UNIX account.
+
+
+__gums.config__ %BR%
+<pre class="programlisting">
+&lt;groupToAccountMapping
+    name='cdf'    description=''
+    accountingVoSubgroup='cdf'  accountingVo='CDF'
+    userGroups='cdf'  accountMappers='cdf-mapper'/&gt;
+</pre>
+The _groupToAccountMapping_ element identifies this as a candidate for the _osg-user-vo-map.txt_ file%BR%
+   * the  accountingVoSubgroup attribute (_cdf_) is the VO subgroup
+   * the  accountingVo attribute (_CDF_) is the VO.
+The accountMappers attribute identifies the UNIX account assignment to be used which, is this case, will result in _cdf_ being assigned (the _accountMapper_ is not shown in this example).  The _hostToGroupMapping_ element is also a factor in the GUMS authorization service for a particular CE node (also not shown in this example).
+
+Additionally, a verification is made to determine if a UNIX account exists for any that can be potentially assigned by the authorization service.  If the UNIX account does not exist, that UNIX account is removed from the _osg-user-vo-map.txt_ file since any grid user being assigned that account will never be able to successfully run a job. These discarded UNIX accounts are listed in the [[OsgSupportedVos#osg_undefined_accounts_txt][osg-undefined-accounts.txt file]].
+
+Finally, when all UNIX accounts have been validated, the _osg-user-vo-map.text_ file is re-evaluated to determine the set of OSG VOs  that this CE node will support.  By that, it is meant that at least one VO's member can expect to the authorized and successfully assigned an account that will run for this CE node.  The [[OsgSupportedVos#osg_supported_vos_txt][osg-supported-vos.txt file]] contains this list of VOs.
+
+This _osg-user-vo-map.txt_ file's timestamp will only change when the contents of the file changed. To assist in verifying the currency of the file, another file called _osg-user-vo-map.txt.last_checked_ is created ('touched')  each time the processes are run. 
+
+
+
+---+++!! osg-undefined-accounts.txt
+
+This file contains a list of those UNIX accounts that have been eliminated from the _osg-user-vo-map.txt_ file because the UNIX account assigned by the authorization service does not exist.  
+
+The test used to determine the UNIX account's existence is 'id -u &lt;account&gt;'.  However, there is __no__ verfication performed  to determine if a HOME directory exists for the account.
+
+<pre class="programlisting">
+<b>Example content:</b>
+# A list of accounts eliminated from the user-vo map.
+uscms455
+uscms456
+usatlas
+</pre>
+
+This file's timestamp will only change when the contents of the file changed. To assist in verifying the currency of the file, another file called _osg-undefined-accounts.txt.last_checked_ is created ('touched')  each time the processes are run. 
+
+
+---+++!! osg-supported-vos.txt
+
+This file contains a list of all VOs that this CE node will support.  It does not mean that all members of the these VOs will be able to run jobs here, but that at least one member will be capable.
+
+<pre class="programlisting">
+<b>Example content:</b>
+# List of VOs this site claims to support
+CDF
+FERMILAB
+CMS
+</pre>
+
+This file's timestamp will only change when the contents of the file changed. To assist in verifying the currency of the file, another file called _osg-supported-vo-list.txt.last_checked_ is created ('touched')  each time the processes are run. 
+%STOPINCLUDE%
+%BR%
+%COMPLETE2% %BR%
+%RESPONSIBLE% Main.JohnWeigand - 25 Oct 2007 %BR%
+%REVIEW%
