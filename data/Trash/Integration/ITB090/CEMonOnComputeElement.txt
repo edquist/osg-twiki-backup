@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="KyleGross" date="1193835100" format="1.1" version="1.27"}%
+%META:TOPICINFO{author="GabrieleGarzoglio" date="1194032436" format="1.1" reprev="1.28" version="1.28"}%
 %META:TOPICPARENT{name="ComputeElementInstall"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -14,40 +14,9 @@
 The [[http://grid.pd.infn.it/cemon/field.php][CEMon]] (CEMonitor) service is responsible for providing information coming from the Computing Element (CE) and is being implemented as an component in the OSG Compute Element (CE) architecture in support of the [[ResourceSelection.WebHome][ReSS (Resource Selection Service) OSG project]].  This service is capable of collecting the CE resource information by using [[http://lfield.home.cern.ch/lfield/cgi-bin/wiki.cgi?area=gip&page=documentation][Generic Information Provider]] (GIP). GIP works with the Condor, PBS, LSF and SGE job managers. 
 
 A properly installed and configured CEMonitor service pushes collected information in classad format to a central [[ResourceSelection.WebHome][Information Gatherer]] (IG) running on designated host (<i>osg-ress-1.fnal.gov</i>). IG advertises these classads to the [[http://www.cs.wisc.edu/condor][Condor Match Maker]] service which also runs on <i>osg-ress-1.fnal.gov</i>.  (For OSG-ITB it is osg-ress-4.fnal.gov).  CEMon also is 
-configured by default to publish GIP data in "RAW" format to the OSG BDII at the GOC.
+configured by default to publish GIP data in "RAW" (LDIF) format to the OSG BDII at the GOC.
 
-In additional to the CE resource data, you can optionally have =CEMon= publish information regarding the availability/status of your authorization service.  This =only= applies to those sites operating in [[ComputeElementAuthorization#FullPrivilegeMode][Full Privilege Authorization mode]].  This is described more fully in the [[#gumsprobe][a later subsection]].
-
-<a name="gumsprobe"/a>
----++ Publishing your authorization service status (optional)
-This capability only applies to those sites operating in [[ComputeElementAuthorization#FullPrivilegeMode][Full Privilege Authorization mode]].  It is also optional.  When you configure your CE node using the =configure-osg.sh= script, you will be asked if you would like to publish the status of your GUMS server.  If you answer =yes= to this,  a script will be activated by =GIP= that =CEMon= will execute along with the collector script for normal resource data.  This script will send an authorization request to your GUMS server using the subject of your CE's LDAP certificate.  The success/failure of that request will result in a classad being created and reported to the <nop>ReSS service in the following form:
-<pre class="programlisting">
-dn: GlueServiceUniqueID=https://cmssrv08.fnal.gov:8443/gums/services/GUMSAuthorizationServicePort,Mds-vo-name=local,o=grid
-objectClass: GlueTop
-objectClass: GlueService
-objectClass: GlueKey
-objectClass: GlueSchemaVersion
-GlueServiceUniqueID: https://cmssrv08.fnal.gov:8443/gums/services/GUMSAuthorizationServicePort
-GlueServiceName: GUMS - Grid User Management System
-GlueServiceType: GUMS
-GlueServiceEndpoint: https://cmssrv08.fnal.gov:8443/gums/services/GUMSAuthorizationServicePort
-GlueServiceSemantics: http://grid.racf.bnl.gov/GUMS/
-GlueServiceWSDL: Not Applicable
-<b>....  if available and successfully authorizing .....</b>
-GlueServiceStatus: OK
-GlueServiceStatusInfo: Test mapping successful: user id = GumsTestUserMappingSuccessful
-<b>....  if NOT available or NOT successfully authorizing .....</b>
-GlueServiceStatus: Warning
-GlueServiceStatusInfo: Test mapping failed: check logs at cmssrv09.fnal.gov:/storage/local/data1/osg-ce/gums/var/log/
-
-GlueServiceStartTime: Unavailable
-GlueServiceOwner: Unavailable
-GlueServiceVersion: Unavailable
-</pre>
-
-Since this authorization probe is using the identify of your CE's HTTP certificate and not a normal VO member, changes will have to made to your GUMS service for a valid authorization to occur.   In VDT 1.8.1 these changes are done automatically on a fresh GUMS server install.  In VDT 1.8.1a they will be done on a GUMS upgrade install (bringing forward  a gums config file from GUMS 1.1).  See the 
-[[http://vdt.cs.wisc.edu/releases/1.8.1/notes/GUMS.html][VDT GUMS Installation Notes]]
-for more info.
+In addition to the CE and SE data, CEMon is configured to publish the status of your authorization service. This status is most meaningful for sites operating in [[ComputeElementAuthorization#FullPrivilegeMode][Full Privilege Authorization mode]]. As of OSG 0.8.0, configuration of CEMon, GIP, and GUMS to enable this feature is automatic and site administrators should not need to do anything. For more information or troubleshooting information see the [[http://vdt.cs.wisc.edu/releases/1.8.1/notes/GUMS.html][VDT GUMS Installation Notes]].
 
 ---++ CEMon configuration files
 The configuration of <i>CEMon</i> is done for you in the =configure_cemon= script which is automatically run when you execute the =configure-osg.sh= script
@@ -131,38 +100,11 @@ Be prepared for a lot of output if you are successful.  Firewalls have been know
 
 
 ---++ Troubleshooting CEMon
-The first thing you will want to do is verify <em>apache</em> and  <em>tomcat</em> are running.
-
-<pre class="screen">
-> <b>ps -ef | grep apache | grep httpd</b>   
-> <b>ps -ef | grep tomcat</b>
-</pre>
-
-%NOTE% The head process is normally owned by root. The child processes' user should be the owner of the http certificate.
-
-If <i>apache/tomcat</i> are not running, restart them and re-verify.
-
-If they are still not running after a restart, check their respective log files to a get some idea what the problem is:
-
-   * *apache* - =$VDT_LOCATION/apache/logs= directory
-   * *tomcat* - =$VDT_LOCATION/tomcat/v5/logs/catalina.out=
-
-
-Then, check the <i>CEMon</i> log file, =$VDT_LOCATION/tomcat/v5/logs/glite-ce-monitor.log=, for any messages indicating a problem.
-
-%EDITTABLE{ head="| *Message* | *Resolution* |" format="| text | text |" changerows="on" editbutton="Edit table" headerislabel="on" }%
-%TABLE{ valign="top" }%
-| *Message* | *Resolution* |
-| =gridMapFileNotFound exception= | Since <i>CEMon</i> requires a <i>grid-mapfile</i>, create an empty =/etc/grid-security/grid-mapfile.= |
-| =No files found matching /etc/grid-security/http/httpcert.pem=  %BR%%BR% <em>or</em> =Error while reading certificates or CRLs: No files found matching /etc/grid-security/http/httpcert.pem= %BR%%BR% <em>or</em> =Connection refused by the Consumer (<nop>https:&lt;The_ReSS_Server&gt;)= | If you do not have an HTTP certificate in =/etc/grid-security/http/httpcert.pem(httpkey.pem)= file or a symlink to one from that location, you will see these  messages.   The correct ownershop is critical, as well.  The http certificates are defined in the  <i>cemonitor-config.xml</i>  and <i>ce-monitor.xml</i> files of the =$VDT_LOCATION/glite/etc/glite-ce-monitor= directory. |
-| =Connection refused by the Consumer= | Verify the URL in the message. Using a browser that contains a valid grid certificate,  cut and paste the url shown in the message. The following should appear if CEMon is working. %BR% =CEInfoCollector %BR% Hi there, this is an AXIS service! %BR% Perhaps there will be a form for invoking the service here...= %BR% If it does not appear correct, <i>ping</i> the hostname. |
-
-
-When all else fails, contact  the DZero support person shown in the [[http://www.grid.iu.edu/osg-includes/sc.php][VO Support Center]].
+If you have problems with CEMon, before opening a GOC ticket, please go over the [[ResourceSelection/CEMonTroubleshootingGuide][CEMon troubleshooting guide]]. When opening a ticket, GOC will ask you to provide debugging information, as explained in the troubleshooting guide.
 
 %STOPINCLUDE%
 %BR%
-%COMPLETE2% %BR%
+%COMPLETE3% %BR%
 %RESPONSIBLE% Main.GabrieleGarzoglio - 25 Oct 2007 %BR%
 %REVIEW%
 
