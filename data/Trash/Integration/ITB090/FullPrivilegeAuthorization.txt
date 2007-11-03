@@ -1,46 +1,36 @@
-%META:TOPICINFO{author="RobGardner" date="1194041709" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="RobGardner" date="1194061709" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="ComputeElementInstall"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
 ---++ PRIMA, GUMS, and your CE services
-The full privilege scenario implements the PRIMA authorization module with a GUMS service and does not use the grid-mapfile.  The gatekeeper uses a callout to PRIMA. Upon receipt of each request, PRIMA forwards the request to the GUMS web service which performs the dynamic mapping of the user's certrificate to a UNIX account. PRIMA can process FQAN (Fully Qualified Attribute Names), thus enabling mappings based on VO groups and roles as defined in VOMS. In this configuration, requests to your gatekeeper(s) and gsiftp service(s) use the authorization callout to contact the  GUMS authorization service  which checks whether the requester is permitted access and, if access is permitted, returns a local user id assigned to the requester's grid credential. This removes the need for maintaining grid mapfiles on each gatekeeper and/or gridftp server.   Obviously, your *site* must run a GUMS server in order to run in Full Privilege Mode. See [[#GUMSInstallation][GUMS installation instructions]].
+The  _Full Privilege_ scenario implements the PRIMA authorization module with a GUMS service and does not use a grid-mapfile.  The gatekeeper  uses a callout to PRIMA such that upon receipt of each request, PRIMA forwards the request to a GUMS service which performs the dynamic mapping of the user's certrificate to a local Unix account or Kerberos principal. PRIMA can process FQAN (Fully Qualified Attribute Names), thus enabling mappings based on VO groups and roles as defined in a VOMS server.   This removes the need for maintaining grid-mapfiles on each gatekeeper and/or gridftp server.   Obviously, your site must run a GUMS server in order to run in Full Privilege Mode ([[#GUMSInstallation][GUMS installation instructions]]).
 
 ---++ Full Privilege Requirements
 Here are a list of requirements to implement the "Full Privilege" authorization mode:
-   * Your site needs to install and configure GUMS service. 
-   * There needs to be one GUMS server per map of 'DN to local uid'.  An institution would only need one GUMS server if there is a global uid assignment (eg. a single NIS domain).  If you will have multiple account domains, you will need a GUMS server for each domain.   Each account domain can cover  any number of CE hosts, clusters storage elements (SEs)  as long as all systems have a consistent set of POSIX Users|UIDs|Groups|GIDs. 
-   * The CE administrator needs to install and configure the GUMS Client software on the CE(s), and for each CE, identify the appropriate GUMS server to point to (if more than one is available).
-   * You must establish local accounts on the CE to match those that will be assigned by the GUMS service.  Your local GUMS administrator can identify these for you, or you can get the list from the grid3-user-vo-map.txt which is generated in the steps below.
-   * Globus must be configured to tell the gatekeeper to use the PRIMA authorization client.
-   * The <i>gums-host-cron</i> must be configured (if not already done) to periodically update the =osg-user-vo-map.txt= file.
+   * A GUMS service. 
+   * If you have multiple account domains you will need a GUMS server for each domain.   A site would only need a single GUMS server if there were a global uid assignment (eg. a single NIS domain).   Note that  each account domain can cover any number of CE hosts, storage elements, etc, so  as long as all systems have a consistent set of POSIX Users|UIDs|Groups|GIDs. 
+   * The GUMS Client software must be installed on the CE, appropriately configured to point to a GUMS service.  
+   * Local accounts on the CE must match those used by the GUMS service.  Your local GUMS administrator can identify these for you, or you can get the list from the =osg-user-vo-map.txt= which is generated in the steps below.
+   * Globus must be configured so that the PRIMA callout is activated.  This is done by copying =gsi-authz.conf= to =/etc/grid-security/=, discussed below.
+   * A cron process, _gums-host-cron_, must be configured to periodically update the =osg-user-vo-map.txt= file.  See below.
 
 ---++ Configure Globus to use the PRIMA callout
-The necessary configuration files are already available in the OSG CE installation in the =$VDT_LOCATION/post-install= directory:
-   * =prima-authz.conf= - identifies the GUMS authorization service to use
-      * _... example showing just the GUMS service line requiring modification for an install of cmssrv09. This is the identity mapping server, it performs a mapping based on the gridmap file on the service host_ %BR%   =imsContact <nop>https://cmssrv09.fnal.gov:8443/gums/services/GUMSAuthorizationServicePort=
-   * =gsi-authz.conf= - tells the Globus gatekeeper and gsiftp services to use PRIMA.
+Templates for the necessary configuration files, =prima-authz.conf= and =gsi-authz.conf=,  are located in the =$VDT_LOCATION/post-install=.  Both files must be copied into =/etc/grid-security/=.
 
-%NOTE% =gsi-authz.conf= is the key to the callout being invoked.  If you remove this file (or rename it), the Globus services will revert to use of the <i>grid-mapfile</i>.
-
-These files need to be copied to the =/etc/grid-security= directory and the =prima-authz.conf= modified to point to you GUMS service.
-
-<pre class="screen">
- > <b>cp $VDT_LOCATION/post-install/gsi-authz.conf /etc/grid-security/. </b>
- > <b>cp $VDT_LOCATION/post-install/prima-authz.conf /etc/grid-security/. </b>
+---+++!! prima-authz.conf
+This file identifies the GUMS service.  The appropriate line comes pre-configured with the CE hostname in the =imsContact= string.  For example, say one installed a *%CACHE% %VERSION%* CE on host =ce.domain.org=, but the GUMS service was on host =gums.domain.org=.  Then one would change the line
+<pre>
+     imsContact <nop>https://ce.domain.org:8443/gums/services/GUMSAuthorizationServicePort
 </pre>
-
-The =prima-authz.conf= file is preconfigured during the VDT installation to your CE node host name.  Edit this file, changing the <b>imsContact</b> attribute to point to your GUMS service.  By default, the installation has the log file verbosity set to 'debug'.  You may want to change this to 'info' (just comment and uncomment the lines shown).
-
-<pre class="programlisting">
-<em>... in this example cmssrv09 was the CE node...</em>
-imsContact https://<b>cmssrv09.fnal.gov</b>:8843/gums/services/GUMSAuthorizationServicePort
-
-# logging levels supported are debug, info, error, none
-logLevel    debug
-#logLevel    info
+to
+<pre>
+     imsContact <nop>https://gums.domain.org:8443/gums/services/GUMSAuthorizationServicePort
 </pre>
+and copy this file to =/etc/grid-security/=.   By default, the installation has the log file verbosity set to 'debug'.  You may want to change this to 'info' (see file).
 
+---+++!! gsi-authz.conf
+This presence of file in =/etc/grid-security/= tells the Globus gatekeeper and gsiftp services to use PRIMA.  It does not need to be edited, just copied over to =/etc/grid-security/=.  *Note:* =gsi-authz.conf= is the key to the callout being invoked.  If you remove this file from =/etc/grid-security/=, the Globus services will revert to local grid-mapfile mode.
 
 ---++ Configuring the GUMS client on the CE  
 The GUMS-Client package is installed as part of the OSG CE install.  The essential files are located in the =$VDT_LOCATION/gums= directory.
