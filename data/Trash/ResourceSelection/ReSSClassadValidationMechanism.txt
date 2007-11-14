@@ -1,21 +1,127 @@
-%META:TOPICINFO{author="GabrieleGarzoglio" date="1195069443" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="GabrieleGarzoglio" date="1195082153" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="WebHome"}%
----+ UNDER CONSTRUCTION
-
 ---+ !ReSS Classad Validation Mechanism
+%TOC%
 
 ---++ Introduction
 
-In the Resource Selection Service (!ReSS) model, sites advertise their characteristics to a central !ReSS information collector in the form old old-format classads. These classads are formed at sites by the Computing Element Monitor (CEMon) service, gathering site information from Generic Information Providers (GIP) scripts. This information is expressed via attributes according to the Glue Schema. 
+In the Resource Selection Service (!ReSS) model, sites advertise their characteristics to a central !ReSS information collector in the form of old-format classads. These classads are formed at sites by the Computing Element Monitor (CEMon) service, gathering site information from Generic Information Providers (GIP) scripts. This information is expressed via attributes according to the Glue Schema v1.2 or v1.3. 
 
-The Open Science Grid (OSG) has agreed on a minimal set of critical attributes that sites must correctly advertise, in order for the OSG to consider the information from the site "valid". Also,
-becase the semantic of Glue Schema attributes is well defined, only certain ranges of values can be expected for some attributes.
+The Open Science Grid (OSG) has agreed on a minimal set of critical attributes that sites must correctly advertise, in order for the OSG to consider the information "valid". Also,
+because the semantic of Glue Schema attributes is well defined, only certain ranges of values can be expected for some attributes.
 
 Following these considerations, the !ReSS project, in collaboration with OSG, has developed a mechanism to validate site classads. This documentation explains how this is achieved and how the validation mechanism can be maintained.
 
 ---++ Architecture
----++ Validation expression maintenance
 
+The !ReSS central collector of site information is based on the condor collector server. The !ReSS classad validation mechanism uses the ability of condor to evaluate logical expressions carried by the classad itself. 
+
+More in detail, the validation process is decomposed into a series of expressions that test different characteristics of the classad. These expressions are implemented as classad attributes and are written using the condor classad expression grammar. In summary, expressions refer to other attributes in the classad and use typical classad operators such as '==', '<', '&&', '=!=', regexp(...), etc. We refer the reader to the condor manual for the details of such grammar.
+
+The validation expressions are common to all classads i.e. to all sites. They are added to each classad by the !ReSS Information Gatherer, an interface adaptor service that receives classads from the CEMon at each site and forwards them to the information collector. The maintenance of such expressions is therefore done centrally by changing the configuration of the information gatherer.
+
+Validation expressions test different characteristics of the classad. Some test the presence of attributes, for examples the OSG critical attributes, with expressions such as
+
+<pre>
+isClassadValidIsCriticalAttributeXPresent =  
+    (AttributeX =!= UNDEFINED)
+</pre>
+
+Others test that attribute values gathered by the GIP scripts are consistent with the semantic of the attributes. For example, the total number of CPU in a cluster is a positive number; this can be expressed with an expression like this
+
+<pre>
+isClassadValidAreTotalCPUPositive = 
+    ( GlueCEInfoTotalCPUs =!= UNDEFINED && 
+      GlueCEInfoTotalCPUs > 0 )
+</pre>
+
+All the validation expressions are put in logical OR in a summary-level validation attribute. Ultimately, the evaluation of this attribute determines the validity of the classad. 
+
+It should be noted that typically each site is described with more than one classad. The classad multiplicity for each site is the product of the number of Clusters x CE's x !SubClusters x Supported VO's. In principle, only some classads from a site may fail the validation test, for example, if only part of the information system configuration is wrong. As of Nov 2007, however, we have never observed such occurrance.
+
+We refer to Appendix A for a complete list of validation expressions.
+ 
+---++ Evaluation of validation expressions
+
+The condor system evaluates automatically a validation expression when the information collector is queried to display the value of the corresponding validation attribute. For example, using the command line interface of the condor system, this can be achieved with the following commands:
+
+<pre>
+% source /opt/vdt/setup.sh
+% condor_status -pool osg-ress-1.fnal.gov \
+     -format '%d\n' isClassadValid \
+     -constraints 'GlueSiteName == "FNAL_FERMIGRID"' | uniq
+1
+</pre>
+
+This command queries the production OSG !ReSS information collector (osg-ress-1.fnal.gov) and prints out the values of the attribute "isClassadValid" for the site "FNAL_FERMIGRID". The command is "piped" into the unix "uniq" command to display a single value if all classad pass (return value 1) or all fail (return value 0) the test.
+
+There are two products that display results of these evaluations for all sites. One is run as an hourly cron job and displays results as a web pages ( [[http://home.fnal.gov/~garzogli/ReSS/ReSS-int-ClassadValidity.html][Integration]] | [[http://home.fnal.gov/~garzogli/ReSS/ReSS-prd-ClassadValidity.html][Production]] ).
+The other is a validation script run via the RSV framework. As of OSG 0.8.0, the latter is part of the suite of site validation tests.
+
+---++ Maintenance of validation expressions 
+
+The Information Gatherer (IG) is the !ReSS central service that receives classads from the CEMon at each site and forwards them to the information collector. The IG runs on the same machine where the information collector (condor_collector) also runs: for OSG integration osg-ress-4.fnal.gov; for OSG production osg-ress-1.fnal.gov.
+
+Validation expressions can be added by editing the staticCondorClassadAttributes.data configuration file. Please, refer to [[InformationGathererInstallationNotes][IG Customization of Global Site Parameters]] for details.
+
+---++ Appendix A: Validation expressions
+
+As of Nov 2007, these are the expressions used to validate a !ReSS classad
+
+<pre>
+isClassadValidAreCrtiticalAttributesPresent = 
+   ( GlueSiteName =!= UNDEFINED && 
+     GlueHostApplicationSoftwareRunTimeEnvironment =!= UNDEFINED &&
+     GlueHostNetworkAdapterInboundIP =!= UNDEFINED && 
+     GlueHostNetworkAdapterOutboundIP =!= UNDEFINED && 
+     GlueSubClusterTmpDir =!= UNDEFINED && 
+     GlueSubClusterWNTmpDir =!= UNDEFINED )
+
+
+isClassadValidAreImportantAttributesPresent = 
+    ( GlueSubClusterPhysicalCPUs =!= UNDEFINED && 
+      GlueSubClusterLogicalCPUs =!= UNDEFINED && 
+      GlueCEStateStatus =!= UNDEFINED && 
+      GlueCEInfoContactString =!= UNDEFINED )
+
+
+isClassadValidAreStateSlotsAndCPUNonNegative = 
+    ( GlueCEStateFreeCPUs =!= UNDEFINED && 
+      GlueCEStateFreeCPUs >= 0 && 
+      GlueCEStateFreeJobSlots =!= UNDEFINED && 
+      GlueCEStateFreeJobSlots >= 0 && 
+      GlueCEStateTotalJobs =!= UNDEFINED && 
+      GlueCEStateTotalJobs >= 0 && 
+      GlueCEStateWaitingJobs =!= UNDEFINED && 
+      GlueCEStateWaitingJobs >= 0 && 
+      GlueCEStateRunningJobs =!= UNDEFINED && 
+      GlueCEStateRunningJobs >= 0 )
+
+
+isClassadValidAreTotalSlotsAndCPUPositive = 
+   ( GlueCEInfoTotalCPUs =!= UNDEFINED && 
+     GlueCEInfoTotalCPUs > 0 && 
+     GlueCEPolicyAssignedJobSlots =!= UNDEFINED && 
+     GlueCEPolicyAssignedJobSlots > 0 )
+
+
+isClassadValidIsCEHostNetAvailable = 
+    ( GlueCEInfoHostName =!= UNDEFINED && 
+      regexp("\.lan$"; GlueCEInfoHostName) != 1 && 
+      regexp("\.localhost$"; GlueCEInfoHostName) != 1 && 
+      regexp("\.localdomain$"; GlueCEInfoHostName) != 1 && 
+      regexp("\.local$"; GlueCEInfoHostName) != 1 && 
+      regexp("\.internal$"; GlueCEInfoHostName) != 1 )
+
+
+isClassadValid = 
+    ( isClassadValidAreCrtiticalAttributesPresent && 
+      isClassadValidAreImportantAttributesPresent && 
+      isClassadValidAreTotalSlotsAndCPUPositive &&
+      isClassadValidAreStateSlotsAndCPUNonNegative && 
+      isClassadValidIsCEHostNetAvailable )
+
+</pre>
 
 -- Main.GabrieleGarzoglio - 14 Nov 2007
 
