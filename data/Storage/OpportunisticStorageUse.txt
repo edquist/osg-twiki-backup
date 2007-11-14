@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TedHesselroth" date="1194996376" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="TedHesselroth" date="1195061402" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="DCache18Preview"}%
 ---+++ Configuration of Storage Elements for Opportunistic Use
 
@@ -8,8 +8,8 @@ The general requirements for a storage element supporting opportunistic use are
 
    * Only a portion of the total storage is made available.
    * The amount of storage made available for opportunistic use may be specified.
-   * A capability of specifying a portion of the total storage for opportunistic use.
-   * Allowing particular VOs and Roles a privilege to use space other than opportunistic storage.
+   * There is a capability of specifying a portion of the total storage for opportunistic use.
+   * It is possible to allow particular VOs and Roles a privilege to use space other than opportunistic storage.
    * Files created through opportunistic use shall not be permanently available in the storage system.
 
 ---++++ Procedure for dCache 1.8 with SRM 2.2
@@ -22,7 +22,7 @@ Here are the operations that are performed to enable opportunistic use of storag
 
 Please start from the [[PoolManager][PoolManager.conf]] file described in the SpaceReservation topic.
 
-1. In the file PoolManager.conf add the following lines for 
+1. In the file <nop>PoolManager.conf add the following lines for 
 
 <verbatim>
 psu create unit -store  public:osg@osm
@@ -31,8 +31,8 @@ psu create unit -store  public:osg@osm
 2. Add lines to create a unit group and add the new unit to it
 
 <verbatim>
-psu create ugroup community-store
-psu addto ugroup community-store public:osg@osm
+psu create ugroup opportunistic-store
+psu addto ugroup opportunistic-store public:osg@osm
 </verbatim>
 
 3. Determine which pools shall be designated for opportunistic use.  Add a line for each of these pools. The names to use are the ones used internally by dCache. See the dCache documentation for how to determine the correct pool names.
@@ -49,13 +49,170 @@ psu create pool poolnode3_2
 4. Create a pool group for opportunistic use and add the pools to it.
 
 <verbatim>
-psu create pgroup opportunistic
-psu addto pgroup opportunistic poolnode1_1
-psu addto pgroup opportunistic poolnode1_2
-psu addto pgroup opportunistic poolnode2_1
-psu addto pgroup opportunistic poolnode2_2
-psu addto pgroup opportunistic poolnode3_1
-psu addto pgroup opportunistic poolnode3_2
+psu create pgroup opportunistic-pools
+psu addto pgroup opportunistic-pools poolnode1_1
+psu addto pgroup opportunistic-pools poolnode1_2
+psu addto pgroup opportunistic-pools poolnode2_1
+psu addto pgroup opportunistic-pools poolnode2_2
+psu addto pgroup opportunistic-pools poolnode3_1
+psu addto pgroup opportunistic-pools poolnode3_2
 </verbatim>
+
+5. Create a link group that includes this pool group and links it to the store unit defined above.
+
+<verbatim>
+# opportunistic - for public use of storage
+psu create link opportunistic-link opportunistic-store world-net any-protocol
+psu set link opportunistic-link -readpref=10 -writepref=20 -cachepref=10 -p2ppref=-1
+psu add link opportunistic-link opportunistic-pools
+</verbatim>
+
+6. Create a link group for non-custodial files that includes the above link.
+
+<verbatim>
+# HSM setting will not allow writing of custodial files to the opportunistic area
+psu create linkGroup opportunistic-link-group
+psu addto  linkGroup opportunistic-link-group opportunistic-link
+psu set    linkGroup attribute opportunistic-link-group HSM=None
+psu set linkGroup custodialAllowed opportunistic-link-group false
+psu set linkGroup onlineAllowed opportunistic-link-group true
+psu set linkGroup nearlineAllowed opportunistic-link-group true
+psu set linkGroup replicaAllowed opportunistic-link-group true
+psu set linkGroup outputAllowed opportunistic-link-group true
+</verbatim>
+
+Save the [[OpportunisticPoolManager][new PoolManager.conf]]. 
+
+7. Load the new rules into the <nop>PoolManager.
+
+<verbatim>
+$ ssh -l admin -c blowfish -p 22223 localhost
+admin@localhost's password: 
+
+    dCache Admin (VII) (user=admin)
+
+
+(local) admin > cd PoolManager
+(PoolManager) admin > reload -yes
+
+</verbatim>
+
+8. Check that the rules were loaded into the <nop>PoolManager.
+
+<verbatim>
+(PoolManager) admin > psu dump setup 
+#
+# Printed by diskCacheV111.poolManager.PoolSelectionUnitV2 at Wed Nov 14 09:56:54 CST 2007
+#
+#
+#
+# The units ...
+#
+psu create unit -net    0.0.0.0/255.255.255.255
+psu create unit -net    0.0.0.0/0.0.0.0
+psu create unit -store  *@*
+psu create unit -protocol */*
+psu create unit -store  public:osg@osm
+#
+...
+</verbatim>
+
+If you don't see the new store unit, load the new rules by restarting the dCache domain.
+
+10. Modify the <nop>LinkGroupAuthorization.conf described in  [[SpaceResServerSetup][Server Setup]] to add authorization for any authenticated user to make space reservations in the opportunistic storage area and restrict access to the other link groups. An example /opt/d-cache/etc/LinkGroupAuthorization.conf is
+<verbatim> 
+LinkGroup default-link-group
+uscms/Role=*
+usatlas/Role=*
+
+LinkGroup volatile-link-group
+*/Role=cmsuser
+
+LinkGroup opportunistic-link-group
+*/Role=*
+</verbatim>
+
+If you would like a more restrictive policy, see step 16 below.
+
+
+11. Reload the link groups and link group authorizations in <nop>srmSpaceManger.
+
+<verbatim>
+(PoolManager) admin > ..
+(local) admin > cd SrmSpaceManager@srm-oursiteDomain
+(SrmSpaceManager@srm-cd-oursiteDomain) admin > update link groups
+update started
+(SrmSpaceManager@srm-oursiteDomain) admin > 
+</verbatim>
+
+12. Create a directory for the rootpath of the opportunistic storage area.
+
+<verbatim>
+# cd /pnfs/oursite.edu/data
+# mkdir public
+# chmod 777 public
+</verbatim>
+
+13. Tag the directory as belonging to the opportunistic store unit defined above in PoolManager.conf.
+
+<verbatim>
+# cd public
+# cat '.(tag)(OSMTemplate)'
+StoreName myStore
+# echo "StoreName public" > ".(tag)(OSMTemplate)"
+# cat '.(tag)(OSMTemplate)'
+StoreName public
+# echo "osg" > ".(tag)(sGroup)"
+# grep "" $(cat ".(tags)()")
+.(tag)(OSMTemplate):StoreName public
+.(tag)(sGroup):osg
+</verbatim>
+
+14. Tag the access latency of this rootpath as ONLINE and the retention policy as REPLICA.
+
+<verbatim>
+# echo  "ONLINE" > ".(tag)(AccessLatency)"
+# echo  "REPLICA" > ".(tag)(RetentionPolicy)"
+</verbatim>
+
+15. Find out what user names opportunistic users will map to, either from [[http://grid.racf.bnl.gov/GUMS/guide_config_gums.html][gums.config]] on your GUMS server, or from [[http://www.dcache.org/manuals/Book/ch12s05.shtml][grid-volemap]] on your gPlazma node, depending on which method is activated. Authorize these users to access the storage area defined above by adding lines to /etc/grid-security/storage-authzdb on the gPlazma node such as.
+
+<verbatim>
+authorize cdf    read-write 9500 5000 / /pnfs/oursite.edu/data/public /
+authorize dzero  read-write 9501 5001 / /pnfs/oursite.edu/data/public /
+authorize gadu   read-write 9502 5002 / /pnfs/oursite.edu/data/public /
+authorize sdss   read-write 9503 5003 / /pnfs/oursite.edu/data/public /
+authorize ligo   read-write 9504 5004 / /pnfs/oursite.edu/data/public /
+authorize star   read-write 9505 5005 / /pnfs/oursite.edu/data/public /
+authorize ivdgl  read-write 9506 5006 / /pnfs/oursite.edu/data/public /
+authorize gridex read-write 9507 5007 / /pnfs/oursite.edu/data/public /
+authorize fmri   read-write 9508 5008 / /pnfs/oursite.edu/data/public /
+authorize mis    read-write 9509 5009 / /pnfs/oursite.edu/data/public /
+authorize grase  read-write 9510 5010 / /pnfs/oursite.edu/data/public /
+authorize glow   read-write 9511 5011 / /pnfs/oursite.edu/data/public /
+</verbatim>
+
+16. (Optional) If you would like to restrict opportuntistic use to particular VOs, modify the authorization for opportunistic link group in /opt/d-cache/etc/LinkGroupAuthorization.conf such as the following.
+
+<verbatim> 
+LinkGroup opportunistic-link-group
+cdf/Role=*
+dzero/Role=*
+gadu/Role=*
+sdss/Role=*
+ligo/Role=*
+star/Role=*
+ivdgl/Role=*
+gridex/Role=*
+fmri/Role=*
+mis/Role=*
+grase/Role=*
+glow/Role=*
+</verbatim>
+
+Repeat step 11 to cause the authorization file to be reloaded into <nop>srmSpaceManager.
+
+17. Upgrade your ldap server to use glue schema 1.3 and publish your opportunistic storage area. See GlueOpportunisticStorageArea.
+
 
 -- Main.TedHesselroth - 13 Nov 2007
