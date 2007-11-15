@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnneHeavey" date="1195059061" format="1.1" reprev="1.48" version="1.48"}%
+%META:TOPICINFO{author="DougOlson" date="1195161260" format="1.1" reprev="1.49" version="1.49"}%
 %META:TOPICPARENT{name="ComputeElementInstall"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -11,36 +11,58 @@
 
 ---++ Introduction
 
-Background information for certificates can be found [[Documentation.CertificateWhatIs][here]].  You will need a host certificate and private key to identify your CE.  You will also need an http certificate for CEMon and anything else that runs under Apache/tomcat.
+Background information for certificates can be found [[Documentation.CertificateWhatIs][here]].  You will need a host certificate and private key to identify your CE.  You will also need an http certificate for CEMon and anything else that runs under Apache/tomcat.  If you are need a personal certificate rather than a host or service certificate see UserCertificate.
 
 %NOTE% For security reasons, please *DO NOT* use clones of your host certificate for additional certificates even though it's technically possible.  There is one exception to this.  If you enable Globus web services, the Globus container requires  the host certificate.  Since the Globus container runs as _non_root_, the VDT configuration software will clone your host certificate as =/etc/grid-security/containercert.pem(containerkey.pem)= and will be owned by the account you configured Globus to run under (normally _globus_ or _daemon_). This is the *ONLY* exception at this time.
 
-%NOTE% If you find the http certificate files already installed, you might want to check their end date which indicates their validity. Cd to their directory, and as root, run the =openssl= command on each of the =pem= files, e.g.,:
+%NOTE% If you find the http certificate files already installed, you might want to check their end date which indicates their validity. As root, run the =openssl= command on each of the =*cert.pem= files, e.g.,:
 <pre class="screen">
 # openssl x509 -in /etc/grid-security/hostcert.pem -enddate -noout
 </pre>
 
----++ Install package with certificate scripts
+---++ Temporarily install certificate scripts package
 
-_If you're installing the CE, it will install the scripts you need.  Skip to " Setup and maintenance of Certificate Authority connection"._  
-
-You need to have a set of scripts in order to request and manipulate host certificates.  These scripts are described in the [[CertScripts][Certificate Scripts Package Guide]].  If you prefer, you can get these scripts ahead of time, and go ahead and request your certificates prior to the install. Both ways work.  It is also possible to request host certificates from one node from a different node on which the VDT is already installed. If you're starting fresh and you're installing something else that doesn't come with these scripts, e.g., VOMS, etc., you'll have to install the scripts from the VDT cache.
+You need to have a set of scripts in order to request and manipulate host certificates.  These scripts are described in the [[CertScripts][Certificate Scripts Package Guide]].  It is recommended to get these certificates before installing the complete
+CE.  
+If you have a recent OSG or VDT installation for CE or Client then you can use the scripts from that installation to request (=cert-request=) and retrieve (=cert-retrieve=) the certificates you will need.  If you do NOT already have a recent installation 
+then you should follow the procedure described below to install the [[Security.CertScriptsPackage][PPDG-Cert-Scripts]] package from VDT temporarily.
+Both ways work.  It is also possible to request host certificates from one node from a different node on which the VDT is already installed.
   
-Make the directory where you are going to install the package, and =cd= to it.
-Find the [[http://vdt.cs.wisc.edu/documentation.html][latest VDT cache]], and download =PPDG-Cert-Scripts= from it (shown for VDT %OSG_ITB_VDT_VERSION%):
+Make the directory where you are going to install the package, and =cd= to it.  The name and location
+of the directory is arbitrary, but is called =tmp-cert-scripts= below.  Note that this will be the =$VDT_LOCATION=
+for this temporarily installation of the certificate scripts.
+The installation can be done as
+a regular user or as root.
+Find the [[http://vdt.cs.wisc.edu/documentation.html][latest VDT cache]], and download =PPDG-Cert-Scripts= from it (shown for VDT %OSG_ITB_VDT_VERSION%), and answer the installation questions as shown below:
+
 
 <!--Best fix would be to make PPDG-Cert-Scripts a dependency of VOMS, VOMRS, GUMS, etc. packages.
 -->
 
 <pre class="screen">
-# pacman -get http://vdt.cs.wisc.edu/%VDT_CACHE%:PPDG-Cert-Scripts
+# <b>mkdir tmp-cert-scripts</b>
+# <b> cd tmp-cert-scripts</b>
+# <b>pacman -get http://vdt.cs.wisc.edu/%VDT_CACHE%:PPDG-Cert-Scripts</b>
+Do you want to add [http://vdt.cs.wisc.edu/%VDT_CACHE%] to [trusted.caches]? (y or n): <b>y</b>
+Do you agree to the licenses? [y/n] <b>y</b>
+Where would you like to install CA files?
+Choices:
+        l (local) - install into $VDT_LOCATION/globus/share/certificates
+        n (no)    - do not install
+<b>n</b>
+</pre>
+Then, to set up your environment to use the scripts:
+<pre class="screen">
+# <b>source ./setup.sh</b> ### for csh/tcsh use setup.csh
 </pre>
 
-If installing VOMRS, as you answer the installation questions, choose =r= to install the CA files in =/etc/grid-security=.   In ALL other cases (e.g., GUMS, VOMS) you want to choose the =l= option.  The CE Install guide chooses this option for you.  
+It is important to answer =<b>No</b>= to the question about CA files since they are not needed
+to use the =cert-request= and =cert-retrieve= scripts and installing them here will likely
+cause confusion since they should normally be installed with the CE package.
 
-%NOTE% In general it is a BAD BAD IDEA to use the "r" option.
-
-After it finishes, source the setup script. This will set $VDT_LOCATION to your installation directory.
+After you have completed installation of the CE or Client packages it is probably useful to
+remove this temporary certificate scripts installation to avoid confusion with the
+scripts included with the CE and Client packages.
 
 ---++ %RED% Deprecated %ENDCOLOR% - Setup and maintenance of Certificate Authority connection
 %RED% The grid-cert-request setup described in this section is useful when dealing with a globus-only software installation
@@ -107,63 +129,62 @@ Every resource or service running on the grid needs an X509 identity certificate
    * Currently the [[http://www.doegrids.org][DOEGrids CA]] is the most common CA in use for OSG participants. 
    * The [[http://www.opensciencegrid.org/ra][OSG Registration Authority]] with DOEGrids handles most certificate requests for OSG participants. 
 
-Here is a brief guide to the process assuming you have a valid [[UserCertificate][User Certificate]]. 
  
 Run the =cert-request= script  to generate your host's private key (<tt>hostkey.pem</tt>) and submit the certificate request.
-$VDT_LOCATION must point to the package in which the scripts exist, e.g., the CE install directory or where you installed PPDG-Cert-Scripts.  The =-label my-host= option is not required; but if used, use it also below when you install the cert.
+$VDT_LOCATION must point to the package in which the scripts exist, e.g., the CE install directory or where you installed PPDG-Cert-Scripts,
+or the temporary directory as described above.  The values for the =-label= and =-dir= options need to match the values used later with the =cert-retrieve= script.
 <pre class="screen">
 # <b>cd $VDT_LOCATION</b>
 # <b>source  ./setup.sh</b>
-# <b>cd vdt/setup/</b>
+# <b>cd vdt/setup/</b>   ### you could use some other directory, such as /etc/grid-security
+#                 ### which is the typical location to install the certificates
 # <b>cert-request -ou s -dir . -label <i>my-host</i></b>
+checking CertLib version, V2-5,  This is latest version, released 24 Aug 2007.
 Processing OU=Services request.
 Give reason (1 line) you qualify for certificate, such as
   member of CMS experiment    or
   collaborating with Condor team,  etc.
- reason: <b><i>installing gatekeeper for ZZZZZZ VO on OSG</i></b>
-input server administrator's name: <b><i>Joe Admin</i></b>
-input full hostname: <b><i>my-host.some.domain</i></b>
+ reason: <b>setting up my CE for site/vo</b>
+input server administrator's name: <b>Joe Admin</b>
+input full hostname: <b>myhost.some.domain</b>
 Generating a 2048 bit RSA private key
-............................................+++
-.......................................................................................................................................+++
+.....................................+++
+................................................+++
 writing new private key to './my-hostkey.pem'
 -----
-input your email address: <b><i>joe@some.domain</i></b>
-input your complete phone number: <b><i>9991234567</i></b>
+input your email address: <b>certs@some.domain</b>
+input your complete phone number: <b>123456789</b>
 Choose a registration authority to which you are affiliated.
 If nothing else applies, pick OSG.
 _Enter__this____for this registration authority
         anl     ANL: Argonne National Lab
-        esg     ESG: Earth System Grid
-        esnet   ESnet: DOE Science network
-<i>... and so on ...</i>
-        osg     OSG: Open Science Grid <i>(choose this if nothing else applies)</i>
+ <i>----abreviated output----</i>
+        osg     OSG: Open Science Grid (choose this if nothing else applies)
         pnnl    PNNL: Pacific Northwest National Lab
 (choose from left column): <b>osg</b>
 osg
 OSG
 Choose a virtual organization under your OSG affiliation:
         bnl     BNL: Brookhaven lab researchers not in an OSG registered VO
-        cdf     Collider Detector at Fermilab
-        cms     Compact Muon Solenoid
-        compbiogrid
-<i>... and so on ...</i>
-(Choose from left column; pick osg if nothing else applies): <b><i>ZZZZZ</i></b>
-OSG:ZZZZZ
+ <i>----abreviated output----</i>
+        star    Solenoidal Tracker at RHIC
+        usatlas United States ATLAS Collaboration
+(Choose from left column; pick osg if nothing else applies): <b>osg</b>
+OSG:OSG
 You must agree to abide by the DOEGrids policies,
-at http://www.doegrids.org/Docs/CP-CPS.pdf
+at
 and you assert that you are authorized to request and install this
 certificate on the specified host.
 Do you agree (y,N): <b>y</b>
 
 Your Certificate Request has been successfully submitted
-Your Certificate Request id: <i>12345</i>
+Your Certificate Request id: NNNN
 
         You will receive a notification email from the CA when your certificate
         has been issued. Please disregard the instructions to download your
         certificate though a web browser and use the cert-retrieve script instead.
 </pre>
-The certificate request will leave a =pem= file in the directory; this will be needed when you retrieve your cert.
+The certificate request will leave some files in the directory that will be needed when you retrieve your cert.
 
 %NOTE% It is possible to continue with steps in the install procedure while you are waiting for your host certificate to be approved.
 
@@ -171,19 +192,24 @@ See [[Security.CSReadMe#cert_request][full man page]] on the cert-request comman
 
 ---++ Retrieve and Install the Host Certificate
 
-After the certificate is approved you will receive an email which includes the serial number of the new certificate. Use that serial number to retrieve the certificate as shown below.  
+After the certificate is approved you will receive an email which includes the serial number (shown as =0xYYYY= below) of the new certificate. Use that serial number to retrieve the certificate as shown below.  
 
-From the installation directory (where your ran =cert-request= and where the new =pem= file was placed), run =cert-retrieve=.  Again, only use =-label ...= if you used it in the request.  The =-dir .= puts it in the cwd.  
+From the installation directory (where you ran =cert-request=), run =cert-retrieve=.  Again, use the same values for =-label= and =-dir= used for the request.  
 <pre class="screen">
-# <b>cert-retrieve -serial <i>0x2e7</i> -dir . -label <i>my-host</i> -prefix host</b>
+# <b>cert-retrieve  -serial <i>0xYYYY</i> -label <i>my-host</i> -dir . -prefix <i>host</i></b>
+checking CertLib version, V2-5,  This is latest version, released 24 Aug 2007.
+ using CA doegrids
 Checking that the usercert and ./my-hostkey.pem match
 writing RSA key
 ./hostcert.pem and ./hostkey.pem now contain your Globus credential
 </pre>
+<i>Note that if you did not use the =-prefix= option to name the =.pem= files
+they will have the default values of =usercert.pem= and =userkey.pem=.</i>
+
 Now move the =hostcert.pem= and =hostkey.pem= files to =/etc/grid-security= and set permissions:
 <pre class="screen">
-# <b>mv ./usercert.pem /etc/grid-security/hostcert.pem</b>
-# <b>mv ./userkey.pem /etc/grid-security/hostkey.pem</b>
+# <b>mv ./hostcert.pem /etc/grid-security/</b>
+# <b>mv ./hostkey.pem /etc/grid-security/</b>
 # <b>chmod 444 /etc/grid-security/hostcert.pem</b>
 # <b>chmod 400 /etc/grid-security/hostkey.pem</b>
 </pre>
@@ -210,13 +236,18 @@ Certificate:
 ---++ Get some other service certificate if you need it
 
 Additional service certificate can be obtained using the same procedure as for the host certificate above by
-simply including the _-service servicename_ option with cert-request.  For _servicename_ you might use _http_.  
+simply including the =-service servicename= option with cert-request.  For =servicename= you might use =http=.  
 The name of the service is rather arbitrary.
 <pre class="screen">
 > cert-request -ou s -service http -host my-computer.some.domain -label http-my-computer
 </pre>
 
----++ Get an HTTP service certificate to activate CEMon
+
+<!--  D.O. - lets drop this part
+-->
+<!--
+
+Get an HTTP service certificate to activate CEMon
 
 %BLUE%[D.O. - Seems to me that the CEMon install/configure documentation should describe what certificate
 it needs rather than putting that here.%ENDCOLOR%
@@ -249,12 +280,15 @@ $ <b>chmod 400 /etc/grid-security/http/httpkey.pem </b>
 $ <b>chown -R daemon.daemon /etc/grid-security/http </b>
 </pre>
 
+-->
+
 %STOPINCLUDE%
 %BR%
 %COMPLETE2% %BR%
 %RESPONSIBLE% Main.RobQ - 31 Oct 2007 %BR%
 %REVIEW%
-%REVCOM% Suggestrenaming this to 'Get Grid Certificates' so it can address host, http and ldap certs generically.  Should also include how to get certificates BEFORE the installation is started. Main.JohnWeigand%BR%
+%REVCOM% Suggest renaming this to 'Get Grid Certificates' so it can address host, http and ldap certs generically.  Should also include how to get certificates BEFORE the installation is started. Main.JohnWeigand%BR%
+%REVCOM% I will add the user certificate part after Rob G renames this page to Get Grid Certificates. Main.DougOlson%BR%
 
 <!--
 Main.Weigand 14 Nov 2007
