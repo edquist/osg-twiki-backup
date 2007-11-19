@@ -1,19 +1,21 @@
-%META:TOPICINFO{author="RobGardner" date="1195161608" format="1.1" version="1.8"}%
+%META:TOPICINFO{author="AlainRoy" date="1195505185" format="1.1" reprev="1.9" version="1.9"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
 ---+ Introduction
 
-Installing a large OSG site can be daunting for a couple of reasons. First of all, you will almost certainly need to install software on multiple computers. Second, you will need to have a clear plan before you proceed.    
+_Please note_: This is a guide to planning an OSG installation that provides access to your site for jobs and date. It is not intended for clients. 
+
+Installing a large OSG site can be daunting for a couple of reasons. First of all, you will almost certainly need to install software on multiple computers. Second, you will need to have a clear plan before you proceed. Please don&rsquo;t just dive into the installation.
 
 There are different kinds of installations you might perform. They include:
 
-   * *A computing element (CE)* The computing element is the front-end to your computer cluster. Users submit jobs to the CE, which submits the jobs to your local batch system. The OSG software assumes that you can install your local batch system yourself and provides no help with that. 
+   * *A computing element (CE)* The computing element is the front-end to your computer cluster. Users submit jobs to the CE, which submits the jobs to your local batch system. The OSG software assumes that you have installed your local batch system yourself and provides no help with that. 
 
    * *A worker node (WN)* A worker node is a single computer (perhaps with multiple CPUs or cores) in your computer cluster.
 
-   * *A user mapping service* When a user arrives at your site, they are identified by a certificate containing their name, not by their local user id. There are two ways to map a user to the local user id and one of them is a service called _GUMS_. It is a good idea to run this on a separate computer from your CE. 
+   * *A user mapping service* When a user arrives at your site, they are identified by a certificate containing their name, not by their local user id. There are two ways to map a user to the local user id and one of them is a service called _GUMS_. It is a good idea to run this on a separate computer from your CE. (The other method is not a service and so is never run on a separate computer. See _edg-mkgridmap" below.)
 
    * *A virtual organization management service (VOMS)* If you are running a virtual organization (VO), you need to control who is a member of your VO. You do this with VOMS. It is a very good idea to run this on a separate computer from your CE. 
 
@@ -21,13 +23,17 @@ There are different kinds of installations you might perform. They include:
 
    * *A web proxy* Some users submit jobs that download their executables or data files from a web site. In order to conserve bandwidth and to help applications run faster, you might wish to install a web proxy. OSG provides Squid for your use. It is a good idea to run this on a separate computer from your CE.
 
-   * *A shared file system* OSG recommends the use of a shared file system so that some files are accessible on all worker nodes. We do not provide instructions on how to set up a shared fileystem, but will tell you want needs to be shared.
+   * *A shared file system* OSG recommends the use of a shared file system so that some files are accessible on all worker nodes. We do not provide instructions on how to set up a shared fileystem, but instead expect you to do that yourself. However, we will tell you want needs to be shared.
 
 If you install all of these services at your site, you could easily have at several computers (and possibly many more) running OSG software. 
 
 ---++ What should you install? 
 
-If you want to allow users to run jobs on your computing cluster, you need to install the computing element (CE) and worker node (WN) at a minimum. If your users are likely to access large amounts of data, you need an SE. Depending on how you want to control access to your site, you might want to install GUMS. 
+If you want to allow users to run jobs on your computing cluster, you need to install the computing element (CE) and worker node (WN) at a minimum. 
+
+Depending on how you want to control access to your site, you might want to install GUMS. 
+
+If your users are likely to access large amounts of data, you need an SE. 
 
 If you run a virtual organization (VO), you should install VOMS.  
 
@@ -44,9 +50,13 @@ There are a lot of possible variations here: this is just one example of how it 
 
 <img src="%ATTACHURLPATH%/SmallSite.gif" alt="SmallSite.gif" width='616' height='443' />
 
-This site might be okay if your compute cluster is not too large, but it is starting to push its limits. The problem is the number of services running on a single node. We recommend breaking things up so that not so many things are on the same computer. It would be more scalable to add two computers to this site:
+Although the picture doesn't show it clearly, the shared filesystem is accessible by all cluster nodes as well as the CE. 
+
+This site might be okay if your compute cluster is not too large, but it is starting to push its limits. The problem is the number of services running on the CE: because this is your interface to OSG, you want to keep it from being overloaded. We recommend breaking things up so that not so many things are on the same computer. It would be more scalable to add two computers to this site:
 
 <img src="%ATTACHURLPATH%/SmallSite-Modified.gif" alt="SmallSite-Modified.gif" width='616' height='672' />
+
+Note that there is also likely to be a GridFTP server running on the CE, but the majority of file transfers should go through the SE.
 
 But now there is a problem: you have two different computers doing authorization/user mapping independently. We can add a service so that all of your computers are synchronized. 
 
@@ -65,15 +75,19 @@ GUMS has two significant advantages over grid mapfiles.
 
 ---++ What a large site might look like
 
-((Picture of a CE, with separate computers for Squid, NFS, GUMS, a small cluster, and a moderate-sized dCache cluster)
+<img src="%ATTACHURLPATH%/LargeSite.gif" alt="LargeSite.gif" width='808' height='657' />
+
+There are different ways to set up dCache: don&rsquo;t take this picture as suggesting that this is the only way. For example, in some setups, there are one ore more pool nodes that are distinct from the cluster nodes. In some setups each of the cluster nodes is also a pool node: they are not distinct.
 
 ---+ What you need to do
 
 ---++ Certificates
 
-What certs are needed, pointers to getting them
+In general, your CE will need two certificates: a host certificate and an http certificate. A squid proxy doesn't need any certificates. 
 
-GetGridCertificates
+Your installation will go most smoothly if you get your certificates before your do the installation. 
+
+[[GetGridCertificates][More information about the certificates you need]]
 
 #SharedFS
 ---++ Shared file system directories
@@ -90,27 +104,40 @@ More details can be found in [[LocalStorageConfiguration][Local Storage Configur
 
 ---++ Mapping users
 
-Choosing edg-mkgridmap or GUMS
+There are two methods for mapping users: _edg-mkgridmap_ and _GUMS_. If you can afford the time and complexity, we recommend using GUMS. 
+
+*edg-mkgridmap* is a small program that runs four times a day. Each time it runs, it contacts all of the VOMS servers for the VOs that you support to find out all of the users in the VOs, then creates a _grid-mapfile_. This is a file that is used by Globus to map users. It simply lists each users _distinguished name (DN)_ followed by the account that they map to. 
+
+edg-mkgridmap easy to configure and user. It is trivial to see the mappings that will be used. However, there are a several problems with edg-mkgridmap:
+
+   * If a user is in more than one VO, they can distinguish which VO they are acting as part of by creating a _VOMS proxy_ instead of the more common _grid proxy_. A VOMS proxy is a just a grid proxy with extra information (an _attribute certificate_ that says what VO the user is part of and optionally what role they have in that VO). A grid-mapfile does not interpret any of the information in a VOMS proxy. The end result is that a user that is in multiple VOs has no ability to control what VO they appear to be part of, and they may be mapped incorrectly at your site. Note that this isn't a theoretical case: there are users in OSG that are in multiple VOs. 
+   * If there are several computers in your setup that do authorization and edg-mkgridmap fails at some of them (or simply runs out of sync), the list of users mapped at each of your computers may be different and incorrect.
+
+*GUMS* is a service that is performs user mapping on behalf of other software. It periodically contacts the VOMS servers that represent the VOs you support and sets up mappings. GUMS is a centralized service at your site, so each computer at your site will make the same mapping decisions. In addition, GUMS understands the information from a VOMS proxy, so it will use that information when mapping users. On the other hand, GUMS is an additional complexity for your site: it is yet one more service to maintain and monitor. Because it is a fundamental piece of your security infrastructure, we recommend that it not run on the same computer as your CE. This is because users can run jobs directly on your CE (via the _fork_ interface) and could interfere with GUMS if a security flaw were found. 
+
+[[AboutAuthorizationForCE][More details on Authorization]]
 
 ---++ Advanced notes
 
-   * glexec
+---+++ glexec
+*glexec* is a service to help so-called _glide-in_ jobs interact with the security at your site. 
 
-<span style="font-size:xx-large; color:purple">OLD TEXT FOLLOWS:</span>
+Some users on OSG use a technique called _glide-in_: they run a job that doesn&rsquo;t do the actual computation. Instead, it pulls in the actual computation to do the work when it is ready. (Sometimes you will heard the term _pilot job_ instead of glide-in.) Glide-in is conceptually simple but there are many complexities in practice: a full discussion is beyond the scope of this document. 
 
-%INCLUDE{"SiteFabricBestPractices"}%
-%INCLUDE{"OperatingSystems"}%
-%INCLUDE{"AboutAuthorizationForCE"}%
+glexec solves one particular problem with glide-in jobs when they pull in work from a user who isn&rsquo;t the user that submitted the glide-in job. Your local policy might require accounting and/or security measures. Glexec will assist with this by ensuring the the work job is probably authenticated and authorized. Details on installing glexec are in the CE installation guide. Note that glexec is a setuid script so it must be installed locally, not on NFS. 
+
+---+++ Site Best Practices
+
+We have some technical details about [[SiteFabricBestPractices][site fabric best practices]]. 
 
 %STOPINCLUDE%
 %BR%
-%COMPLETE1% %BR%
+%COMPLETE3% %BR%
 %RESPONSIBLE% Main.AlainRoy - 18 Oct 2007 %BR%
 %REVIEW%
-
-     
 
 %META:FILEATTACHMENT{name="BasicCE.gif" attr="" autoattached="1" comment="" date="1193861491" path="BasicCE.gif" size="19744" user="UnknownUser" version=""}%
 %META:FILEATTACHMENT{name="MediumSite.gif" attr="" autoattached="1" comment="" date="1193864209" path="MediumSite.gif" size="23887" user="Main.AlainRoy" version="1"}%
 %META:FILEATTACHMENT{name="SmallSite.gif" attr="" autoattached="1" comment="" date="1193861491" path="SmallSite.gif" size="23134" user="UnknownUser" version=""}%
+%META:FILEATTACHMENT{name="LargeSite.gif" attr="h" autoattached="1" comment="" date="1195503184" path="LargeSite.gif" size="27102" user="Main.AlainRoy" version="1"}%
 %META:FILEATTACHMENT{name="SmallSite-Modified.gif" attr="" autoattached="1" comment="" date="1193861491" path="SmallSite-Modified.gif" size="28453" user="UnknownUser" version=""}%
