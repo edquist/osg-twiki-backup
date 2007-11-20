@@ -1,0 +1,426 @@
+%META:TOPICINFO{author="StevenTimm" date="1195593746" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICPARENT{name="SiteFabricBestPractices"}%
+---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+%STARTINCLUDE%
+%BR%
+---+ _%INCLUDEHEADING%  %SPACEOUT{ "%TOPIC%" }%_
+
+%EDITTHIS%
+%BR%
+---++Introduction
+This page is a placeholder for what is hoped to eventually be a pointer to a CVS or Subversion repository 
+in which site admins from around the OSG contribute the scripts that they use to clean up worker nodes
+and gatekeepers. In general the OSG software stack does a very bad job of cleaning up after itself and 
+without scripts like this, the disk will fill up very quickly.  The subversion repository will be at [[http://vtb-svn.uchicago.edu/svn/osg-repository/]] but as of 11/20 there are no files in it as yet.
+
+
+---++Cleaning up a worker node disk
+<pre>
+[root@fcdfcaf1100 bin]# cat purgefile.sh
+#!/bin/sh
+
+/usr/bin/python /usr/local/bin/purgefile.py /local/stage1
+[root@fcdfcaf1100 bin]# cat purgefile.py
+import os, sys,time, shutil
+from stat import *
+
+def walktree(top, callback):
+    '''recursively descend the directory tree rooted at top,
+       calling the callback function for each regular file'''
+
+    for f in os.listdir(top):
+        pathname = os.path.join(top, f)
+        mode = os.stat(pathname)[ST_MODE]
+        print "checking %s" % pathname
+        # setup time to compare
+        mtime = os.stat(pathname)[ST_MTIME]
+        RFC822 = '%a, %d %b %Y %T %z'
+        now2 =  time.strftime(RFC822)
+        print "today's date: %s" % now2
+        current_sec =  time.time()
+        print "today's date in sec: %s" % current_sec
+        #5days = 216000
+        #so compare to 5 days ago
+        comparetime = current_sec - 216000
+        print "comparetime: %s " % comparetime
+        oldfiletime = time.ctime(mtime)
+        #newfile= open('/var/log/purge.log', 'a')
+        #newfile.write (str(now2) + '\n')
+        if mtime >= comparetime:
+           print "yes, %s is less  " % mtime
+           print "or equal to %s " %  comparetime
+           print "this file should be left alone"
+        else:
+               print "this file should be removed, it is older than 5 days"
+
+        if S_ISDIR(mode):
+            # It's a directory, recurse into it
+            print "checking directory %s " % pathname
+            #shutil.rmtree(os.path.join(pathname))
+            if f == 'condor' or f == 'dfarm' or f == 'stage1' or f == '\\' :
+                print "file has rule exceptions and won't be erased"
+                continue
+            if mtime >= comparetime:
+                print "%s is not old enough and won't be erased" % pathname
+                continue
+            else :
+                   walktree((os.path.join(pathname)), callback)
+
+        elif S_ISREG(mode):
+            # It's a file, call the callback function
+            if mtime >= comparetime:
+                print "file is not old enough and won't be erased"
+                continue
+                #print "file being removed is %s " % pathname
+            else:
+                newfile= open('/var/log/purge.log', 'a')
+                newfile.write (str(pathname) + ' ' + str(oldfiletime) +  ' ' + 'removed ' + str(now2)
++ '\n')
+                print "file being removed is %s " % pathname
+                try:
+                  os.remove(os.path.join(pathname))
+                  callback(pathname)
+                except: OSError
+
+        else:
+            # Unknown file type, print a message
+            print 'Skipping %s' % pathname
+
+def visitfile(file):
+    print 'visiting', file
+
+if __name__ == '__main__':
+    walktree(sys.argv[1], visitfile)
+
+
+[root@fcdfcaf1100 bin]# cat purgedir.sh
+#!/bin/sh
+
+/usr/bin/python /usr/local/bin/purge.py /local/stage1
+[root@fcdfcaf1100 bin]# cat purge.py
+import os, sys,time, shutil
+from stat import *
+''' modified from python.org example for listing a directory recursively'''
+'''mgreaney 7/12/06'''
+
+def walktree(top, callback):
+    '''recursively descend the directory tree rooted at top,
+       calling the callback function for each regular file'''
+
+    for f in os.listdir(top):
+        pathname = os.path.join(top, f)
+        mode = os.stat(pathname)[ST_MODE]
+        print "checking %s" % pathname
+        # setup time to compare
+        mtime = os.stat(pathname)[ST_MTIME]
+        RFC822 = '%a, %d %b %Y %T %z'
+        now2 =  time.strftime(RFC822)
+        print "today's date: %s" % now2
+        current_sec =  time.time()
+        print "today's date in sec: %s" % current_sec
+        #5days = 216000
+        #so compare to 5 days ago
+        comparetime = current_sec - 216000
+        print "comparetime: %s " % comparetime
+        newfile= open('/var/log/purge.log', 'a')
+        newfile.write (str(now2) + '\n')
+        newfile.close()
+        if mtime >= comparetime:
+           print "yes, %s is less  " % mtime
+           print "or equal to %s " %  comparetime
+           print "this file should be left alone"
+        else:
+               print "this file should be removed, it is older than 5 days"
+
+        if S_ISDIR(mode):
+            # It's a directory, recurse into it
+            print "directory being removed is %s " % pathname
+            #shutil.rmtree(os.path.join(pathname))
+            if f == 'condor' or f == 'dfarm' or f == 'stage1' or f == '\\' :
+                print "file has rule exceptions and won't be erased"
+                continue
+            if mtime >= comparetime:
+                print "file is not old enough and won't be erased"
+                continue
+            else :
+                try:
+                   walktree((shutil.rmtree(os.path.join(pathname))), callback)
+                except: OSError
+
+        elif S_ISREG(mode):
+            # It's a file, call the callback function
+            if mtime >= comparetime:
+                print "file is not old enough and won't be erased"
+                continue
+                print "file being removed is %s " % pathname
+            else:
+                    callback(pathname)
+        else:
+            # Unknown file type, print a message
+            print 'Skipping %s' % pathname
+
+def visitfile(file):
+    print 'visiting', file
+
+def remove(fullname):
+    if os.path.isdir(fullname) and not os.path.islink(fullname):
+        try:
+            names = os.listdir(fullname)
+        except os.error:
+            names = []
+        ok = 1
+        for name in names:
+            if not remove(os.path.join(fullname, name)):
+                ok = 0
+        if not ok:
+            return 0
+        try:
+            os.rmdir(fullname)
+        except os.error, msg:
+            print "Can't remove local directory %r: %s" % (fullname, msg)
+            return 0
+    else:
+        try:
+            os.unlink(fullname)
+        except os.error, msg:
+            print "Can't remove local file %r: %s" % (fullname, msg)
+            return 0
+    return 1
+
+if __name__ == '__main__':
+    walktree(sys.argv[1], visitfile)
+    #walktree(sys.argv[1], remove(visitfile)) doesn't work
+</pre>
+---++Cleaning up a $HOME/.globus area
+I run the five scripts below on a weekly basis.  The scripts split up the directories into groups of
+100 users apiece since some 2200 grid users are defined on FermiGrid and if you do them 
+all at once the file list gets too big.
+
+<pre>
+[root@fermigrid1 cron.weekly]# cat gasscacheclean
+#!/bin/bash
+# Source the globus setup
+. /usr/local/vdt/setup.sh
+cd /export/fermigrid-home
+ls | split -l 100 - /tmp/GRAMUSERS
+for file in `ls /tmp/GRAMUSERS??`
+do
+for user in `cat $file`
+do
+if [ -d $user ]
+then
+   cd $user
+   if [ -d .globus/.gass_cache/ ]
+   then
+   find .globus/.gass_cache/ -xdev -type f -atime +7 -exec rm -f {} \;
+   find .globus/.gass_cache/ -xdev -type d -atime +7 -depth -empty -exec rmdir {} \;
+   fi
+   cd ..
+else
+   echo "$user directory doesn't exist"
+fi
+done
+sleep 600
+done
+[root@fermigrid1 cron.weekly]# ls
+00-makewhatis.cron  gasscacheclean  globustmpclean  gram_scratch_del
+0anacron            globusjobclean  gramrotate
+[root@fermigrid1 cron.weekly]# cat gasscacheclean
+#!/bin/bash
+# Source the globus setup
+. /usr/local/vdt/setup.sh
+cd /export/fermigrid-home
+ls | split -l 100 - /tmp/GRAMUSERS
+for file in `ls /tmp/GRAMUSERS??`
+do
+for user in `cat $file`
+do
+if [ -d $user ]
+then
+   cd $user
+   if [ -d .globus/.gass_cache/ ]
+   then
+   find .globus/.gass_cache/ -xdev -type f -atime +7 -exec rm -f {} \;
+   find .globus/.gass_cache/ -xdev -type d -atime +7 -depth -empty -exec rmdir {} \;
+   fi
+   cd ..
+else
+   echo "$user directory doesn't exist"
+fi
+done
+sleep 600
+done
+[root@fermigrid1 cron.weekly]# cat globustmpclean
+#!/bin/bash
+# Source the globus setup
+. /usr/local/vdt/setup.sh
+cd $GLOBUS_LOCATION/tmp
+find . -xdev -atime +7 -exec rm -f {} \;
+[root@fermigrid1 cron.weekly]# cat globusjobclean
+#!/bin/bash
+# Source the globus setup
+. /usr/local/vdt/setup.sh
+cd /export/fermigrid-home
+ls | split -l 100 - /tmp/GRAMUSERS
+for file in `ls /tmp/GRAMUSERS??`
+do
+for user in `cat $file`
+do
+if [ -d $user ]
+then
+   cd $user
+   if [ -d .globus/job ]
+   then
+   find .globus/job/ -xdev -type f -atime +7 -exec rm -f {} \;
+   find .globus/job/ -xdev -type d -atime +7 -depth -empty -exec rmdir {} \;
+   fi
+   cd ..
+else
+   echo "$user directory doesn't exist"
+fi
+done
+sleep 600
+done
+[root@fermigrid1 cron.weekly]# cat gramrotate
+#!/bin/bash
+# Source the globus setup
+. /usr/local/vdt/setup.sh
+cd /export/fermigrid-home
+ls | split -l 100 - /tmp/GRAMUSERS
+for file in `ls /tmp/GRAMUSERS??`
+do
+for user in `cat $file`
+do
+if [ -d $user ]
+then
+   cd $user
+   if [ ! -d gramsave ]
+   then
+        mkdir gramsave
+   fi
+   vdt-rotate-gram-logs --user $user --olddir gramsave
+   cd ..
+else
+   echo "$user directory doesn't exist"
+fi
+done
+sleep 600
+done
+[root@fermigrid1 cron.weekly]# cat gram_scratch_del
+#!/bin/bash
+# Source the globus setup
+. /usr/local/vdt/setup.sh
+cd /export/fermigrid-home
+ls | split -l 100 - /tmp/GRAMUSERS
+for file in `ls /tmp/GRAMUSERS??`
+do
+for user in `cat $file`
+do
+if [ -d $user ]
+then
+   cd $user
+   find . -maxdepth 1 -name "gram_scratch_*" -xdev -type d -atime +7 -depth -exec rm -rf {} \;
+   cd ..
+else
+   echo "$user directory doesn't exist"
+fi
+done
+sleep 600
+done
+
+</pre>
+---++Cleaning up stale globus-job-manager processes
+This script was written by Keith Chadwick as part of our monitoring.
+<pre>
+[root@fermigrid0 scripts]# more cleanup_gatekeeper_jobmanagers.sh
+#!/bin/bash
+#
+#
+#
+process_workfile () {
+cleanup_yesterdate=`date +"%d" -d yesterday`
+ksu_path=`which ksu 2> /dev/null`
+if [ -z "$ksu_path" ]
+then
+        echo '...Adding /usr/krb5/bin to PATH'
+        export PATH='/usr/krb5/bin:'$PATH
+fi
+declare process_record
+while read process_record
+do
+###     echo $process_record
+        process_user=`echo $process_record | awk -F ' ' '{print $1}'`
+        process_id=`echo $process_record | awk -F ' ' '{print $2}'`
+        process_start=`echo $process_record | awk -F ' ' '{print $9}'`
+###     echo $process_user $process_id $process_start
+        if [ "${process_start:2:1}" = ':' ]
+        then
+                echo 'skip' > /dev/null
+        else
+                process_month=${process_start:0:3}
+                process_date=${process_start:3:2}
+                if [ "$process_date" -eq "$cleanup_yesterdate" ]
+                then
+                        echo 'skip' > /dev/null
+                else
+                        let stale_count=$stale_count+1
+                        echo 'Found stale jobmanager process '$process_user $pro
+cess_id $process_month $process_date
+                        echo "ksu -q -e /bin/kill -9 $process_id"
+                        ksu -q -e /bin/kill -9 $process_id
+                        if [ "$?" -eq 0 ]
+                        then
+                                let cleanup_count=$cleanup_count+1
+                                mail_tmpfile="/tmp/$$.tmp"
+                                echo "$process_record" > $mail_tmpfile
+                                /bin/mail -s "Killed stale jobmanager process $p
+rocess_id for vo $process_user on $MONITOR_HOST" $MONITOR_MAILTO < $mail_tmpfile
+                                rm -f $mail_tmpfile
+                        fi
+                fi
+        fi
+done
+return 0
+}
+#
+#
+#
+let cleanup_count=0
+let stale_count=0
+workfile=`pwd`/$$.tmp
+ps auwx | grep globus-job-manager | grep fork > $workfile
+#
+#
+#
+if [ -e "$workfile" ]
+then
+        process_workfile < $workfile
+        rm $workfile
+fi
+#
+#
+#
+echo "$0 - stale_count="$stale_count", cleanup_count="$cleanup_count
+#
+#
+#
+exit 0
+
+</pre>
+---++Automatically requesting and fetching multi-hundreds of host certs
+John Hover and Jay Packard of BNL have said they have such a script.
+---++Distribute CA Certs and CRL's to worker nodes
+Download the following tarball from [[http://fermigrid.fnal.gov/files/csync/csync-0.9.0.tgz]].  It is supposed to
+be in the next version of the VDT.  See WorkerNodeClient for details on what it is used for.
+---++Jobmanager hacks for dynamic $OSG_WN_TMP
+See PbsBatchSystemHints for how to do this for PBS.  It has been done for condor as well
+at UCSD, using a condor_user_wrapper file to set the OSG_WN_TMP directory at the start
+of the job.
+%STOPINCLUDE%
+%BR%
+%COMPLETE3% %BR%
+%RESPONSIBLE% Main.StevenTimm - 23 Oct 2007 %BR%
+%REVIEW% Main.RobGardner - 08 Nov 2007 %BR%
+%REVCOM% Needs-content Main.RobGardner
