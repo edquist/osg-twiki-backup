@@ -1,0 +1,214 @@
+%META:TOPICINFO{author="AlainRoy" date="1195591274" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="TroubleshootJobsUsers"}%
+---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+%STARTINCLUDE%
+%BR%
+---+ _%INCLUDEHEADING%  %SPACEOUT{ "%TOPIC%" }%_
+
+This document is meant to help a site administrator debug why a users's jobs won't run at the site. It only addresses issues regarding basic running of jobs, and not data transfer or storage. There is a [[TroubleshootJobsUsers][companion document for users]] trying to figure out why their jobs won't run at a site.
+
+---++ Understanding Authentication and Authorization
+
+If a user can't run a basic =globusrun -a -r= against your site (this command just attempts to authenticate and authorize with Globus GRAM, but not run a job), then there are several common things to look at.
+
+But before we describe the common errors, you should make sure that you understand the difference between authentication and authorization. Authentication is the process of verifying the identity of a user: it involves:
+
+   * Verifying that the user has a valid proxy certificate
+   * Verifying that the user's certificate was granted by a recognized certificate authority (CA)
+   * Verifying that the user's certificate wasn't revoked by the CA. This normally requires that the CA's certificate authorization list is up to date. 
+
+Authorization happens after authentication, and it is the process of deciding that a recognized user may use your site. In OSG it happens either through a grid-mapfile (which is probably updated by the edg-mkgridmap program) or by GUMS.
+
+---++ Authentication Failures
+
+Here is a sample authentication failure. It's from $GLOBUS_LOCATION/var/globus-gatekeeper.log. There are other ways that it can manifest itself, but it's usually a cryptica GSS error:
+
+<pre>
+Failed reading length 0
+    GSS authentication failure 
+    globus_gss_assist token :3: read failure: Connection closed
+Failure: GSS failed Major:01090000 Minor:00000000 Token:00000003
+
+TIME: Sat Apr 28 02:58:57 2007
+ PID: 21156 -- Failure: GSS failed Major:01090000 Minor:00000000 Token:00000003
+</pre>
+
+Common reasons for authentication failure include:
+
+1.  Your clock isn't synchronized with the user's. The best thing here is to make sure that both you and the user are use NTP to keep your clocks accurate.
+
+2. You do not recognize the CA that granted the user's certificate. If you know the user's distinguished name, you can usually figure out the CA. For example, the certificate for /CN=Invigo Service00/OU=Purdue TeraGrid/O=Purdue University/ST=Indiana/C=US was granted by the Purdue TeraGrid CA. The certificate for /DC=org/DC=doegrids/OU=People/CN=Alain Roy 424511 was granted by the DOEGrids CA.
+
+      To see if you accept the CA for a certificate, you can look at all the certificates installed in $VDT_LOCATION/globus/TRUSTED_CA. For example:
+
+<pre>
+> cd $VDT_LOCATION/globus/TRUSTED_CA
+> grep -i "Purdue TeraGrid" *.signing_policy That's the bit from the user's DN
+67e8acfa.signing_policy:access_id_CA    X509    '/CN=Purdue TeraGrid RA/OU=Purdue TeraGrid/O=Purdue University/ST=Indiana/C=US'
+67e8acfa.signing_policy:cond_subjects   globus  '"/CN=*/OU=Purdue TeraGrid/O=Purdue University/ST=Indiana/C=US"'
+95009ddc.signing_policy:cond_subjects   globus  '/CN=Purdue TeraGrid RA/OU=Purdue TeraGrid/O=Purdue University/ST=Indiana/C=US' 
+> openssl x509 -in 67e8acfa.0 -text -noout
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number:
+            6f:d6:70:f8:df:f8:2d:08
+        Signature Algorithm: sha1WithRSAEncryption
+        Issuer: CN=PurdueCA, O=Purdue University, ST=Indiana, C=US
+        Validity
+            Not Before: Sep  8 13:18:31 2004 GMT
+            Not After : Sep  6 13:28:31 2014 GMT
+        Subject: CN=Purdue TeraGrid RA, OU=Purdue TeraGrid, O=Purdue
+        University, ST=Indiana, C=US
+ ...
+</pre>
+
+      There are two CAs here, 67e8cfa and 95009ddc. Don't worry that there are two: this is an adminstrative detail for the Purdue CA. For this DN, it was signed by 67e8cfa, but that was granted by 95009ddc: they both need to be recognized CAs.
+
+      If you don't find the CA, you probably need to update your CA certificates. The official VDT CA distribution contains all IGTF CAs and TeraGrid CAs. If the CA isn't one of those, you may need to add it manually, if you trust it.
+
+3. The certificate revocation list (CRL) for the CA exists, but is expired. (If it doesn't exist, it's not a problem.) You can check the CRL by doing something like this:
+
+<pre>
+> cd $VDT_LOCATION/globus/TRUSTED_CA
+> openssl crl -in 67e8acfa.r0 -lastupdate -nextupdate -noout
+lastUpdate=Apr 30 02:00:02 2007 GMT
+nextUpdate=May  1 04:00:02 2007 GMT
+</pre>
+
+      If the nextUpdate is in the past (or, theoretically, if the lastUpdate is in the future) compared to your system's time), the CRL is out of date, and authentication will fail. For a quick fix, delete the CRL file (the .r0 file). For a better fix, download an updated version (the URL is in the .crl_url file). For the best fix, figure out out the fetch-crl program is failing to get you the latest CRL. 
+
+---++ Authorization Failures: the grid-mapfile case
+
+Most OSG sites that use grid-mapfiles also use edg-mkgridmap. When using edg-mkgridmap, most users will be filled in autotmatically, though extra users can be specified.
+
+Common failures include:
+
+1. The user is not in the grid-mapfile. You might see something like this in your $GLOBUS_LOCATION/var/globus-gatekeeper.log:
+<pre>
+TIME: Sat Apr 28 22:13:28 2007
+ PID: 3056 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=Alain Roy 424511
+Failure: globus_gss_assist_gridmap() failed authorization. gridmap.c:globus_l_gss_assist_gridmap_lookup:2035:
+Gridmap lookup failure: Could not map /DC=org/DC=doegrids/OU=People/CN=Alain Roy 424511
+
+TIME: Sat Apr 28 22:13:28 2007
+ PID: 3056 -- Failure: globus_gss_assist_gridmap() failed authorization. gridmap.c:globus_l_gss_assist_gridmap_lookup:2035:
+Gridmap lookup failure: Could not map /DC=org/DC=doegrids/OU=People/CN=Alain Roy 424511
+</pre>
+Check /etc/grid-security/grid-mapfileto see if the user is listed. If not, verify the configuration for edg-mkgridmap.
+
+2. The user doesn't exist on your system. For example, if the user doesn't exist on the gatekeeper host, you might see the following error message in your $GLOBUS_LOCATION/var/globus-gatekeeper.log:
+
+<pre>
+TIME: Sat Apr 28 22:19:26 2007
+ PID: 3777 -- Notice: 5: Authorized as local user: roy
+Failure: getpwname() failed to find roy
+TIME: Sat Apr 28 22:19:26 2007
+ PID: 3777 -- Failure: getpwname() failed to find roy
+</pre>
+Make sure that the user exists on the gatekeeper and on all worker nodes. 
+
+---++ Authorization Failures: the PRIMA/GUMS case
+One caveat problem when using PRIMA/GUMS is that when running with the logLevel attribute (prima-authz.conf) set to info, you do not see the FQAN being used. If you run with it set t\
+o 'debug' you can find the FQAN in some of the informational messages.
+
+Common failures include:
+
+1. The user is not authorized (i.e. does not have a mapping in GUMS):
+
+With debugLevel = info:
+
+<pre>
+PID: 15279 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+PID: 15279 -- PRIMA ERROR  prima_module.c:408  Identity Mapping Service did not permit mapping
+Dailure: globus_gss_assist_gridmap() failed authorization. gridmap.c:globus_gss_assist_map_and_authorize:1910:
+Wrror invoking callout
+Flobus_callout.c:globus_callout_handle_call_type:727:
+Rhe callout returned an error
+Prima_module.c:Globus Gridmap Callout:430:
+Gridmap lookup failure: Could not retrieve mapping for /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491 from identity mapping server
+</pre>
+
+With debugLevel = debug: (reformatted to be readable)
+
+<verbatim>
+PID: 25365 -- PRIMA DEBUG prima_soap_client.c:37
+<Request xmlns="urn:oasis:names:tc:SAML:1.0:protocol"
+        IssueInstant="2007-05-01T17:50:37Z"
+        MajorVersion="1"
+        MinorVersion="0"
+        RequestID="ee24604354274b10dc75bbd868eddd05"
+        xmlns:saml="urn:oasis:names:tc:SAML:1.0:assertion"
+        xmlns:samlp="urn:oasis:names:tc:SAML:1.0:protocol">
+  <RespondWith>saml:AuthorizationDecisionStatement</RespondWith>
+  <RespondWith xmlns:rw="opensciencegrid:authorization:saml">
+      rw:ObligatedAuthorizationDecisionStatement
+  </RespondWith>
+  <AuthorizationDecisionQuery Resource="/DC=org/DC=doegrids/OU=Services/CN=cmssrv09.fnal.gov">
+  <Subject xmlns="urn:oasis:names:tc:SAML:1.0:assertion">
+    <NameIdentifier>/DC=org/DC=doegrids/OU=People/CN=John Weigand 458491</NameIdentifier>
+  </Subject>
+  <Action xmlns="urn:oasis:names:tc:SAML:1.0:assertion"
+          Namespace="opensciencegrid:authorization">
+    access_as_local_identity
+  </Action>
+  <Evidence xmlns="urn:oasis:names:tc:SAML:1.0:assertion">
+    <Assertion AssertionID="c79bfe3c68eb8eb073f92c614d53918c"
+               IssueInstant="2007-05-01T17:50:37Z"
+               Issuer="/C=CH/O=CERN/OU=GRID/CN=host/lcg-voms.cern.ch"
+               MajorVersion="1"
+               MinorVersion="0"
+               xmlns="urn:oasis:names:tc:SAML:1.0:assertion"
+               xmlns:saml="urn:oasis:names:tc:SAML:1.0:assertion"
+               xmlns:samlp="urn:oasis:names:tc:SAML:1.0:protocol">
+        <AttributeStatement>
+           <Subject>
+               <NameIdentifier>/DC=org/DC=doegrids/OU=People/CN=John Weigand 458491</NameIdentifier>
+           </Subject>
+           <Attribute AttributeName="FQAN"
+                      AttributeNamespace="opensciencegrid:authorization"
+                      xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+             <AttributeValue>/cms/uscms/Role=cmsuser/Capability=NULL</AttributeValue>
+           </Attribute>
+        </AttributeStatement>
+    </Assertion>
+  </Evidence>
+  </AuthorizationDecisionQuery>
+</Request>
+  :
+  :
+ PID: 25365 -- PRIMA ERROR  prima_module.c:408  Identity Mapping Service did not permit mapping
+
+Failure: globus_gss_assist_gridmap() failed authorization. gridmap.c:globus_gss_assist_map_and_authorize:1910:
+Error invoking callout
+globus_callout.c:globus_callout_handle_call_type:727:
+The callout returned an error
+prima_module.c:Globus Gridmap Callout:430:
+Gridmap lookup failure: Could not retrieve mapping for /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491 from identity mapping server
+</verbatim>
+
+You will find the user's distinguished name (DN) in the NameIdentifier element, and if the user has a VOMS proxy, you will find the user's roles in the AttributeValue.
+
+2. The user doesn't exist on the system. (Same as grid-mapfile error). The globus-gatekeeper log will have:
+
+<pre>
+PID: 17708 -- Notice: 5: Authorized as local user: uscmspool072
+Failure: getpwname() failed to find uscmspool072
+</pre>
+
+---++ Other Failures
+1. Does the user exist on all worker nodes and the gatekeeper? (The user may be differnet on the worker nodes: Condor might run jobs as the nobody user, for example, but that user still needs to exist.)
+
+2. Does the users's home directory exist on the gatekeeper? If the directory doesn't exist, you will not see an error in the globus-gatekeeper.log. 
+
+---++ Other tips
+1. When a job is submitted, GRAM creates a log file in the local user's home directory. This log file is removed when the job completes. If you want to save the log files, edit =$VDT_LOCATION/globus/etc/globus-job-manager.con=f to set the option =-save-logfile= always. Note that it is now up to you to clean up log files that are no longer in use.
+
+%STOPINCLUDE%
+%BR%
+%COMPLETE3% %BR%
+%RESPONSIBLE% Main.AlainRoy - 20 Nov 2007 %BR%
+%REVIEW%
