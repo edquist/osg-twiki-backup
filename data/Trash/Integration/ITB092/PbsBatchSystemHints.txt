@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="StevenTimm" date="1195512926" format="1.1" version="1.6"}%
+%META:TOPICINFO{author="StevenTimm" date="1195578199" format="1.1" reprev="1.7" version="1.7"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
@@ -24,12 +24,193 @@
 
  =$VDT_LOCATION/globus/lib/perl/Globus/GRAM/JobManager/pbs.pm= is the !Perl script that the preWS gatekeeper uses to translate RSL to the !PBS submit script.  The PBS script, by default, does not insert any queue, it assumes you will use the default queue.  It is possible to get PBS directives applied to all the jobs you submit by editing the pbs.pm file.
 
+---+++Making a default queue
+I modify the pbs.pm to add the following line #PBS -q osg.  This means that any 
+job that does not have a queue defined by default will get sent to the osg queue.
+If the user specifies the (queue=xxxxx) command in the RSL, then it will go to whatever
+queue is specified.
+<pre>
+#! /bin/sh
+# PBS batch job script built by Globus job manager
+#
+#PBS -S /bin/sh
+#PBS -q osg
+EOF
+</pre>
+---+++Making a dynamic OSG_WN_TMP directory
+Under PBS it takes two steps to do this:  a prologue to actually create the directory 
+and a modification to pbs.pm where OSG_WN_TMP is set:
+<pre>
+#!/bin/bash
+## Create a /scratch/jobid dir for every job run, and copy a user's keytab file
+from the
+## PBS head node.
+#
+# Updated October 31  2006 by sether@fnal.gov, added lots and lots of error chec
+king.
+#
+# 11/06/2006 - Jason Allen <jallen@fnal.gov> Modified script to use a separate s
+cratch filesystem for each job
+#
+# 12/15/2006 - JA - Write critical errors to ERROR_FILE to mom health script
+# will pick it and set the node offline
+
+JOBID=$1
+USERNAME=$2
+JOB_EXEC_GRP=$3
+JOB_NAME=$4
+RESOURCE_LIMITS=$5
+QUEUE=$6
+JOB_ACCOUNT=$7
+
+SCRATCH_DIR="/scratch"
+KRB_DIR="/var/adm/krb5"
+JOBS_DIR="/var/spool/pbs/mom_priv/jobs"
+HOME_MNT_POINT="/RunII/home"
+ERROR_FILE="/var/spool/pbs/ERROR"
+
+# Sanity checks
+if [ ! ${JOBID} ]; then
+        logger "PBS prologue: JOBID not specified"
+        echo "JOBID not specified"
+        exit 1;
+fi
+
+if [ ! ${USERNAME} ]; then
+        logger "PBS prologue: USERNAME not specified"
+        echo "USERNAME not specified"
+        exit 1;
+fi
+
+
+if [ ! -d ${SCRATCH_DIR} ]; then
+        err="$SCRATCH_DIR does not exist"
+        logger "PBS prologue: $err"
+        echo $err | tee $ERROR_FILE
+        exit 1;
+fi
+
+
+# Job info
+echo "---------------------------------------------------------"
+echo "Start CAB Prolouge `date`"
+printf "%-15s %s\n" "jobid:" $JOBID
+printf "%-15s %s\n" "username:" $USERNAME
+printf "%-15s %s\n" "job name:" $JOB_NAME
+printf "%-15s %s\n" "limits:" $RESOURCE_LIMITS
+printf "%-15s %s\n" "queue:" $QUEUE
+
+#$SHORT_JOBID=${JOBID%%.*}
+
+# Clean-up scratch
+# Only running jobs should be using space.
+for job_id in $(ls ${SCRATCH_DIR} | egrep "fnal.gov$"); do
+        short_job_id=${job_id%%.*}
+        j_cnt=$(ls $JOBS_DIR | egrep -c "^$short_job_id")
+        if [ "$j_cnt" -eq  0  -a "$short_job_id" != "" ]; then
+                rm -rf ${SCRATCH_DIR}/${job_id}
+                logger "PBS prologue: Cleaning-up old scratch dir ${SCRATCH_DIR}
+/${job_id}..."
+        fi
+done
+
+# do we have scratch filesystems setup
+sfs_cnt=$(ls ${SCRATCH_DIR} | egrep -c "_fs$")
+if [ $sfs_cnt -lt 1 ]; then
+
+        if [ -x "/var/spool/pbs/bin/mkscratch_fs.sh" ]; then
+                err="Creating scratch filesystems. This will take awhile.."
+
+                # Send errors to job output and to error file
+                # so health check script will see it and set
+                # set node offline.
+                echo $err | tee $ERROR_FILE
+
+                logger "PBS prologue: $err"
+                /var/spool/pbs/bin/mkscratch_fs.sh
+                exit 1;
+
+        else
+                err="Could not create scratch filesytems..."
+                echo $err | tee $ERROR_FILE
+                logger "PBS prologue: $err"
+                exit 1;
+        fi
+fi
+
+# Make sure scratch filesystems are mounted
+i=0
+while [ $i -lt $sfs_cnt ]; do
+        scratch_mnt=${SCRATCH_DIR}/scratch_${i}
+        scratch_mnt_info=$(mount | awk -v mnt="$scratch_mnt" '{ if ($3 == mnt) p
+rint $0 }')
+        if [ "$scratch_mnt_info" == "" ]; then
+                mount -oloop ${scratch_mnt}_fs  ${scratch_mnt}
+                if [ $? -ne 0 ]; then
+                        err="Unable to mount $scratch_mnt. Mount cmd returned co
+de $?."
+                        echo $err | tee $ERROR_FILE
+                        logger "PBS prologue: $err"
+                        exit 1;
+                fi
+        fi
+        i=$(($i+1))
+done
+
+# Link the job id to a free scratch area
+i=0
+linked=0
+while [ $i -lt $sfs_cnt ]; do
+        ls_out=$(ls -l ${SCRATCH_DIR} | egrep "\-> scratch_${i}")
+        if [ "$ls_out" == "" ]; then
+                cd $SCRATCH_DIR
+                # clean-up if necessary
+                rm -rf $SCRATCH_DIR/scratch_${i}/*
+                ln -s  scratch_${i} $JOBID
+                linked=1
+                break
+        fi
+        i=$(($i+1))
+done
+
+if [ $linked -ne 1 ]; then
+        err="Unable to link $JOBID to scratch dir..."
+        logger "PBS prologue: $err"
+        echo $err | tee $ERROR_FILE
+        exit 1;
+fi
+
+
+# Make sure home dirs are mounted
+HOME_MNT_INFO=$(mount | awk -v mnt=$HOME_MNT_POINT '{ if ($3 == mnt) print $0 }'
+)
+if [ "$HOME_MNT_INFO" == "" ]; then
+   echo "Home directories not mounted!!"
+   logger "PBS prologue: Home dirs not mounted. Rebooting."
+   /sbin/shutdown -r now
+fi
+
+chmod 777 ${SCRATCH_DIR}/${JOBID}
+
+echo "End CAB Prolouge `date`"
+echo -e "---------------------------------------------------------\n"
+
+</pre>
+<pre>
+#   Steve Timm, 5/4/07
+#   OSG_WN_TMP now set dynamically on this cluster to /scratch/${PBS_JOB_ID}
+    print JOB "OSG_WN_TMP_OLD=\${OSG_WN_TMP}\n";
+    print JOB "export OSG_WN_TMP_OLD\n";
+    print JOB "OSG_WN_TMP=/scratch/\${PBS_JOBID}\n";
+    print JOB "export OSG_WN_TMP \n";
+</pre>
 
 ---++ Troubleshooting
    *  Oftentimes a globus-job-run will fail against a PBS cluster because it is missing an RSL statement.  There are three types of jobtype, single, multiple, and MPI.  The default is multiple.  Unless you have configured your cluster with ssh key-pairs so that all the parts of the multiple job can be launched with the gatekeeper, the job will fail and you will get this error:
 
 <pre>
-
+Host key verification failed.
+/var/spool/pbs/mom_priv/jobs/302232.gaia.SC: line 87: [: too many arguments
 </pre>
 
   *  The correct syntax is =globus-job-run <hostname>/jobmanager-pbs -x '(jobtype=single)' <command>=
@@ -38,11 +219,12 @@
 
 
 
+
 %BR%
-%COMPLETE2% %BR%
+%COMPLETE3% %BR%
 %RESPONSIBLE% Main.StevenTimm - 17 Oct 2007 %BR%
 %REVIEW% Main.RobGardner - 08 Nov 2007 %BR%
-%REVCOM% Still need to put in the error message from jobtype=multiple and give instructions on how to make a dynamic OSG_WN_TMP
+%REVCOM% 
 
 <!-- Main.StevenTimm - 01 Mar 2007 -->
 
