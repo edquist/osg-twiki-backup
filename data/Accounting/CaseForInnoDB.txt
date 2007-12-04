@@ -1,9 +1,9 @@
-%META:TOPICINFO{author="ChrisGreen" date="1196708705" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="ChrisGreen" date="1196801702" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="WebHome"}%
 <!--
 
-   * Set I = !InnoDB
-   * Set M = !MyISAM
+   * Set I = <nop>InnoDB
+   * Set M = <nop>MyISAM
 
 -->
 
@@ -15,7 +15,7 @@ This document attempts to marshal the arguments for making the transition to usi
 
 The major difference between %I% and %M% is that %I% supports transactions and true atomic inserts.
 
----++ Pertinent characteristics of the current Gratia system.
+---++ Pertinent characteristics of the Gratia system.
 
 <ul>
   <li>A single coherent "record" updates several tables not including summary tables.</li>
@@ -23,6 +23,8 @@ The major difference between %I% and %M% is that %I% supports transactions and t
   <li>The per-job usage data are large (~2K per row). This may be cut down by schema updates in the future.</li>
   <li>Current understanding of OSG requirements call for for ~1.5TB of per-job data storage, equating to a year's worth of job-level data</li>
   <li>The collector system is capable of running multiple DB update threads if the underlying DB engine supports it.</li>
+  <li>Eventually, summary tables will be generated periodically rather than by triggers.</li>
+  <li>Reports are generally produced using data obtained from "cookie-cutter" generated stored procedures.</li>
 </ul>
 
 ---++ Limitations of the current Gratia system perceived to be due at least in part to limitations of the %M% engine.
@@ -34,7 +36,113 @@ The major difference between %I% and %M% is that %I% supports transactions and t
   <li>Insert throughput cannot be increased to the DB using multiple update threads unless the underlying DB engine supports transactions.</li>
 </ul>
 
+---++ Performance comparisons of Gratia operations with %M% and %I%
 
+---+++ Implementation notes
 
+The Gratia system has already been adapted to enable automatic upgrade of an existing %M% schema to %I%. 
+
+Enabling conversion to %I% on a given collector installation is as simple as changing one line in =hibernate.cfg.xml= provided optimum configuration settings are enabled in !MySQL's =my.cnf=.
+
+Utilizing transactions under %I% will require a survey of SQL operations in the current code and insertion of appropriate begin/end transaction statements.
+
+---+++ Optimum !MySQL configuration
+
+%I%-specific configuration options used are listed below:<verbatim>[mysqld]
+thread_concurrency = 8
+set-variable = max_connections=500
+log-bin=/test/mysqldb/mysql-bin
+innodb_data_home_dir = /test/mysqldb
+innodb_data_file_path = ibdata1:2000M;ibdata2:10M:autoextend
+innodb_log_group_home_dir = /test/mysqldb
+innodb_buffer_pool_size = 2048M
+innodb_additional_mem_pool_size = 20M
+innodb_log_file_size = 512M
+innodb_log_files_in_group = 2
+innodb_log_buffer_size = 8M
+innodb_file_per_table
+innodb_flush_log_at_trx_commit = 1
+innodb_lock_wait_timeout = 50
+</verbatim>
+
+---+++ Performance tests
+
+Query tests were performed on copies of the ITB data corpus, one of which had been converted to %I% while the other was still %M%.
+
+The tests were executed in the following order:
+
+   1. Q1 %I% Trials 01 - 05;
+   2. Q1 %M% Trials 01 - 05;
+   3. Q1 %I% Trial 01a;
+   4. Q1 %M% Trial 01a;
+   5. Q2 %I% Trials 01 - 05;
+   6. Q2 %M% Trials 01 - 05;
+   7. Q2 %I% Trial 01a;
+   8. Q2 %M% Trial 01a;
+   9. Q1 %I% Trial 01b;
+   10. Q1 %M% Trial 01b;
+   11. Q2 %I% Trial 01b;
+   12. Q2 %M% Trial 01b.
+
+Notes:
+
+   * Q1 and Q2 refer to query 1 (one week's worth of job-level data) and query 2 (approx 5 weeks' worth of job-level data) respectively.
+   * The times are not entirely static even with the use of the SQL_NO_CACHE directive, which is partly why I did the multiple test runs in the first place.
+   * The %I% configuration was optimized specifically to take account of the 6GB memory on the system; the %M% configuration was not.
+
+---++++ Query 1
+---++++ Definition
+<verbatim>select SQL_NO_CACHE
+  R.VOName,
+  sum(R.WallDuration) as WallDuration,
+  sum(R.CpuUserDuration + R.CpuSystemDuration) as Cpu,
+  sum(R.Njobs) as Njobs
+from JobUsageRecord_Report R
+where R.EndTime >= date('2007-08-11 00:00:00')
+  and R.EndTime <= date('2007-08-28 00:00:00')
+  and R.ResourceType = 'Batch'
+group by R.VOName
+order by R.VOName;</verbatim>
+
+---+++++ Results
+|  *Trial #*  |  *%I%%BR%time (s)*  |  *%M%%BR%time (s)*  |
+|^|^|^|
+|  01  |  93 |  43 |
+|  02  |  33 |  17 |
+|  03  |  33 |  17 |
+|  04  |  33 |  17 |
+|  05  |  33 |  17 |
+|  01a  |  33 |  17 |
+|  01b  |  33 |  17 |
+
+---++++ Query 2
+---++++ Definition
+<verbatim>select SQL_NO_CACHE
+  R.VOName,
+  sum(R.WallDuration) as WallDuration,
+  sum(R.CpuUserDuration + R.CpuSystemDuration) as Cpu,
+  sum(R.Njobs) as Njobs
+from JobUsageRecord_Report R
+where R.EndTime >= date('2007-07-11 00:00:00')
+  and R.EndTime <= date('2007-08-28 00:00:00')
+  and R.ResourceType = 'Batch'
+group by R.VOName
+order by R.VOName;</verbatim>
+
+---+++++ Results
+|  *Trial #*  |  *%I%%BR%time (s)*  |  *%M%%BR%time (s)*  |
+|^|^|^|
+|  01  |  43 |  374 |
+|  02  |  43 |  153 |
+|  03  |  43 |  115 |
+|  04  |  43 |  96 |
+|  05  |  43 |  92 |
+|  01a  |  43 |  93 |
+|  01b  |  43 |  93 |
+
+---++++ Results commentary
+
+   * Despite the request for !MySQL not to cache the results, there is a marked difference in some of the query times, especially for %M%. Speculation is that this is OS or CPU-related caching (memory, file, etc).
+   * In general, queries against the large table are a factor of two slower for small queries only. For larger queries, the %M% times blow up, settling down from a factor 20 to a factor 2 slower than the same query under %I% after multiple consecutive queries.
 
 -- Main.ChrisGreen - 03 Dec 2007
