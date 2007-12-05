@@ -1,0 +1,144 @@
+%META:TOPICINFO{author="NehaSharma" date="1196885056" format="1.1" reprev="1.3" version="1.3"}%
+%META:TOPICPARENT{name="SpaceReservation"}%
+---++++ Setup 
+
+*Steps required to get Space Reservation to work are as follows:*
+
+<font color="red"><b>Step 1)</font></b>  <u>[[PoolManager][PoolManager.conf]]</u>  
+
+<pre>     Edit PoolManager.conf on the node where Pool Manager domain is running (basically Admin node). </pre>
+
+<font color="red"><b>Step 2)</font></b>  <u>dCacheSetup</u> 
+
+<pre>     Edit dCacheSetup on the node running SpaceManager (SRM node) to:</pre>
+
+<font color="red">a.</font> Activate the SRM Space Manager 
+
+    _srmSpaceManagerEnabled_ = *yes*
+
+<font color="red">b.</font> Specify values for following parameters 
+
+    The values specified below are the default values and can be overridden by transfer request specified by user.
+
+            _SpaceManagerDefaultRetentionPolicy_ = *CUSTODIAL*              (Other options are REPLICA and OUTPUT)
+
+	    _SpaceManagerDefaultAccessLatency_ = *NEARLINE*                  (Other option is ONLINE)
+
+         To understand options available for above two parameters, read [[http://www.dcache.org/manuals/Book/cf-srm-intro.shtml][dCache Book- Chapter 14 Section 1.1.3]]
+
+	    _SpaceManagerReserveSpaceForNonSRMTransfers_ = *false*       (Other option is true)
+
+	    _SpaceManagerLinkGroupAuthorizationFileName_ = */opt/d-cache/etc/LinkGroupAuthorization.conf*
+
+
+*A relevant note from the dCache Book:* 
+</pre>
+If the reservation token is not specified, and implicit space reservation is enabled, then a space reservation will be 
+performed implicitly for each SRM v1.1 and SRM 2.2 srmPrepareToPut or srmCopy in pull mode. If an Access Latency 
+and a Retention Policy are specified, the user defined retention policy and default access latency are used. If the user 
+has not specified Access Latency or Retention Policy (or if SRM v1.1 is used) , the system will attempt to extract special tags 
+(not surprisingly called AccessLatency and RetentionPolicy) from PNFS namespace from the directory to which file is being written. 
+If the tags are present, then their values will determine the default Access Latency or Retention Policy that will be used for implicit 
+space reservations. If the tags are not present, then system wide defaults will be used. If no implicit space reservation can be made, 
+the transfer will fail. (Note: some clients also have default values, which are used when not explicitly specified by the user. I this 
+case server side defaults will have no effect. ) </pre>
+
+<font color="red"><b>Step 3)</font></b>  <u>LinkGroupAuthorization.conf</u> 
+
+<pre>Create a LinkGroupAuthorization.conf file on the SRM node. This file is used to specify who has access to which Link Groups.</pre>
+
+*A relevant note from the dCache Book:*   For Space Reservation to work properly, each pool should be assigned to one and only one link and each link should 
+be assigned to one and only one link group.
+
+<font color="red"><b>Step 4)</font></b>  <u>dCacheSetup</u> 
+
+<pre>     Edit dCacheSetup on the node running GridFTP to:</pre>
+
+<font color="red">a.</font> Activate the SRM Space Manager 
+
+    _srmSpaceManagerEnabled_ = *yes*
+
+---++++ Example Setup
+
+Link groups for custodial and volatile must be set up in [[PoolManager][PoolManager.conf]]. It is sufficient for testing to have all pools be custodial by default.
+
+*Steps for editing [[PoolManager][PoolManager.conf]]*
+
+<font color="red">(a)</font> _Create the pools_
+<pre>
+psu create pool gwdca02_1
+psu create pool gwdca02_2
+psu create pool gwdca02_3
+psu create pool gwdca01_1
+psu create pool gwdca01_2
+psu create pool gwdca01_3
+</pre>
+<font color="red">(b)</font> _Create the Pool Groups and assign pools to unique Pool Groups_
+
+Below 2 pool groups - namely "default" and "volatile" are being created
+<pre>
+psu create pgroup default
+psu addto  pgroup default gwdca01_1
+psu addto  pgroup default gwdca01_2
+psu addto  pgroup default gwdca01_3
+
+psu create pgroup volatile
+psu addto  pgroup volatile gwdca02_1
+psu addto  pgroup volatile gwdca02_2
+psu addto  pgroup volatile gwdca02_3
+</pre>
+<font color="red">(c)</font> _Create Links_
+<pre>
+# default - will be linkGrouped as custodial storage area
+psu create link default-link any-store world-net any-protocol
+psu set link default-link -readpref=10 -writepref=10 -cachepref=10 -p2ppref=-1
+psu add link default-link default
+
+# volatile - needed for linkGroups to work even if all actual storage is custodial
+psu create link volatile-link any-store world-net any-protocol
+psu set link volatile-link -readpref=10 -writepref=10 -cachepref=10 -p2ppref=-1
+psu add link volatile-link volatile
+</pre>
+
+<font color="red">(d)</font> _Create Link Groups_
+<pre>
+psu create linkGroup default-link-group
+psu create linkGroup volatile-link-group
+</pre>
+<font color="red">(e)</font> _Set properties of Link Group_
+
+These properties determine what kind of space is associated with the link group
+<pre>
+psu set linkGroup attribute default-link-group HSM=any
+psu set linkGroup custodialAllowed default-link-group true
+psu set linkGroup onlineAllowed default-link-group true
+psu set linkGroup nearlineAllowed default-link-group true
+psu set linkGroup replicaAllowed default-link-group true
+psu set linkGroup outputAllowed default-link-group true
+
+psu set linkGroup attribute volatile-link-group HSM=None
+psu set linkGroup custodialAllowed volatile-link-group true
+psu set linkGroup onlineAllowed volatile-link-group true
+psu set linkGroup nearlineAllowed volatile-link-group true
+psu set linkGroup replicaAllowed volatile-link-group true
+psu set linkGroup outputAllowed volatile-link-group true
+</pre>
+<font color="red">(f)</font> _Add links to Link Group_
+<pre>
+psu addto linkGroup default-link-group default-link
+psu addto linkGroup volatile-link-group volatile-link
+</pre>
+
+*Sample Link Group Authorization File*
+<pre>
+LinkGroup default-link-group
+*/Role=*
+
+LinkGroup volatile-link-group
+*/Role=*
+</pre>
+
+
+
+
+-- Main.NehaSharma - 15 Nov 2007
