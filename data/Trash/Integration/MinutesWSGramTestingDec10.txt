@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JeffPorter" date="1197313317" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="JeffPorter" date="1197317140" format="1.1" version="1.3"}%
 %META:TOPICPARENT{name="MeetingMinutes"}%
 %LINKCSS%
 
@@ -25,7 +25,44 @@
 
 ---++ WS Gram scalability tests (Jeff)
 
+   * From last week, I had observed a consistent failure rate (10%-30%) from a single source that was determined to be a gridftp authentication timeout on the data sink for jobs (of Type III data-producing jobs ) run both with Condor-g and standalone client.  The error was explicit in the standalone client as: <pre class=screen>globusrun-ws: Job failed: Staging error for RSL element fileStageOut.
+Error authenticating user at source/dest hostServer refused performing the request. 
+Custom message: Server refused GSSAPI authentication. (error code 1) 
+[Nested exception message:  Custom message: Unexpected reply: 421 Idle Timeout: closing control connection.] 
+[Caused by: Server refused performing the request. 
+Custom message: Server refused GSSAPI authentication. (error code 1) 
+[Nested exception message:  Custom message: Unexpected reply: 421 Idle Timeout: closing control connection.]] </pre> I was asked to test:
+      * increasing the =control_preauth_timeout= value from its default of 30 seconds;  the globus gridftp team was now suggesting 200 seconds as the default
+      * allow retrys by specifying a number directly in the RSL
+      * allow retrys by specifying a number default in the RFT configuration db
+   * Increasing the =control_preauth_timeout= value to 300 seconds worked. I was able to push jobs through at a high rate without ever seeing the timeout error. I eventually hit different failure modes when I tried pushing 400 jobs at  a time.  
+      * Scanned the gridftp-auth.log file on destination to measure time required for authentication. The measure is made between the log entries: <pre class=screen>
+[23490] Mon Dec 10 09:11:22 2007 :: New connection from: XXXX
+[23490] Mon Dec 10 09:11:22 2007 :: DN /DC=org/DC=doegrids/OU=People/CN= XXXX  successfully authorized.
+</pre> I evaluated the results a they depend on how many separate jobs I threw at the CE: 20-jobs, 100-jobs, and 400-jobs.   It's unclear how much interaction goes on between the client and server between these log-entries, so the meaning of the absolute time scale is also unclear. However, as seen in the plot below, the time difference was only weakly dependent on loading the CE - mean values of 59, 57, and 87 seconds for the 3 cases. In any case, the value of 300 seconds (and probably 200 seconds) is large enough for this configuration.
+|  Time btween server connect and <br> authentication (View Image for details)    | <img src="%ATTACHURLPATH%/gftp_auth_dt.gif" alt="gftp_auth_dt.gif" width='350' height='205' />  |
+   * I tried allowing for retry from within the RSL via the syntax: <pre class=screen> <verbatim> <job> ...
+     <fileStageOut>
+         <maxAttempts>5</maxAttempts>
+        <transfer>
+           ....
+       </transfer>
+    </fileStageOut> 
+</verbatim> </pre>  This did <b>NOT</b> work. I continued to have authentication errors.
+   * I tried changing the default value on the CE's rft configuration by altering the rft_database.request table, making the "maxattempts" field default to 5.  This also did <b> NOT </b> work.  
+      * What I did not do was double check the row-entries in the database for either test to make sure that the number changed.
+   * Once I was able to run several hundred jobs at a time at the server, I reached a different set of errors. I'll provide details directly.
+
+
+
 ---++ WS Gram talk at Site Admin meeting (Charles & Jeff)
+
+   * relevant OSG docs:
+      * [[https://twiki.grid.iu.edu/twiki/bin/view/ReleaseDocumentation/GlobusWebServicesInstall][GlobusWebServicesInstall]]
+      * [[https://twiki.grid.iu.edu/twiki/bin/view/ReleaseDocumentation/ValidateGramWebServices][ValidateGramWebServices]]
+      * [[https://twiki.grid.iu.edu/twiki/bin/view/ReleaseDocumentation/ClientInstallationGuide][ClientInstallationGuide]]
+      * [[https://twiki.grid.iu.edu/twiki/bin/view/ReleaseDocumentation/ValidateClients][ValidateClients]]
+      * [[https://twiki.grid.iu.edu/twiki/bin/view/ReleaseDocumentation/JobSubmitWebServicesGram][JobSubmitWebServicesGram]]
 
 ---++ AOB
 
@@ -35,4 +72,5 @@
 %BOTTOMMATTER%
 
 -- Main.JeffPorter - 07 Dec 2007
+
 %META:FILEATTACHMENT{name="gftp_auth_dt.gif" attachment="gftp_auth_dt.gif" attr="" comment="time between gridftp server connect and authentication" date="1197313317" path="gftp_auth_dt.gif" size="14109" stream="gftp_auth_dt.gif" user="Main.JeffPorter" version="1"}%
