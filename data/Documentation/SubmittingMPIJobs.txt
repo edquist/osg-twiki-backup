@@ -1,0 +1,134 @@
+%META:TOPICINFO{author="GregThain" date="1199824018" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="UseResourcesProperly"}%
+%LINKCSS%
+
+<!-- This is the default OSG documentation template. Please modify it in -->
+<!-- the sections indicated to create your topic.                        --> 
+
+<!-- By default the title is the WikiWord used to create this topic. If  -->
+<!-- you want to modify it to something more meaningful, just replace    -->
+<!-- %TOPIC% below with i.e "My Topic".                                  -->
+
+---+!! %SPACEOUT{ "%TOPIC%" }%
+%TOC%
+
+%STARTINCLUDE%
+
+
+---++ Submitting MPI Jobs to OSG
+
+While the Open Science Grid is designed primarily to run serial
+jobs, it is possible to submit parallel jobs using MPI to some of
+the sites within the OSG.  Running MPI jobs requires a
+bit more work upfront and more communication with the site administrators,
+but once set up, it is straightforward to run MPI jobs.
+
+---++ What kinds of MPI resources do you jobs need?
+
+Speaking generally, there are two different kinds of systems that can
+run MPI jobs.  Knowing the communication requirements of your job is
+key to selecting the correct resource to run on.  Incorrect selection
+will result in poor performance of your job.
+
+The most common kind of cluster is an ordinary cluster of commodity
+computers, with a standard Ethernet (usually Gigabit Ethernet) interconnect.
+All OSG sites but one have this setup.  The other kind is a dedicated
+cluster with a high-performance interconnect, often Myrinet or Infiniband.
+The high-performance interconnect offers roughly ten times better average
+latency for inter-machine communication.  Moreover, the proprietary
+interconnection technologies provide not just faster communication, but
+much more deterministic speeds.  We see the worst-case latency over Ethernet
+connected machine to be several orders of magnitude slower than best case.
+
+So, if your MPI job doesn't need frequent inter-node communication, it
+should be able to run just fine on the commodity clusters.  If not, it will
+need to run on the dedicated supercomputers.  Currently, there is only one
+site in OSG that supports the later: NERSC.  Getting access to NERSC
+is more restricted than the other sites, so if you can run well on commodity
+hardware, that should be your first choice.  This will also require
+a local account at NERSC to compile your application to take advantage
+of the drivers for the special hardware.
+
+Note that MPI jobs on only supported locally.  That is, a single MPI job
+cannot span multiple sites across the OSG.
+
+---++ Running MPI jobs with commodity interconnects
+
+The most common case is running MPI jobs over commodity Ethernet.
+
+---+++ Picking a site and verifying that it works for serial jobs.
+
+The first step is to pick an OSG site that supports your VO and running
+serial jobs there.  See http://vdt.cs.wisc.edu/tmp/jobs_not_running_user.html
+for a good overview of debugging this procedure.  In particular, note
+that if globus-job-run fails, running a dummy globus-url-copy command will
+often give much better diagnostics than the former command.
+
+Selecting a site is not an obvious procedure.  Not every site supports
+MPI, and of those that do, different implementations of MPI (mpich,
+lam, etc.) are supported.  Different sites have varying number of
+machines and different allocation policies and queue sizes for MPI
+jobs.  For purposes of this document, we will pick the Purdue RCAC
+Lear cluster, as we know that it supports the MPICH 1.2.7
+implementation of MPI.  Note that this is not documented anywhere. To
+discover this, you must contact the site administrators.  Contacting
+the administrators before running MPI jobs is probably a good strategy, as
+most can tell you relevant information about their MPI implementation
+that is not available elsewhere.
+
+After selecting a site, and determining which MPI implementation it
+requires, and which version of that implementation, you will need to
+re-compile your job.  In the Purdue case, you will need to compile
+your job with the mpicc or mpif77 which comes with MPICH 1.2.7.  Note
+that MPICH can be configured in many different ways, and some of those
+configurations are incompatible with the configuration choices that
+OSG sites have made.  So, it is generally best to use the
+configuration that is available on the head node of an OSG site, as
+that will have the same configuration as the execute nodes.  Or, you
+can download and build a clean mpich with a well-known configuration
+that should match the site.
+
+You can download mpich 1.2.7 from
+http://www-unix.mcs.anl.gov/mpi/mpich1/download.html
+Be sure to compile and configure it for 32 bit Intel Linux system.  When
+running the configure command -rsh=/usr/bin/ssh, even if your system
+does not have an ssh installed at that path.  After configuring, building,
+and installing mpich, you should be able to run the mpicc or mpif77 commands
+to rebuild your application with this MPICH.
+
+---+++ A Condor-g submit file
+
+A prudent plan is to first submit one of the small, short-running mpich example
+programs.  This helps to debug the submission quickly and deterministically.
+A sample condor-g submit file for MPI to purdue looks like this:
+
+<verbatim>
+universe = grid
+
+grid_resource = gt2 lepton.rcac.purdue.edu/jobmanager-pbs
+globusrsl = (jobType=mpi)(queue=standby)(xcount=2)(host_xcount=2)
+
+executable = your-executable-here
+
+output = out
+error  = err
+log    = log
+notification = NEVER
+queue
+</verbatim>
+
+Note the queue name is "standby", which is the queue for the shortest
+jobs, and thus the one which is scheduled first.  Again, contacting
+the site administrator for the names of the queues the local scheduler
+has, and their various policies.  Note the xcount and host_xcount options,
+which specify the number of machines, and CPUs per machine to schedule.
+These parameters also will vary from site to site.
+
+
+
+
+%STOPINCLUDE%
+
+%BOTTOMMATTER%
+
+-- Main.GregThain - 08 Jan 2008
