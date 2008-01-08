@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnandPadmanabhan" date="1199822413" format="1.1" reprev="1.32" version="1.32"}%
+%META:TOPICINFO{author="AnandPadmanabhan" date="1199832941" format="1.1" reprev="1.33" version="1.33"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
@@ -20,15 +20,45 @@ ldapsearch -x -LLL -p 2170 -h is-itb.grid.iu.edu -b mds-vo-name=YOUR_SITE_NAME_H
 See further ValidateBDII.
 
 ---++ Adding site specific attributes to GIP output that are not included in Glue schema
-The GIP uses Glue schema to publish the information about the site. But Glue schema constraints it to only publishing a fixed set of attributes. The problem of adding custom information to our sites keeps arising under different circumstances. For e.g. 1) FNAL uses a grid to fabric requirement forwarding: how to set batch system constraints to submit jobs to a subcluster specified via grid requirements. 2) MPI parameters: how to give applications information about MPI library location, version, etc. Extending the Glue schema is an option, but the process is time consuming and requires coordination among various Grids. If OSG extends this schema for its own purpose it has an unfortunate consequence of breaking interoperability. Our solution to this problem was to make it possible for software in OSG like ReSS to add the extra attributes (since they are not affected by interoperability requirements). But before the information is published to the BDII (used for supporting interoperability), we will filter out all the extra attributes that were added by the sites and publish only Glue Schema attributes.
+%NOTE% This feature is currently being tested on the ITB and is not yet available in 0.8.0 production. (1/8/2008). 
+
+
+The GIP uses Glue schema to publish the information about the site. But Glue schema constraints it to only publishing a fixed set of attributes. The problem of adding custom information to our sites keeps arising under different circumstances. For e.g. 1) FNAL uses a grid to fabric requirement forwarding: how to set batch system constraints to submit jobs to a subcluster specified via grid requirements. 2) MPI parameters: how to give applications information about MPI library location, version, etc. Extending the Glue schema is an option, but the process is time consuming and requires coordination among various Grids. If OSG extends this schema for its own purpose it has an unfortunate consequence of breaking interoperability. Our solution to this problem was to make it possible for software in OSG like !ReSS to add the extra attributes (since they are not affected by interoperability requirements). But before the information is published to the BDII (used for supporting interoperability), we will filter out all the extra attributes that were added by the sites and publish only Glue Schema attributes.
 
 ---+++ How do I get my GIP to publish non Glue Schema attributes?
-   1. Add the extra attributes to appropriate GIP templates file (located at $VDT_LOCATION/lcg/etc)
+The procedure below is for adding new attributes to existing DNs. If you want to add a completely new DN, follow the instruction in the case 2  [[GenericInformationProviders#Overwriting_attributes_published][adding new DNs]] in the section below.
+   1. Add the extra attributes to appropriate GIP templates file (located at $VDT_LOCATION/lcg/etc). The only restrictions on the newly added attributes are:
+      * The attribute should not start with the keyword 'Glue'
+      * It should not be called 'dn'
+      * It should not be called 'objectClass'
    1. Set the value that you want to publish . This can be done in any of the following ways: 
-      * Add an entry in alter attributes to change this value. (How to do this? See below)
+      * Add an entry in alter attributes to change this value. (See case 1 [[GenericInformationProviders#Overwriting_attributes_published][overriding attributes]] below on how to do this)
       * You can set value in template (in step 1)
-      * Write a more full-fledged plugin
+      * Write a more full-fledged plugin, if the values you need to publish change dynamically. (GIP plugins and providers included in the GIP can be found in $VDT_LOCATION/lcg/libexec/)
+   1. Run $VDT_LOCATION/vdt/setup/configure_gip (if you don't, the values will get few hours to get updated, since configure_gip gets run every few hours)
+   1. Run $VDT_LOCATION/lcg/libexec/osg-info-wrapper to see the GIP output.
 
+---++++!! An Example 
+Let us say you want to advertise MPI attributes (!MPIInterconnect, !MPICompilerLocation, MPIVendor) that are associated with a particular subcluster. To accomplish this you would do the following 
+   * First you will modify the  $VDT_LOCATION/lcg/etc/GlueCluster.template and add the following entry within the subcluster region
+<code>
+MPIInterconnect: <br>
+MPIVendor:  <br>
+!MPICompilerLocation: <br>
+</code>
+   * Next update $VDT_LOCATION/lcg/etc/alter-attributes.conf to add the values associated with the cluster. 
+<code>
+dn: !GlueSubClusterUniqueID=mysubcluster1.univ.edu, GlueClusterUniqueID=mycluster.univ.edu,mds-vo-name=local,o=grid <br>
+MPIVendor: MPICH <br>
+MPIInterconnect: Infiniband<br>
+!MPICompilerLocation: /usr/local/mpi/mpi-compiler <br>
+<br>
+dn: !GlueSubClusterUniqueID=mysubcluster2.univ.edu, GlueClusterUniqueID=mycluster.univ.edu,mds-vo-name=local,o=grid <br>
+MPIVendor: !OpenMPI<br>
+MPIInterconnect: !GigE<br>
+!MPICompilerLocation: /sw/mpi/mpi-compiler <br>
+</code>
+   * Next run $VDT_LOCATION/vdt/setup/configure_gip and verify the newly added values are getting propagated by checking the output of $VDT_LOCATION/lcg/libexec/osg-info-wrapper,
 ---++ Overwriting attributes published by GIP 
 
 Since =configure_gip= runs as a cron jobs site admins who used to manually update some values can no longer directly update the ldif files. Instead we have added two files: =alter-attributes.conf= and =add-attributes.conf=. These files are to be located at =$VDT_LOCATION/lcg/etc/=. They exploit the plugin and provider mechanism of OSG-GIP to give admins the highest priority to set any values. Example files =alter-attributes.conf.example= and =add-attributes.conf.example= are included in lcg/etc directory to provide guidance. This approach will be particularly useful in the case where you want to add new dn's. This also makes it easier to preserve changes across software updates.
