@@ -1,0 +1,227 @@
+%META:TOPICINFO{author="PhilippeCanal" date="1200069990" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+
+---+!! Gratia Release v0.34 
+%RED%UNDER CONSTRUCTION AND REVIEW%ENDCOLOR%
+
+%TOC%
+
+%STARTINCLUDE%
+---+ Overview
+The main purpose of this release is to reduce table contention issues and improve reports performance.
+
+---++ Main New Features:
+   * Review of how the summary tables are updated.
+   * Implement support for truncation of main table.
+
+---++ Additional Features:
+   * Display all multi graph on only one html page 
+   * 'live' compression of history and backup directories
+   * !CPUday per day for the last month/30 days for each VO
+   * !CPUday per day for the last month/30 days for each site
+   * total !CPUweeks per week for the last 52 weeks (year) 
+   * Report Request #28 (Selection of group of Site)
+
+<!--   -------------------------------------------- -->
+
+
+<!--   -------------------------------------------- -->
+---+ Anticipated downtime
+It is expected that this release will require the Gratia services and reporting to be unavailable beginning at:
+   * Start: 11/16/2007 (Friday) 17:00 CDT.%BR%
+   * Available: 
+
+The changes affecting downtime  for this release are:
+   1 Length of time to make a backup of the database to _gratia07_.
+
+
+
+<!--   -------------------------------------------- -->
+---+ Collectors and Databases Affected
+
+The following Gratia collectors and databases will be converted with this release:
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}%
+%EDITTABLE{  header="|*Schema*|*URL*|*Description*|" format="| text, 20 | text, 20 | text, 35 | text, 15 | text, 5 | text, 15 |"  changerows="on" quietsave="on" editbutton="Edit table" }%
+|*Schema*|*<nop>MySql port*|*Collector URL*|*Collector host*|*Size (bytes)*|*Size (rows)*|
+| fermi_itb | gratia06.fnal.gov:3320 | gratia-fermi.fnal.gov:8881 | gratia08.fnal.gov: |  724K |                  1 |
+| fermi_osg | gratia06.fnal.gov:3320 | gratia-fermi.fnal.gov:8880 | gratia08.fnal.gov: |  4.3G |   2,237,912 |
+| gratia | gratia06.fnal.gov:3320 | gratia.opensciencegrid.org:8880 | gratia09.fnal.gov |  81G | 26,476,198 |
+| gratia_itb | gratia06.fnal.gov:3320 | gratia.opensciencegrid.org:8881 | gratia09.fnal.gov |  15G |   2,688,424 |
+| gratia_osg_integration | gratia06.fnal.gov:3320 | gratia.opensciencegrid.org:8885 | gratia09.fnal.gov |  3.1G |       815,371 |
+| gratia_qcd  | gratia06.fnal.gov:3320 | gratia-fermi.fnal.gov:8883 | gratia08.fnal.gov: |  2.2G |       804,418 |
+
+The following Gratia collectors and databases will __NOT__  be converted with this release.  These repositories contained specialized reports that have not as yet been upgraded to the new Birt V2..2.1 software. __However__, they will be taken out-of-service while the other databases are being updated.
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}%
+%EDITTABLE{  header="|*Schema*|*URL*|*Description*|" format="| text, 20 | text, 20 | text, 35 | text, 15 | text, 5 |  text, 15 |"  changerows="on" quietsave="on" editbutton="Edit table" }%
+|*Schema*|*<nop>MySql port*|*Collector URL*|*Collector host*|*Size (bytes)*|*Size (rows)*|
+| gratia_psacct | gratia06.fnal.gov:3320 | gratia08.fnal.gov:8882 | gratia08.fnal.gov: |  6G |   3,790,511 |
+| gratia_osg_daily | gratia06.fnal.gov:3320 | gratia.opensciencegrid.org:8884 | gratia09.fnal.gov |  60M |         53,929      |
+
+
+
+<!--   CONVERSION STEPS -------------------- -->
+---+ Conversion steps
+This document describes a general guideline for implementing Gratia collector/reporting upgrades with the following goals:
+   * minimize downtime as perceived by probes and report browsers
+   * test all collector and reporting functions
+
+There are 2 major components of the Gratia collector/reporting services that reside on the 2 separate processors:
+   * Tomcat services - %CURRENT_TOMCAT% (aliased as %TOMCAT_ALIAS%)
+   * !MySql DBMS - %CURRENT_MYSQL% (aliased as %MYSQL_ALIAS%)
+
+
+The basic premise for these guidelines is the availability of a duplicate set of processors and available storage which will allow for continued operation of the  production services while the conversion and testing is taking place.  The 2nd set of hosts will be updated from production.  Any conversions (software and dbms) are performed.  The upgraded system is then tested. Then, once the conversion and testing is complete, The replication feature of Gratia can then be utilized to bring the converted components up-to-date.  When this is complete, the aliases can be changed to point to the upgraded hosts.
+
+
+
+
+<!-- ----------------- SHUTDOWN AND DATABASE BACKUP ------------- -->
+---++ Shutdown and database backup.
+  <ol type="1">
+    <li>On _gratia06_ , __comment__ out the _gratia_ user cron jobs.%BR%
+            __Status - __
+   </li>
+
+     <li>On _gratia06_, __comment__ out the _mysqlhotcopy_cron_ entry.
+<pre class="screen">
+43 2 * * * /usr/local/bin/mysqlhotcopy_cron.sh &gt; /var/log/mysqlhotcopy.out 2&gt; &1
+</pre>%BR%
+            __Status - __ <p>
+ 
+
+    </li>
+
+     <li> For __ALL__ of the databases (__including those not be upgraded__) , __stop__ the Gratia update services.%BR%
+            - In your browser,  connect to the Gratia administrative services url for each of the databases.%BR%
+            - Select the _System / Administration_ menu option in the left menu%BR%
+            - Then scroll down to the _Starting/Stopping Database Update Services_ section and select the _Stop Update Services_ link.%BR%
+            __Status - Started      Ended  __ 
+      </li>
+
+     <li> On __each__ collector/tomcat host, __stop__ the tomcat service for __ALL__ Gratia collectors.
+<pre class="screen">
+On gratia09:
+  service tomcat-gratia  stop
+  service tomcat-itb  stop
+  service tomcat-osg_daily  stop
+  service tomcat-osg_integration stop
+
+On gratia08:
+  service tomcat-fermi_itb  stop
+  service tomcat-fermi_osg stop
+  service tomcat-ps  stop
+  service tomcat-qcd stop
+</pre>
+
+            __Status - Started     Ended  __ 
+
+
+</li>
+
+
+   <li>Taking a back up the database instance on _gratia06_ (this will include all schema) using part of the _msqlhotcopy_cron_ script.
+           This is in the event that the compacting of the <nop>JobUsageRecord_Xml has insufficient space and corrupts the table. Backup is only being done to  _/backup/mysqldb_ on _gratia06_ .
+      <pre class="screen">
+<b>Instances being upgraded to v0.28:</b>
+mysqlhotcopy -p lisp01 --addtodest fermi_itb /backup/mysqldb       Duration - 1 sec
+mysqlhotcopy -p lisp01 --addtodest gratia_qcd /backup/mysqldb      Duration -  64 secs
+mysqlhotcopy -p lisp01 --addtodest gratia_osg_integration /backup/mysqldb     Duration - 99 secs
+mysqlhotcopy -p lisp01 --addtodest fermi_osg /backup/mysqldb    Duration - 132 secs
+mysqlhotcopy -p lisp01 --addtodest gratia_itb /backup/mysqldb     Duration -  461 secs
+mysqlhotcopy -p lisp01 --addtodest gratia /backup/mysqldb        Duration - 2900 secs (48+ minutes)
+
+<b>Instances NOT being upgraded to v0.28:</b>
+mysqlhotcopy -p lisp01 --addtodest gratia_osg_daily /backup/mysqldb    Duration -  6 secs
+mysqlhotcopy -p lisp01 --addtodest gratia_psacct /backup/mysqldb     Duration - 179 secs
+
+</pre>
+
+            <b>Status - Started  18:01   Ended -  18:30  for all except the _gratia_ instance.</b>%BR%
+            <b>Status of _gratia_ instance - Started    18:30   Ended  19:18  Elapsed - 48+ min) </b><br>
+ (Was expecting this to take 80 minutes based on looking at the _mysqlhotcopy_ logs).
+%BR% Note: The times reported by _mysqlhotcopy_ seem to understate the actual duration.
+
+
+     </li>
+</ol>
+
+---++ Prerequisites steps
+<ol>
+<li> Determine the disk space requirements for the database on %NEW_MYSQL%.  Notify the administrator Steve Timm.</li>
+<li>
+</ol>
+
+---++ Conversion steps
+The procedure below has specific references to the conversion of the current Gratia database schema's from !MyISAM to !InnoDB and also contains software upgrades to Gratia.
+
+
+---+++ !MySql database and Gratia Collector/Reporting Services Testing
+<ol>
+<li>For the new !MySql DBMS:%BR%
+%BLUE% *Production downtime*: Steps 1b through  1e.%ENDCOLOR%
+<ol type="a">
+<li>Configure a new !MySQL instance on %NEW_MYSQL% with the desired !InnoDB and default engine parameters.
+%BLUE%<li>Shutdown *ALL* collectors on %CURRENT_TOMCAT% and allow all threads to complete any database updates including the replication services.</li>
+<li>Determine the last _dbid_ set in the  _JobUsageRecord_ and _MetricRecord_ tables.  These values will be used to start the Gratia replication process for Job Usage and Metrics in order to bring the new converted database back to a current state.  This can be performed by running the following sql commands on the %CURRENT_MYSQL% !MySql instance:</li>
+<pre>
+select max(dbid) from JobUsageRecord;
+select max(dbid) from MetricRecord;
+</pre>
+<li>Take a standard tree copy of the mysqldb tree on %CURRENT_MYSQL% and copy it to %NEW_MYSQL% </li>
+<li>Startup *ALL* collectors on %CURRENT_TOMCAT%.%ENDCOLOR%</li>
+<li>On %NEW_MYSQL%, convert all tables to !InnoDB, timing the exercise.</li>
+<li>Test to see if the new !InnoDB database can successfully be backed up via !TiBS and recovered</li>
+</ol>
+
+<li>For the new Gratia Collector/Reporting Tomcat services:</li>
+<ol type="a">
+<li>Install a new Gratia collector on %NEW_TOMCAT%.</li>
+<li>Connect the  new collector/reporter (%NEW_TOMCAT%) to the converted !MySql DB (%NEW_MYSQL%).</li>
+</ol>
+
+<li> Test the collector and reporting services on the new instances (%NEW_TOMCAT%, %NEW_MYSQL%) based on the details in the [[#Testing_the_conversion][Testing the conversion section of this document]].</li>
+
+</ol>
+
+---+++ Gratia Collector/Reporting Conversion
+<ol>
+<li>Announce a downtime for the production collector long enough to allow the completion of steps [[#StepNum05][5]] through [[#StepNum09][9]].</li>
+
+<li>Set up a replication process from the production collector to the temporary collector, with DBID carefully set to only replicate records
+received since DB copy (manual DB interaction).</li>
+
+<li>Stop updates to the production DB and shut down the production collector after allowing replication to the temporary collector to complete.</li>
+
+<li>Remove the replication (manual DB interaction).</li>
+
+<li>Shut down the temporary collector after it has received the last replicated records from the production collector and take a note of the latest DBID (manual DB interaction) in the usage records on the temporary DB.</li>
+
+<li>Upgrade the production collector.</li>
+
+<li>Connect the production collector to the converted DB and bring it back up to receive data.</li>
+</ol>
+
+
+
+---+ Testing the conversion
+---++ Reporting
+Testing of the Gratia reporting and administration services is  a manual process exercising the various reports/drill downs on all screens. This should be done in 2 stages:
+<ol>
+<li>Testing the basic functionality</li>
+<ul>
+<li>This should be done before the testing of the [[#Collector_Probes][Collector/Probes testing]].  </li>
+<li>   </li>
+</ul>
+</ol>
+
+---++ Collector/Probes
+Testing of the Gratia collectors can be performed by activating the Job Usage and Metric Replication services on the production server (%CURRENT_TOMCAT%) for all database schema.
+
+%STOPINCLUDE%
+
+<!-- MAJOR UPDATES
+For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
+---++!! Major updates
+<!--Future editors should add their signatures beneath yours!-->
+-- Main.JohnWeigand - 28 Sep 2007%BR%
+
