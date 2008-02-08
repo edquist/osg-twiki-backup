@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="SuchandraThapa" date="1202420227" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="SuchandraThapa" date="1202513325" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="WSGramValidation"}%
 ---+ WS Gram Testing
 
@@ -9,19 +9,204 @@
 
 ---++ Introduction
 
-This provides the results and conclusions of ws-gram testing conducted by the VTB and ITB members so far.
+This provides the results and conclusions of ws-gram testing conducted by the VTB and ITB members so far.  The results of simple job testing and condor-g testing on the UC cluster are given below.
 
----++ Notable Findings
+---++ UC Tests
+---+++ Setup
+---++++ Hardware
 
----+++ Most Important Issues
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}%
+%EDITTABLE{  header="|*Machine*|*Cpu*|*RAM*|*Disk*|" format="| text, 30 | text, 25 | text, 25 | textarea,3x25 |"  changerows="on" quietsave="on" editbutton="Edit table" }%
+|*System*|*Cpu*|*RAM*|*Disk*|
+| Gatekeeper | 2xOpteron 285 (4 cores @ 2.6GHz)<br /> | 8GB Ram | 22GB / <br />1.8TB /home <br />45GB /scratch |
+| Compute Nodes (23 systems) | 2xOpteron 285 (dual core cpu @ 2.6GHz)<br /> | 8GB Ram<br /> | 22GB / <br />1.8TB /home <br />45GB /scratch |
+| Submit Node | 2xOpteron 285 (dual core cpu @ 2.6GHz)<br /> | 8GB Ram<br /> | 22GB / <br />1.8TB /home <br />45GB /scratch |
 
 
+---++++ Software
+The OS and OSG software installed on the systems are as follows:
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}%
+%EDITTABLE{  header="|*System*|*Software*|" format="| text, 30 | textarea, 3x50 |"  changerows="on" quietsave="on" editbutton="Edit table" }%
+|*System*|*Software*|
+| Gatekeeper | Scientific Linux (CERN) 4.4<br />OSG 0.8.0 Installation  |
+| Compute Nodes | Scientific Linux (CERN) 4.4<br />OSG WN Client 0.8.0 |
+| Submit Node | Scientific Linux (CERN) 4.4<br />OSG Client 0.8.0 |
 
----+++ Remaining Findings
+The cluster was running Condor  6.8.4 providing 92 phantom batch slots for testing.  The condor configuration on the gatekeeper was left at the defaults except to enable the local universe and the changes needed to set the cluster name and details up.  The gatekeeper was using a prima callout to a GUMS server for authorization.
 
+The ws-gram service on the gatekeeper that the following changes made to it's configuration:
+    * The user that the ws-gram container ran as was able to have 16384 open file handles
+    * The setup.sh script was changed so that =GLOBUS_OPTIONS= was set to ="-Xms256M -Xmx1024M"=
+    * =$GLOBUS_LOCATION/etc/globus_wsrf_core/server-config.wsdd= was modified so that:
+<verbatim>
+<globalConfiguration:
+    ...
+    <parameter name="containerThreads" value="4"/>
+    <parameter name="containerThreadsMax" value="200"/>
+    <parameter name="containerThreadsHighWaterMark" value="10"/>
+    ...
+</globalConfiguration>
+</verbatim>
+    * =$GLOBUS_LOCATION/etc/gram-service/jndi-config.xml= was modified so that:
+<verbatim>
+    <parameter>
+        <name>
+            enableLocalInvocations
+        </name>
+        <value>
+            true
+        </value>
+    </parameter>
+</verbatim>
+    * The persistent directory for globus was already set to a local drive so that was not changed
 
+The submit host had the following changes made to the condor software:
+<verbatim>
+GRIDMANAGER_MAX_JOBMANAGERS_PER_RESOURCE = 500
+GRIDMANAGER_MAX_PENDING_SUBMITS_PER_RESOURCE = 50
+GRIDMANAGER_MAX_SUBMITTED_JOBS_PER_RESOURCE = 1000
+GRIDMANAGER_MAX_PENDING_REQUESTS = 25
+GRIDMANAGER_JOB_PROBE_INTERVAL = 360
+</verbatim>
 
----++ Tests
+---+++ Simple Globusrun-ws test
+---++++ Introduction
+This test consisted of running globusrun-ws against the gatekeeper at a frequency of 1Hz for a period of 1 hour.  In previous testing against an OSG 0.6.0 installation, this resulted in the gatekeeper becoming unresponsive with all jobs submitted 20 minutes or later into the test being rejected with an error message. The ws-gram container was restarted and the persisted directory was cleared between each test run.
+
+---++++ Notable Findings
+    * The ws-gram service was able to handle the stress test even without local invocations enabled
+    * More than 99% of the jobs issued were able to successfully be completed
+
+---++++ Remaining Findings
+    * Increasing submission rate to 2Hz resulted in the server failure (however globusrun-ws will not be used by typical users for serious work)
+    * Increased performance may be possible with changes to how ws-gram operates
+
+---++++ Data
+
+   * Comparison of success rates for globusrun-ws: <br />
+     <img src="%ATTACHURLPATH%/globusrun_success_comparison.png" alt="globusrun_success_comparison.png" width='700 height='300' />
+
+   * Comparison of job latencies for globusrun-ws.  The latencies drop for the OSG 0.6.0 installation about half way through when the ws-gram server starts immediately rejecting jobs with errors <br />
+     <img src="%ATTACHURLPATH%/globusrun_timing_comparison.png" alt="globusrun_timing_comparison.png" width='700' height='300' />
+
+For the following tests, the hour long test was run against  osg 0.8.0 setup with local RFT invocations and some statistics were generated for the job latencies.
+   * Histogram for globusrun-ws job timing: <br />
+     <img src="%ATTACHURLPATH%/globusrun_histogram.png" alt="globusrun_histogram.png" width='700' height='300' />
+
+   * Timing statistics for globusrun-ws jobs: <br />
+     <img src="%ATTACHURLPATH%/globusrun_statistics.png" alt="globusrun_statistics.png" width='700' height='300' />
+
+---++++ Changes to configurations
+    * In the OSG 0.6 test, the default OSG 0.6 installation was modified to use new jarfiles that incorporated changes in the Globus 4.0.5 release.  This resulted in a system that had several of the performance fixes found in the globus 4.0.5 release including RFT local invocations which  were enabled.
+   * The tests with non-local RFT invocations, the local invocations settings mentioned in the Setup section was disabled.
+
+---+++ Condor-G Comparison of GT2 and GT4
+---++++ Introduction
+This series of tests compared the performance of condor-g when running jobs using GT2 or WS-GRAM.  Three series of test runs were conducted:
+    * 500 jobs consisting of a script that slept for 30 seconds
+    * 500 jobs consisting of a script that slept for 600 seconds
+    * 2000 jobs consisting of a script that slept for 30 seconds
+The script was transfered to the gatekeeper and compute node and then executed.  The script contacted a server with it's process id when it was executed and just before it terminated to provide timing information.  All tests were run three times and the timing information was averaged.  *The condor-g client was using notifications and not polling*
+
+---++++ Notable Findings
+    * The WS-GRAM system was able to run all the jobs successfully
+    * The WS-GRAM system required more cpu power on the submit node and gatekeeper (on average the load average was about twice that of using GT2)
+    * The WS-GRAM system consistently completed all the jobs before GT2 ted
+    * Load on the submit host might be improved further if polling instead of notifications are used for the condor-g system
+
+---++++ Remaining Findings
+    * One of the runs when testing the client settings resulted in held jobs but this was not repeatable and the jobs completed when released.  When the logs were checked, the jobs were run on the compute node and completed but condor-g did not record this.
+    * The latencies with ws-gram were slightly higher, possibly due to increased setup costs
+
+---++++ Data
+
+---+++++ Latencies for Jobs
+The following graphs show the time required for a given job to go from submission until it has finished executing.  The ws-gram jobs had higher latencies but the relative difference decreased as the job's execution time increased.  
+   * Job latencies for 500 jobs (30s sleep): <br />
+     <img src="%ATTACHURLPATH%/latencies_500-30s.png" alt="latencies_500-30s.png" width='700' height='300' />
+
+   * Job latencies for 500 jobs (600s sleep): <br />
+     <img src="%ATTACHURLPATH%/latencies_500-600s.png" alt="latencies_500-600s.png" width='700' height='300' />
+
+   * Job latencies for 2000 jobs (30s sleep): <br />
+     <img src="%ATTACHURLPATH%/latencies_2000-30s.png" alt="latencies_2000-30s.png" width='700' height='300' />
+
+---+++++ Relative Time Spent In Different States
+The following graphs show how long a job spent in various states.  The blue region is indicates the percent of the time that the how spent betwen when it was submitted to the condor-g system and when condor-g submitted the job to the grid resource.  The settings used resulted in this being 0 since condor-g would submit up to 2000 jobs to the grid resource at one time.  The red region is the percentage of the time spent waiting for the job to execute.  The ws-gram jobs consistently spent a larger portion of their time in this state.  The yellow region is the time spent executing the job.
+
+   * Time spent in different stages for gt2 (500 jobs 30s sleep): <br />
+     <img src="%ATTACHURLPATH%/relative_timing_gt2_500-30s.png" alt="relative_timing_gt2_500-30s.png" width='700' height='300' />
+   * Time spent in different stages for gt4 (500 jobs 30s sleep): <br />
+     <img src="%ATTACHURLPATH%/relative_timing_gt4_500-30s.png" alt="relative_timing_gt4_500-30s.png" width='700' height='300' />
+
+   * Time spent in different stages for gt2 (500 jobs 600s sleep): <br />
+     <img src="%ATTACHURLPATH%/relative_timing_gt2_500-600s.png" alt="relative_timing_gt2_500-600s.png" width='700' height='300' />
+
+   * Time spent in different stages for gt4 (500 jobs 600s sleep): <br />
+     <img src="%ATTACHURLPATH%/relative_timing_gt2_500-600s.png" alt="relative_timing_gt2_500-600s.png" width='700' height='300' />
+
+   * Time spent in different stages for gt2 (2000 jobs 30s sleep): <br />
+     <img src="%ATTACHURLPATH%/relative_timing_gt2_2000-30s.png" alt="relative_timing_gt2_2000-30s.png" width='700' height='300' />
+
+   * Time spent in different stages for gt4 (2000 jobs 30s sleep): <br />
+     <img src="%ATTACHURLPATH%/relative_timing_gt4_2000-30s.png" alt="relative_timing_gt4_2000-30s.png" width='700' height='300' />
+
+---+++++ Load Data
+During the tests, the ws-gram system consistently generated more load than the gt2 system on both the gatekeeper and submit node.  The ws-gram data ends before the gt2 data since the ws-gram system processed all the jobs before the gt2 system.
+
+   * Submit Node Load for 500 jobs (30s sleep): <br />
+     <img src="%ATTACHURLPATH%/submit_load_500-30s.png" alt="submit_load_500-30s.png" width='700' height='300' />
+
+   * Submit Node Load for 500 jobs (600s sleep): <br />
+     <img src="%ATTACHURLPATH%/submit_load_500-600s.png" alt="submit_load_500-600s.png" width='700' height='300' />
+
+   * Submit Node Load for 2000 jobs (30s sleep): <br />
+     <img src="%ATTACHURLPATH%/submit_load_2000-30s.png" alt="submit_load_2000-30s.png" width='700' height='300' />
+
+   * Gatekeeper Load for 500 jobs (30s sleep): <br />
+     <img src="%ATTACHURLPATH%/gatekeeper_load_500-30s.png" alt="gatekeeper_load_500-30s.png" width='700' height='300' />
+
+   * Gatekeeper Load for 500 jobs (600s sleep): <br />
+     <img src="%ATTACHURLPATH%/gatekeeper_load_500-600s.png" alt="gatekeeper_load_500-600s.png" width='700' height='300' />
+
+   * Gatekeeper Load for 2000 jobs (30s sleep): <br />
+     <img src="%ATTACHURLPATH%/gatekeeper_load_2000-30s.png" alt="gatekeeper_load_2000-30s.png" width='700' height='300' />
+---++++ Condor-G Submit files
+The basic template for the submit files used is given below.  The number of jobs queued and the argument used to indicate how long the script should sleep were changed for the various tests.
+
+<verbatim>
+Universe        = grid
+Grid_Resource   = gt2 uct3-edge5.uchicago.edu/jobmanager-condor
+Executable          = reporter.py
+Transfer_Executable = True
+Arguments = $(Process) uct3-edge6.uchicago.edu 30
+Output              = stdout
+Error               = stderr
+Transfer_Output     = false
+Transfer_Error      = false
+Log                 = /tmp/gt2-2000.log
+
+Queue 2000
+</verbatim>
 
 -- Main.SuchandraThapa - 07 Feb 2008
 
+
+%META:FILEATTACHMENT{name="globusrun_statistics.png" attr="" autoattached="1" comment="Timing statistics for globusrun-ws jobs" date="1202511652" path="globusrun_statistics.png" size="106692" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="gatekeeper_load_500-600s.png" attr="" autoattached="1" comment="Gatekeeper Load for 500 jobs (600s sleep)" date="1202511576" path="gatekeeper_load_500-600s.png" size="77198" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="latencies_2000-30s.png" attr="" autoattached="1" comment="Job latencies for 2000 jobs (30s sleep)" date="1202511728" path="latencies_2000-30s.png" size="94263" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="relative_timing_gt2_500-30s.png" attr="" autoattached="1" comment="Time spent in different stages for gt2 (500 jobs 30s sleep)" date="1202511771" path="relative_timing_gt2_500-30s.png" size="75320" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="globusrun_success_comparison.png" attr="" autoattached="1" comment="Comparison of success rates for globusrun-ws" date="1202512066" path="globusrun_success_comparison.png" size="84304" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="gatekeeper_load_500-30s.png" attr="" autoattached="1" comment="Gatekeeper Load for 500 jobs (30s sleep)" date="1202511548" path="gatekeeper_load_500-30s.png" size="80704" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="submit_load_2000-30s.png" attr="" autoattached="1" comment="Submit Node Load for 2000 jobs (30s sleep)" date="1202511959" path="submit_load_2000-30s.png" size="127892" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="gatekeeper_load_2000-30s.png" attr="" autoattached="1" comment="Gatekeeper Load for 2000 jobs (30s sleep)" date="1202511598" path="gatekeeper_load_2000-30s.png" size="112270" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="submit_load_500-30s.png" attr="" autoattached="1" comment="Submit Node Load for 500 jobs (30s sleep)" date="1202511915" path="submit_load_500-30s.png" size="84431" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="relative_timing_gt4_2000-30s.png" attr="" autoattached="1" comment="Time spent in different stages for gt4 (2000 jobs 30s sleep)" date="1202511884" path="relative_timing_gt4_2000-30s.png" size="76439" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="relative_timing_gt2_2000-30s.png" attr="" autoattached="1" comment="Time spent in different stages for gt2 (2000 jobs 30s sleep)" date="1202511816" path="relative_timing_gt2_2000-30s.png" size="75615" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="globusrun_histogram.png" attr="" autoattached="1" comment="Histogram for globusrun-ws job timing" date="1202511624" path="globusrun_histogram.png" size="132418" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="relative_timing_gt2_500-600s.png" attr="" autoattached="1" comment="Time spent in different stages for gt4 (500 jobs 600s sleep)" date="1202511861" path="relative_timing_gt2_500-600s.png" size="75573" user="Main.SuchandraThapa" version="2"}%
+%META:FILEATTACHMENT{name="latencies_500-600s.png" attr="" autoattached="1" comment="Job latencies for 500 jobs (600s sleep)" date="1202511707" path="latencies_500-600s.png" size="87621" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="latencies_500-30s.png" attr="" autoattached="1" comment="Job latencies for 500 jobs (30s sleep)" date="1202511682" path="latencies_500-30s.png" size="93371" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="relative_timing_gt4_500-30s.png" attr="" autoattached="1" comment="Time spent in different stages for gt4 (500 jobs 30s sleep)" date="1202511841" path="relative_timing_gt4_500-30s.png" size="76272" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="submit_load_500-600s.png" attr="" autoattached="1" comment="Submit Node Load for 500 jobs (600s sleep)" date="1202511939" path="submit_load_500-600s.png" size="78413" user="Main.SuchandraThapa" version="1"}%
+%META:FILEATTACHMENT{name="globusrun_timing_comparison.png" attr="" autoattached="1" comment="Comparison of job latencies for globusrun-ws" date="1202512096" path="globusrun_timing_comparison.png" size="86102" user="Main.SuchandraThapa" version="1"}%
