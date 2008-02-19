@@ -1,0 +1,193 @@
+%META:TOPICINFO{author="JeffPorter" date="1203458346" format="1.1" reprev="1.9" version="1.9"}%
+%META:TOPICPARENT{name="WebHome"}%
+<!-- This is the default OSG Integration template. Please modify it in the sections indicated to create your topic! --> 
+
+<!-- By default the title is the WikiWord used to create this topic !-->
+<!-- if you want to modify it to something more meaningful, just replace %TOPIC% below with i.e "My Topic"!-->
+
+---+!! %SPACEOUT{ "%TOPIC%" }%
+
+%TOC%
+
+---++ Introduction
+
+This subcommittee focused on testing WS Gram service deployed in the OSG 0.8.0 release in terms of functionality, stability and scalability. The goal of this work is to document performance characteristics of the service as it is deployed and it's expected use on the OSG and provide feed back to both WS GRAM developers and OSG system administrators on optimized configurations and service limitations.  Initial work will consisted of re-running tests previously done with the OSG 0.6.0 deployment (see WSGramValidation060 ) and making comparisons to that earlier work.  Additional test of the service with both native Globus commands and Condor-G (as is most commonly done by OSG VOs) were performed under several of the job-types described in our previous work: 
+
+   * Type I: simple submit, no I/O involved. 
+   * Type II: data-producing job: return data to user's submit host.
+   * Type III: data-producing job: transfer data to some other designated storage area. 
+   * Type IV: data-consuming job, transfer input data form users's submit host. 
+   * Type V: data-consuming job, transfer input data from some other designated storage area. 
+   * Type VI: data-consuming/data-producing job, to and from the submit host. 
+   * Type VII: data-consuming/data-producing job, from arbitrary endpoints. 
+
+
+---++ Membership & Meetings
+
+   * Membership:  Jeff, Suchandra, Stu, Charles, Martin, Dan, Rob, Terrence
+   * Meetings:
+      * MinutesWSGramTestingJan14
+      * MinutesVTBJan07      
+      * MinutesWSGramTestingDec18
+      * MinutesWSGramTestingDec4
+      * MinutesWSGramReSSNov27
+
+---++ Tests during the ITB Cycle
+
+The OSG integration cycle leading up to the OSG-0.8 software release included installation, configuration, and functionality testing of WS GRAM services on OSG's Validation and Integration test beds.  The purpose of this effort was to:
+
+   * Apply a defined set of installation and configuration procedures for WS GRAM deployment on OSG, to:
+      * Debug those procedures on a variety of sites
+      * Document the procedures in the [[https://twiki.grid.iu.edu/twiki/bin/view/ReleaseDocumentation/GlobusWebServicesInstall][OSG WS GRAM Installation Guide]]   
+   * Develop a large suite of tests to determine WS GRAM service functionality for use in OSG
+      * document these tests for general use, see [[https://twiki.grid.iu.edu/twiki/bin/view/ReleaseDocumentation/ValidateGramWebServices][WS GRAM Validation Procedures]]
+      * have each site admin apply these test on their own sites
+   * Run more targeted tests on individual ITB sites
+
+During the installation and testing of WS GRAM services deployed on the ITB, we discovered and debugged a handful of configuration details which could cause some validation tests to fail.  Several initial failures occurred when testing the service with job-submission through Condor-G and it's WS GRAM support.  A bug in the Condor-G client, for example, did not forward the client specified ephemeral port range to the WS GRAM service causing gridftp callbacks to a firewalled submission site to fail. The final OSG-0.8 software deployment incorporated fixes to those bugs and each ITB site which tested the services was able to validate it's functionality.  
+
+Once each of the ITB sites had validated the WS GRAM service, a set of simple scaling tests was run against the ITB. Test jobs of <b>Type I</b> and <b>Type II</b> were submitted to each of the persistent ITB sites via Condor-G, at rates ranging from about 20 to 100 jobs per submission.  Except for a fraction of jobs that failed in a recoverable way (gridftp timeout on submission node), each site was able to successfully process these jobs in times comparable to pre-WS GRAM tests. 
+
+No OSG VO used WS GRAM service during the VO validation portion of the latest ITB cycle.   Two VOs, LIGO and STAR, were contacted directly to  see if they could test the service and both participated.  LIGO was able to successfully run their workflow through WS GRAM on at least 1 site.  STAR's workflow was also migrated to WS GRAM though that work was not fully tested due to possible conflict with STAR's pre-WS GRAM testing on the ITB. 
+
+
+---++ Resources for Scaling tests  (submit and service hosts)
+
+   * [[WSGramReport#Setup][UC Test Site]]
+      *  23 node production cluster with 96 phantom Condor (v6.8.4) job slots
+      *  1 CE, OSG-0.8 CE
+      *  1 submit host
+
+   * [[VtbSitesLbl#LBNL_VTB][LBNL_VTB]] 
+      * small VTB cluster running PBS
+      * 1 machine removed as a submit host, OSG-0.8 Client using Condor v6.93
+      * 1 machine as the CE, OSG-0.8 CE
+      * 2 machines with 40 PBS managed jobslots for small processing jobs
+
+   * [[http://hepuser.ucsd.edu/twiki/bin/view/UCSDTier2/WSGramTests#Test_Setup][UCSD Test Site]]
+      * production cluster with 1700 phantom slots managed by condor (v6.9.5).
+      * 1 CE, OSG-0.8 CE
+      * 2 submit hosts for concurrent job submission tests, OSG-0.8 Client + Condor v6.95
+
+---++ Scalability: native GT4 command-line submission
+
+---+++ Section Summary
+
+The purpose of these tests using WS GRAM command line submission tools was to check the resiliency of the server under large submission rates from independent processes, compare results with earlier versions of the service (OSG-0.6 deployment) and to identify dominant job-failure modes attributed to the service in these high-rate environments.  These tests were carried out in two methods:  by looping over submit command at predefined rates to determine steady state performance characteristics under load and with bulk submissions of several hundred jobs at once to determine job failure modes.   
+
+We observed that the service improvements in GT 4.05 incorporated into the VDT software stack that formed the OSG-0.8 release were significant.  The OSG-0.8 server was resilient to submission rates much greater than those that would crash the 0SG-0.6 (VDT patched GT 4.03) server.  While the server was more resilient to server failure, job failure became the dominant concern in these tests. We observed significant job-failures rates (~20%) due primarily to timeouts between the various components: service container, RFT service, remote gridftp servers, and submission container.  We were able to reduce to failure rates significantly by identifiying and applying a set of configuration changes. 
+
+---+++ Simple jobs submitted in loop with delays
+
+These tests were a repeat of a series of tests done on the OSG-0.6 deployed server whereby  the WS GRAM container was made to fall over. Details of these tests are written up at WSGramReport and carried out against the UC test server.  The method used was to loop over =globusrun-ws= submissions (over very simple =/usr/bin/whoami= jobs) at a managed rate of about 1Hz until the container reached a steady response.   Results include:
+
+   * OSG-0.6 server would not respond after about 25 minutes
+   * OSG-0.8 server re-configured with performance optimization settings did not fall over after the 1 hour submit cycle
+      * some fraction of jobs (15-25%) would fail due to timeout issues
+      * server remained responsive to new submission after test cycle
+   * OSG-0.8 server could be made un-responsive (in need of a restart) when rate was increased to 2Hz
+ 
+Tests were performed with and without the "local invocation" server configuration. This configuration allows the RFT service, co-located with the job management server, to use the same delegation.  Applying this configuration reduced the failure rate and should be standard for OSG CE installations.
+
+---+++ Bulk submission with data transfers
+
+The purpose of this set of tests was to evaluate sources that limit large scale submissions with WS GRAM.  These tests spanned several of the job types listed above using =globusrun-ws= command and tailored RSL files for job definitions and submitted in a loop with no delays.  Details of these tests are written up at WSGramTestingLBNL and carried out against the LBL VTB site. The tests indicated specific timeouts were limiting the submissions including
+
+   * File staging errors were often authorization timeouts at the remote server
+   * additional timeouts were on server-side container.
+
+After a final set of modifcations were made:
+
+   * bulk submission of 400 jobs of <b>type VII</b> onto the small server site ([[VtbSitesLbl#LBNL_VTB][LBNL_VTB]]) were achievable.     
+   * The server itself remained functional without crashing during all of these tests and did not require restarting.  
+   * The server was able to process jobs submitted immediately after the largest rate submissions had been processed.
+
+---++ Scalability: Condor-G submission
+
+---+++ Section Summary
+
+A series of tests were performed to evaluate the scalability of job-submissions to a WS GRAM service via Condor-G.  They were carried out on all three of the above test sites with variations on pupose and set up.  Tests done on the small VTB site were carried out to monitor the effectiveness of individual configuration changes as needed in an environment which included different job types.  Tests done at the UC site (see WSGramReport) were extensive tests that included varying the job duration in order to isolate the overhead of the service in comparison to pre-WS GRAM submissions.  Tests done at the UCSD test site (see [[http://hepuser.ucsd.edu/twiki/bin/view/UCSDTier2/WSGramTests][UCSD WSGram Tests]] ) attempted to simulate CMS's production model at roughly the expected peak submission rate.  
+
+It became clear during these tests that the major difference running large scale Condor-G submissions to a WS GRAM server compared to a pre-WS GRAM server was the container memory use and host load on the submission machine. As a consequence, a new set of job-failure modes appeared due to server-client communication timeouts.  These job-failures resulted in jobs going into a 'hold' states as seen on the submit host.  Once the remainder of jobs in a given tests completed, the 'held' jobs could be successfully re-run by envoking =condor_release= on the condor cluster id.  Several configuration changes were made (in addition to those found during the native command line tests) to reduce the failure rates which allowed scaling tests to proceed (tests of about 1000 jobs completed without job failures).   We were not able to carry out tests at rates that would simulate expected peak production rates.
+
+---+++ Basic Scaling tests
+
+The purpose of these tests performed on the small LBNL VTB site were to use the information we gathered from the bulk submission tests above and determine to what scale jobs could reliably be submit to the same cluster using Condor-G.  Additional modification to client side/condor-g parameters were identified and implemented.  After these modifications were made,
+
+   * bulk submission of 500 jobs were achievable with no job failures (condor-g hold states), 1000 jobs were achievable with job failure rates of ~1%
+   * job failures produced condor-g holds and jobs would run to completion with subsequent =condor_release=
+   * The server itself remained functional without crashing during all of these tests and did not require restarting  
+
+In comparison, bulk submissions of 1500 jobs through pre-WS GRAM were achievable with no job failures.
+
+---+++ Extensive Scaling Tests with simple jobs 
+
+A series of extensive tests were carried out at UC to evaluate the performance characteristics of the WS GRAM service under high submission rates and in comparison to 
+pre-WS GRAM service.  Details of the tests are described in the WSGramReport.  Submit host, CE and test cluster were sufficiently large to simulate production tests using sleep jobs. The job duration was varied to isolate the GRAM overhead.  Notable observations include:
+
+   * Submission of 1k jobs (2k but with 1k condor-g limit paramenter) routinely succeeded
+   * WS GRAM server remained functional and did not require restarting
+   * Server loads were modestly (2x-3x) larger in WS GRAM tests than pre-WS GRAM tests
+   * In all tests, WS GRAM test sets completed faster than pre-WS GRAM  
+   * job latency was longer for individual WS GRAM jobs at low rates compared to pre-WS GRAM
+   * job latency difference between WS GRAM and pre-WS GRAM disappeared at higher rates
+
+
+---+++ Scaling tests to simulate CMS peak rate
+
+The purpose of these tests were to push job submissions to levels comparable to what would be expected for CMS uses. That is, job rates up to about 3x the number of jobs slots and from multiple submit hosts.  The details of these tests are written up at [[http://hepuser.ucsd.edu/twiki/bin/view/UCSDTier2/WSGramTests][UCSD WSGram Tests]].  Client configuration parameters were modified during the tests as job failure modes were determined. Some results of these tests:
+
+   * Submission of 1000 jobs from 1 submitter did succeed without any failures      
+   * At larger submission rates, including 2000 jobs per submitter (4000 onto CE) produced failure rates of ~5%. 
+   * Large client loads, not seen with pre-WS GRAM use, is of concern
+   * Client modifications changed the failure modes but rate of failures were only slightly improved
+   * Comparable submission with pre WS GRAM completed without failure
+   * Server loads with pre-WS GRAM and WS GRAM were similar (and not an issue) on this site configured with <i>NFS lite</i>.
+   * Server remained responsive during these tests.
+
+The failure rates are a critical issue and needs to be addressed.
+
+From Terrence for UCSD, the desired test scenario that should complete without error for WS GRAM (or any job submission service) is 10k total jobs spread across 2-3 condor-g clients and 2-3 different users targeting a single WS GRAM service.
+
+---++ VO Testing
+
+---+++ CMS
+
+The client infrastructure for CMS is designed to scale to running 10,000 jobs simultaneously and 100,000 jobs a day, all from a single client installation (distributed condor based system across a few pieces of hardware) across multiple sites (i.e. multiple clusters via the cluster's GRAM interface) at success rates in excess of 99%.
+
+The workflow includes:
+
+   * A GlideIn job (In order to rerun a job in case of an error.  In order to avoid going through the batch scheduler)
+   * Moving in the executable
+   * Analyzing data that has been pre-staged to the site by the CMS data management system.
+   * Writing output data out locally at the site, to be collected later, asynchronously by the CMS data handling system.
+
+CMS runs jobs across many sites from one client/VO submission system at FNAL.  Actually, there is another at CERN, but they use a different software stack.  The two production teams both operate globally, across O(100) sites, many of which are fairly small (O(100) batch slots, some even only O(10)).  
+
+Here are results for the number of jobs run at sites for a recent test: http://hepuser.ucsd.edu/twiki/bin/view/UCSDTier2/FkwScalabilityTesting#Detailed_job_accounting
+
+In the CMS architecture, the requirement on the CLIENT is thus significantly more stringent than the requirement on the SERVER, simply because we have many servers globally, but only two client installations.  This client scaling issues identified by the UCSD testing, client OOM error, looks like a showstopper issue for CMS.
+
+For CMS, client-side scaling needs to be addressed in condor-g and WS GRAM.
+
+---+++ Atlas
+
+   * Atlas requirements and use models are comparable to those of CMS
+
+
+---++ References From Earlier work
+
+   * Main page for tests of 0.6.0 deployment:  WSGramValidation060
+      * For test conditions and resource information, see WSGramTestSites 
+      * Testing from Jeff, see JeffTestPage
+      * Testing from Suchandra, see [[https://twiki.grid.iu.edu/twiki/bin/view/Main/WSGramTesting][WS Gram Testing]]
+      * Defined job-type tests, [[https://twiki.grid.iu.edu/twiki/bin/view/Integration/MinutesWSGramFeb26#Jeff_s_update][here]]
+      * Testing in ITB 0.5.2: https://twiki.grid.iu.edu/twiki/bin/view/Integration/ITB_0_5/TestingGram4, and ITB WS-equipped WsGramOsgSites
+   * Submitting jobs through web services Gram in [[http://vdt.cs.wisc.edu/releases/1.6.0/submitting_wsgram_jobs.html][VDT 1.6]].
+   * Testing by CMS/Nebraska: http://t2.unl.edu/cms/ws-osg-tests/
+   * Testing by John Weigand http://home.fnal.gov/~weigand/globus-ws/notes.shtml
+   * [[WSGramReport][Strawman document]]
+   * [[%ATTACHURL%/OSG_GRAM2_GRAM4_comparison.pdf][OSG_GRAM2_GRAM4_comparison.pdf]]: OSG GT2 GT4 comparison done by GridWay Team
+
+
+-- Main.JeffPorter - 13 Nov 2007
