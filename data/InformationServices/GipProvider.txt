@@ -1,0 +1,183 @@
+%META:TOPICINFO{author="BrianBockelman" date="1203472340" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+---+ How to write a new GIP provider
+
+This document covers how to write a GIP provider/plugins using the built-in Python framework.
+
+---++ Why use the built-in framework?
+
+The GIP is designed so providers and plugins can be written in any language the author feels comfortable with.  However, writing in Python and in the provided framework gives you the following benefits:
+
+   * Maintainability: when you no longer are available to maintain the script, future authors will most likely be able to read and fix your code.
+   * Easy access to the site configuration.  The framework exposes the site's configuration in a pleasant manner so you don't have to write your own parsers.
+   * Consistency: Certain things ought to be consistent across the entire GIP (such as VOs allowed to access the resource and the spelling/capitalization of these names).  By using the framework, your provider should always have information consistent with the built-in providers.
+   * Test framework: Without a test framework, it is extremely difficult to find problems and bugs *before* the software goes into production.  The provided modules give you a reasonably non-intrusive test framework
+   * Coding style: The suggested coding style will prevent you from many easy-to-prevent errors.
+
+---++ Coding style
+
+   * Python code should strive to conform to PEP 8.
+   * Scripts should take no arguments
+   * Scripts which need additional files should assume that the files are located relative to $GIP_LOCATION.  The framework functions will expand any environment variables in filenames.
+   * Configurations should be kept in python config files and loaded with the =config= function.
+   * Never include LDIF in your scripts!  Instead, use the =getTemplate= function to get a function template and =printTemplate= to print the LDAP.  This will allow us to switch to non-LDAP/LDIF information services in the future.
+   * Never print to stdout directly.
+   * If you must print out, print to stderr.  This output will be ignored.
+   * The preferred method to report errors and running information is through the logging framework; use =getLogger= to get a logging object for your module.
+   * The "main" functionality of the system ought to be contained in the "main" procedure, which is invoked at the bottom of the script.
+
+Before worrying about the syntax of the framework, please examine the example below.
+
+---++ Example 
+The following provider is a simple example of how to use the provided framework.
+
+It abuses the GlueLocation object to provide the time that the provider was run.  It is very useful in debugging; it provides an easy check to see how stale certain data is.
+
+<verbatim>
+#!/usr/bin/python
+
+import sys
+import time
+import os
+
+# Make sure the gip_common libraries are in our path
+sys.path.append(os.path.expandvars("$GIP_LOCATION/lib/python"))
+from gip_common import config, getTemplate, getLogger, printTemplate
+
+# Retrieve our logger in case of failure
+log = getLogger("GIP.timestamp")
+
+def main():
+    try:
+        # Load up the site configuration
+        cp = config()
+
+        # Get the timestamp in the two formats we wanted
+        epoch = str(time.mktime(time.localtime()))
+        now = time.strftime("%a %b %d %I:%M:%S %p %Y", time.gmtime())
+
+        # Load up the template for GlueLocationLocalID
+        # To view its contents, see $VDT_LOCATION/gip/templates/GlueCluster
+        template = getTemplate("GlueCluster", "GlueLocationLocalID")
+
+        # Dictionary of data to fill in for GlueLocationLocalID
+        info = {'locationId':   'TIMESTAMP',
+                'subClusterId': cp.get('ce', 'name'),
+                'clusterId':    cp.get('ce', 'name'),
+                'locationName': 'TIMESTAMP',
+                'version':      epoch,
+                'path':         now,
+               }
+
+        # Spit out our template, fill it with the appropriate info.
+        printTemplate(template, info)
+        log.info("Wrote out a fake TIMESTAMP location at time %s" % now)
+
+    except Exception, e:
+        # Log error, then report it via stderr.
+        log.error(e)
+        sys.stdout = sys.stderr
+        raise
+
+if __name__ == '__main__':
+    main()
+</verbatim>
+
+Let's now examine the different portions of the timestamp provider.
+<verbatim>
+# Make sure the gip_common libraries are in our path
+sys.path.append(os.path.expandvars("$GIP_LOCATION/lib/python"))
+from gip_common import config, getTemplate, getLogger, printTemplate
+</verbatim>
+
+This adds the GIP python modules to the python path.  We cannot assume that the runtime environment is correctly set.  The only requirement we have for the provider's environment is that $GIP_LOCATION is set.
+
+We will be using the =config=, =getTemplate=, and =getLogger= functions for this module.
+
+<verbatim>
+# Retrieve our logger in case of failure
+log = getLogger("GIP.timestamp")
+</verbatim>
+
+Load the logger for this module (this is safe for python 2.2 forward).  The logger must be listed in logging.conf in $GIP_LOCATION/etc/ to be of use.  The logger can be invoked like a standard python logger, [[http://docs.python.org/lib/module-logging.html][documented here]].
+
+<verbatim>
+    try:
+        # Load up the site configuration
+        cp = config()
+</verbatim>
+
+Load the site's configuration file.  This is not just a simple wrapper over the !ConfigParser module; make sure that you use this for every script and don't load gip.conf directly!
+Note that everything in the =main= function is wrapped in a =try:= block.
+
+<verbatim>
+        # Get the timestamp in the two formats we wanted
+        epoch = str(time.mktime(time.localtime()))
+        now = time.strftime("%a %b %d %I:%M:%S %p %Y", time.gmtime())
+</verbatim>
+
+Simple time manipulation to determine the unix timestamp and GLUE time format.
+
+<verbatim>
+        template = getTemplate("GlueCluster", "GlueLocationLocalID")
+</verbatim>
+
+Load the template for the "GlueLocationLocalID" object in the "GlueCluster" set of templates.  Currently, the object returned is a simple string, but it might be a more complex object in the future.
+
+The contents of the template for this object are:
+<verbatim>
+dn: GlueLocationLocalID=%(locationId)s,GlueSubClusterUniqueID=%(subClusterId)s,G
+lueClusterUniqueID=%(clusterId)s,mds-vo-name=local,o=grid
+objectClass: GlueClusterTop
+objectClass: GlueLocation
+objectClass: GlueKey
+objectClass: GlueSchemaVersionGlueLocationLocalID: %(locationId)s
+GlueLocationName: %(locationName)s
+GlueLocationVersion: %(version)s
+GlueLocationPath: %(path)s
+GlueChunkKey: GlueSubClusterUniqueID=%(subClusterId)s
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 3
+</verbatim>
+
+The names in the =%()s= entries are the keys which must be provided to fill in the template.
+
+<verbatim>
+        info = {'locationId':   'TIMESTAMP',
+                'subClusterId': cp.get('ce', 'name'),
+                'clusterId':    cp.get('ce', 'name'),
+                'locationName': 'TIMESTAMP',
+                'version':      epoch,
+                'path':         now,
+               }
+</verbatim>
+
+This piece of code creates the dictionary which will fill in the template.
+
+<verbatim>
+        # Spit out our template, fill it with the appropriate info.
+        printTemplate(template, info)
+        log.info("Wrote out a fake TIMESTAMP location at time %s" % now)
+</verbatim>
+Emit the template to stdout and log the running of this provider.
+
+<verbatim>
+    except Exception, e:
+        # Log error, then report it via stderr.
+        log.error(e)
+        sys.stdout = sys.stderr
+        raise
+
+if __name__ == '__main__':
+    main()
+</verbatim>
+
+Finally, catch and raise any exceptions; make sure nothing goes to stdout!
+
+Make sure that the main function only gets executed if this file is run as a script.
+
+---++ API Documentation
+
+[[http://t2.unl.edu/store/epydoc/gip/][The API documentation is auto-generated nightly using Epydoc]]
+
+-- Main.BrianBockelman - 20 Feb 2008
