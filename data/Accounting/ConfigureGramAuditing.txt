@@ -1,0 +1,163 @@
+%META:TOPICINFO{author="JohnWeigand" date="1203614590" format="1.1" reprev="1.6" version="1.6"}%
+%META:TOPICPARENT{name="GramAuditingNotes"}%
+---+!! Configuring GRAM Auditing
+
+<!--
+   * Set EDITTHISTEXT = <div class="twikiSmall"><a href="%TOPIC%">edit this section</a></div>
+-->
+
+%TOC%
+
+%STARTINCLUDE%
+
+---++ Configuring GRAM Auditing
+%EDITTHISTEXT%
+%BR%
+The configuration required to enable and activate GRAM auditing on a Compute Element (CE) is performed by the VDT provided _configure_gram_auditing_ script.  This section of the documentation will describe the changes that are effected by the script.  The script can be used to disable GRAM auditing, as well.
+
+For general information on the GRAM Auditing, refer to these Globus GRAM documents:
+   * GRAM2 (pre-web services):   %BR% http://www-unix.globus.org/toolkit/docs/4.0/execution/prewsgram/Pre_WS_GRAM_Audit_Logging.html
+   * GRAM4 (web services): %BR% http://www.globus.org/toolkit/docs/4.0/execution/wsgram/WS_GRAM_Audit_Logging.html
+
+In order to effect the changes made by the _configure_gram_auditing_ script, the _globus_ws_ init service will be restarted automatically.
+
+---+++ Configuring the Database
+The default Globus database for the GRAM auditing is Postgres.  Since a <nop>MySql database is already being used by WS-GRAM (rft_database), <nop>MySql will be used rather than install another DBMS on the CE node.  The _configure_gram_auditing_ script will create the database based on this information:
+   * Database name = auditDatabase
+   * Database table = gram_audit_table
+   * Database location = $VDT_LOCATION/vdt-app-data/mysql/var
+   * Schema location = $VDT_LOCATION/globus/share/gram-service/gram_audit_schema_mysql.sql
+   * Database user = Globus user as the VDT determines it.
+
+Two configuration files are updated for the attributes necessary to access the database:
+   * GRAM2 (pre-web services): $VDT_LOCATION/globus/etc/globus-job-manager-audit.conf
+<pre>
+   <b>Changing....</b>
+         DRIVERCLASS:org.postgresql.Driver
+         USERNAME:root
+         PASSWORD:auditdbpassword
+         URL:jdbc:postgresql://localhost/auditDatabase
+   <b>... to ...</b>
+         DRIVERCLASS:com.mysql.jdbc.Driver
+         USERNAME:&lt;GLOBUS_USER&gt;
+         PASSWORD:&lt;VDT_CREATED_PASSWORD&gt;
+         URL:jdbc:mysql://localhost:49151/auditDatabase
+</pre>
+
+   * GRAM4 (web services): $VDT_LOCATION/globus/etc/gram-service/jndi-config.xml%BR%
+      The "red" lines below show the original values that are replaced.
+<pre>
+     &lt;resource name="auditDatabaseConfiguration"
+                 type="org.globus.exec.service.utils.AuditDatabaseConfiguration"&gt;
+        &lt;resourceParams&gt;
+           &lt;parameter&gt;
+              &lt;name&gt;factory&lt;/name&gt;
+              &lt;value&gt;org.globus.wsrf.jndi.BeanFactory&lt;/value&gt;
+           &lt;/parameter&gt;
+           &lt;parameter&gt;
+              &lt;name&gt;driverClass&lt;/name&gt;
+              &lt;value&gt;com.mysql.jdbc.Driver&lt;/value&gt;
+               <font color="red">&lt;value&gt;org.postgresql.Driver&lt;/value&gt;</font>
+            &lt;/parameter&gt;
+            &lt;parameter&gt;
+                 &lt;name&gt;url&lt;/name&gt;
+                 &lt;value&gt;jdbc:mysql://localhost:49151/auditDatabase&lt;/value&gt;
+                 <font color="red">&lt;value&gt;jdbc:postgresql://gratiax31.fnal.gov/auditDatabase&lt;/value&gt;</font>
+            &lt;/parameter&gt;
+            &lt;parameter&gt;
+               &lt;name&gt;user&lt;/name&gt;
+               &lt;value&gt;GLOBUS_USER&lt;/value&gt;
+               <font color="red">&lt;value&gt;root&lt;/value&gt;</font>
+            &lt;/parameter&gt;
+            &lt;parameter&gt;
+               &lt;name&gt;password&lt;/name&gt;
+               &lt;value&gt;VDT_CREATED_PASSWORD&lt;/value&gt;
+               <font color="red">&lt;value&gt;auditdbpassword&lt;/value&gt;</font>
+            &lt;/parameter&gt;
+            &lt;parameter&gt;
+               &lt;name&gt;globusVersion&lt;/name&gt;
+               &lt;value&gt;4.0.5 &lt;/value&gt;
+          &lt;/parameter&gt;
+      &lt;/resourceParams&gt;
+    &lt;/resource&gt;
+</pre>
+
+
+---+++ Configuring GRAM4 (web services)
+Updates to the _auditDatabase_ table in GRAM4 is performed by web services.
+To activate GRAM auditing for GRAM4, these lines are added to the _$VDT_LOCATION/globus/container-log4j.properties_ file:<pre>
+        log4j.appender.AUDIT.layout=org.apache.log4j.PatternLayout
+        log4j.appender.AUDIT=org.globus.exec.utils.audit.AuditDatabaseAppender
+        log4j.additivity.org.globus.exec.service.exec.StateMachine.audit=false
+        log4j.category.org.globus.exec.service.exec.StateMachine.audit=DEBUG, AUDIT</pre>
+
+This line is added to the above file to turn on logging in the _$VDT_LOCATION/globus/var/container-real.log_ file:<pre>
+        log4j.category.org.globus.exec.utils.audit=DEBUG</pre>
+
+
+
+---+++ Configuring GRAM2 (pre-web services)
+Updates to the _auditDatabase_ table in GRAM2 are performed by a cron service.  When a GRAM2 job completes, a single audit file is written to a directory which the cron processes reads from and updates the database.
+
+The configuration script will create this directory if it does not already exist:<pre>
+   $VDT_LOCATION/vdt-app-data/globus/gram-audit-log</pre>
+
+This directory is also known to the cron service and GRAM2 via the _$VDT_LOCATION/globus/etc/globus-job-manager.conf_ file that the script updates with this attribute:<pre>
+   -audit-directory &lt;YOUR_VDT_LOCATION&gt;/vdt-app-data/globus/gram-audit-log</pre>
+
+The cron service is registered, but not enabled by default, as:
+<pre>   03,13,23,33,43,53  . &lt;YOUR_VDT_LOCATION&gt;/setup.sh; &lt;YOUR_VDT_LOCATION&gt;/globus/libexec/globus-gram-audit --check</pre>
+
+
+
+---++ Disabling GRAM Auditing
+The _configure_gram_auditing_ script can be used to disable GRAM Auditing by using the _--disable_ argument.  This will not reverse all the changes madae when GRAM auditing was configured, but it will stop the audit log data from being collected.
+
+---+++ Disabling GRAM4 (web services)
+In the _$VDT_LOCATION/globus/container-log4j.properties_ file, the script will remove all the entries related to GRAM auditing.
+
+---+++ Disabling GRAM2 (pre-web services)
+In the _$VDT_LOCATION/globus/etc/globus-job-manager.conf_ file, the  _--audit-directory_ line will be removed.  The cron service will be removed from the _vdt-control_ _services_ file.
+
+---++ Preserving Data From a Previous Installation
+When migrating to a new OSG version, the installation is normally performed in a separate directory.  This allows for fail-over back to the old version in the event problems occur.  However, the new installation needs the following data available that was collected in the old version:
+   * the Mysql _auditDatabase_
+   * any GRAM2 audit records that have not been processed in the  _$VDT_LOCATION/vdt-app-data/globus/gram-audit-log_ directory.
+
+This migration is triggered by the exporting of the _OLD_VDT_LOCATION_ environmental variable prior to starting the installation.
+
+---+++ Preserving Data - Open Issues
+In attempting to put this capability in the script, the following configure scripts were looked at (they contained references and logic for the _OLD_VDT_LOCATION_ variable):
+
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}%
+%EDITTABLE{  header="|*Script*|*Comment*|" format="| text, 25 | text, 100 |"  changerows="on" quietsave="on" editbutton="Edit table" }%
+|*Script*|*Comment*|
+| configure_mysql | It is only making sure the ports don't collide, does nothing. with the ./var db area.  Must be in a script dealing with rft? |
+| configure_rft | Nothing and there is a DB associated with  this. |
+| configure_ca_cert_updater | sub preserve_old_config: Comment says "Not yet written" |
+| configure_edg_make_gridmap | sub preserve_old_config: this looks good for files |
+| configure_gums | sub copy_configuration: Could be best because it has db in it, but there is only 1 db in GUMS. |
+| configure_gratia | sub find_and_move_probe_config_files: could be good for files |
+| configure_vomrs | subs setup_vo copy_vo_configuratin_pre, copy_vo_configuration_post  |
+| configure_voms | sub copy_vo_configuration:  this one may be the BEST.  Closest in nature to Auditing. |
+
+
+Each of the configure scripts in the VDT assume that each option is self-contained and that there is no overlap.
+
+In this case though, these 3 all have the <nop>MySql database in common and need to be treated as such:
+   * configure_mysql
+   * configure_rft
+   * configure_gram_auditing
+
+
+
+%STOPINCLUDE%
+
+
+
+
+<!-- MAJOR UPDATES
+For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
+---++!! Major updates
+<!--Future editors should add their signatures beneath yours!-->
+-- Main.JohnWeigand - 18 Jan 2008%BR%
