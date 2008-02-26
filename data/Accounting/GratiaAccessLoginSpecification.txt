@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1204044111" format="1.1" reprev="1.5" version="1.5"}%
+%META:TOPICINFO{author="JohnWeigand" date="1204050115" format="1.1" reprev="1.6" version="1.6"}%
 <!--
    * Set check =  <img src="/pub/TWiki/TWikiDocGraphics/choice-yes.gif" alt="DONE" title="DONE" width="16" height="16" border="0" /> 
 -->
@@ -17,7 +17,7 @@ This document is intended to serve as both a requirements and design specificati
 The Gratia administration is accessible as http(s)://&lt;node.domain&gt;:&lt;port&gt;/gratia-administration.  It allows for viewing the status of the collector and for maintenance of several data tables.
 
 ---++ administration access requirements
-The Gratia administration web user interface login will allow access to all update service menu options, otherwise only the status (read-only) menu options will be available. 
+The Gratia administration web user interface login will allow access to all update service menu options, otherwise only the read-only menu options will be available. 
 
 %TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}%
 %EDITTABLE{  header="|*Menu option*|*No login required*|*Login required*|" format="| textarea, 5x30 | textarea, 5x50 | textarea, 5x50 |"  changerows="on" quietsave="on" editbutton="Edit table" }%
@@ -42,7 +42,7 @@ The Gratia administration web user interface login will allow access to all upda
 The identity of a Gratia administrator will be defined in the _TOMCAT_HOME/gratia/service-configuration.properties_ file.  
    * For Gratia instances servicing multiple VO's, multiple entries are allowed
    * The identity of the Gratia administrator(s) will be defined by specifying the FQAN as defined by the VO.
-   * In order to insure that the most current list of administrative identities is always used this file should be read each time the login service is invoked (explicitly or implicitly).
+   * In order to insure that the most current list of administrative identities is always used this file should be read each time the login service is invoked (explicitly or implicitly).  An alternative method of insuring currency is to read the timestamp on the file and read it only when it has changed.
 <pre>
 <b>service-configuration.properties file entries:</b>
   service.admin.identity.0=/cms/uscms/Role=gratiaadmin
@@ -58,7 +58,7 @@ The Gratia login process will need the identity of the OSG VO VOMS servers in or
    * This will be in the form of an OS file called _TOMCAT_HOME/gratia/voms-servers_ 
    * File permissions of 644
    * Initially, this file will be manually maintained.  In the long term, this file should be distributed by the OSG GOC.
-   * In order to insure that the most current list of voms servers is always used this file should be read each time the login service is invoked (explicitly or implicitly).
+   * In order to insure that the most current list of VOMS servers is always used this file should be read each time the login service is invoked (explicitly or implicitly).  An alternative method of insuring currency is to read the timestamp on the file and read it only when it has changed.
 <pre>
 <b>./gratia/voms-servers file:</b>
   # comment line
@@ -67,10 +67,42 @@ The Gratia login process will need the identity of the OSG VO VOMS servers in or
   geant4 https://voms.cern.ch:8443/voms/geant4/services/VOMSAdmin
 </pre>
 
-The user identity requesting login access will be retrieved from a grid certificate imported in their browser. The DN (subject) of the certificate, in the following form, will be used:
+The user identity requesting login access will be retrieved from a grid certificate imported in their browser. The DN (subject) of the certificate and CA (issuer) of the certificate, in the following form, will be used:
 <pre>
-/DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+DN: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+CA: /DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1
 </pre>
+
+The procedure for logging in for the "happy-day" scenario is:
+   1 When the administration page is initially accessed, the _Status: normal_ page will be presented and a  _login_ menu option should appear at the top of the left frame menu list along with the list of _read-only_ menu options.  
+   1 If the user desires administrative update options, the user will select the _login_ menu option.
+   1 The login process will read the imported user certificate from the browser is access the identity (DN/subject) of the user.
+   1 Using the _voms-server_ file, the login process will access each of the VO's VOMS servers specified by the _service-configuration.properties_ file's _service.admin.identity.n_ list of Gratia admin FQANS, the _<nop>VOMSAdmin_ methods below can be used to authorize the user:
+      * <nop>listRoles (java.lang.String username, java.lang.String userca) 
+      * <nop>listUsersWithRole (java.lang.String groupname, java.lang.String rolename)
+   1 If the user is _not_ authorized, 
+      * the left frame menu will remain unchanged.
+   1 If the user is authorized, 
+      * the left frame menu will display all the menu options available
+      * a _logoff_ menu option will replace the _login_ menu option.
+
+Additional login processing considerations:
+   1 There is no need to query all the VOMS servers designated by the _service.admin.identity.n_ list if the user is determined to be a Gratia administrator.  Once is enough.
+   1 In order to take into account the scenario where a user's Gratia admin privileges have been revoked (similar to a CRL situation), a _refresh_ parameter will be added to the _system-configuration.properties_ file.  The login process will _implicitly_ re-authorize the user as though the user had selected the _login_ menu option.  This will be done  "behind-the-scenes" when the user performs any action including a refresh of a page.  This interval is the time between _login_ authorization checks.
+   1 In order to take into account a user being logged in with  Gratia administrator privileges and leaving his browser unattended for an extended period, a _timeout_ parameter will be added to the _system-configuration.properties_ file. If a user has been inactive for the period specified, the login process will  return the user to the "read-only" state and menu options.  The user will have to _explictely_ login again.
+
+<pre>
+<b>service-configuration.properties file:</b>
+# service.admin.refresh -&gt; (expressed in minutes). 
+#     This is time interval at which a user' admin authorization is re-checked.
+ service.admin.timeout-&gt; (expressed in minutes). 
+#     This is time interval at which a user' admin authorization is reset and requires
+#     an explicit login.  This is only done is the user is inactive for this period of time.
+service.admin.refresh=30
+service.admin.timeout=30
+</pre>
+
+
 
 
 
