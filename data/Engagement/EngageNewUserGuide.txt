@@ -1,0 +1,242 @@
+%META:TOPICINFO{author="MatsRynge" date="1204855364" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+
+%TOC%
+
+---++ Overview
+
+The Engage VO has been established to help new communities make use of Open Science Grid. For any questions or comments, please email Engage support at osg@renci.org The purpose of this document is to provide some quick notes on things you need to do to run jobs on OSG as a member of the Engage VO (Virtual Organization). If you need more detailed information than this document provides, see the OSG documentation.
+
+[[http://www.opensciencegrid.org/Getting_Started][Getting Started Guide]]
+
+[[https://twiki.grid.iu.edu/twiki/bin/view/Documentation/UserDocEndUser][End User documentation]]
+
+
+---++ Getting a Certificate
+
+Open Science Grid authentication is a single-sign on system based on X.509 certificates1. In order to submit jobs you need a certificate. To apply for one, use a web browser (Mozilla Firefox or Internet Explorer), and go to:
+
+[[https://pki1.doegrids.org/][https://pki1.doegrids.org/]]
+
+Fill out the form. For Affiliation, select 'OSG', and for VO name, select 'Engage'. Please contact the Engage team at osg@renci.org for the sponsor name, e-mail address, and phone number as required by the certificate request form. It will take a day or two for the certificate to be approved. Once you receive the email about the certificate being ready, follow these instructions on how to export the certificate to a Grid public/private key pair:
+
+[[http://www.doegrids.org/pages/cert-request.html][http://www.doegrids.org/pages/cert-request.html]]
+
+Under the &#8220;Exporting your key pair for use by Globus grid-proxy-init&#8221; heading.
+
+---++ Joining the Engage VO
+
+Once you have your certificate, you can join the Engage Virtual Organization (VO). Go to:
+
+[[https://osg-engage.renci.org:8443/voms/Engage/webui/request/user/create][https://osg-engage.renci.org:8443/voms/Engage/webui/request/user/create]]
+
+The browser should present your certificate to the server, and you should see something like this on the top of the form (but with your name):
+
+<verbatim>
+DN: /DC=org/DC=doegrids/OU=People/CN=Mats Rynge 722233
+</verbatim>
+
+Fill out and submit the form. You will get a confirmation email, which asks you to click a link to verify your email address. Once that is done, in less than a day, you should receive an email stating that you are now part of the Engage VO.
+
+---++ Submit Host
+
+The submit host is the machine managing your jobs. RENCI has a submit node for you to use with all of the client software pre-installed and configured. You could run your own, but until you are more familiar with the tools and how they work together, it is recommended to use RENCI's submit host. The current host is nantahala.renci.org. To get an account on this host, please email rynge@renci.org for instructions.
+The most important step is to set up your environment. In ~/.bash_profile, make sure you have a line reading:
+
+<verbatim>
+. /opt/osg/current/setup.sh
+</verbatim>
+
+If you are csh user, you should have the following in your ~/.cshrc:
+
+<verbatim>
+source /opt/osg/current/setup.csh
+</verbatim>
+
+---++ Initializing a User Proxy
+
+Note that you will have to have your certificate exported as mentioned above, and placed in ~/.globus/ on the submit host. A proxy is a time limited version of your certificate. The proxy is what is actually presented to the remote site during authentication. To create a proxy, use the voms-proxy-init command:
+
+<verbatim>
+[rynge@nantahala ~]$ voms-proxy-init -voms Engage -valid 72:00
+Cannot find file or dir: $prefix/etc/vomses
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Mats Rynge 722233
+Enter GRID pass phrase:
+Creating temporary proxy ...................................... Done
+Contacting  osg-engage.renci.org:15001 [/DC=org/DC=doegrids/OU=Services/CN=osg-engage.renci.org] "Engage" Done
+
+Creating proxy ............................................ Done
+Your proxy is valid until Thu Apr  5 10:29:08 2007
+</verbatim>
+
+Note that you can specify how long the proxy should be valid for. It should be long enough for the job run to finish, but should not be longer than 72 hours. You might see some warnings in the output of voms-proxy-init. Do not worry about them as long as you get a proxy at the end. You can check the proxy with voms-proxy-info:
+
+<verbatim>
+[rynge@nantahala ~]$ voms-proxy-info
+WARNING: Unable to verify signature! Server certificate possibly not installed.
+Error: Cannot find certificate of AC issuer for vo Engage
+subject   : /DC=org/DC=doegrids/OU=People/CN=Mats Rynge 722233/CN=proxy
+issuer    : /DC=org/DC=doegrids/OU=People/CN=Mats Rynge 722233
+identity  : /DC=org/DC=doegrids/OU=People/CN=Mats Rynge 722233
+type      : proxy
+strength  : 512 bits
+path      : /tmp/x509up_u1031
+timeleft  : 23:20:17
+</verbatim>
+
+---++ Submitting a Job
+
+There are serveral tools that you can use to submit jobs, including Condor and Globus. For new users, we recommend using Condor as the primary submission mechanism.
+
+---+++ Condor
+
+Condor includes a match making system, which matches your jobs to compute resources and submits and manages the jobs. You will need to describe the job requirements and behavior in a job description file. Condor will use that information to submit your job to a remote resource, handle simple data transfers, and in case of a problem, move your job to another resource.
+For detailed information about the submit file format, see the Condor documentation (especially the Condor-G section):
+
+[[http://www.cs.wisc.edu/condor/manual/v7.0/5_3Grid_Universe.html ][http://www.cs.wisc.edu/condor/manual/v7.0/5_3Grid_Universe.html ]]
+
+The Engagement VO is providing an example package, which can be downloaded from:
+
+[[http://osg-engage.renci.org/quickstart/generic-job-example.tar.gz][http://osg-engage.renci.org/quickstart/generic-job-example.tar.gz]]
+
+The package contains three scripts:
+
+   * submit &#8211; creates the Condor submit files and a Condor DAG. The DAG is used to control the jobs, and check the stdout/stderr of the run to make sure the application ran successfully. Note that you can not trust the exit code as it sometimes is the exit code from the job scheduling system on the remote system, and not the exit code from your application. The example package is using makeself to create a self-extracting executable for the job.
+   * job-wrapper &#8211; wraps your executable. Tars inputs and outputs, and redirects stdout/stderr.
+   * job-success-check &#8211; Used by the DAG to check stdout/stderr to see if the job was successful. If the job failed, it will get resubmitted.
+
+The Condor submit file created will look something like:
+
+<verbatim>
+universe        = grid
+grid_type       = gt2
+globusscheduler = $$(GlueCEInfoContactString)
+globusrsl       = (maxWallTime=900)
+requirements    = (TARGET.GlueCEInfoContactString =!= UNDEFINED)
+
+# when retrying, remember the last 4 resources tried
+match_list_length = 4
+Rank              = (TARGET.Rank) - ((TARGET.Name =?= LastMatchName0) * 1000) - ((TARGET.Name =?= LastMatchName1) * 1000) - ((TARGET.Name =?= LastMatchName2) * 1000) - ((TARGET.Name =?= LastMatchName3) * 1000)
+
+# make sure the job is being retried and rematched
+periodic_release = (NumGlobusSubmits < 10)
+globusresubmit = (NumSystemHolds >= NumJobMatches)
+rematch = True
+globus_rematch = True
+
+# only allow for the job to be queued for a while, then try to move it
+periodic_hold = ( ((JobStatus==1) && ((CurrentTime - EnteredCurrentStatus) > (4*60*60))) || ((JobStatus==2) && ((CurrentTime - EnteredCurrentStatus) > (5*60*60))) )
+
+# stay in queue on failures
+on_exit_remove = (ExitBySignal == False) && (ExitCode == 0)
+
+executable = /bin/date
+arguments = '-R'
+
+WhenToTransferOutput = ON_EXIT
+TransferExecutable = false
+
+output = job.out
+error = job.err
+log = job.log
+
+notification = NEVER
+
+queue
+</verbatim>
+
+Note:
+Rank and match_list_length together specifies that if the job has to be retried, it should be done on a resource which was not matched against the last 4 tries.
+periodic_hold is an expression which specifies when a job should be put on hold. Once the job is in the held state, it can be released (see periodic_release) and retired on another resource. In the example, we want the job to be held if it has been queued for a long time (JobStatus==1, 4 hours) or the job has been running for an excessive amount of time (JobStatus==2, 5 hours)
+See chapter 7 for information on how to monitor jobs.
+
+---+++ globus-job-run
+
+globus-job-run can be used to run quick jobs on resources, such as staging data. First, find the Globus resource contact by using 'condor_status -l'. You are looking for either JobManager or GlueCEInfoContactString. In the string, replace jobmanager-* with jobmanger-fork. The end result should look like:
+fermigrid1.fnal.gov:2119/jobmanager-fork
+Use that as the first argument to globus-job-run. The second argument is the executable with full path. Example:
+globus-job-run fermigrid1.fnal.gov:2119/jobmanager-fork /bin/date
+Managing Condor Jobs
+Assuming you are using Condor to manage your jobs, there are several commands for you to monitor the jobs.
+
+---+++!! condor_grid_overview
+
+The Engage VO provides a script which will give you a quick overview of jobs in the queue, and available resources. The command is 'condor_grid_overview' and below is an example output.
+
+<verbatim>
+$ condor_grid_overview
+
+ID      Owner      Resource                  Status
+======= ========== ========================= =============
+19364   huxz       FNAL_GPFARM               Running
+19365   huxz       FNAL_GPFARM               Running
+19371   huxz       CIT_CMS_T2                Running
+
+Site                            Jobs  Subm  Pend  Run  Stage
+============================== ===== ===== ===== ===== =====
+CIT_CMS_T2                         1     0     0     1     0
+FNAL_FERMIGRID                     0     0     0     0     0
+FNAL_GPFARM                       21     0     0    21     0      
+Nebraska                          70     0    20    50     0
+TTU-ANTAEUS                       70     0     0    70     0
+
+576 jobs; 475 idle, 96 running, 5 held
+</verbatim>
+
+---+++!! condor_q / condor_status
+condor_q and condor_status give information about jobs and resources respectively. Both accept the -l flag to give a full set of data instead of summaries.
+
+---+++!! condor_rm
+
+To remove Condor jobs from the queue, use condor_rm. It can either be used with a job id (from condor_grid_overview or condor_q):
+
+<verbatim>
+condor_rm 22436
+</verbatim>
+
+or to remove all your jobs:
+
+<verbatim>
+condor_rm -all
+</verbatim> 
+
+---++ Modifying the Example Job to Your Code
+
+This section will help you get introduced to the job wrapper and match making the Engagement VO is using. Please download the example job from:
+
+http://osg-engage.renci.org/quickstart/generic-job-example.tar.gz
+
+---+++!! Adding your code
+
+The easiest way to add your code to the job wrapper is as a statically compiled executable for the x86 platform. Copy the executable to the job example directory, and add a copy line in the 'submit' script to have the executable copied to the job directory (look for the comment in the script reading '# copy inputs and executable'. The submit script will create a self-extractable archive containing the executable and whatever inputs you need, you just have to copy them to the job directory.
+The second thing you will have to do, is change the job-wrapper script to invoke your application. Remove the line with /bin/hostname, and make use the $STARTDIR variable to point to where the application is (as expanded from the self-extractable archive).
+
+---+++!! Inputs
+
+Just like adding your code, make sure needed inputs gets copied to the job directory, and the submit script will handle the staging of the files.
+
+---+++!! Outputs
+
+Outputs are generally sent back as a tar file. See the end of the job-wrapper for what files gets included in that tar file.
+Job Run: set of jobs
+Your application may or may not fit into this model, but many of our users have the concept of grouping jobs together in a run. For example, if you have a parameter sweep which will invoke the same executable 500 times, with 500 different inputs, we call that a run. The submit script has a loop to handle this case (the default is only 2 iterations). If your application fits this model, modify the submit script's loop, and make it fit how you break up your run into jobs.
+
+---+++!! Test Run
+
+To show how the example job works, first make sure you have current proxy:
+voms-proxy-init -voms Engage
+
+Then just run the submit script:
+
+<verbatim>
+./submit
+Generating job 1
+Generating job 2
+</verbatim>
+
+Good. We can check the status of the run with the condor_grid_overview command. You should see one Dagman job and two regular jobs. The Dagman is what manages the other jobs. The jobs will be matched to sites and then run and completed. In the runs/ directory, you will find a timestamped directory for the run. In there you can find log files, and once the jobs complete, the output tarfiles. Note how everything is named after the job id. Once the jobs complete, untar the tar files to get the outputs.
+
+
+
+
+-- Main.MatsRynge - 07 Mar 2008
