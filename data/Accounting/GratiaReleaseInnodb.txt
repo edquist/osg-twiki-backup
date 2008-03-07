@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1204734801" format="1.1" reprev="1.9" version="1.9"}%
+%META:TOPICINFO{author="JohnWeigand" date="1204912766" format="1.1" reprev="1.10" version="1.10"}%
 <!--
 These are general in nature and should be changed in the this template if the location changes:
    * Set CURRENT_TOMCAT = ==gratia09==
@@ -136,39 +136,86 @@ We will perform these upgrades based on the size of the individual database sche
 
 For the _gratia_itb_ and _gratia_ database conversions, a little different approach will be taken.  The _gratia_itb_ will be a practice of the conversion steps necessary for the _gratia_ instance.  The conversion time for the _gratia_ database conversion is unknown and is not expected to scale linearly based on the others instances.  
 
-So the intent is to minimize downtime (availability) of Gratia services.  This is a general outline and the details for each step will be addressed in a subsequent section.  This will also server as a trial/template for future conversions where DB changes may require long conversion times. 
+So, the intent is to minimize downtime (availability) of Gratia services.  This is a general outline and the details for each step will be addressed in a subsequent section.  This will also server as a trial/template for future conversions where DB changes may require long conversion times. 
 <!--
    * Set PROD_VER      = *v0.32*
-   * Set TESTNODE     = *gratiax33*
+   * Set TESTNODE     = *gratiax23*
    * Set PRODNODE     = *gratia09*
    * Set PROD_DB       = *gratia06*
    * Set TEMP_DB       = *gratia07*
-   * Set TC_INSTANCE = *gratia09:/data/tomcat-gratia_itb*
+   * Set PROD_TC       = *gratia09:/data/tomcat-gratia_itb*
+   * Set TEMP_TC       = *gratiax23:VDT_LOCATION/tomcat/v55*
    * Set DB_NAME       = *gratia_itb*
+   * Set JUR               = <nop>JobUsageRecord
+   * Set CONFIG          = *./gratia/service-configuration.properties*
 -->
+
    1 Install the current production version (%PROD_VER%) of Gratia on a test machine (%TESTNODE%)
+      * To avoid complications and additional work, it is best if this is an instance that has *no* probes reporting to it.
+      * We are only using the tomcat web services and will be pointing it to the %PROD_DB% to effect the conversion.
+      * To be safe, turn off the update services: on the gratia-administration screen, 
+         * go to System--&gt;Administration, 
+         * scroll down and click on the _Stop Update Services_ link,
+         * the _Current Status_ should show _Stopped_ 
+      * *Remember* that every time you restart the _tomcat_ service, the Gratia collector comes up in _Update_ mode which *will* cause problems since we are converting the *real* database.  This is why using an instance that is assured of having no probes reporting to it is very important.
+
+   1 We are going to be switching the %PROD_TC% collector/reporter to use the %TEMP_DB% database while the conversion takes place on %PROD_DB%.  So, to effect this, we need to do the following:
+      * Rather than take the %PROD_DB% database off-line to do a backup to %TEMP_DB%, we will use the nightly backup (currently a _mysqlhotcopy_).
+      * On %TEMP_TC%, change the %CONFIG% file entries to use the %TEMP_DB% database
+      <pre>
+service.mysql.url=jdbc:mysql://gratia-db01.fnal.gov:3320/gratia_itb
+service.mysql.user=gratia
+service.mysql.password=proto
+
+service.reporting.user=reader
+service.reporting.password=reader
+</pre>
+      * We now have to "catch up" the %TEMP_DB% database before switching the %PRODNODE% collector  to use it. 
+         * On %TEMP_DB%, find the last _dbid_  for the %JUR% table.
+            <pre>
+select max(dbid) from %JUR%;
++-----------+
+| max(dbid) |
++-----------+
+|   7678751 | 
++-----------+
+</pre>
+         * On %PROD_TC%, add a replication entry pointing 
+
    1 Switch the tomcat instances (%PRODNODE%) using the <nop>MySql %PROD_DB% database to a backup on %TEMP_DB%
+
+
    1 Point the %TESTNODE% instance to the <nop>MySql %PROD_DB% database
+
    1 Effect the conversion of the  %PROD_DB% database using the %TESTNODE% tomcat instance.
+
    1 *Wait until the previous set completes before proceeding.*
-   1 Record the last _dbid_ of the  <nop>JobUsageRecord on the _gratia06_ database.
+
+   1 Record the last _dbid_ of the  %JUR% on the _gratia06_ database.
+
    1 On the %PRODNODE% _tomcat_gratia_ instance:
       * add a replication entry to the %TESTNODE% 
       * start with the _dbid_ from the previous step for the %PROD_DB% database.
+
    1 *Wait for a period*  
       * When both databases are close to being in sync, proceed. 
-   1 On %TC_INSTANCE%:
+
+   1 On %PROD_TC%:
       * Turn off the _update_ services
+
    1 *Wait for a period*
       * When the record count (not _dbid_) of the <nop>JobUsageRecord in both databases are identical, then proceed.
-   1 On %TC_INSTANCE%:
+
+   1 On %PROD_TC%:
       * delete the replication entry to %TESTNODE%
       * stop the tomcat service
       * change the database back to the %PROD_DB% <nop>MySql database
-      * change the hibernate configuration file to Innodb
+      * change the hibernate configuration file to %INNODB%
+
    1 On %TESTNODE% :
       * stop the tomcat service
       * change the database back to the %TESTNODE% <nop>MySql database
+
    1 On %PRODNODE%:
       * Start the %PRODNODE%:tomcat_gratia_ instance
       
