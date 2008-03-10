@@ -1,0 +1,203 @@
+%META:TOPICINFO{author="BrianBockelman" date="1205118731" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+---+ Testing the GIP for Integration.
+
+The GIP is an important information services component.  Without correct information out on the OSG, VOs will make poor decisions on where to send jobs or perhaps try and utilize storage space which is not there.
+
+Therefore, it is not enough to test to make sure that <i>any</i> data is output from the GIP - the data must also be correct!
+
+---++ Install the latest release candidate.
+
+Get the latest release candidate from either the VDT or the developers.  Installing should be a matter of untarring the tarball in the =$VDT_LOCATION= directory.  Alternately, if you only want to try a specific piece, you can untar it in any directory and point the =$GIP_LOCATION= variable to the newly created =gip/= directory.
+
+[[GipInstall][Updated documentation here.]]
+
+---++ Running the GIP
+
+The GIP can be run with the following command line invocation:
+
+<verbatim>
+$VDT_LOCATION/glite/etc/glite-ce-ce-plugin/glite-ce-info $VDT_LOCATION/lcg/etc/osg-info-generic.conf
+</verbatim>
+
+This is exactly the command that CEMon uses to execute the GIP; CEMon takes the stdout from the above command and feeds it to central GOC servers.
+
+The command should output a large amount of LDIF and return with exit code 0.  It should complete in under 60 seconds.
+
+---++ Exporting data to CEMon
+
+The tester should now export the data to the ITB CEMon and ITB BDII instance.
+
+The CEMon developers will provide information on how to do this.
+
+---++ Make sure you have the test programs
+
+If you got the GIP install from the VDT, it does not include the testing programs.  You will need to check them out from SVN:
+
+<verbatim>
+svn co svn://t2.unl.edu/brian/gip/trunk gip_trunk
+</verbatim>
+
+The GIP test programs are now located in =gip_trunk/test/=.
+
+---++ Run the schema check
+
+The schema check was developed on the following OpenLDAP version:
+
+<verbatim>
+bbockelm:~ brian$ ldapsearch -V
+ldapsearch: @(#) $OpenLDAP: ldapsearch 2.3.27 (Oct  4 2007 23:21:32) $
+	(LDAP library: OpenLDAP 20327)
+</verbatim>
+
+This is the default OpenLDAP library which ships with Mac OS X.  Modern Fedora distributions should also carry the same version.
+
+If you are running RHEL, you will need the following packages:
+   * openldap-servers
+   * openldap-clients
+The =schema_check.py= script does not actually run an LDAP server, but needs =slapadd=, which is only distributed with the servers RPM.
+
+Run =schema_check.py=:
+
+<verbatim>
+./gip_trunk/test/schema_check.py
+</verbatim>
+
+By default, this will run a check against all sites in the BDII.  To run against a specific site, just put it as a command argument.  Here is an example running against Nebraska:
+
+<verbatim>
+bbockelm:~ brian$ /Users/brian/projects/gip/trunk/test/schema_check.py Nebraska
+testSchema_Nebraska (__main__.TestSchema) ... FAIL
+
+======================================================================
+FAIL: testSchema_Nebraska (__main__.TestSchema)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/brian/projects/gip/trunk/test/schema_check.py", line 77, in testSchema
+    " for site %s.  Output:\n%s" % (self.site, output))
+AssertionError: slapadd schema check failed for site Nebraska.  Output:
+slapadd: dn="GlueSubClusterUniqueID=thpc computers,GlueClusterUniqueID=red.unl.edu,Mds-Vo-name=local,o=grid" (line=4488): (64) value of naming attribute 'GlueSubClusterUniqueID' is not present in entry
+slapadd: dn="GlueSubClusterUniqueID=Dell Nodes,GlueClusterUniqueID=red.unl.edu,Mds-Vo-name=local,o=grid" (line=4584): (64) value of naming attribute 'GlueSubClusterUniqueID' is not present in entry
+Entry (GlueServiceUniqueID=httpg://srm.unl.edu:8443/srm/managerv2,Mds-Vo-name=local,o=grid,Mds-Vo-name=local,o=grid), attribute 'GlueServiceStatus' cannot have multiple values
+slapadd: dn="GlueServiceUniqueID=httpg://srm.unl.edu:8443/srm/managerv2,Mds-Vo-name=local,o=grid,Mds-Vo-name=local,o=grid" (line=4704): (19) attribute 'GlueServiceStatus' cannot have multiple values
+
+
+----------------------------------------------------------------------
+Ran 1 test in 3.251s
+</verbatim>
+
+Unlike this example, your ITB site must pass the schema check before moving on to the next step.
+
+---++ Run the DN check
+
+---++ Run the SRM check
+
+One of the most important uses of the GIP is to advertise SRM endpoints to the WLCG for FTS transfers.  This is a critical test for CMS.
+
+A SRM storage element might advertise support for one or more SRM endpoints; currently supported SRM versions are 1.1 and 2.2.
+
+Running the srm_check.py for the test site is sufficient.  It should print all the SRM endpoints on stdout and will raise an error if any of them is problematic.  Below is the output of a sample session where Nebraska advertises 3 SRM endpoints where 1 is incorrect:
+
+<verbatim>
+bbockelm:~ brian$ /Users/brian/projects/gip/trunk/test/srm_check.py Nebraska
+testSrmAds_Nebraska (__main__.TestSrmAds) ... GIP.Testing.SRM:DEBUG srm_check:44:  Checking SRM entry:
+Entry: ('GlueServiceUniqueID=httpg://srm.unl.edu:8443/srm/managerv1', 'mds-vo-name=Nebraska', 'mds-vo-name=local', 'o=grid')
+Classes: ('GlueKey', 'GlueSchemaVersion', 'GlueService', 'GlueTop')
+Attributes: 
+ - SchemaVersionMajor: 1
+ - SchemaVersionMinor: 3
+ - ServiceName: httpg://srm.unl.edu:8443/srm/managerv1
+ - ServiceAccessControlRule: VO:ops
+ - ServiceWSDL: http://sdm.lbl.gov/srm-wg/srm.v1.1.wsdl
+ - ServiceOwner: OSG
+ - ServiceAccessPointURL: httpg://srm.unl.edu:8443/srm/managerv1
+ - ServiceSemantics: UNDEFINED
+ - ServiceType: SRM
+ - ForeignKey: GlueSiteUniqueID=red.unl.edu
+ - ServiceUniqueID: httpg://srm.unl.edu:8443/srm/managerv1
+ - ServiceVersion: 1.1
+ - ServiceURI: httpg://srm.unl.edu:8443/srm/managerv1
+ - ServiceStatusInfo: UNKNOWN
+ - ServiceStartTime: 1970-01-01T00:00:00Z
+ - ServiceStatus: Production
+ - ServiceEndpoint: httpg://srm.unl.edu:8443/srm/managerv1
+
+GIP.Testing.SRM:DEBUG srm_check:44:  Checking SRM entry:
+Entry: ('GlueServiceUniqueID=httpg://srm.unl.edu:8443/srm/managerv2', 'mds-vo-name=Nebraska', 'mds-vo-name=local', 'o=grid')
+Classes: ('GlueKey', 'GlueSchemaVersion', 'GlueService', 'GlueTop')
+Attributes: 
+ - SchemaVersionMajor: 1
+ - SchemaVersionMinor: 3
+ - ServiceName: httpg://srm.unl.edu:8443/srm/managerv2
+ - ServiceAccessControlRule: VO:ops
+ - ServiceWSDL: http://sdm.lbl.gov/srm-wg/srm.v2.2.wsdl
+ - ServiceOwner: OSG
+ - ServiceAccessPointURL: httpg://srm.unl.edu:8443/srm/managerv2
+ - ServiceSemantics: UNDEFINED
+ - ServiceType: SRM
+ - ForeignKey: GlueSiteUniqueID=red.unl.edu
+ - ServiceUniqueID: httpg://srm.unl.edu:8443/srm/managerv2
+ - ServiceVersion: 2.2
+ - ServiceURI: httpg://srm.unl.edu:8443/srm/managerv2
+ - ServiceStatusInfo: UNKNOWN
+ - ServiceStartTime: 1970-01-01T00:00:00Z
+ - ServiceStatus: Production
+ - ServiceEndpoint: httpg://srm.unl.edu:8443/srm/managerv2
+
+GIP.Testing.SRM:DEBUG srm_check:44:  Checking SRM entry:
+Entry: ('GlueServiceUniqueID=httpg://srm.unl.edu:8443/srm/managerv2', 'o=grid', 'mds-vo-name=local', 'mds-vo-name=Nebraska', 'mds-vo-name=local', 'o=grid')
+Classes: ('GlueKey', 'GlueSchemaVersion', 'GlueService', 'GlueTop')
+Attributes: 
+ - SchemaVersionMajor: 1
+ - SchemaVersionMinor: 3
+ - ServiceName: srm.unl.edu
+ - ServiceAccessControlRule: atlas
+ - ServiceWSDL: UNDEFINED
+ - ServiceOwner: OSG
+ - ServiceAccessPointURL: httpg://srm.unl.edu:8443/srm/managerv2
+ - ServiceSemantics: UNDEFINED
+ - ServiceType: srm_v2
+ - ForeignKey: GlueSiteUniqueID=
+ - ServiceUniqueID: httpg://srm.unl.edu:8443/srm/managerv2
+ - ServiceVersion: 2
+ - ServiceURI: httpg://srm.unl.edu:8443/srm/managerv2
+ - ServiceStatusInfo: not tested
+ - ServiceStartTime: 1970-01-01T00:00:00Z
+ - ServiceStatus: OK
+ - ServiceEndpoint: httpg://srm.unl.edu:8443/srm/managerv2
+
+FAIL
+
+======================================================================
+FAIL: testSrmAds_Nebraska (__main__.TestSrmAds)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/brian/projects/gip/trunk/test/srm_check.py", line 46, in testSrmAds
+    msg="ServiceType must be equal to 'SRM'")
+AssertionError: ServiceType must be equal to 'SRM'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.921s
+
+FAILED (failures=1)
+</verbatim>
+
+In addition to passing the srm_check, you must check to make sure that the endpoints show up in =glite_sd_query=; if you do not have access to a gLite UI, ask one of the CMS sites to test it for you.
+
+*It is ultimately the tester's responsibility to make sure that =glite_sd_query= is run, even if it is run at another site.*
+
+---++ Check for batch system correctness.
+
+---+++ Condor
+
+---+++ PBS
+
+---+++ SGE
+
+---+++ LSF
+
+---+ Release checklist
+
+Please fill in the following release checklist and post any problems on a twiki page and feed it back to the developers.  All entries must be checked off prior to releasing the GIP.
+
+-- Main.BrianBockelman - 10 Mar 2008
