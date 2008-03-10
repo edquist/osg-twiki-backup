@@ -1,0 +1,138 @@
+%META:TOPICINFO{author="JohnWeigand" date="1205165773" format="1.1" reprev="1.1" version="1.1"}%
+
+---+!! Gratia Upgrade Procedure
+
+%TOC%
+
+%STARTINCLUDE%
+<!--
+   * Set EDITTHISTEXT = <div class="twikiSmall"><a href="%TOPIC%">edit this section</a></div>
+
+   * Set PROD_VER      = <b>v0.32</b>
+
+   * Set PROD_NODE    = <b>gratia09</b>
+   * Set PROD_DB       = <b>gratia06</b>
+   * Set PROD_TC       = <b>%PROD_NODE%:/data/tomcat-itb</b>
+
+   * Set TEMP_NODE    = <b>gratiax23</b>
+   * Set TEMP_DB       = <b>gratia07</b>
+   * Set TEMP_TC       = <b>%TEMP_NODE%:VDT_LOCATION/tomcat/v55</b>
+   * Set TEMP_URL      = http://gratiax23.fnal.gov:8880/gratia-administration
+
+   * Set DB_NAME       = <b>gratia_itb</b>
+
+   * Set JUR               = <nop>JobUsageRecord
+   * Set CONFIG          = <b>./gratia/service-configuration.properties</b>
+-->
+
+---++ Gratia Upgrade Procedure
+%EDITTHISTEXT%
+
+The intent is to minimize downtime (availability) of Gratia services.  This is a general outline and the details for each step will be addressed in a subsequent section.  This will also serve as a trial/template for future conversions where DB changes may require long conversion times. 
+
+
+   1 Install the current production version (%PROD_VER%) of Gratia on a test machine (%TEMP_NODE%)
+      * To avoid complications and additional work, it is best if this is an instance that has *no* probes reporting to it.
+      * We are only using the tomcat web services and will be pointing it to the %PROD_DB% to effect the conversion.
+      * To be safe, turn off the update services: on the gratia-administration screen, 
+         * go to System--&gt;Administration, 
+         * scroll down and click on the _Stop Update Services_ link,
+         * the _Current Status_ should show _Stopped_ 
+      * *Remember* that every time you restart the _tomcat_ service, the Gratia collector comes up in _Update_ mode which *will* cause problems since we are converting the *real* database.  This is why using an instance that is assured of having no probes reporting to it is very important.
+
+   1 We are going to be switching the %PROD_TC% collector/reporter to use the %TEMP_DB% database while the conversion takes place on %PROD_DB%.  So, to effect this, we need to do the following:
+      * Rather than take the %PROD_DB% database off-line to do a backup to %TEMP_DB%, we will use the nightly backup (currently a _mysqlhotcopy_).
+      * On %TEMP_DB%:
+         * The night before, remove all files under the <b>/data/mysqldb/%DB_NAME%</b> directory and set the ownership on the directory to *gratia.mysql*.
+         * On the day of cutover, verify the ownership on the <b>/data/mysqldb/%DB_NAME%</b> directory and the ownership on the directory are *gratia.mysql*.  They will likely have been reset from the nightly backup.
+         * If replication is in use, we need to turn it off temporarily and also be in a position to turn it back on once we have converted to using the
+            %TEMP_DB% database:
+            <pre>
+<b>... this creates a file to be used when turning Replication back on .... </b>
+select "update Replication set running=1 where replicationid=",replicationid,";" 
+from Replication where running=1 into outfile '/tmp/jgw.sql';
+<b>... be sure that the <i>outfile</i> does not already exist or it will fail</b>
+
+<b>... then turn replication off for those ids</b>
+update Replication set running=0 where running=1;
+
+</pre>
+      * On %TEMP_TC%:
+         * change the %CONFIG% file entries to use the %TEMP_DB% database
+         <pre>
+service.mysql.url=jdbc:mysql://%TEMP_DB%.fnal.gov:<b>3320</b>/%DB_NAME%
+<b>... use the values from the %PROD_TC% instance....</b>
+service.mysql.user=<b>xxxxx</b>
+service.mysql.password=<b>xxxxx</b>
+service.reporting.user=<b>xxxxx</b>
+service.reporting.password=<b>xxxxx</b>
+</pre>
+         * Restart the tomcat service
+         <pre>
+service tomcat-55 stop
+service tomcat-55 start
+</pre>
+      * Verify you are connected correctly by bringing up the administration page%BR% - %TEMP_URL%
+      * We now have to "catch up" the %TEMP_DB% database before switching the %PROD_NODE% collector  to use it. 
+         * On %TEMP_DB%, find the last _dbid_  for the %JUR% table.
+            <pre>
+select max(dbid) from %JUR%;
++-----------+
+| max(dbid) |
++-----------+
+|   7766634 | 
++-----------+
+</pre>
+         * On %PROD_TC%, add a replication entry pointing 
+
+   1 Switch the tomcat instances (%PROD_NODE%) using the <nop>MySql %PROD_DB% database to a backup on %TEMP_DB%
+
+
+   1 Point the %TEMP_NODE% instance to the <nop>MySql %PROD_DB% database
+
+   1 Effect the conversion of the  %PROD_DB% database using the %TEMP_NODE% tomcat instance.
+
+   1 *Wait until the previous set completes before proceeding.*
+
+   1 Record the last _dbid_ of the  %JUR% on the _gratia06_ database.
+
+   1 On the %PROD_NODE% _tomcat_gratia_ instance:
+      * add a replication entry to the %TEMP_NODE% 
+      * start with the _dbid_ from the previous step for the %PROD_DB% database.
+
+   1 *Wait for a period*  
+      * When both databases are close to being in sync, proceed. 
+
+   1 On %PROD_TC%:
+      * Turn off the _update_ services
+
+   1 *Wait for a period*
+      * When the record count (not _dbid_) of the <nop>JobUsageRecord in both databases are identical, then proceed.
+
+   1 On %PROD_TC%:
+      * delete the replication entry to %TEMP_NODE%
+      * stop the tomcat service
+      * change the database back to the %PROD_DB% <nop>MySql database
+      * change the hibernate configuration file to %INNODB%
+
+   1 On %TEMP_NODE% :
+      * stop the tomcat service
+      * change the database back to the %TEMP_NODE% <nop>MySql database
+
+   1 On %PROD_NODE%:
+      * Start the %PROD_NODE%:tomcat_gratia_ instance
+      
+
+<hr width=95% />
+
+
+
+
+
+%STOPINCLUDE%
+
+<!-- MAJOR UPDATES
+For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
+---++!! Major updates
+<!--Future editors should add their signatures beneath yours!-->
+-- Main.JohnWeigand - 10 Mar 2008
