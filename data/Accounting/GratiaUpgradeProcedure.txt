@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1205526698" format="1.1" version="1.8"}%
+%META:TOPICINFO{author="JohnWeigand" date="1206124010" format="1.1" reprev="1.9" version="1.9"}%
 ---+!! Gratia Upgrade Procedure
 
 %TOC%
@@ -69,10 +69,10 @@ service mysql5 stop
 <pre>
 GRANT ALL ON *.* TO 'root'@'&lt;your collector ip address&gt;  identified by 'root password';
 GRANT GRANT OPTION ON *.* TO 'root'@'&lt;your collector ip address&gt; 
-<b>...note you can the IP address by executing...
+<b>...note you can find the IP address by executing...
    host %TEMP_NODE%.fnal.gov</b>
 </pre>
-            Also verify that the %PROD_NODE% has the same root permisions for it's specific IP address.  If it doesn't, set them as above.
+            Also verify that the %PROD_DB% has the same root permissions for it's specific IP address.  If it doesn't, set them as above.
 
          <li> On the day of cutover, verify the ownership on the <b>/data/mysqldb/%DB_NAME%</b> directory and the ownership on the table files are *gratia.mysql*.  They will likely have been reset from the nightly backup.
 
@@ -136,16 +136,19 @@ INFO: Server startup in 14307 ms
          <li>A couple of things to look for in the logs (other than obvious stacktrace errors) is any failures in updating the triggers, procedures, summary tables, or summary views:
 <pre>
  grep -i fail ./logs/*  
-   * grep 
-grep "Summary trigger updated successfully"
-grep "Stored procedures updated successfully"
-grep "Summary tables updated successfully"
-grep "Summary view updated successfully"
-grep "Table statistics updated successfully"
+
+grep "Summary trigger updated successfully" *
+grep "Stored procedures updated successfully" *
+grep "Summary tables updated successfully" *
+grep "Summary view updated successfully" *
+grep "Table statistics updated successfully" *
 </pre>
+           Another item to look for to verify you have connected to the right database would be to re-query the _SystemProplist_ table on %TEMP_DB%, checking
+that the _cdr_ value changed on those set to 0.
+<pre>select * from SystemProplist;</pre>
          </ul>
 
-      <li> Verify you are connected correctly by bringing up the administration page%BR% - %TEMP_URL%/gratia-administration
+      <li> Verify you are connected correctly by bringing up the administration (%TEMP_URL%/gratia-administration) page in your browser.  The counts shown and those on the %PROD_URL%/gratia-administration page should be reasonably close with the only difference being the data collected since the _mysqlhotcopy_ was performed.
 
 
       <li>We need to create the static report files
@@ -161,13 +164,16 @@ grep "Table statistics updated successfully"
           <li>Click on the _Static Reports_ menu item and then verify each report comes up.
           </ul>
       </ol>
+</ol>
 
 
-   <li> We now have to "catch up" the %TEMP_DB% database before switching the %PROD_NODE% collector  to use it. 
-         <ol type="a">
-         <li> On %TEMP_DB%, find the last _dbid_  for the %JUR% table.
+
+---+++ Bring the %TEMP_DB% into sync with the %PROD_DB%
+We now have to "catch up" the %TEMP_DB% database before switching the %PROD_NODE% collector  to use it. 
+<ol>
+    <li> On %TEMP_DB%, find the last _dbid_  for the %JUR% table.
 <!--
-   * Set MAXDBID = 7901442
+   * Set MAXDBID = 8049804
 -->
 <pre>
 select max(dbid) from %JUR%;
@@ -178,57 +184,91 @@ select max(dbid) from %JUR%;
 +-----------+
 </pre>
 
-         <li> On %PROD_URL%/gratia-administration, add a replication entry pointing to %TEMP_NODE% and starting with the _dbid_ from the previous step _+1_.  Be sure to test it..*Do not activate it yet.*
+    <li> On %PROD_URL%/gratia-administration, add a replication entry pointing to %TEMP_URL% and starting with the _dbid_ from the previous step _+1_.  Be sure to test it..*Do not activate it yet.*
 
-         <li>In the %PROD_DB% %DB_NAME% database, set the _dbid_ in the _Replication_ table to the %MAXDBID%.
+    <li>In the %PROD_DB% %DB_NAME% database, set the _dbid_ in the _Replication_ table to the %MAXDBID%.
 <pre>
 select * from Replication where openconnection like '%%TEMP_NODE%%';
 update Replication set dbid=%MAXDBID%  where openconnection like '%%TEMP_NODE%%';
 </pre>
 
-         <li> Now back on the %PROD_URL%/gratia-administration replication screen, refresh the screen ans verify the _dbid_ value.
+    <li> Now back on the %PROD_URL%/gratia-administration replication screen, refresh the screen and verify the _dbid_ value.
 
-         <li> If all is well, click the _Start_ button.  Then watch for a while in the %TEMP_TC% logs files for any errors.  You can also watch on the %TEMP_URL%/gratia-administration _Status_ screen.
+    <li> If all is well, click the _Start_ button.  Then watch for a while in the %TEMP_TC% logs files for any errors.  You can also watch on the %TEMP_URL%/gratia-administration _Status_ screen.
 
-         <li> *WAIT UNTIL* the _All Time Total_ numbers are equal for both %PROD_URL% and %TEMP_URL%. Then we are caught up and can proceed.
+    <li> On %PROD_URL%/gratia-administration, go to the _System --&gt; Administration_ page and then to _Starting/Stopping Database Update Services_  section and select the _Stop Update Services_ link.    This will queue any updates and allow the two instances to sink without losing any data.
 
-         <li> On the %PROD_URL%/gratia-administration replication screen, _Stop_ the replication for %TEMP_URL%.  We do not want to delete this entry at this time, as we will be using it to catch up the converted %PROD_DB% database when the conversion in complete.
-      </ol>
+    <li> *WAIT UNTIL* the _All Time Total_ numbers are equal for both %PROD_URL% and %TEMP_URL%. Then we are caught up and can proceed.
+
+    <li> On the %PROD_URL%/gratia-administration replication screen, *Stop* the replication for %TEMP_URL%.  
+
+    <li> On the %PROD_URL%/gratia-administration replication screen, *Delete* the replication for %TEMP_URL%.
+
+   <li>On %TEMP_NODE%, stop the tomcat service.  This positions us to switch the %PROD_TC% tomcat service to using the %TEMP_DB% database.
+        <pre>service %TEMP_TC_SERVICE% stop</pre>
 </ol>
+
+
+
 
 ---+++ Switch the %PROD_NODE% tomcat to use the %TEMP_DB% database
-<ol>
+On %PROD_NODE%, switch the  tomcat instance using the %PROD_DB% database to the backup on %TEMP_DB%. The %TEMP_DB% database will be used for for production until the conversion is complete on %PROD_DB%.
 
-   <li> Switch the tomcat instances (%PROD_NODE%) using the %PROD_DB% database to the backup on %TEMP_DB%. The %TEMP_DB% database will be used for for production until the conversion is complete on %PROD_DB%.
+This will be the first _downtime_ period for the %DB_NAME% Gratia service.
 
+<ol><li>Stop the %PROD_TC_SERVICE%
+           <pre>service %PROD_TC_SERVICE% stop</pre>
+          
+      <li>Edit the _%PROD_TC%/gratia/service-configuration.properties_ file changing the _service.mysql.url_ attribute to reference the _%TEMP_DB%_ database.
+            <pre>service.mysql.url=jdbc:mysql://%TEMP_DB%.fnal.gov:3320/%DB_NAME% </pre>
 
-   <li> Point the %TEMP_NODE% instance to the <nop>MySql %PROD_DB% database
+   <li>Start the %PROD_TC_SERVICE%
+           <pre>service %PROD_TC_SERVICE% service</pre>
+        It would probably be a good idea to _tail_ the log files for a period to verify all is well.
 
 </ol>
+
+
+
+
+
+
 
 ---+++ Effect the conversion using %TEMP_NODE% tomcat and %PROD_DB% database
 
 <ol>
-   <li> On the %TEMP_NODE% tomcat instance, stop the tomcat service:
+   <li> On %TEMP_NODE%, the tomcat instance should have already been stopped.  If not, do it *quickly*.
 <pre>
 service %TEMP_TC_SERVICE% stop
 </pre>
 
-  <li>Edit the %TEMP_TC%/hibernate.cfg.xml file changing:
+  <li> On %TEMP_NODE%, edit the _%TEMP_TC%/gratia/service-configuration.properties_ file changing the _service.mysql.url_ attribute to reference the _%PROD_DB%_ database.
+            <pre>service.mysql.url=jdbc:mysql://%PROD_DB%.fnal.gov:3320/%DB_NAME% </pre>
+       *It is very important that this step be performed or the result will most likely be a mess.*
+
+  <li> On %TEMP_NODE%, edit the %TEMP_TC%/gratia/hibernate.cfg.xml file changing:
 <pre>
          &lt;!-- SQL dialect --&gt;
 <b>from.</b> &lt;property name="dialect"&gt;org.hibernate.dialect.MySQLDialect&lt;/property&gt;
 <b>to..</b> &lt;property name="dialect"&gt;org.hibernate.dialect.MySQLInnoDBDialect&lt;/property&gt;
 </pre>
 
-  <li>Start the gratia tomcat services:
+     <li> On %PROD_DB%, verify/set the users and privileges so the %TEMP_NODE% has permissions to update the stored procedures:
+<pre>
+GRANT ALL ON *.* TO 'root'@'&lt;your collector ip address&gt;  identified by 'root password';
+GRANT GRANT OPTION ON *.* TO 'root'@'&lt;your collector ip address&gt; 
+<b>...note you can find the IP address by executing...
+   host %TEMP_NODE%.fnal.gov</b>
+</pre>
+
+  <li> On %TEMP_NODE%, start the gratia tomcat services:
 <pre>
 service %TEMP_TC_SERVICE% start
 </pre>
 
-  <li> When the tomcat service initializes, it will detect any schema changes have been effected and a conversion process will begin. 
+  <li> On %TEMP_NODE%, when the tomcat service initializes, it will detect any schema changes have been effected and a conversion process will begin. 
      <ol type="a">
-        <li> _tail_ the  _catalina.out_ log. 
+        <li> _tail_ the  _catalina.out_ log  
         <li>When the conversion process completes the log will show the following message:
 <pre>INFO: Server startup in _xxx_ms</pre>
       </ol>
@@ -237,35 +277,85 @@ service %TEMP_TC_SERVICE% start
 
 </ol>
 
+
+---+++ Bring the %PROD_DB% into sync with the %TEMP_DB%
+Before we switch the %PROD_NODE% tomcat service back to using the %PROD_DB%, we have to do a "catch up" on the data the %TEMP_DB% has been collecting while the conversion was being performed.
+
+<ol>
+         <li> On %PROD_DB%, find the last _dbid_  for the %JUR% table.
+<!--
+   * Set NEW_MAXDBID = 8054381
+-->
+<pre>
+select max(dbid) from %JUR%;
++-----------+
+| max(dbid) |
++-----------+
+|   %NEW_MAXDBID% | 
++-----------+
+</pre>
+
+    <li> On %PROD_URL%/gratia-administration, add a replication entry pointing to %TEMP_URL% and starting with the _dbid_ from the previous step _+1_.  Be sure to test it..*Do not activate it yet.*
+
+    <li>On %TEMP_DB% in the %DB_NAME% database, set the _dbid_ in the _Replication_ table to the %NEW_MAXDBID%.
+<pre>
+select * from Replication where openconnection = '%TEMP_URL%';
+update Replication set dbid=%NEW_MAXDBID%  where openconnection = '%TEMP_URL%';
+</pre>
+
+    <li> Now back on the %PROD_URL%/gratia-administration replication screen, refresh the screen and verify the _dbid_ value.
+
+    <li> If all is well, click the _Start_ button.  Then watch for a while in the %TEMP_TC% logs files for any errors.  You can also watch on the %TEMP_URL%/gratia-administration _Status_ screen.
+
+    <li> On %PROD_URL%/gratia-administration, go to the _System --&gt; Administration_ page and then to _Starting/Stopping Database Update Services_  section and select the _Stop Update Services_ link.    This will queue any updates and allow the two instances to sink without losing any data.
+
+    <li> *WAIT UNTIL* the _All Time Total_ numbers are equal for both %PROD_URL% and %TEMP_URL%. Then we are caught up and can proceed.
+
+     <li> On the %PROD_URL%/gratia-administration replication screen, *Stop* the replication for %TEMP_URL%.  
+
+    <li> On the %PROD_URL%/gratia-administration replication screen, *Delete* the replication for %TEMP_URL%.
+
+    <li>On %TEMP_NODE%, stop the tomcat service.  This positions us to switch the %PROD_TC% tomcat service to using the %PROD_DB% database.
+        <pre>service %TEMP_TC_SERVICE% stop</pre>
+</ol>
+
+
+
+
+
 ---+++ Switch %PROD_NODE% tomcat back to the %PROD_DB% database
 <ol>
-   <li> Record the last _dbid_ of the  %JUR% on the %PROD_DB% database.
+   <li> On %PROD_NODE%, stop the tomcat service for %DB_NAME%.
+<pre>
+service %PROD_TC_SERVICE% stop
+</pre>
 
-   <li> On the %PROD_TC_URL/gratia-administration instance:
-      * add a replication entry to the %TEMP_URL% 
-      * start with the _dbid_ from the previous step for the %PROD_DB% database.
+  <li> On %PROD_NODE%, edit the _%PROD_TC%/gratia/service-configuration.properties_ file changing the _service.mysql.url_ attribute to reference the _%PROD_DB%_ database.
+            <pre>service.mysql.url=jdbc:mysql://%PROD_DB%.fnal.gov:3320/%DB_NAME% </pre>
+       *It is very important that this step be performed or the result will most likely be a mess.*
 
-   <li> *Wait for a period*  
-      * When both databases are close to being in sync, proceed. 
+  <li> On %PROD_NODE%, edit the %PROD_TC%/gratia/hibernate.cfg.xml file changing:
+<pre>
+         &lt;!-- SQL dialect --&gt;
+<b>from.</b> &lt;property name="dialect"&gt;org.hibernate.dialect.MySQLDialect&lt;/property&gt;
+<b>to..</b> &lt;property name="dialect"&gt;org.hibernate.dialect.MySQLInnoDBDialect&lt;/property&gt;
+</pre>
 
-   <li> On %PROD_TC%:
-      * Turn off the _update_ services
 
-   <li> *Wait for a period*
-      * When the record count (not _dbid_) of the <nop>JobUsageRecord in both databases are identical, then proceed.
+  <li> On %PROD_NODE%, start the gratia tomcat services:
+<pre>
+service %PROD_TC_SERVICE% start
+</pre>
 
-   <li> On %PROD_TC%:
-      * delete the replication entry to %TEMP_NODE%
-      * stop the tomcat service
-      * change the database back to the %PROD_DB% <nop>MySql database
-      * change the hibernate configuration file to %INNODB%
+  <li> On %PROD_NODE%, when the tomcat service initializes, it will detect any schema changes have been effected and a conversion process will begin. 
+     <ol type="a">
+        <li> _tail_ the  _catalina.out_ log  
+        <li>When the conversion process completes the log will show the following message:
+<pre>INFO: Server startup in _xxx_ms</pre>
+      </ol>
 
-   <li> On %TEMP_NODE% :
-      * stop the tomcat service
-      * change the database back to the %TEMP_NODE% <nop>MySql database
+   <li> *WE ARE DONE  AND CAN BREATH AGAIN!!!!*
 
-   <li> On %PROD_NODE%:
-      * Start the %PROD_NODE%:tomcat_gratia_ instance
 </ol>
 
 
