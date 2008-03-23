@@ -1,0 +1,75 @@
+%META:TOPICINFO{author="PhilippeCanal" date="1206270764" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+---++Probe Black-out detection issues
+
+Currently the probe are sending a message each time they run, whether or not they have data to send.   So we are able to tell the last time we were connected by the probe.
+
+When the probe connects again after a down-time, it is supposed to upload all the back log of data.
+
+So we do _not_ know in this mechanism if the probe has missed any information.
+
+How could we tell that are we missing information.  What is missing information?
+
+A priori missing information is "the number of jobs we should have reported about but do not know anything about".
+
+One difficulty is that the same batch system might be used for local and Grid submission.   In this case, it will be normal for a fraction of the batch jobs to not be reported about and the missing information is only the number of 'Grid' job that we are missing information about.
+
+In order to do so, we need to know:
+   a. a way to uniquely indentify a (range) of jobs
+   a. the range of jobs that are missing
+   a. which of those jobs were Grid jobs.
+   a. which of those jobs were canceled/annuled/retracted/invalid.
+and
+
+   e. the information that give b) and c) needs to be insufficient to actually report about the job! [Otherwise we ought to simply report the job]
+
+One additional difficulty for a) is that we are reporting about job that ended while the jobid is usually assigned in increasing number at the time the jobs start (in other words if we know about job #123 but do not know about #115 then we still don't know whether we  are missing information about #115).
+
+One could imagine that the probe would query the batch system for the list of active jobs but in addition the probe would have to know about the jobs that just finished and that it has not processed yet. 
+
+Example assuming all jobs are grid jobs:
+
+Probe is processing #72 as a final job for this round.  #67,#75 are the nexts to be processed (but in the next round).
+Probe ask list of active jobs (get #68,#69,#71,#74)
+
+So one way to handle it would to mark #67 and #70 as not being reported about/missing.  In subsequent run, we would see #67 and unmark it.
+
+So this requires to keep a list of missing jobids/unique identifiers.   A priori we only need to keep this list for one or 2 round(s), since the false missing jobs would only be the only that should be processe by the next round.  In addition, we can consider as lost any jobs whose id is less than the lowest running jobid at the time of the _previous_ round (because any job with a lower id would either have been before or after the previous round started and before the measurement (lowest running jobid) was taken.
+
+With the scheme we now know the list of jobs we are either missign or are local or have been canceled/annuled/retracted/invalid.
+
+Who shoud be doing the detecting?
+The collector does know the list of jobs that have been reported about and can keep track of the last 2 minimum jobid of running for each job.  However it can not (can it) talk to the batah system (to differentiate canceled and local and grid jobs)
+
+The probe would have to keep a state (and they do have a tendency to lose this state during re-installation).  In normal operation, the probe would need to keep:
+  - min running jobid at previous run
+  - max jobid vetted (which is min running job at previous previous run)
+  - list of finished job jobid since maxjobid vetted.
+So What happens if the state is lost?
+ 1st run record the (min running job id)
+ 2nd run, normally all jobs not reported about between (max job vetted) and (min running job id) are lost.  However we do not have (max job vetted) hence would need to assume (0) and report most jobs lost .... OR we could assume no job were lost (i.e. set (max job vetted)=(min runnning job id) and record the new min (running job id)
+However this is obviously wrong/useless since a state loss may actually occur in the case of reporting failure!
+
+Conclusion, the (min running jobid) and (max jobid vetted) must be recorded in the DB and the probe needs to be able to retrieve them.
+Upon receiving the list of missing jobid the collector must also vet them against the list of known records.
+
+Question: What time period does the missing jobid belongs too?
+
+Question: What if we get the information very late (retrieve, long job that was not returned in the list of running jobs? [I.e. does the collector keep a list of missing jobid or a count of missing jobs]
+
+Question: Can we have a unique job identifier for glexec?  Can we detect/know anything about glexec?
+
+Question: What do we need to tell a missing job is a Grid job?
+
+Question: How can we tell if a job has been canceled/annuled/retracted/invalid?
+
+Question: Can the collector talk to the Batch system?
+[Probably not]
+
+Question: the probe information is __not__ uploaded to the next collector, or is it?
+
+
+
+
+
+-- Main.PhilippeCanal - 23 Mar 2008
