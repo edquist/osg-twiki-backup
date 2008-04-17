@@ -1,0 +1,161 @@
+%META:TOPICINFO{author="BrianBockelman" date="1208390600" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+
+---+ Information for the Site Admin
+
+The GIP is a modular approach to advertising information about your cluster.  The schema used by the GIP is called GLUE; the current version of GLUE is v1.3. A full explanation of the GLUE [[https://forge.cnaf.infn.it/plugins/scmsvn/viewcvs.php/v_1_3/spec/pdf/GLUESchema.pdf?root=glueschema&view=log][is available here]].  The logical organization of the GIP data is (in the schema, all of the entities below are prefixed with =GLUE=:
+
+   * [[GlueSite][Site]]
+      * [[GlueCluster][Cluster]] (1 or more)
+         * [[GlueSubcluster][Subcluster]] (1 or more)
+            * Software installation (0 or more)
+         * [[GlueCE][Compute Element]] (CE) (1 or more)
+            * VO View (1 per VO)
+      * Storage Element (SE) (1 or more)
+         * Storage Area (1 or more)
+            * VO View (1 per VO)
+         * Control Protocols
+         * Access Protocols
+      * CE-SE binding
+
+The above entities are expressed through LDIF format.  An LDIF entry has two parts: the distinguished name, and a set of key-value pairs.  Here is an example VOView for a Nebraska Compute Element:
+
+<verbatim>
+dn: GlueVOViewLocalID=mis,GlueCEUniqueID=red.unl.edu:2119/jobmanager-pbs-workq,mds-vo-name=Nebraska,o=grid
+objectClass: GlueCETop
+objectClass: GlueVOView
+objectClass: GlueCEInfo
+objectClass: GlueCEState
+objectClass: GlueCEAccessControlBase
+objectClass: GlueCEPolicy
+objectClass: GlueKey
+objectClass: GlueSchemaVersion
+GlueVOViewLocalID: mis
+GlueCEAccessControlBaseRule: VO:mis
+GlueCEStateRunningJobs: 0
+GlueCEStateWaitingJobs: 0
+GlueCEStateTotalJobs: 0
+GlueCEStateFreeJobSlots: 0
+GlueCEStateEstimatedResponseTime: 0
+GlueCEStateWorstResponseTime: 0
+GlueCEInfoDefaultSE: T2_Nebraska_Storage
+GlueCEInfoApplicationDir: /opt/osg/app
+GlueCEInfoDataDir: /opt/osg/data
+GlueChunkKey: GlueCEUniqueID=red.unl.edu:2119/jobmanager-pbs-workq
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 3
+</verbatim>
+
+All GLUE entries will have multiple =objectClass= entries, =GlueSchemaVersionMajor=, and =GlueSchemaVersionMinor=.
+
+---+ Modules
+
+The modularity of the GIP is a powerful tool that should help very complex site configurations.  There are two types of modules:
+   * Plugins - These modules take pre-existing LDIF entries and alter them.
+   * Providers - These modules add new LDIF entries to the GIP.
+
+---++ Creating your own modules
+
+A module is simply an executable script (taking no command-line arguments) which communicates information to the GIP using stdout.  Any information written to stderr is ignored.
+
+Place your executable script in
+   * Plugins: =$GIP_LOCATION/plugins=
+   * Providers: =$GIP_LOCATION/providers=
+
+---++ Caching policies
+
+When a user requests data from the GIP, each module is not run every time.  Rather, there is a caching policy controlled by the config file =$GIP_LOCATION/gip/etc/osg-info-generic.conf=.  The relevant values are:
+   * freshness: If the cached output from the module is more than $freshness seconds, then the module will be executed in this run of the GIP.
+   * cache_ttl: Any cached output older than $cache_ttl seconds is ignored.
+   * response: Any module taking more than $response seconds (and less than $timeout seconds) to exit will have its output cached, but the output will not be used in this run of the GIP.
+   * timeout: If any individual module takes more than $timeout seconds to exit, then the process is killed and its output discarded.
+
+---++ Plugins
+
+For each LDIF entry printed to the stdout of a plugin, the GIP attempts to match the DN of the output to the DN of the static entry.  Once the GIP finds the static entry, the GIP replaces the static entry's "key: value" pairs with the "key: value" pairs from the module.
+
+An example will be helpful.  Suppose we have the following entry in the static information:
+
+<verbatim>
+dn: GlueSubClusterUniqueID=red.unl.edu,GlueClusterUniqueID=red.unl.edu,mds-vo-name=Nebraska,o=grid
+objectClass: GlueClusterTop
+objectClass: GlueSubCluster
+objectClass: GlueSchemaVersion
+objectClass: GlueHostApplicationSoftware
+objectClass: GlueHostArchitecture
+objectClass: GlueHostBenchmark
+objectClass: GlueHostMainMemory
+objectClass: GlueHostNetworkAdapter
+objectClass: GlueHostOperatingSystem
+objectClass: GlueHostProcessor
+objectClass: GlueInformationService
+objectClass: GlueKey
+GlueChunkKey: GlueClusterUniqueID=red.unl.edu
+GlueHostBenchmarkSI00: 400
+GlueHostMainMemoryRAMSize: 4000
+GlueHostMainMemoryVirtualSize: 4000
+GlueHostNetworkAdapterInboundIP: FALSE
+GlueHostNetworkAdapterOutboundIP: TRUE
+GlueHostOperatingSystemName: CentOS
+GlueSubClusterName: red.unl.edu
+GlueSubClusterUniqueID: red.unl.edu
+GlueSubClusterLogicalCPUs: 240
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 3
+</verbatim>
+
+Suppose that the module prints this to the stdout:
+
+<verbatim>
+dn: GlueSubClusterUniqueID=red.unl.edu,GlueClusterUniqueID=red.unl.edu,mds-vo-name=Nebraska,o=grid
+GlueHostNetworkAdapterInboundIP: TRUE
+</verbatim>
+
+Then, after the module is run, the subcluster entry will be:
+
+<verbatim>
+dn: GlueSubClusterUniqueID=red.unl.edu,GlueClusterUniqueID=red.unl.edu,mds-vo-name=Nebraska,o=grid
+objectClass: GlueClusterTop
+objectClass: GlueSubCluster
+objectClass: GlueSchemaVersion
+objectClass: GlueHostApplicationSoftware
+objectClass: GlueHostArchitecture
+objectClass: GlueHostBenchmark
+objectClass: GlueHostMainMemory
+objectClass: GlueHostNetworkAdapter
+objectClass: GlueHostOperatingSystem
+objectClass: GlueHostProcessor
+objectClass: GlueInformationService
+objectClass: GlueKey
+GlueChunkKey: GlueClusterUniqueID=red.unl.edu
+GlueHostBenchmarkSI00: 400
+GlueHostMainMemoryRAMSize: 4000
+GlueHostMainMemoryVirtualSize: 4000
+GlueHostNetworkAdapterInboundIP: TRUE
+GlueHostNetworkAdapterOutboundIP: TRUE
+GlueHostOperatingSystemName: CentOS
+GlueSubClusterName: red.unl.edu
+GlueSubClusterUniqueID: red.unl.edu
+GlueSubClusterLogicalCPUs: 240
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 3
+</verbatim>
+
+(note that the =GlueHostNetworkAdapterInboundIP= entry has changed).
+
+---++ Providers
+
+A provider adds a new LDIF entry to the GIP.  Usually, providers are not implemented by sites.  If you do implement your own provider, output full LDIF entries.  Take care to
+   * Make sure you don't repeat a pre-existing entry in the provider LDIF.
+   * Make sure your entry implements the schema properly.  Use the schema checker if you are unsure about your LDIF.
+
+---+ The GIP configuration files.
+
+The GIP has three configuration files:
+   * =$VDT_LOCATION/monitoring/osg-attributes.conf=
+   * =$VDT_LOCATION/monitoring/gip-attributes.conf=
+   * =$GIP_LOCATION/etc/gip.conf=
+
+---++
+
+-- Main.BrianBockelman - 16 Apr 2008
