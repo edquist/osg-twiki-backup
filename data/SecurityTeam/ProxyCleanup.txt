@@ -1,0 +1,148 @@
+%META:TOPICINFO{author="JimBasney" date="1209741073" format="1.1" reprev="1.12" version="1.12"}%
+%META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
+%TOC%
+
+---+ Proxy Cleanup
+
+Proxy credentials typically have short (12 hour) lifetimes to minimize exposure to compromise.
+However, to further limit exposure, proxy credentials should be destroyed before they expire if they are no longer needed.
+This can be particularly important when users create proxy credentials with long lifetimes (for example, for long-running jobs).
+In some cases, users must take an explicit action to destroy a proxy; in other cases, proxies will be destroyed automatically by grid software.
+We document the different cases below.
+
+Note that we specifically focus on the cleanup of proxy credentials before they expire, because expired proxy credentials do not pose a security risk due to the fact that they can not be used by an attacker.
+System administrators may use cron jobs or other automated means to remove files containing expired proxy credentials to maintain tidy filesystems, but this is not a required practice from a security point of view.
+
+---++ Proxy File Creation
+
+The following diagram shows the relationships between the programs that create, delegate, and use proxy credentials in OSG, along with the associated proxy file paths: <br />
+     <img src="%ATTACHURLPATH%/ProxyCreation.png" alt="ProxyCreation.png" width='720' height='540' />
+
+---++ Proxy File Paths
+
+In some cases, the file path of a proxy credential can identify how it was created:
+
+| *Path* | *Source* |
+| =/tmp/x509up_u${UID}= | =grid-proxy-init= and =voms-proxy-init= |
+| =/tmp/x509up_p*= | Globus GSI GSSAPI delegation (GRAM2, GSI-OpenSSH) |
+| =$HOME/.globus/job/${HOSTNAME}/*/x509_up= | GRAM2 |
+| =$HOME/.globus/gram_job_proxy_*= | GRAM4 |
+| =$VDT_LOCATION/vdt-app-data/globus/persisted/{ipaddr}/DelegationResource= | Delegation Service (GRAM4) |
+| =$CONDOR_LOCATION/local.*/spool/cluster*.proc*.subproc*/x509up*= | Condor-G |
+
+---++ Client-Side Proxy Credentials
+
+Client-side proxy credentials are those credentials created by the user at the start of a grid session via commands such as =grid-proxy-init= and =voms-proxy-init=.
+These credentials are typically written to =/tmp= with a filename prefix of =x509up_u=.
+Users then submit jobs via =globusrun= or =condor_submit=, transfer files via =globus-url-copy= or =uberftp=, or perform other tasks on the grid using the client-side proxy credentials to authenticate to grid services.
+These proxy credentials may also be delegated to the grid services so the services can act on the user's behalf.
+We deal with delegated proxy credentials in later sections.
+
+There is no automated mechanism to destroy these client-side proxy credentials.
+Users must manually run =grid-proxy-destroy= at the end of their grid session; otherwise, the proxy credentials will remain on the system and will be valid until their expiration time.
+
+%RED% can we delete the proxies automatically when the user ends its session? is this feasible to do ? %ENDCOLOR%
+%BLUE% I'm not aware of any way to detect when the user's "session" has ended. The user may have multiple shells, background processes, etc., that are using the credentials. Putting =grid-proxy-destroy= in the user's =~/.bash_logout= may delete proxy credentials that are still needed, creating a usability problem when the user gets unexpected "no credentials found" errors. %ENDCOLOR%
+
+---++ Condor-G
+
+Before submitting a job via the [[http://www.cs.wisc.edu/condor/condorg/][Condor-G]] =condor_submit= command, users must first create a proxy credential using =grid-proxy-init= and =voms-proxy-init=.
+Users may specify the location of the proxy file to be used for their jobs via the =x509userproxy= command in the =condor_submit= job description file.
+If the =x509userproxy= command is not included, Condor-G will use the value of the =$X509_USER_PROXY= environment variable if present to locate the proxy and otherwise will look for the proxy file in =/tmp/x509up_u${UID}=.
+
+Condor-G handles proxy files like other job input files.
+If the =-r= or =-s= argument is given, =condor_submit= will delegate the proxy over the network to the =condor_schedd=, which will store it in the Condor spool directory, allowing the user to run =grid-proxy-destroy= after job submission to cleanup the proxy credential created earlier.
+
+
+Otherwise, Condor-G will directly read the proxy file found by =condor_submit=, in which case, the user must not run =grid-proxy-destroy= or Condor-G will lose access to the proxy credential.
+If the proxy was delegated and stored in the spool directory, it will be deleted when the job leaves the queue.
+
+%RED% what happens if the proxy was not delegated by the user? condor-g reads the user proxy directly and then what ? does condor-g store it somewhere else ? who deletes this copy  %ENDCOLOR%
+%BLUE% Condor-G reads the user proxy directly. It does not store it elsewhere. Nothing deletes it (unless the user runs =grid-proxy-destroy= manually). %ENDCOLOR%
+
+The Condor spool directory can be located by the command =condor_config_val spool=.
+
+Condor-G will watch the proxy file, checking for updates. When it detects an update, it forwards it to the next hop in the job submission chain. This could be GRAM, a Condor starter, or a Condor schedd. If the job's input files were spooled by =condor_submit=, then the copy in the spool directory is watched. Otherwise, the original proxy file is watched. 
+
+%RED% Can we please explain how the delegation and cleanup works when condor job manager is stopped and restarted. 
+
+Can we also add Jaime's test results which he agreed to do for us here %ENDCOLOR%
+
+---++ GRAM2
+
+[[http://www.globus.org/toolkit/docs/4.0/execution/prewsgram/][GRAM2]] clients can optionally delegate a proxy credential as part of job submission.
+The GRAM2 =globusrun= command always delegates a proxy credential.
+The delegated proxy credential allows the job to access other grid services such as !GridFTP servers.
+GRAM2 implements delegation in the GSI GSSAPI protocol, writing the proxy credential to a file in =/tmp= owned by the user and readable only by the user, named with a prefix of =x509up_p=.
+In GSSAPI, delegation is performed only after successful mutual authentication and authorization of the server by the client but before authorization of the client by the server.
+As part of job initialization, the GRAM2 jobmanager moves %RED%(I thought GRAM 2 kept a copy under /tmp too) %ENDCOLOR% %BLUE% (No, It doesn't.) %ENDCOLOR% the proxy file from =/tmp= to a subdirectory of =$HOME/.globus=
+and sets the =$X509_USER_PROXY= variable in the job's environment to the proxy file location.
+Thus, the proxy file is in =/tmp= for only a short time.
+When the job completes, the GRAM2 jobmanager removes the proxy file from the =$HOME/.globus= subdirectory.
+ 
+---++ GRAM4
+
+[[http://www.globus.org/toolkit/docs/4.0/execution/wsgram/][GRAM4]] (WS-GRAM) clients may optionally use the Globus [[http://www.globus.org/toolkit/docs/4.0/security/delegation/][Delegation Service]] to delegate a proxy credential as part of job submission.
+The Delegation Service is located in the same GT container as WS-GRAM.
+The Delegation Service performs an authorization check before accepting delegated credentials from clients.
+%RED% can we explain this more %ENDCOLOR%
+After delegation, an !EndPointReference (EPR), which is a handle to the delegated proxy, is returned to the client.
+The client can then include the EPR for the proxy in the job description when submitting WS-GRAM jobs.
+The client can use the same proxy EPR in the submission of multiple WS-GRAM jobs.
+Thus, clients can delegate to the Delegation Service before any interaction with the WS-GRAM service (i.e., delegation requires authorization to access the Delegation Service, which is separate from authorization to use the WS-GRAM service).
+%RED% is GRAM authorization the gridmap-files or something else here ? %ENDCOLOR%
+The Delegation Service stores credentials as serialized Java objects in the container persistence directory.
+By default in GT, this directory is located at =~globus/.globus/persisted/{ipaddr}/DelegationResource= but in VDT it is located at =$VDT_LOCATION/vdt-app-data/globus/persisted/{ipaddr}/DelegationResource=.
+At job submission time, GRAM4 creates a proxy for the job in =$HOME/.globus/gram_job_proxy_*= from the proxy stored in the Delegation Service using the =globus-gram-local-proxy-tool= run via =sudo= and sets the =$X509_USER_PROXY= variable in the job's environment to the proxy file location.
+
+GRAM4 clients can register for job state notifications and cleanup delegated credentials when the job completes; however, not all GRAM4 clients do so.
+The =globusrun-ws= command does it; Condor-G does not.
+The credentials in the Delegation Service and the job credentials in the user's =$HOME= each have an associated termination time after which they are cleaned up.
+In some cases, the termination time is equal to the lifetime of the credential.
+In other cases, the termination time is set by the client to a default value such as 12 or 24 hours.
+
+%RED% does globusrun-ws clean up both the copy in delegation service and the =$HOME/.globus/gram_job_proxy_*= ? My understanding is globusrun-ws cleans up the *expired proxies* I think all proxies (expired or unexpired) that have their jobs finished should be cleaned up.
+
+Can we check what happens if the gram container is down when a proxy is supposed to expire? My understanding is when the container is fired up later, the expired proxies are still left there for use. Rachana promised to test this situation April 7th 2008 and suggested a bug report %ENDCOLOR%
+
+Condor-G maintains a proxy credential in the Delegation Service for each user who has jobs in the queue.
+It does not explicitly destroy the credentials, because it reuses them across multiple jobs/workflows.
+Instead, Condor-G uses the termination time as a "lease", typically setting the termination time to 12 hours in the future.
+Condor-G then renews this 12-hour lease ever 1 hour as long as the user has jobs in the queue.
+Once Condor-G no longer has jobs for that user, it no longer renews the lease, so the Delegation Service will delete the proxy if the user does not submit more jobs within 12 hours.
+Condor-G will refresh the proxy in the Delegation Service if needed.
+GRAM4 receives a callback when proxies are refreshed in the Delegation Service and updates the proxy files for any active jobs.
+
+%RED% I agree with the below "open issue #2". I think if there is no jobs for a user, there is no need to contain that proxy for another 12 hour in the delegation service and the =$HOME/.globus/gram_job_proxy_*= location. 
+I want to be certain if GRAM4 indeed deletes the expired copy of proxy at =$HOME/.globus/gram_job_proxy_*= location? Rachana said GRAM4 will clean up everything as long as delegation occurred via globusrun-ws and GRAM will not do anything as long as delegation happened via a different client. 
+
+Another issue I want to understand is: if the user submits another job before the lease expires on a previously delegated proxy, what happens now ? does the user sill need to do the delegation to the condor or not? I suppose not. But then what would happen if the user would like to use different proxies for different jobs. %ENDCOLOR%
+
+%RED% Both for globusrun-ws and condor-g clients: 
+we said the delegation is not mandatory. Can we please put a diagram below to explain how proxies are handled when there is no delegation? %ENDCOLOR%
+---++ GSI-OpenSSH
+
+By default, [[http://grid.ncsa.uiuc.edu/ssh][GSI-OpenSSH]] delegates proxy credentials with remote sessions and removes the delegated proxy file when the user ends the session.
+GSI-OpenSSH implements delegation in the GSI GSSAPI protocol, writing the proxy credential to a file in =/tmp= owned by the user and readable only by the user, named with a prefix of =x509up_p=.
+Users can disable delegation via the =GSSAPIDelegateCredentials= option on the =gsissh= command-line or in the =ssh_config= file.
+Administrators can disable credential cleanup via the =GSSAPICleanupCredentials= option in the =sshd_config= file.
+
+---++ !GridFTP
+
+When performing a third-party file transfer via [[http://www.globus.org/toolkit/docs/4.0/data/gridftp/][GridFTP]], the client delegates credentials to the !GridFTP servers so they can perform mutual authentication on the data channel on the user's behalf.
+The delegated credentials are held in the memory of the !GridFTP server instances and are never written to disk, so they are destroyed when the transfer completes and the server instances exit.
+Thus, there is no issue with proxy cleanup for !GridFTP.
+
+---++ Open Issues
+
+Here we list the issues that are not yet resolved.
+
+   * WS-GRAM fails to cleanup proxies in =$HOME/.globus/gram_job_proxy_*= if the =globus= user does not have permission to access that directory. See [[http://bugzilla.globus.org/bugzilla/show_bug.cgi?id=5992][Globus Bug 5992]]. Fixed in GT 4.0.8 and 4.2.0.
+   * Condor-G should remove the user's proxy from the Delegation Service when all the user's jobs have completed. Instead, it relies solely on the lease mechanism described above to remove unused credentials.
+   * Does the Delegation Service cleanup credentials that expired when the container was down? See [[http://bugzilla.globus.org/bugzilla/show_bug.cgi?id=3145][Globus Bug 3145]]. As discussed above, the cleanup of expired credentials is not a security concern, due to the fact that expired credentials can not be used for authentication. It is possible for the Delegation Resource lifetime to be shorter than the proxy lifetime; though this rarely occurs in practice, due to this bug it could result in still-valid credentials not being cleaned up when expected.
+   * For jobs that complete while the jobmanager is down, does the GRAM2 jobmanager cleanup credentials when it starts back up?
+   * Condor-G delegates a full proxy to GRAM4 rather than a limited proxy.
+   * GRAM4 accepts a limited proxy for job submission. See [[http://bugzilla.globus.org/bugzilla/show_bug.cgi?id=6055][Bug 6055]].
+
+%META:FILEATTACHMENT{name="ProxyCreation.png" attachment="ProxyCreation.png" attr="" comment="diagram of proxy credential creation in OSG showing processes and file locations" date="1209740715" path="ProxyCreation.png" size="130956" stream="ProxyCreation.png" user="Main.JimBasney" version="1"}%
+%META:FILEATTACHMENT{name="ProxyCreation.ppt" attachment="ProxyCreation.ppt" attr="" comment="diagram of proxy credential creation in OSG showing processes and file locations" date="1209741072" path="ProxyCreation.ppt" size="216064" stream="ProxyCreation.ppt" user="Main.JimBasney" version="1"}%
