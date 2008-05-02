@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JimBasney" date="1209741073" format="1.1" reprev="1.12" version="1.12"}%
+%META:TOPICINFO{author="JimBasney" date="1209760432" format="1.1" reprev="1.13" version="1.13"}%
 %META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
 %TOC%
 
@@ -29,6 +29,28 @@ In some cases, the file path of a proxy credential can identify how it was creat
 | =$HOME/.globus/gram_job_proxy_*= | GRAM4 |
 | =$VDT_LOCATION/vdt-app-data/globus/persisted/{ipaddr}/DelegationResource= | Delegation Service (GRAM4) |
 | =$CONDOR_LOCATION/local.*/spool/cluster*.proc*.subproc*/x509up*= | Condor-G |
+
+---++ Limited Proxy Certificates
+
+Limited proxy certificates provide a mechanism to limit the damage if a proxy certificate is compromised.
+Unlike a full proxy certificate, a limited proxy certificate can not be used to launch a GRAM job or login via GSI-OpenSSH.
+A limited proxy certificate can be created via the =grid-proxy-init -limited= and =voms-proxy-init -limited= options.
+Also, =globusrun=, =globusrun-ws=, and Condor-G (with GRAM2) will by default delegate limited proxy credentials with submitted jobs, allowing the jobs to access GridFTP servers (for example) but not allowing the jobs to submit other GRAM jobs or use =gsissh=.
+More information about different types of proxy certificates is available at http://dev.globus.org/wiki/Security/ProxyCertTypes.
+Note also the Open Issues below related to limited proxies.
+
+---++ Proxy Delegation
+
+In the following table, we summarize the proxy delegation behavior of different OSG clients:
+
+| *Program* | *Type of Proxy Delegated* | *Lifetime of Delegated Proxy* | *Proxy Cleanup Behavior* |
+| Condor-G | limited proxy for GRAM2, full proxy for GRAM4 | lifetime of the source proxy for GRAM2, maximum 12 hours for GRAM4 | cleanup at job completion for GRAM2, cleanup after 12 hour timeout for GRAM4 |
+| =gsissh= | full proxy | lifetime of the source proxy | cleanup on exit |
+| =globusrun= | limited proxy | lifetime of the source proxy | cleanup at job completion |
+| =globusrun-ws= | limited proxy | lifetime of the source proxy | cleanup at job completion (but see Open Issues below) |
+| =globus-credential-delegate | full proxy by default, limited if =-d= option is specified | lifetime defaults to 12 hours if =-l= option is not specified | cleanup when proxy expires or when manually removed by =wsrf-destroy= |
+
+Additional details are provided below.
 
 ---++ Client-Side Proxy Credentials
 
@@ -144,5 +166,20 @@ Here we list the issues that are not yet resolved.
    * Condor-G delegates a full proxy to GRAM4 rather than a limited proxy.
    * GRAM4 accepts a limited proxy for job submission. See [[http://bugzilla.globus.org/bugzilla/show_bug.cgi?id=6055][Bug 6055]].
 
-%META:FILEATTACHMENT{name="ProxyCreation.png" attachment="ProxyCreation.png" attr="" comment="diagram of proxy credential creation in OSG showing processes and file locations" date="1209740715" path="ProxyCreation.png" size="130956" stream="ProxyCreation.png" user="Main.JimBasney" version="1"}%
-%META:FILEATTACHMENT{name="ProxyCreation.ppt" attachment="ProxyCreation.ppt" attr="" comment="diagram of proxy credential creation in OSG showing processes and file locations" date="1209741072" path="ProxyCreation.ppt" size="216064" stream="ProxyCreation.ppt" user="Main.JimBasney" version="1"}%
+---++ Useful Commands
+
+The following examples show useful commands for investigating proxy cleanup behavior:
+
+<verbatim>
+grid-proxy-init -hours 96
+globusrun -o -r vdt-test.ncsa.uiuc.edu/jobmanager '&(executable=$(GLOBUS_LOCATION)/bin/grid-proxy-info)'
+globusrun-ws -J -F vdt-test.ncsa.uiuc.edu:9443 -submit -streaming -c /opt/vdt-1.8.1/globus/bin/grid-proxy-info
+grid-proxy-info -file ~/.globus/gram_job_proxy_a02dc200-1206-11dd-9914-e6d67486a6f8
+globus-credential-delegate -h vdt-test.ncsa.uiuc.edu -p 9443 ~/epr
+globusrun-ws -Jf ~/epr -F vdt-test.ncsa.uiuc.edu:9443 -submit -streaming -c /opt/vdt-1.8.1/globus/bin/grid-proxy-info
+wsrf-destroy -e ~/epr -d
+grid-proxy-init -limited -hours 96
+</verbatim>
+
+%META:FILEATTACHMENT{name="ProxyCreation.png" attr="" autoattached="1" comment="diagram of proxy credential creation in OSG showing processes and file locations" date="1209740715" path="ProxyCreation.png" size="130956" user="Main.JimBasney" version="1"}%
+%META:FILEATTACHMENT{name="ProxyCreation.ppt" attr="" autoattached="1" comment="diagram of proxy credential creation in OSG showing processes and file locations" date="1209741072" path="ProxyCreation.ppt" size="216064" user="Main.JimBasney" version="1"}%
