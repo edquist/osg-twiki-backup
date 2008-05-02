@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JimBasney" date="1209760432" format="1.1" reprev="1.13" version="1.13"}%
+%META:TOPICINFO{author="JimBasney" date="1209765340" format="1.1" reprev="1.14" version="1.14"}%
 %META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
 %TOC%
 
@@ -61,10 +61,11 @@ These proxy credentials may also be delegated to the grid services so the servic
 We deal with delegated proxy credentials in later sections.
 
 There is no automated mechanism to destroy these client-side proxy credentials.
-Users must manually run =grid-proxy-destroy= at the end of their grid session; otherwise, the proxy credentials will remain on the system and will be valid until their expiration time.
-
-%RED% can we delete the proxies automatically when the user ends its session? is this feasible to do ? %ENDCOLOR%
-%BLUE% I'm not aware of any way to detect when the user's "session" has ended. The user may have multiple shells, background processes, etc., that are using the credentials. Putting =grid-proxy-destroy= in the user's =~/.bash_logout= may delete proxy credentials that are still needed, creating a usability problem when the user gets unexpected "no credentials found" errors. %ENDCOLOR%
+It is difficult to develop such as mechanism, because there is no reliable way to detect when the user's "grid session" has ended.
+The user may have multiple shells, background processes, etc., that are using the credentials.
+For example, putting =grid-proxy-destroy= in the user's =~/.bash_logout= may delete proxy credentials that are still needed, creating a usability problem when the user gets unexpected "no credentials found" errors.
+Therefore, we must rely on users to manually run =grid-proxy-destroy= at the end of their grid session; otherwise, the proxy credentials will remain on the system and will be valid until their expiration time.
+We should also encourage users to create proxies with short lifetimes to limit exposure.
 
 ---++ Condor-G
 
@@ -73,14 +74,12 @@ Users may specify the location of the proxy file to be used for their jobs via t
 If the =x509userproxy= command is not included, Condor-G will use the value of the =$X509_USER_PROXY= environment variable if present to locate the proxy and otherwise will look for the proxy file in =/tmp/x509up_u${UID}=.
 
 Condor-G handles proxy files like other job input files.
-If the =-r= or =-s= argument is given, =condor_submit= will delegate the proxy over the network to the =condor_schedd=, which will store it in the Condor spool directory, allowing the user to run =grid-proxy-destroy= after job submission to cleanup the proxy credential created earlier.
-
-
-Otherwise, Condor-G will directly read the proxy file found by =condor_submit=, in which case, the user must not run =grid-proxy-destroy= or Condor-G will lose access to the proxy credential.
-If the proxy was delegated and stored in the spool directory, it will be deleted when the job leaves the queue.
-
-%RED% what happens if the proxy was not delegated by the user? condor-g reads the user proxy directly and then what ? does condor-g store it somewhere else ? who deletes this copy  %ENDCOLOR%
-%BLUE% Condor-G reads the user proxy directly. It does not store it elsewhere. Nothing deletes it (unless the user runs =grid-proxy-destroy= manually). %ENDCOLOR%
+If the =-remote= or =-spool= argument is given, =condor_submit= will delegate the proxy over the network to the =condor_schedd=, which will store it in the Condor spool directory, allowing the user to run =grid-proxy-destroy= after job submission to cleanup the proxy credential created earlier.
+When the associated job completes, Condor-G will delete the associated proxy credential in the spool directory. 
+%RED%(This does not appear to be true.)%ENDCOLOR%
+If the =-r= or =-s= argument is not given, Condor-G will directly read the proxy file found by =condor_submit=, in which case, the user must not run =grid-proxy-destroy= or Condor-G will lose access to the proxy credential while the job is running.
+Furthermore, Condor-G will not delete the proxy file, since it has no way to know if the proxy is being used for other purposes.
+In this case, we must rely on the user to manually run =grid-proxy-destroy= when the proxy is no longer needed.
 
 The Condor spool directory can be located by the command =condor_config_val spool=.
 
@@ -97,7 +96,7 @@ The GRAM2 =globusrun= command always delegates a proxy credential.
 The delegated proxy credential allows the job to access other grid services such as !GridFTP servers.
 GRAM2 implements delegation in the GSI GSSAPI protocol, writing the proxy credential to a file in =/tmp= owned by the user and readable only by the user, named with a prefix of =x509up_p=.
 In GSSAPI, delegation is performed only after successful mutual authentication and authorization of the server by the client but before authorization of the client by the server.
-As part of job initialization, the GRAM2 jobmanager moves %RED%(I thought GRAM 2 kept a copy under /tmp too) %ENDCOLOR% %BLUE% (No, It doesn't.) %ENDCOLOR% the proxy file from =/tmp= to a subdirectory of =$HOME/.globus=
+As part of job initialization, the GRAM2 jobmanager moves the proxy file from =/tmp= to a subdirectory of =$HOME/.globus=
 and sets the =$X509_USER_PROXY= variable in the job's environment to the proxy file location.
 Thus, the proxy file is in =/tmp= for only a short time.
 When the job completes, the GRAM2 jobmanager removes the proxy file from the =$HOME/.globus= subdirectory.
@@ -119,13 +118,11 @@ At job submission time, GRAM4 creates a proxy for the job in =$HOME/.globus/gram
 
 GRAM4 clients can register for job state notifications and cleanup delegated credentials when the job completes; however, not all GRAM4 clients do so.
 The =globusrun-ws= command does it; Condor-G does not.
-The credentials in the Delegation Service and the job credentials in the user's =$HOME= each have an associated termination time after which they are cleaned up.
+The credentials in the Delegation Service and the job credentials in the user's =$HOME= each have an associated termination time after which they are both cleaned up.
 In some cases, the termination time is equal to the lifetime of the credential.
 In other cases, the termination time is set by the client to a default value such as 12 or 24 hours.
-
-%RED% does globusrun-ws clean up both the copy in delegation service and the =$HOME/.globus/gram_job_proxy_*= ? My understanding is globusrun-ws cleans up the *expired proxies* I think all proxies (expired or unexpired) that have their jobs finished should be cleaned up.
-
-Can we check what happens if the gram container is down when a proxy is supposed to expire? My understanding is when the container is fired up later, the expired proxies are still left there for use. Rachana promised to test this situation April 7th 2008 and suggested a bug report %ENDCOLOR%
+Whenever a credential in the Delegation Service is removed, either explicitly by a GRAM4 client or because of a timeout, both the copy of the credential in the Delegation Service and the copy in =$HOME/.globus/gram_job_proxy_*= are cleaned up.
+GRAM4 registers with the Delegation Service for a callback when jobs are removed; when it receives the callback, GRAM4 runs =globus-gram-local-proxy-tool -delete= via sudo to remove the =$HOME/.globus/gram_job_proxy_*= file.
 
 Condor-G maintains a proxy credential in the Delegation Service for each user who has jobs in the queue.
 It does not explicitly destroy the credentials, because it reuses them across multiple jobs/workflows.
@@ -135,13 +132,6 @@ Once Condor-G no longer has jobs for that user, it no longer renews the lease, s
 Condor-G will refresh the proxy in the Delegation Service if needed.
 GRAM4 receives a callback when proxies are refreshed in the Delegation Service and updates the proxy files for any active jobs.
 
-%RED% I agree with the below "open issue #2". I think if there is no jobs for a user, there is no need to contain that proxy for another 12 hour in the delegation service and the =$HOME/.globus/gram_job_proxy_*= location. 
-I want to be certain if GRAM4 indeed deletes the expired copy of proxy at =$HOME/.globus/gram_job_proxy_*= location? Rachana said GRAM4 will clean up everything as long as delegation occurred via globusrun-ws and GRAM will not do anything as long as delegation happened via a different client. 
-
-Another issue I want to understand is: if the user submits another job before the lease expires on a previously delegated proxy, what happens now ? does the user sill need to do the delegation to the condor or not? I suppose not. But then what would happen if the user would like to use different proxies for different jobs. %ENDCOLOR%
-
-%RED% Both for globusrun-ws and condor-g clients: 
-we said the delegation is not mandatory. Can we please put a diagram below to explain how proxies are handled when there is no delegation? %ENDCOLOR%
 ---++ GSI-OpenSSH
 
 By default, [[http://grid.ncsa.uiuc.edu/ssh][GSI-OpenSSH]] delegates proxy credentials with remote sessions and removes the delegated proxy file when the user ends the session.
@@ -163,7 +153,7 @@ Here we list the issues that are not yet resolved.
    * Condor-G should remove the user's proxy from the Delegation Service when all the user's jobs have completed. Instead, it relies solely on the lease mechanism described above to remove unused credentials.
    * Does the Delegation Service cleanup credentials that expired when the container was down? See [[http://bugzilla.globus.org/bugzilla/show_bug.cgi?id=3145][Globus Bug 3145]]. As discussed above, the cleanup of expired credentials is not a security concern, due to the fact that expired credentials can not be used for authentication. It is possible for the Delegation Resource lifetime to be shorter than the proxy lifetime; though this rarely occurs in practice, due to this bug it could result in still-valid credentials not being cleaned up when expected.
    * For jobs that complete while the jobmanager is down, does the GRAM2 jobmanager cleanup credentials when it starts back up?
-   * Condor-G delegates a full proxy to GRAM4 rather than a limited proxy.
+   * Condor-G delegates a full proxy to GRAM4 rather than a limited proxy. [[Main.JimBasney][Jim Basney]] has reported this to the Condor team.
    * GRAM4 accepts a limited proxy for job submission. See [[http://bugzilla.globus.org/bugzilla/show_bug.cgi?id=6055][Bug 6055]].
 
 ---++ Useful Commands
