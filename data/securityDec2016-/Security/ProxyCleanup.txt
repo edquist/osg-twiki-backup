@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JimBasney" date="1209765340" format="1.1" reprev="1.14" version="1.14"}%
+%META:TOPICINFO{author="JimBasney" date="1210087589" format="1.1" reprev="1.15" version="1.15"}%
 %META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
 %TOC%
 
@@ -30,28 +30,6 @@ In some cases, the file path of a proxy credential can identify how it was creat
 | =$VDT_LOCATION/vdt-app-data/globus/persisted/{ipaddr}/DelegationResource= | Delegation Service (GRAM4) |
 | =$CONDOR_LOCATION/local.*/spool/cluster*.proc*.subproc*/x509up*= | Condor-G |
 
----++ Limited Proxy Certificates
-
-Limited proxy certificates provide a mechanism to limit the damage if a proxy certificate is compromised.
-Unlike a full proxy certificate, a limited proxy certificate can not be used to launch a GRAM job or login via GSI-OpenSSH.
-A limited proxy certificate can be created via the =grid-proxy-init -limited= and =voms-proxy-init -limited= options.
-Also, =globusrun=, =globusrun-ws=, and Condor-G (with GRAM2) will by default delegate limited proxy credentials with submitted jobs, allowing the jobs to access GridFTP servers (for example) but not allowing the jobs to submit other GRAM jobs or use =gsissh=.
-More information about different types of proxy certificates is available at http://dev.globus.org/wiki/Security/ProxyCertTypes.
-Note also the Open Issues below related to limited proxies.
-
----++ Proxy Delegation
-
-In the following table, we summarize the proxy delegation behavior of different OSG clients:
-
-| *Program* | *Type of Proxy Delegated* | *Lifetime of Delegated Proxy* | *Proxy Cleanup Behavior* |
-| Condor-G | limited proxy for GRAM2, full proxy for GRAM4 | lifetime of the source proxy for GRAM2, maximum 12 hours for GRAM4 | cleanup at job completion for GRAM2, cleanup after 12 hour timeout for GRAM4 |
-| =gsissh= | full proxy | lifetime of the source proxy | cleanup on exit |
-| =globusrun= | limited proxy | lifetime of the source proxy | cleanup at job completion |
-| =globusrun-ws= | limited proxy | lifetime of the source proxy | cleanup at job completion (but see Open Issues below) |
-| =globus-credential-delegate | full proxy by default, limited if =-d= option is specified | lifetime defaults to 12 hours if =-l= option is not specified | cleanup when proxy expires or when manually removed by =wsrf-destroy= |
-
-Additional details are provided below.
-
 ---++ Client-Side Proxy Credentials
 
 Client-side proxy credentials are those credentials created by the user at the start of a grid session via commands such as =grid-proxy-init= and =voms-proxy-init=.
@@ -67,6 +45,28 @@ For example, putting =grid-proxy-destroy= in the user's =~/.bash_logout= may del
 Therefore, we must rely on users to manually run =grid-proxy-destroy= at the end of their grid session; otherwise, the proxy credentials will remain on the system and will be valid until their expiration time.
 We should also encourage users to create proxies with short lifetimes to limit exposure.
 
+---++ Limited Proxy Certificates
+
+Limited proxy certificates provide a mechanism to limit the damage if a proxy certificate is compromised.
+Unlike a full proxy certificate, a limited proxy certificate can not be used to launch a GRAM job or login via GSI-OpenSSH.
+A limited proxy certificate can be created via the =grid-proxy-init -limited= and =voms-proxy-init -limited= options.
+Also, =globusrun=, =globusrun-ws=, and Condor-G (with GRAM2) will by default delegate limited proxy credentials with submitted jobs, allowing the jobs to access !GridFTP servers (for example) but not allowing the jobs to submit other GRAM jobs or use =gsissh=.
+More information about different types of proxy certificates is available at http://dev.globus.org/wiki/Security/ProxyCertTypes.
+Note also the Open Issues below related to limited proxies.
+
+---++ Proxy Delegation
+
+In the following table, we summarize the proxy delegation behavior of different OSG clients:
+
+| *Program* | *Type of Proxy Delegated* | *Lifetime of Delegated Proxy* | *Proxy Cleanup Behavior* |
+| Condor-G | limited proxy for GRAM2, full proxy for GRAM4 | lifetime of the source proxy for GRAM2, maximum 12 hours for GRAM4 | cleanup at job completion for GRAM2, cleanup after 12 hour timeout for GRAM4 |
+| =gsissh= | full proxy | lifetime of the source proxy | cleanup on exit |
+| =globusrun= | limited proxy | lifetime of the source proxy | cleanup at job completion |
+| =globusrun-ws= | limited proxy | lifetime of the source proxy | cleanup at job completion (but see Open Issues below) |
+| =globus-credential-delegate | full proxy by default, limited if -d option is specified | lifetime defaults to 12 hours if -l option is not specified | cleanup when proxy expires or when manually removed by =wsrf-destroy= |
+
+Additional details are provided below.
+
 ---++ Condor-G
 
 Before submitting a job via the [[http://www.cs.wisc.edu/condor/condorg/][Condor-G]] =condor_submit= command, users must first create a proxy credential using =grid-proxy-init= and =voms-proxy-init=.
@@ -74,13 +74,13 @@ Users may specify the location of the proxy file to be used for their jobs via t
 If the =x509userproxy= command is not included, Condor-G will use the value of the =$X509_USER_PROXY= environment variable if present to locate the proxy and otherwise will look for the proxy file in =/tmp/x509up_u${UID}=.
 
 Condor-G handles proxy files like other job input files.
-If the =-remote= or =-spool= argument is given, =condor_submit= will delegate the proxy over the network to the =condor_schedd=, which will store it in the Condor spool directory, allowing the user to run =grid-proxy-destroy= after job submission to cleanup the proxy credential created earlier.
-When the associated job completes, Condor-G will delete the associated proxy credential in the spool directory. 
-%RED%(This does not appear to be true.)%ENDCOLOR%
-If the =-r= or =-s= argument is not given, Condor-G will directly read the proxy file found by =condor_submit=, in which case, the user must not run =grid-proxy-destroy= or Condor-G will lose access to the proxy credential while the job is running.
+Unless the =condor_submit -remote= or =-spool= argument is given, Condor-G will directly read the proxy file found by =condor_submit=, in which case, the user must not run =grid-proxy-destroy= or Condor-G will lose access to the proxy credential while the job is running.
 Furthermore, Condor-G will not delete the proxy file, since it has no way to know if the proxy is being used for other purposes.
 In this case, we must rely on the user to manually run =grid-proxy-destroy= when the proxy is no longer needed.
 
+If the =condor_submit -remote= or =-spool= argument is given, =condor_submit= will delegate the proxy over the network to the =condor_schedd=, which will store it in the Condor spool directory, allowing the user to run =grid-proxy-destroy= after job submission to cleanup the proxy credential created earlier.
+In this case, Condor-G will keep the proxy in the spool directory along with the job's other files, after the job completes, allowing the user to fetch the job's output files from the Condor spool using =condor_transfer_data=.
+The user must explicitly cleanup the spooled files (including the proxy) using =condor_rm=.
 The Condor spool directory can be located by the command =condor_config_val spool=.
 
 Condor-G will watch the proxy file, checking for updates. When it detects an update, it forwards it to the next hop in the job submission chain. This could be GRAM, a Condor starter, or a Condor schedd. If the job's input files were spooled by =condor_submit=, then the copy in the spool directory is watched. Otherwise, the original proxy file is watched. 
@@ -150,11 +150,12 @@ Thus, there is no issue with proxy cleanup for !GridFTP.
 Here we list the issues that are not yet resolved.
 
    * WS-GRAM fails to cleanup proxies in =$HOME/.globus/gram_job_proxy_*= if the =globus= user does not have permission to access that directory. See [[http://bugzilla.globus.org/bugzilla/show_bug.cgi?id=5992][Globus Bug 5992]]. Fixed in GT 4.0.8 and 4.2.0.
-   * Condor-G should remove the user's proxy from the Delegation Service when all the user's jobs have completed. Instead, it relies solely on the lease mechanism described above to remove unused credentials.
+   * GRAM4 accepts a limited proxy for job submission. See [[http://bugzilla.globus.org/bugzilla/show_bug.cgi?id=6055][Bug 6055]].
+   * Condor-G should remove the user's proxy from the Delegation Service when all the user's jobs have completed. Instead, it relies solely on the lease mechanism described above to remove unused credentials. Jaime says this is not easy to change. The good news is that Condor-G always limits the proxy to 12 hours maximum in the Delegation Service.
+   * Condor-G delegates a full proxy to GRAM4 rather than a limited proxy. [[Main.JimBasney][Jim Basney]] has reported this to the Condor team.
+   * In the case of =condor_submit -spool= or =condor_submit -remote=, the job's proxy file is stored in the Condor spool directory and not removed until the user explicitly runs =condor_rm=. Condor-G should remove the job's proxy file from the spool directory when the job completes.
    * Does the Delegation Service cleanup credentials that expired when the container was down? See [[http://bugzilla.globus.org/bugzilla/show_bug.cgi?id=3145][Globus Bug 3145]]. As discussed above, the cleanup of expired credentials is not a security concern, due to the fact that expired credentials can not be used for authentication. It is possible for the Delegation Resource lifetime to be shorter than the proxy lifetime; though this rarely occurs in practice, due to this bug it could result in still-valid credentials not being cleaned up when expected.
    * For jobs that complete while the jobmanager is down, does the GRAM2 jobmanager cleanup credentials when it starts back up?
-   * Condor-G delegates a full proxy to GRAM4 rather than a limited proxy. [[Main.JimBasney][Jim Basney]] has reported this to the Condor team.
-   * GRAM4 accepts a limited proxy for job submission. See [[http://bugzilla.globus.org/bugzilla/show_bug.cgi?id=6055][Bug 6055]].
 
 ---++ Useful Commands
 
