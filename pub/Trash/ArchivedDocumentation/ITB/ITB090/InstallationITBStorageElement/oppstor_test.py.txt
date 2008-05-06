@@ -1,0 +1,514 @@
+#!/usr/bin/env python
+#
+# Space manager tests
+#.
+# Usage:
+
+#  python oppstor_test.py 
+#
+# 
+#
+#
+# Ted Hesselroth
+# May 6, 2008
+#
+# Adapted from testSpaceManager.py
+#
+
+import getopt
+import string
+import sys
+import os
+import re
+import datetime
+
+testfile = "/bin/sh"
+#clientpath="/opt/vdt/srm-v1-client/bin"
+clientpath="" # Assume clients are in PATH
+admintestlinkgrp="public-link-group"
+numfailed = 0
+
+def testClientReservation( makeparams, useparams, resshouldfail="", useshouldfail="" ) :
+
+    # Make the reservation
+    resOK = makeClientReservation( verbose, makeparams, resshouldfail)
+        
+    spaceToken = makeClientReservation(verbose , makeparams, resshouldfail)
+	   
+    makeparams["Space token"] = spaceToken
+    
+    # Check the space token
+    if spaceToken.find( "FAILED" ) == -1 :        
+        resOK = "OK"
+    else :
+	resOK = "FAILED"	
+    	
+    if resshouldfail != "" :
+        print resOK + " ",
+        for key, val in makeparams.iteritems() :
+            print key + "=" + val,
+        print
+        print
+	return resOK
+	
+    if verbose >= 2 or resOK.find( "FAILED" ) == 0 :
+	print resOK,
+        print makeparams
+			
+    # Use the reservation.
+    useResOK = checkUseReservation( verbose, makeparams, useparams, resOK, useshouldfail )
+	   
+    # Ultimately returns OK, SKIPPED, FAILED, OK DENIED, or FAILED ALLOWED
+    return useResOK
+    
+    
+def makeClientReservation( verbose, params, shouldfail="" ) :
+    # Compose the client command
+    cmd = clientpath + "srm-reserve-space"
+    cmd += " --debug=true"
+    for key, val in params.iteritems():
+        if key != "host" :
+	    cmd += " --" + key + "=" + val
+    cmd += " " + params["host"]
+    cmd += " 2>&1"
+    
+    if verbose >= 2 :
+        print cmd
+	
+    # System call using the command
+    fd1 = os.popen(cmd)
+    fd1.readline()
+    if shouldfail == "" :
+        spaceToken = "FAILED"
+    else :
+        spaceToken = "OK DENIED for " + shouldfail
+    status = ""
+    output = ""
+    while 1:
+        line = fd1.readline()
+	if verbose >= 3 :
+	    print line,
+	output += line
+	if line.find( "Space token" ) == 0 :
+	    spaceToken = line.split( "=" )[1].strip()	
+	    if shouldfail != "" :
+	        spaceToken = "FAILED ALLOWED:" + spaceToken
+	if line.find( "status: code=" ) == 0 :
+	    status = line.split( "=" )[1].split( " " )[0].strip()	   
+        if not line:
+	    if verbose >= 1 :
+	        print "makeReservationTest Space token is " + spaceToken
+	    if spaceToken.find( "FAILED" ) == 0 :
+	        spaceToken += ":" + status
+		print cmd
+	        print output	        
+            break
+    	    
+    return spaceToken
+    
+        
+def releaseClientReservation( verbose, params ) :
+    # Compose the client command
+    cmd = clientpath + "srm-release-space"
+    cmd += " --debug=true"
+    cmd += " --" + "space_token=" + params["space_token"]
+    cmd += " " + params["host"]
+    cmd += " 2>&1"
+    
+    if verbose >= 2 :
+        print cmd
+	
+    fd1 = os.popen(cmd)
+    if verbose >= 3 :
+        while 1:
+            line = fd1.readline()
+	    print line,	   
+            if not line:     
+                break    
+    
+    
+def chkValEqual ( key, val, chkkey, chkmap, map_desc ) :
+    if val != chkmap[chkkey] :
+        return getFAILEDmsg ( key, val, chkkey, chkmap, map_desc )
+    else :
+        return "OK"
+	
+ 
+def chkValAllowed ( key, val, chkkey, chkmap, map_desc ) :
+    if chkmap[chkkey] != "true" :
+        return getFAILEDmsg ( key, val, chkkey, chkmap, map_desc )
+    else :
+        return "OK"
+	
+	
+def getFAILEDmsg ( key, val, chkkey, chkmap, map_desc ) :
+    return "FAILED: request " + key + "=" + val + " not consistent with " + map_desc + " " + chkkey + "=" + chkmap[chkkey]
+    
+    
+def checkUseReservation( verbose, makeparams, useparams, resOK, shouldfail="" ) :
+
+    spaceToken = makeparams["Space token"]
+    del makeparams["Space token"]
+	
+    if resOK == "OK" :
+	useparams["space_token"] = spaceToken
+        useResOK = useReservation(verbose, useparams, shouldfail)
+        if verbose >= 2 :
+	    print useResOK,
+            print useparams
+    else :
+        print "Skipping file write check for Space token " + shouldfail + spaceToken
+	useResOK = "SKIPPED"
+	
+    if useResOK == "OK" :
+        print useResOK + " for " + shouldfail + spaceToken + " ",    	     
+    else :
+    	if resOK == "SKIPPED" :
+	    print spaceToken + " for " + shouldfail + spaceToken + " ",
+        elif useResOK == "SKIPPED" :
+	    print resOK + " for " + shouldfail + spaceToken + " ",
+	else :
+	    print useResOK + " for " + shouldfail + spaceToken + " ",
+	    
+    for key, val in makeparams.iteritems() :
+        print key + "=" + val,
+    for key, val in useparams.iteritems() :
+        print key + "=" + val,
+    print
+    print
+    
+    return useResOK
+    
+
+def useReservation( verbose, params, shouldfail="" ) :
+    # Compose the client command
+    cmd = clientpath + "srmcp"
+    cmd += " -debug=true"
+    cmd += " -retry_num=0"
+    if "space_token" in params :
+        cmd += " -space_token=" + params["space_token"]
+    if "retention_policy" in params :
+        cmd += " -retention_policy=" + params["retention_policy"]
+    if "access_latency" in params :
+        cmd += " -access_latency=" + params["access_latency"]
+    cmd += " -srm_protocol_version=2"
+    cmd += " " + params["source"]
+    cmd += " " + params["host"]
+    cmd += "/srm/managerv2?SFN="
+    cmd += params["destfile"]
+    cmd += " 2>&1"
+    
+    if verbose >= 2 :
+        print cmd
+	
+    if shouldfail == "" :
+        useOK = "FAILED"
+    else :
+        useOK = "OK DENIED"
+    fd1 = os.popen(cmd)
+    fd1.readline()
+    output = ""
+    while 1:
+        line = fd1.readline()
+        if verbose >= 3 :
+	    print line,
+	output += line
+	if line.find( "execution of CopyJob" ) == 0 :
+	    if shouldfail == "" :
+	        useOK = "OK"
+	    else :
+	        useOK = "FAILED ALLOWED"	
+        if not line :
+	    if verbose >= 1 :
+	        print "useReservationTest=" + useOK + "   for " + shouldfail + "Space token " + params["space_token"]
+	    if useOK.find( "FAILED" ) == 0 :
+	        print cmd
+	        print output
+            break
+	    
+    return useOK
+    
+def deleteFile( verbose, params ) :
+    # Compose the client command
+    cmd = clientpath + "srmrm"
+    cmd += " -debug=true"
+    cmd += " -retry_num=0"
+    cmd += " -srm_protocol_version=2"
+    cmd += " " + params["host"]
+    cmd += "/srm/managerv2?SFN="
+    cmd += params["destfile"]
+    cmd += " 2>&1"
+    
+    if verbose >= 2 :
+        print cmd
+	
+    deleteOK = "FAILED"
+    fd1 = os.popen(cmd)
+    fd1.readline()
+    output = ""
+    while 1:
+        line = fd1.readline()
+	if verbose >= 3 :
+	    print line,
+	output += line
+	if line.find( "SRM_FAILURE" ) == 0 :
+	    print "Delete " + deleteOK + " for " + params["destfile"]
+	    print cmd
+	    print output
+            break
+        if not line :
+	    deleteOK = "OK"
+	    if verbose >= 1 :
+	        print "Delete " + deleteOK + " for " + params["destfile"]
+	    break
+	    
+    return deleteOK
+    
+        			
+if __name__ == '__main__':
+    extraUsage = "Could not parse command line arguments" 
+    verbose = 0
+    try:
+        opts, args = getopt.getopt( sys.argv[1:], 'vvv:h:')
+    except getopt.GetoptError :
+        _usage( extraUsage )
+
+    for o, a in opts :
+        if o == '-v' :
+            verbose += 1
+            if verbose == 3 :
+	        sys.argv[1] = "-v"
+        else :
+            _usage( extraUsage )
+	    
+    #print datetime.fromtimestamp(EpochSeconds)
+    #now = datetime.datetime.fromtimestamp(EpochSeconds)
+    #print now.ctime()
+	    	    	
+    makeparams = { }
+    makeparams["host"] = args[0]
+    
+    useparams = { }
+    useparams["host"] = args[0]
+    useparams["destpath"] = args[1]
+
+    # Check for reservations and use that should succeed
+    testnum = 0    
+    for size in ("1000000", "1000000000") :
+     for retpol in ("REPLICA", "CUSTODIAL" ) :
+      for acclat in ("NEARLINE", "ONLINE" ) :
+       for lifetm in ("120", "600", "3600" ) :
+#    for size in ("1000000", ) :
+#     for retpol in ("REPLICA", ) :
+#      for acclat in ("NEARLINE", ) :
+#       for lifetm in ("60", ) : 
+        testnum += 1
+        makeparams["desired_size"] = size
+        makeparams["guaranteed_size"] = size
+        makeparams["retention_policy"] = retpol
+        makeparams["access_latency"] = acclat
+        makeparams["lifetime"] = lifetm
+        makeparams["space_desc"] = "SpaceManagerTest" + `testnum`
+        useparams["source"] = "file:///" + testfile
+        useparams["destfile"] = useparams["destpath"]  + `testnum`         
+        testRes = testClientReservation(makeparams, useparams)
+	if testRes.find( "FAILED" ) == 0 or testRes.find( "SKIPPED" )  == 0:
+	    numfailed+=1
+	    if verbose >= 2 :
+                print `numfailed` + " have failed out of a total of " + `testnum`
+	if testRes != "SKIPPED" :
+            releaseClientReservation(verbose , useparams)
+	    if testRes == "OK" :
+	        deleteFile( verbose, useparams )
+	    
+	
+    #testRes = "DONT"
+    canRes = "false"
+    # Save reservation parameters that are known to work
+    if testRes == "OK" :
+        canRes = "true"
+        goodmakeparams = makeparams.copy()
+	gooduseparams = useparams.copy()
+	
+	
+    # Check use of a client-released reservation
+    if canRes == "true" :
+	# Make a reservation
+	testnum += 1
+	makeparams["space_desc"] = "SpaceManagerTest" + `testnum`
+	useparams["destfile"] = useparams["destpath"]  + `testnum`
+	#testRes = testReservation(makeparams, useparams)
+	spaceToken = makeClientReservation(verbose, makeparams)
+	makeparams["Space token"] = spaceToken    
+        # Check the space token
+        if spaceToken.find( "FAILED" ) == -1 :        
+            resOK = "OK"
+        else :
+	    resOK = "FAILED"
+	# Add check of remaing space
+	if resOK == "OK" :
+	    useparams["space_token"] = makeparams["Space token"]
+	    del makeparams["Space token"]
+	    # Release it
+	    releaseClientReservation(verbose , useparams)
+	    makeparams["Space token"] = useparams["space_token"]
+	    # Try using it
+	    useResOK = checkUseReservation( verbose, makeparams, useparams, "OK", "released " )
+	    if useResOK == "FAILED ALLOWED" :
+	        numfailed+=1
+	        if verbose >= 2 :
+                    print `numfailed` + " have failed out of a total of " + `testnum`
+	        deleteFile( verbose, useparams )
+	else :
+	    numfailed+=1
+	    if verbose >= 2 :
+                print `numfailed` + " have failed out of a total of " + `testnum`		
+				
+		
+    # Check reservation with non-allowed retention policy
+    if canRes == "true" :
+        testnum += 1
+	makeparams = goodmakeparams.copy()
+	useparams = gooduseparams.copy()
+	makeparams["retention_policy"] = "OUTPUT"
+	makeparams["space_desc"] = "SpaceManagerTest" + `testnum`
+	useparams["destfile"] = useparams["destpath"]  + `testnum`
+	testRes = testClientReservation(makeparams, useparams, "nonallowed_retention_policy", "nonallowed_retention_policy ")
+	if testRes.find( "FAILED" ) == 0 :
+	    numfailed+=1
+	    if verbose >= 2 :
+                print `numfailed` + " have failed out of a total of " + `testnum`
+	    releaseClientReservation(verbose , useparams)
+	    
+
+    # Check reservation with garbage retention policy
+    if canRes == "true" :
+        testnum += 1
+	makeparams = goodmakeparams.copy()
+	useparams = gooduseparams.copy()
+	makeparams["retention_policy"] = "GARBAGE"
+	makeparams["space_desc"] = "SpaceManagerTest" + `testnum`
+	useparams["destfile"] = useparams["destpath"]  + `testnum`
+	testRes = testClientReservation(makeparams, useparams, "garbage_retention_policy", "garbage_retention_policy ")
+	if testRes.find( "FAILED" ) == 0 :
+	    numfailed+=1
+	    if verbose >= 2 :
+                print `numfailed` + " have failed out of a total of " + `testnum`
+	    releaseClientReservation(verbose , useparams)
+	    
+	    
+	    
+    # Check reservation with garbage access latency
+    if canRes == "true" :
+        testnum += 1
+	makeparams = goodmakeparams.copy()
+	useparams = gooduseparams.copy()
+	makeparams["access_latency"] = "GARBAGE"
+	makeparams["space_desc"] = "SpaceManagerTest" + `testnum`
+	useparams["destfile"] = useparams["destpath"]  + `testnum`
+	testRes = testClientReservation(makeparams, useparams, "garbage_access_latency", "garbage_access_latency ")
+	if testRes.find( "FAILED" ) == 0 :
+	    numfailed+=1
+	    if verbose >= 2 :
+                print `numfailed` + " have failed out of a total of " + `testnum`
+	    releaseClientReservation(verbose , useparams)
+	    
+	    
+    # Check reservation with zero lifetime
+    if canRes == "true" :
+        testnum += 1
+	makeparams = goodmakeparams.copy()
+	useparams = gooduseparams.copy()
+	makeparams["lifetime"] = "0"
+	makeparams["space_desc"] = "SpaceManagerTest" + `testnum`
+	useparams["destfile"] = useparams["destpath"]  + `testnum`
+	testRes = testClientReservation(makeparams, useparams, "zero_lifetime", "zero_lifetime ")
+	if testRes.find( "FAILED" ) == 0 :
+	    numfailed+=1
+	    if verbose >= 2 :
+                print `numfailed` + " have failed out of a total of " + `testnum`
+	    releaseClientReservation(verbose , useparams)	    
+	    
+	    
+    # Check reservation with negative (except -1) lifetime
+    if canRes == "true" :
+        testnum += 1
+	makeparams = goodmakeparams.copy()
+	useparams = gooduseparams.copy()
+	makeparams["lifetime"] = "-2000"
+	makeparams["space_desc"] = "SpaceManagerTest" + `testnum`
+	useparams["destfile"] = useparams["destpath"]  + `testnum`
+	testRes = testClientReservation(makeparams, useparams, "negative_lifetime", "negative_lifetime ")
+	if testRes.find( "FAILED" ) == 0 :
+	    numfailed+=1
+	    if verbose >= 2 :
+                print `numfailed` + " have failed out of a total of " + `testnum`
+	    releaseClientReservation(verbose , useparams)
+	    
+	    
+    # Check reservation with short lifetime
+    if canRes == "true" :
+        testnum += 1
+	makeparams = goodmakeparams.copy()
+	useparams = gooduseparams.copy()
+	makeparams["lifetime"] = "1"
+	makeparams["space_desc"] = "SpaceManagerTest" + `testnum`
+	useparams["destfile"] = useparams["destpath"]  + `testnum`
+	testRes = testClientReservation(makeparams, useparams, "", "expired_reservation ")
+	if testRes == "SKIPPED" :
+	    numfailed+=1
+	    if verbose >= 2 :
+                print `numfailed` + " have failed out of a total of " + `testnum`
+	else :
+	    releaseClientReservation(verbose , useparams)	    	    	    		    
+	    if testRes == "FAILED ALLOWED" :
+	        numfailed+=1
+		if verbose >= 2 :
+                    print `numfailed` + " have failed out of a total of " + `testnum`
+	        deleteFile( verbose, useparams )
+		
+
+    # Check using reservation beyond its capacity.
+    if canRes == "true" :
+        testnum += 1
+	makeparams = goodmakeparams.copy()
+	useparams = gooduseparams.copy()
+	file_size = os.stat(testfile)[6]
+	# Enough space for two writes, third should fail
+	makeparams["guaranteed_size"] = str(2*file_size+1)
+	makeparams["space_desc"] = "SpaceManagerTest" + `testnum`
+	useparams["destfile"] = useparams["destpath"]  + `testnum`
+	testRes = testClientReservation(makeparams, useparams)
+	if testRes == "OK" :
+	    deleteFile( verbose, useparams )
+	if testRes.find( "FAILED" ) == -1 :
+	    testnum += 1
+	    makeparams["Space token"] = useparams["space_token"]
+	    useparams["destfile"] = useparams["destpath"]  + `testnum`
+	    useResOK = checkUseReservation( verbose, makeparams, useparams, "OK", "" )
+	    if useResOK == "OK" :
+	        deleteFile( verbose, useparams )
+            else :
+	        numfailed+=1
+		if verbose >= 2 :
+                    print `numfailed` + " have failed out of a total of " + `testnum`
+	    if useResOK.find( "FAILED" ) == -1 :
+	        testnum += 1
+	        makeparams["Space token"] = useparams["space_token"]
+	        useparams["destfile"] = useparams["destpath"]  + `testnum`
+	        useResOK = checkUseReservation( verbose, makeparams, useparams, "OK", "exceeds_reservation " )
+	        if useResOK == "FAILED ALLOWED" :
+		    numfailed+=1
+		    if verbose >= 2 :
+                        print `numfailed` + " have failed out of a total of " + `testnum`
+	            deleteFile( verbose, useparams )
+            if useResOK != "SKIPPED" :
+	        releaseClientReservation(verbose , useparams)
+        else :
+	    numfailed+=1	    
+	    if verbose >= 2 :
+                print `numfailed` + " have failed out of a total of " + `testnum`
+			            		    				
+
+    print `numfailed` + " failed out of a total of " + `testnum`
+    sys.exit( numfailed )
