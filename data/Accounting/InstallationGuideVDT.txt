@@ -1,9 +1,9 @@
-%META:TOPICINFO{author="JohnWeigand" date="1206981810" format="1.1" reprev="1.26" version="1.26"}%
+%META:TOPICINFO{author="JohnWeigand" date="1210424292" format="1.1" reprev="1.27" version="1.27"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! OSG Accounting Services - Gratia
 
 <!-- Set release version in one place for use in the rest of the page.
-   * Set ReleaseVersion = 0.32.1
+   * Set ReleaseVersion = 0.34
 -->
 
 The Gratia accounting services consists of three services: 
@@ -15,11 +15,11 @@ The Gratia accounting services consists of three services:
 ---++ Requirements
    * !MySQL >= 5.0 (not tested with !MySQL >= 5.1.0; does *not* work with !MySQL 4.x);
    * JRE >= 5 (1.5) (not tested with JRE > 5);
-   * Tomcat >= 5.5 (not tested with Tomcat >=6.0; does *not* work with Tomcat 5.0); to get it, (eg) <tt>pacman -get http://vdt.cs.wisc.edu/vdt_161_cache:Tomcat-5.5</tt>
+   * Tomcat >= 5.5 (not tested with Tomcat >=6.0; does *not* work with Tomcat 5.0); to get it, (eg) <tt>pacman -get http://vdt.cs.wisc.edu/vdt_1100_cache:Tomcat-5.5</tt>
    * Port 8080 under Tomcat 5.5 must be defined as a non-ssl port. To implement this, modify =$VDT_LOCATION/tomcat/v55/conf/server.xml=:
 <verbatim>
-  <!--  Define a non-SSL HTTP/1.1 Connector on port 8080 -->
-   <Connector port="8080" maxHttpHeaderSize="8892"
+  <!--  Define a non-SSL HTTP/1.1 Connector on port 8880 -->
+   <Connector port="8880" maxHttpHeaderSize="8892"
               maxThreads="150" minSpareThreads="25" maxSpareThreads="75"
               enableLookups="false" redirectPort="8443" acceptCount="100"
               connectionTimeout="20000" disableUploadTimeout="true" />
@@ -33,11 +33,6 @@ The Apache configuration under the same VDT installation must include the follow
      JkMount /gratia-servlets/* tomcat55
      <Location /gratia-servlets>
         SSLVerifyClient optional
-     </Location>
-
-     JkMount /gratia-security/* tomcat55
-     <Location /gratia-security>
-         SSLVerifyClient optional
      </Location>
 
      JkMount /gratia-soap/* tomcat55
@@ -66,16 +61,23 @@ The Apache configuration under the same VDT installation must include the follow
      </Location>
 </verbatim>
 
+%BLUE%Deprecated services:
+   * gratia-security with release v0.34
+%ENDCOLOR%
+
 ---++ Installing the Services
 To begin installation of the services, untar the two tarballs containing the gratia services and gratia reporting packages and copy all *.war files from =./gratia/gratia_reporting= and =./gratia/gratia_services= to =./tomcat/v55/webapps=:
    * gratia-administration.war
    * gratia-reporting.war
    * gratia-reports.war
-   * gratia-security.war
    * gratia-services.war
    * gratia-servlets.war
    * gratia-soap.war
    * gratia-util.war
+
+%BLUE%Deprecated services:
+   * gratia-security with release v0.34
+%ENDCOLOR%
 
 _If you are going to manually deploy the services under Tomcat,_ you must deploy =gratia_services.war= first; then you may deploy the other war files in any order. 
 
@@ -86,6 +88,49 @@ Follow the instructions below for the customization of each package:
 ---+++ gratia_services_v%ReleaseVersion%.tar
 
 This requires !MySQL 5.0, Tomcat v55 and JDK 1.5.
+
+---++++ !MySql Notes
+Effective with v0.32.1, Gratia is using the <op>MySql <nop>InnoDB transactional engine.  This requires some additional attributes in the <i>my.cnf</i>.  The list below shows the recommended _my.cnf_ attributes in  addition to the <nop>InnoDB attributes.  Of all the  <nop>InnoDB attributes, the most critical is the *innodb_file_per_table* attribute which allocates 1 tablespace per table and they are stored in the _database_ directory.  Without that attribute <nop>MySql stores ALL the <nop>InnoDB tables for ALL the databases in a single tablespace at the _var_ directory level.  This makes disk/space management impossible.  Once set up with a single tablespace, it is a very time consuming task to convert, especially for a large database.
+<pre>
+[mysqld]
+datadir=VDT_LOCATION/vdt-app-data/mysql5/var
+user=mysql
+port=NNNNN
+socket=VDT_LOCATION/vdt-app-data/mysql5/var/mysql.sock
+
+key_buffer = 16M
+max_allowed_packet = 1M
+table_cache = 64
+sort_buffer_size=512
+net_buffer_length=8
+read_buffer_size=256
+read_rnd_buffer_size=512
+myisam_sort_buffer_size = 8M
+
+# Required for InnoDB
+log-bin=mysql-bin
+log_bin_trust_function_creators=1
+innodb_buffer_pool_size = 16M
+innodb_additional_mem_pool_size = 2M
+# Set .._log_file_size to 25 % of buffer pool size
+innodb_log_file_size = 5M
+innodb_log_files_in_group = 2
+innodb_log_buffer_size = 8M
+<b><font color="blue">innodb_file_per_table</font></b>
+innodb_flush_log_at_trx_commit = 1
+innodb_lock_wait_timeout = 50
+expire_logs_days = 7
+
+[client]
+port=49152
+socket=VDT_LCOATION/vdt-app-data/mysql5/var/mysql.sock
+</pre>
+
+*Location of my.cnf file* %BR%
+Another consideration that should be taken into account is the location of the _my.cnf_ file.  It has been stored in the 
+_VDT_LOCATION/mysql5/var directory_ .  The _VDT_LOCATION/vdt-app-data/mysql5/var_ directory may be a more suitable location as any changes to the _my.cnf_ for a local environment, may want to be carried forward when upgrades are performed.
+
+---++++ Installation Notes
 <ol>
   <li> Untar the file under =$VDT_LOCATION= to populate =./tomcat/v55/gratia=: %BR% =tar xf gratia_services_v%ReleaseVersion%.tar= </li>
   <li> %RED% *If and only if* %ENDCOLOR% it does not already exist, create and configure the DB schema:
@@ -103,7 +148,7 @@ grant select,execute on gratia.* to reader@localhost identified by 'pwd';
  <verbatim>  service.rmi.rmibind=//HOSTNAME:17000
   service.rmi.rmilookup=rmi://HOSTNAME:17000
   service.mysql.driver=com.mysql.jdbc.Driver
-  service.open.connection=http://HOSTNAME:8080
+  service.open.connection=http://HOSTNAME:8880
   service.secure.connection=https://HOSTNAME:8443
   service.mysql.url=jdbc:mysql://DBHOSTNAME:DBPORT/gratia
   service.mysql.user=DBUSER
@@ -136,6 +181,7 @@ For this version of gratia-services, you must start and stop the service by star
    1. Deploy all =.war= files under Tomcat.
 
 %INCLUDE{ "Documentation.ToolsBottomMatter" }%
+-- Main.JohnWeigand - 10 May 2008 - For v0.34 removed references to gratia-security web service.  Added InnoDB attributes for <nop>MySql
 
 -- Main.ChrisGreen - 12 Sep 2007 - Update to 0.27.5 for VDT to fix calendar image problems and one report.
 
