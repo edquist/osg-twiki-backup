@@ -1,0 +1,107 @@
+%META:TOPICINFO{author="BrianBockelman" date="1210598671" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+---++ The GLUE Storage Element
+
+The GLUE storage element entity is used to advertise information about the storage element at your site.  This information is used for several reasons:
+
+  * Resource matching (it advertises the VOs supported by this storage element so resource matching/brokering can answer questions like "What sites have storage elements which support our site?)
+  * Path discovery - allowing supported VOs to discover which paths they can write into
+  * Space token discovery - allowing VOs to know which "spaces" they can write into and what sort of resources (tape or disk-only) back each space
+  * Accounting - giving the central grid a mechanism to determine the amount of space available and used at the site.  This is what this page will focus on.
+
+---+++ A note about units
+
+Most units for the GLUE schema are in GB; this page won't even cover GLUE entities which use KB.  However, for completeness, here is the list of exceptions to the "everything is in GB" rule:
+
+   * GLUE !StorageArea entity:
+      * Policy.Quota: KB (Deprecated)
+      * Policy.!MinFileSize: B (Deprecated)
+      * Policy.!MaxFileSize: B (Deprecated)
+      * Policy.!MaxData: B (Deprecated)
+      * State.!UsedSpace: KB (Deprecated)
+      * State.!AvailableSpace: KB (Deprecated)
+
+---++ Static Space advertising
+
+To do this, we will edit the following file (OSG 0.8.0):
+
+<verbatim>
+$VDT_LOCATION/lcg/etc/alter-attributes.conf
+</verbatim>
+
+For OSG 0.9.0 and OSG 1.0.0:
+
+<verbatim>
+$VDT_LOCATION/gip/etc/alter-attributes.conf
+</verbatim>
+
+Determine the DN of the storage element you want to edit. You can find your GIP data here:
+
+http://is.grid.iu.edu/cgi-bin/status.cgi
+
+For example, BNL_ATLAS_1 will want to look here:
+
+http://is.grid.iu.edu/cgi-bin/show_source_data?which=BNL_ATLAS_1&source=served
+
+Search through the data for the word "GlueSETop" Here's a sample DN for a storage element of BNL_ATLAS_1 which we will use for the example:
+
+<verbatim>
+dn: GlueSEUniqueID=gridgk01.racf.bnl.gov,mds-vo-name=BNL_ATLAS_1,o=grid
+</verbatim>
+
+When we change this DN for the GIP, we will replace the mds-vo-name with =mds-vo-name=local=.  
+
+Determine the total amount of space at your site; we will advertise this using the =GlueSESizeTotal:= attribute; suppose it currently has 1000 GB.  Then, add the following attribute to your =alter-attributes.conf= file:
+
+<verbatim>
+dn: GlueSEUniqueID=gridgk01.racf.bnl.gov,mds-vo-name=local,o=grid
+GlueSESizeTotal: 1000
+</verbatim>
+
+Make sure there is a single empty line separating each entry in the =alter-attributes.conf= file.
+
+It should take about 15 minutes for the change to be reflected in the GOC monitoring webpage.
+
+If you want to fill in more data (such as the current amount of free space), *do not* write a script to dynamically change the values in this file.  Instead, use the methods of the next section.
+
+---++ Dynamic Space advertising
+
+This section focuses on dynamic space advertising.  For more detailed, generic information on writing modules for the GIP, see GipSiteAdmin.
+
+Dynamic space advertising for dCache will be available as a piece of the stock install in OSG 0.9.0 / OSG 1.0.  Until then, adventurous site admins can try to install the OSG 1.0 GIP on any version of the OSG using the instructions in GipInstall and configuration description in DcacheGip.
+
+However, not all sites are using dCache, and some sites might have exceptional circumstances which prevents them from running the dynamic space advertising for dCache.  They can write their own modules for the GIP which will allow them to advertise dynamic data.
+
+Create a script which will output the correct space data for your site; use the same LDIF format as in the static case.  The stdout of your script may look something like this:
+
+<verbatim>
+dn: GlueSEUniqueID=gridgk01.racf.bnl.gov,mds-vo-name=local,o=grid
+GlueSESizeTotal: 1000
+GlueSESizeFree: 500
+
+dn: GlueSALocalID=atlas,GlueSEUniqueID=gridgk01.racf.bnl.gov,mds-vo-name=local,o=grid
+GlueSATotalOnlineSize: 800
+GlueSAUsedOnlineSize: 400
+GlueSAFreeOnlineSize: 400
+GlueSATotalNearlineSize: 10000
+GlueSAUsedNearlineSize: 2000
+GlueSAFreeNearlineSize: 8000
+</verbatim>
+
+Here, we've also filled in information about the storage area (SA) for atlas.  The SA attributes are data for specifically this area within the storage element; so, the total space should always be less than the SE total size.  Again, the units are GB.  The entries for "Online" space refer to dedicated disk space; the entries for "Nearline" space refer to dedicated tape space.
+
+Place the script in (OSG 0.8.0):
+
+<verbatim>
+$VDT_LOCATION/lcg/var/gip/plugin
+</verbatim>
+
+For OSG 0.9.0 / 1.0.0:
+
+<verbatim>
+$VDT_LOCATION/gip/plugins
+</verbatim>
+
+Make sure that it is executable and that the daemon user has sufficient permissions to execute it.  Data from this script should start to appear in the GOC webpages in about 15 minutes.
+
+-- Main.BrianBockelman - 12 May 2008
