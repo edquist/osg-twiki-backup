@@ -1,0 +1,306 @@
+%META:TOPICINFO{author="JohnWeigand" date="1212172270" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="GratiaReleaseV0dot34"}%
+---+!! Main gratia DB - Upgrade  to v0.34.7%BR% 
+%TOC%
+
+%STARTINCLUDE%
+<!--
+   * Set EDITTHISTEXT = <div class="twikiSmall"><a href="%TOPIC%">edit this section</a></div>
+-->
+
+---+ Main gratia DB - Upgrade  to v0.34.7
+%EDITTHISTEXT%
+
+The main Gratia database ( *gratia* ) served by the *gratia09:/data/tomcat-gratia* instance will require a very long 
+conversion time. So to maximize availability we will:
+   1 create a current copy of the *gratia06/gratia* database on *gratia07*
+   1 switch the current *gratia09:/data/tomcat-gratia* to use the *gratia07/gratia* database
+   1 perform the upgrade of the *gratia06/gratia* database to v0.34.7 using a temporary Gratia collector on *gratia08:/data/tomcat-conversion* .
+   1 when the upgrade is complete (inclusive of the conversion to the new md5 key), we will switch the *gratia09:/data/tomcat-gratia* instance back to using the *gratia06/gratia* database
+
+During the upgrade period, this will be the tomcat/database environement for the *gratia* database:
+%TABLE%
+| *Tomcat instance* | *Database instance* |
+| gratia09:/data/tomcat-gratia port 8880 | gratia07:/data/mysqldb/gratia port 3320 |
+| gratia08:/data/tomcat-conversion port 8884 | gratia06:/data/mysqldb/gratia port 3320 |
+
+The above is a high level summary of the process.  The details are contained in subsequent sections.
+
+---++ Create a copy of the current database on *gratia07*
+On 5/28, the *gratia07:/data/mysqldb* was re-partitioned into a single 200Gb area to provide the required space for the *gratia* database.
+
+---+++ Create the *gratia07:gratia* database using the ZRM backup
+This is in process now (5/30) and a finalized procedure will be included when it completes.
+
+---+++ Configure/start *gratia08:/data/tomcat-conversion* to use the *gratia07:gratia* database
+On *gratia08*, edit the */data/tomcat-conversion//gratia/service-configuration.properties* file for this resulting attribute:
+   * service.mysql.url=jdbc:mysql://gratia07.fnal.gov:3320/gratia
+
+*VERY IMPORTANT* - This *must* be a v0.32 version of Gratia.
+
+Start this tomcat instance:
+   * service tomcat-conversion start
+
+---+++ Bring the *gratia07* database up to current
+Since the *gratia07* database is based on a nightly backup and production has been collecting data from the CE nodes, it needs to be brought up to current by replicating from *gratia06* to *gratia07* using the  administrative services *Replication* menu.
+   * on http://gratia.opensciencegrid.org:8880/gratia-administration
+   * both *Job Usage* and *Metric* replication services should be activated to replicate to:%BR%
+     - <nop>http://gratia-fermi.fnal.gov:8884 
+   * The starting *dbid* should be determined using the mysql client on *gratia07* %BR%
+      - select max(dbid) from <nop>JobUsageRecord_Meta; %BR%
+      - select max(dbid) from <nop>MetricRecord_Meta; %BR%
+
+*Wait* until the *gratia07* is caught up to the *gratia06* database.  You can monitor this by:
+   * on *gratia06* %BR%
+      - select max(dbid) from <nop>JobUsageRecord_Meta; %BR%
+      - select max(dbid) from <nop>MetricRecord_Meta; %BR%
+   * on *gratia07* %BR%
+      - select max(dbid) from <nop>JobUsageRecord_Meta; %BR%
+      - select max(dbid) from <nop>MetricRecord_Meta; %BR%
+
+When they are close, stop the *administrative update service* on
+   *  http://gratia.opensciencegrid.org:8880/gratia-administration
+
+The replication services should still be running to insure we "catch up" the last of the updates on *gratia06* to *gratia07*.  So repeat the verification process for the *dbid* on each database until the *dbid* values are equal in both databases. Then turn off both the *Job Usage* and *Metric* replication services on:
+   * http://gratia.opensciencegrid.org:8880/gratia-administration
+   * first *stop* the replication for <nop>http://gratia-fermi.fnal.gov:8884  
+   * then *delete* the entry.
+
+---+++ Update the Replication services on *gratia06* to *gratia07*
+On *gratia06*, if there are *Job Usage* and *Metric* replication services active, we will need to create entries in the *gratia07* instance as this will shortly become our production database.
+
+When creating this entries, we will need to insure that we start with the last *dbid* replicated from *gratia06*.
+
+Instructions for doing this will be provided later if this needs to be performed for this release.
+
+This should be done *before* we switch the *gratia09:/data/tomcat-gratia* to use the *gratia07/gratia* database.
+
+The entries should be added and *only* a test that the entry is correct made at this time.  We will set the * starting dbid* 
+ later and activate he entry after we switch the tomcat collectors.
+
+---++ Switch the current *gratia09:/data/tomcat-gratia* to use the *gratia07/gratia* database
+To switch-over the tomcat collectors:
+   1 Stop each collector
+      * on *gratia08* %BR%
+         - service tomcat-conversion stop
+      * on *gratia09* %BR%
+         - service tomcat-gratia stop
+   1 Update the *service-configuration.properties* file to change the databases they point to
+      * on *gratia08:/data/tomcat-conversion/gratia* %BR%
+         - service.mysql.url=jdbc:mysql://<b>gratia06</b>.fnal.gov:3320/gratia
+      * on *gratia09:/data/tomcat-gratia/gratia* %BR%
+         - service.mysql.url=jdbc:mysql://<b>gratia07</b>.fnal.gov:3320/gratia
+   1 Start the *gratia09* production collector *only* (it will be using the *gratia07* database
+      * on *gratia09* %BR%
+         - service tomcat-gratia start
+
+At this point we have production gratia reporting and services back on-line and available.  Verify there are no problems by tailing the 
+log files in *gratia09:/data/tomcat-gratia/logs* .   If all is well, we can proceed to the v0.34.7 upgrade of the *gratia06:gratia* database.
+
+---+++ Cron processes during upgrade
+There are several processes (cron) that will need to be copied/modified on  _gratia06_ and _gratia09_  for reports and interfaces.
+<ol>
+<li>gratia06 - user gratia
+  <ul><li>APEL-WLCG interface 
+<pre>
+ dir=/home/gratia/interfaces/apel-lcg; cd $dir; ./lcg.sh --config=lcg.conf --date=current --update
+</pre>
+       This cron process can remain on *gratia06*.  The only modification required is to the */home/gratia/interfaces/apel-lcg/lcg-db.conf* file for the following parameter:
+   <ul><li>GratiaHost  <b>gratia07</b>.fnal.gov</li></ul>
+
+
+<li>OSG daily reports 
+<verbatim>
+/home/gratia/gratia-summary/gratiaSum.cron.sh
+/home/gratia/gratia-summary/daily_mail_cron.sh
+/home/gratia/gratia-summary/range_mail_cron.sh --weekly
+/home/gratia/gratia-summary/range_mail_cron.sh --monthly
+/home/gratia/gratia-summary/rungratia.sh --production 
+</verbatim>
+        <li>CMS weekly reports
+<verbatim>/home/gratia/gratia-summary/cms_mail_cron.sh --weekly</verbatim>
+   </ul>
+
+<li>gratia06 - user root<br>
+Database backups on *gratia06* will need to be changed to exclude the *gratia* database.  This includes the purging of log files by the zrm process.
+<pre>
+/usr/local/bin/gratia_backup_cron.sh 
+/usr/bin/mysql-zrm --action purge
+</pre>
+
+<li>gratia09 - user root<br>
+The static reports cron on gratia09 *does not* require changing as it references the gratia09 gratia collector which will be pointing to the gratia07 database.
+
+<li>gratia07 - user root<br>
+A database backup cron entry needs to be *added* to this cron.  The appropriate zrm configuration files have already been added.  
+<pre>
+/usr/local/bin/gratia_backup_cron.sh 
+/usr/bin/mysql-zrm --action purge
+</pre>
+The <b>/usr/local/bin/gratia_backup_cron.sh</b> script needs to be copied over from *gratia06* to *gratia07* and modified to only backup the *gratia* database.  There should be no copies made to other machines.
+</ol>
+
+---+++ Nebraska (Brian Bockelman) interfaces
+
+
+
+---++ Upgrade  the *gratia06/gratia* database to v0.34.7 
+
+---+++ Notes on large database <nop>MySql client step
+These SQL fragments are intended to ease the pain of upgrading large DBs
+to v0.34 (and above) by allowing most of the column addition to take
+place while operations continue.
+
+This SQL is for execution before and after updates are stopped on a pre-v0-34
+collector prior to upgrading to v0-34.
+
+---+++ v0.34-pre-install-1.sql
+Execute this SQL while the OLD collector is still running: *DO NOT*
+upgrade the running collector otherwise this script will be rendered
+redundant as soon as the collector starts.
+<pre>
+set autocommit=0;
+start transaction;
+
+  drop table if exists NEWJobUsageRecord_Meta;
+
+  create table NEWJobUsageRecord_Meta like JobUsageRecord_Meta;
+
+  alter table NEWJobUsageRecord_Meta 
+    add column md5v2 varchar(255), add index index17(md5v2);
+
+commit;
+
+-- initial fill
+set autocommit=0;
+start transaction; 
+  insert into NEWJobUsageRecord_Meta
+   select *, null
+   from JobUsageRecord_Meta;
+commit;
+</pre>
+
+
+
+---+++ v0.34-pre-install-2.sql
+This will do the final catch-up of all updates that have occured while the 
+_v0.34-pre-install-1.sql_ sql script was running.  
+
+It will perform the table pivot
+by:
+   * making a backup of the original <nop>JobUsageRecord_Meta as <nop>OLDJobUsageRecord_Meta
+   * putting the new one in effect by renaming<nop>NEWJobUsageRecord_Meta as <nop>JobUsageRecord_Meta
+
+This SQL should be executed AFTER v0.34-pre-install-1.sql. 
+   * The OLD collector should still be running
+   * DB updates should have been stopped. *VERY IMPORTANT*
+<pre>
+set autocommit=0;
+start transaction;
+
+  set @maxdbid := 0;
+
+  -- Where did we get to last time?
+  select @maxdbid:=max(dbid) from NEWJobUsageRecord_Meta;
+
+  -- Catch up newer records  
+  insert into NEWJobUsageRecord_Meta
+   select *, null
+   from JobUsageRecord_Meta M
+   where M.dbid > @maxdbid;
+
+  -- Rename tables
+  rename table JobUsageRecord_Meta to OLDJobUsageRecord_Meta,
+               NEWJobUsageRecord_Meta to JobUsageRecord_Meta;
+commit;
+</pre>
+
+If this is successful, upgrade the collector and restart.
+
+Pre-"in-service" downtime should therefore be limited to the time required
+to re-create the summary tables.
+
+Delete the <nop>OLDJobUsageRecord_Meta table as soon as you are comfortable that
+it is not longer required.
+
+
+
+---++ Switch the current *gratia09:/data/tomcat-gratia* to use the *gratia06/gratia* database
+To switch-over the tomcat collectors:
+   1 Stop each collector
+      * on *gratia08* %BR%
+         - service tomcat-conversion stop
+      * on *gratia09* %BR%
+         - service tomcat-gratia stop
+   1 Update the *service-configuration.properties* file to change the databases they point to
+      * on *gratia08:/data/tomcat-conversion/gratia* %BR%
+         - service.mysql.url=jdbc:mysql://<b>gratia07</b>.fnal.gov:3320/gratia
+      * on *gratia09:/data/tomcat-gratia/gratia* %BR%
+         - service.mysql.url=jdbc:mysql://<b>gratia06</b>.fnal.gov:3320/gratia
+   1 Start the *gratia09* production collector *only* (it will be using the *gratia06* database
+      * on *gratia09* %BR%
+         - service tomcat-gratia start
+
+At this point production gratia reporting and services area back on-line and available and  using the *gratia06* database  Verify there are no problems by tailing the 
+log files in *gratia09:/data/tomcat-gratia/logs* .   
+
+
+---+++ Cron processes
+There are several processes (cron) that will need to be copied/modified on  _gratia06_ and _gratia09_  for reports and interfaces.
+<ol>
+<li>gratia06 - user gratia
+  <ul><li>APEL-WLCG interface 
+<pre>
+ dir=/home/gratia/interfaces/apel-lcg; cd $dir; ./lcg.sh --config=lcg.conf --date=current --update
+</pre>
+       This cron process remained on *gratia06*.  The only modification required is to the */home/gratia/interfaces/apel-lcg/lcg-db.conf* file for the following parameter to point it back to the *gratia06* database.
+   <ul><li>GratiaHost  <b>gratia-db01</b>.fnal.gov</li></ul>
+
+<li>OSG daily reports 
+<verbatim>
+/home/gratia/gratia-summary/gratiaSum.cron.sh
+/home/gratia/gratia-summary/daily_mail_cron.sh
+/home/gratia/gratia-summary/range_mail_cron.sh --weekly
+/home/gratia/gratia-summary/range_mail_cron.sh --monthly
+/home/gratia/gratia-summary/rungratia.sh --production 
+</verbatim>
+        <li>CMS weekly reports
+<verbatim>/home/gratia/gratia-summary/cms_mail_cron.sh --weekly</verbatim>
+   </ul>
+
+<li>gratia06 - user root<br>
+Database backups on *gratia06* will need to be changed to now include the *gratia* database.  This includes the purging of log files by the zrm process.
+<pre>
+/usr/local/bin/gratia_backup_cron.sh 
+/usr/bin/mysql-zrm --action purge
+</pre>
+
+<li>gratia09 - user root<br>
+The static reports cron on gratia09 *did not* require changing as it references the gratia09 gratia collector which will now be pointed back  to the gratia06 database.
+
+<li>gratia07 - user root<br>
+This database backup cron entry needs to be *removed* from this cron.  
+<pre>
+/usr/local/bin/gratia_backup_cron.sh 
+/usr/bin/mysql-zrm --action purge
+</pre>
+The <b>/usr/local/bin/gratia_backup_cron.sh</b> script can be removed as well.
+</ol>
+
+---+++ Nebraska (Brian Bockelman) interfaces
+
+
+
+<!-- ----------------- POST MORTEM  ------------- -->
+---+ Post-mortem
+At this time, this will appear to be random notes.  After the conversion, they may be organized.
+
+<ol>
+
+</ol>
+
+
+%STOPINCLUDE%
+
+
+-- Main.JohnWeigand - 30 May 2008
