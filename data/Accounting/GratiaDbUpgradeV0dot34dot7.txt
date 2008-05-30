@@ -1,6 +1,6 @@
-%META:TOPICINFO{author="PhilippeCanal" date="1212172837" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="ChrisGreen" date="1212178096" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="GratiaReleaseV0dot34"}%
----+!! Main gratia DB - Upgrade  to v0.34.7%BR% 
+---+!! Main gratia DB - Upgrade  to v0.34.8%BR% 
 %TOC%
 
 %STARTINCLUDE%
@@ -8,14 +8,14 @@
    * Set EDITTHISTEXT = <div class="twikiSmall"><a href="%TOPIC%">edit this section</a></div>
 -->
 
----+ Main gratia DB - Upgrade  to v0.34.7
+---+ Main gratia DB - Upgrade  to v0.34.8
 %EDITTHISTEXT%
 
 The main Gratia database ( *gratia* ) served by the *gratia09:/data/tomcat-gratia* instance will require a very long 
 conversion time. So to maximize availability we will:
    1 create a current copy of the *gratia06/gratia* database on *gratia07*
    1 switch the current *gratia09:/data/tomcat-gratia* to use the *gratia07/gratia* database
-   1 perform the upgrade of the *gratia06/gratia* database to v0.34.7 using a temporary Gratia collector on *gratia08:/data/tomcat-conversion* .
+   1 perform the upgrade of the *gratia06/gratia* database to v0.34.8 using a temporary Gratia collector on *gratia08:/data/tomcat-conversion* .
    1 when the upgrade is complete (inclusive of the conversion to the new md5 key), we will switch the *gratia09:/data/tomcat-gratia* instance back to using the *gratia06/gratia* database
 
 During the upgrade period, this will be the tomcat/database environement for the *gratia* database:
@@ -32,11 +32,13 @@ On 5/28, the *gratia07:/data/mysqldb* was re-partitioned into a single 200Gb are
 ---+++ Create the *gratia07:gratia* database using the ZRM backup
 This is in process now (5/30) and a finalized procedure will be included when it completes.
 
----+++ Configure/start *gratia08:/data/tomcat-conversion* to use the *gratia07:gratia* database
-On *gratia08*, edit the */data/tomcat-conversion//gratia/service-configuration.properties* file for this resulting attribute:
+---+++ Configure *gratia08:/data/tomcat-conversion* to use the *gratia07:gratia* database
+On *gratia08*, edit the */data/tomcat-conversion/gratia/service-configuration.properties* file for this resulting attribute:
    * service.mysql.url=jdbc:mysql://gratia07.fnal.gov:3320/gratia
 
 *VERY IMPORTANT* - This *must* be a v0.32 version of Gratia.
+
+Before activating this tomcat instance, check that the item =gratia.database.version= in the =SystemProplist= table on the *gratia06/gratia* database matches the variable =gratiaDatabaseVersion= in =DatabaseMaintenance.java= in the source for the code you have installed in *gratia08:/data/tomcat-conversion*. If this is *not* the case, you must install a version of the code that *does* match.
 
 Start this tomcat instance:
    * service tomcat-conversion start
@@ -61,10 +63,8 @@ Since the *gratia07* database is based on a nightly backup and production has be
 When they are close, stop the *administrative update service* on
    *  http://gratia.opensciencegrid.org:8880/gratia-administration
 
-The replication services should still be running to insure we "catch up" the last of the updates on *gratia06* to *gratia07*.  So repeat the verification process for the *dbid* on each database until the *dbid* values are equal in both databases. Then turn off both the *Job Usage* and *Metric* replication services on:
-   * http://gratia.opensciencegrid.org:8880/gratia-administration
-   * first *stop* the replication for <nop>http://gratia-fermi.fnal.gov:8884  
-   * then *delete* the entry.
+The replication services should still be running to ensure we "catch up" the last of the updates on *gratia06* to *gratia07*.  So repeat the verification process for the *dbid* on each database until the *dbid* values are equal in both databases. Then turn off both the *Job Usage* and *Metric* replication services on:
+   * http://gratia.opensciencegrid.org:8880/gratia-administration for <nop>http://gratia-fermi.fnal.gov:8884. Do *not* delete the entries at this time.
 
 ---+++ Update the Replication services on *gratia06* to *gratia07*
 On *gratia06*, if there are *Job Usage* and *Metric* replication services active, we will need to create entries in the *gratia07* instance as this will shortly become our production database.
@@ -85,9 +85,7 @@ To switch-over the tomcat collectors:
          - service tomcat-conversion stop
       * on *gratia09* %BR%
          - service tomcat-gratia stop
-   1 Update the *service-configuration.properties* file to change the databases they point to
-      * on *gratia08:/data/tomcat-conversion/gratia* %BR%
-         - service.mysql.url=jdbc:mysql://<b>gratia06</b>.fnal.gov:3320/gratia
+   1 Update the *service-configuration.properties* file to change the database that the production instance points to:
       * on *gratia09:/data/tomcat-gratia/gratia* %BR%
          - service.mysql.url=jdbc:mysql://<b>gratia07</b>.fnal.gov:3320/gratia
    1 Start the *gratia09* production collector *only* (it will be using the *gratia07* database
@@ -95,7 +93,7 @@ To switch-over the tomcat collectors:
          - service tomcat-gratia start
 
 At this point we have production gratia reporting and services back on-line and available.  Verify there are no problems by tailing the 
-log files in *gratia09:/data/tomcat-gratia/logs* .   If all is well, we can proceed to the v0.34.7 upgrade of the *gratia06:gratia* database.
+log files in *gratia09:/data/tomcat-gratia/logs* .   If all is well, we can proceed to the v0.34.8 upgrade of the *gratia06:gratia* database.
 
 ---+++ Cron processes during upgrade
 There are several processes (cron) that will need to be copied/modified on  _gratia06_ and _gratia09_  for reports and interfaces.
@@ -148,85 +146,32 @@ The <b>/usr/local/bin/gratia_backup_cron.sh</b> script needs to be copied over f
 
 
 
----++ Upgrade  the *gratia06/gratia* database to v0.34.7 
+---++ Upgrade  the *gratia06/gratia* database to v0.34.8 
 
----+++ Notes on large database <nop>MySql client step
-These SQL fragments are intended to ease the pain of upgrading large DBs
-to v0.34 (and above) by allowing most of the column addition to take
-place while operations continue.
+---+++ Upgrade the tomcat-conversion instance to v0.34.8
 
-This SQL is for execution before and after updates are stopped on a pre-v0-34
-collector prior to upgrading to v0-34.
+Use =update-gratia-local= to upgrade the tomcat-conversion instance to v0.34.8.
 
----+++ v0.34-pre-install-1.sql
-Execute this SQL while the OLD collector is still running: *DO NOT*
-upgrade the running collector otherwise this script will be rendered
-redundant as soon as the collector starts.
-<pre>
-set autocommit=0;
-start transaction;
+---+++ Switch the current *gratia08:/data/tomcat-conversion* to use the *gratia06/gratia* database
 
-  drop table if exists NEWJobUsageRecord_Meta;
+      * on *gratia08:/data/tomcat-conversion/gratia* %BR%
+         - service.mysql.url=jdbc:mysql://<b>gratia06</b>.fnal.gov:3320/gratia
 
-  create table NEWJobUsageRecord_Meta like JobUsageRecord_Meta;
+---+++ Start the upgrade of the *gratia06/gratia database*
 
-  alter table NEWJobUsageRecord_Meta 
-    add column md5v2 varchar(255), add index index17(md5v2);
+Start the newly-upgraded tomcat-conversion collector
+      * on *gratia08* %BR%
+         - service tomcat-conversion start
 
-commit;
+---+++ Start replication from production collector to upgrade collector.
 
--- initial fill
-set autocommit=0;
-start transaction; 
-  insert into NEWJobUsageRecord_Meta
-   select *, null
-   from JobUsageRecord_Meta;
-commit;
-</pre>
+After initial schema upgrades on *gratia06/gratia* are complete and *gratia08:/data/tomcat-conversion/gratia* is listening for new records, activate the replication of !JobUsage and Metric records. The starting DBID entries should be correct based on the previous replication activity, but this must be verified.
 
+---+++ Monitor upgrade process and stop replication 
 
+Note that replication *from* v0.32 is not robust against the replicatee being unavailable, so we need to be careful.
 
----+++ v0.34-pre-install-2.sql
-This will do the final catch-up of all updates that have occured while the 
-_v0.34-pre-install-1.sql_ sql script was running.  
-
-It will perform the table pivot
-by:
-   * making a backup of the original <nop>JobUsageRecord_Meta as <nop>OLDJobUsageRecord_Meta
-   * putting the new one in effect by renaming<nop>NEWJobUsageRecord_Meta as <nop>JobUsageRecord_Meta
-
-This SQL should be executed AFTER v0.34-pre-install-1.sql. 
-   * The OLD collector should still be running
-   * DB updates should have been stopped. *VERY IMPORTANT*
-<pre>
-set autocommit=0;
-start transaction;
-
-  set @maxdbid := 0;
-
-  -- Where did we get to last time?
-  select @maxdbid:=max(dbid) from NEWJobUsageRecord_Meta;
-
-  -- Catch up newer records  
-  insert into NEWJobUsageRecord_Meta
-   select *, null
-   from JobUsageRecord_Meta M
-   where M.dbid > @maxdbid;
-
-  -- Rename tables
-  rename table JobUsageRecord_Meta to OLDJobUsageRecord_Meta,
-               NEWJobUsageRecord_Meta to JobUsageRecord_Meta;
-commit;
-</pre>
-
-If this is successful, upgrade the collector and restart.
-
-Pre-"in-service" downtime should therefore be limited to the time required
-to re-create the summary tables.
-
-Delete the <nop>OLDJobUsageRecord_Meta table as soon as you are comfortable that
-it is not longer required.
-
+Towards the end of the upgrade of *gratia06/gratia*, updates to the DB will be stopped pending a final duplicate resolution phase and conversion of the index on =md5v2= to unique. Between this happening and the listener queue hitting its threshold, replication from *gratia09:/data/tomcat-gratia* to *gratia08:/data/tomcat-conversion/gratia* must be stopped.
 
 
 ---++ Switch the current *gratia09:/data/tomcat-gratia* to use the *gratia06/gratia* database
