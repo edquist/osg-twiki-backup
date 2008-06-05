@@ -1,0 +1,47 @@
+%META:TOPICINFO{author="BrianBockelman" date="1212699114" format="1.1" version="1.1"}%
+
+---++ Making Maradona play well on the OSG
+
+Maradona is the software used by the EGEE/gLite WMS to run jobs on a compute element.  It approximately does the following:
+   * Download the user's sandbox (usually, executable script and input data) to the worker node
+   * Launch the user's job
+      * Renew the proxy during the job's lifetime
+   * Clean up afterward
+   * Return results to the WMS server.
+
+Maradona works on OSG, except it assumes that the initial working directory is not on NFS - while OSG currently has the initial working directory on NFS.  This means that the user's sandbox (and stdin / stdout) is written to the NFS server.  This can be serious for "bad users".
+
+We show in this page how to make Maradona change its working directory from the user's $HOME to $OSG_WN_TMP
+
+---++ gLite Customization
+
+Maradona has several hooks for external scripts, called "customization points".  We will take advantage of one customization point which is sourced before anything else is done.
+
+To find the customization points, Maradona looks in the GLITE_LOCAL_CUSTOMIZATION_DIR environmental variable.  Edit =$VDT_LOCATION/monitoring/osg-local-job-environment.conf=, and add the following lines:
+
+<verbatim>
+GLITE_LOCAL_COPY_RETRY_FIRST_WAIT=120
+GLITE_LOCAL_COPY_RETRY_COUNT=2
+
+# Alter this line for your site:
+GLITE_LOCAL_CUSTOMIZATION_DIR=/some/shared/directory
+</verbatim>
+
+The first two lines fix a problem in Maradona which causes it to take an obscene amount of time to reconnect to a WMS in case if the WMS's GridFTP server is broken.  The second - which you need to alter - will point Maradona to look in a specific directory for customization scripts.
+
+---++ Write your customization scripts
+
+Open the file =$GLITE_LOCAL_CUSTOMIZATION_DIR/cp_1.sh= and add the following contents:
+
+<verbatim>
+#!/bin/sh
+
+export MY_WORKDIR=`mktemp -d -p $OSG_WN_TMP glite_wms.XXXXXX`
+cd $MY_WORKDIR
+</verbatim>
+
+*NOTE:* mktemp ignores the $OSG_WN_TMP argument if $TMPDIR is already set.  PBS sets this variable to /tmp; consult your batch scheduler documentation.
+
+This directory may get left around after execution (TODO: delete this using =cp_3.sh=), so make sure it's either on tmpfs, or is regularly cleaned.  The contents of the directory, however, should automatically be removed - leaving on the empty directory, ideally.
+
+-- Main.BrianBockelman - 05 Jun 2008
