@@ -1,0 +1,169 @@
+%META:TOPICINFO{author="BrianBockelman" date="1213036452" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICPARENT{name="WebHome"}%
+---+ The GLUE CE
+
+The GLUE Schema says the following about the GLUE CE entry:
+
+A Computing Element is the common Grid abstraction for a queue of a system managing computing resources.
+
+Roughly, a compute element should map to a queue in the batch system.  However, this sometimes leads to frustrating results.  For example, what should be done with batch systems which are not queue based (such as Condor, the most common batch system on the OSG)?  What should be done with multiple GRAM endpoints which lead to the same batch system?  This page lists common exceptions to the "one CE per queue" rule and how the OSG deals with them.
+
+---++ Condor Batch System
+
+We break the Condor case in two - the present and planned cases.
+
+---+++ Present Case
+
+Condor is advertised as having a separate CE per VO, and one VO view per CE.  For example, consider one of the USCMS gatekeepers:
+
+<verbatim>
+SITE: USCMS-FNAL-WC1-CE
+
+	* CE: cmsosgce.fnal.gov:2119/jobmanager-condor-cms, Close SE: cmsosgce.fnal.gov
+		- VO: cms
+	* CE: cmsosgce.fnal.gov:2119/jobmanager-condor-mis, Close SE: cmsosgce.fnal.gov
+		- VO: mis
+	* CE: cmsosgce.fnal.gov:2119/jobmanager-condor-ops, Close SE: cmsosgce.fnal.gov
+		- VO: ops
+</verbatim>
+
+---+++ Proposed
+
+Condor nominally only has one queue, but has a standardized format for implementing "quota-like" functionality for groups or users.  This allows one to specify a desired number of jobs to run by a particular user.  If, for example, CMS has their group quota set to 100 jobs, then Condor will attempt to give CMS that number of running jobs; however, it's not a hard limit, nor is it a reservation.
+
+We treat any condor site with no groups as a simple single-queue CE in the GLUE schema, and treat each group as it's own GLUE CE (in the GLUE schema design, each GLUE CE should correspond to a batch system queue).
+
+---++++ Case 1: No Condor Groups
+
+Condor should advertise one CE for the entire batch system:
+
+<verbatim>
+<hostname>:2119/jobmanager-condor-default
+</verbatim>
+
+The name is arbitrarily set to _default_ to match EGEE's jobmanager-<batch system>-<queue> syntax.
+
+Each VO should have a VOView entry underneath this CE.  Here is the previous USCMS example but using the proposed layout:
+
+<verbatim>
+SITE: USCMS-FNAL-WC1-CE
+
+	* CE: cmsosgce.fnal.gov:2119/jobmanager-condor-default, Close SE: cmsosgce.fnal.gov
+		- VO: cms
+		- VO: mis
+		- VO: ops
+</verbatim>
+
+---++++ Case 2: Condor Groups
+
+Condor advertises one CE per group, plus one "fallback" CE for any VO not in a group.  The fallback CE should be jobmanager-condor-default.  Each VO should have a VOView entry under each group it is supported by.  Here's a CMS example; a separate quota is used for CMS production, CMS users, and everyone else:
+
+<verbatim>
+SITE: USCMS-FNAL-WC1-CE
+   * CE: cmsosgce.fnal.gov:2119/jobmanager-condor-default, Close SE: cmsosgce.fnal.gov
+      - VO: mis
+      - VO: ops
+   * CE: cmsosgce.fnal.gov:2119/jobmanager-condor-cmsprod, Close SE: cmsosgce.fnal.gov
+      - VO: cms
+   * CE: cmsosgce.fnal.gov:2119/jobmanager-condor-cmsusers, Close SE: cmsosgce.fnal.gov
+      - VO: cms
+</verbatim>
+
+It would be nice to use VOMS group/role support, but that is not yet available.
+
+---++ The PBS, SGE, and LSF batch systems
+
+PBS, SGE, and LSF are all based upon having multiple queues.  The VOs which are allowed to run in a specific queue are attempted to be auto-detected, but this often fails.  The configuration file should have a section for the site's LRMS; the sections are called [pbs], [sge], and [lsf], respectively.  Each section has the following options:
+
+   * queue_exclude: Comma-separated list of queues to exclude.
+   * <queuename>_whitelist: Comma-separated list of VOs to include in queue <queuename>.
+   * <queuename>_blacklist: Comma-separated list of VOs to exclude from queue <queuename>; the character "*" excludes all VOs.
+
+In determining whether or not the queue / VO is included, first remove any queue in the queue_exclude list.  Then, remove all VO/queue pairs specified in the blacklist.  Finally, add in any VO in the whitelist.
+
+---+++ Whitelist/blacklist examples:
+
+The queue named 'workq' supports all VOs except for CMS
+   * workq_blacklist = cms
+   * (no workq_whitelist entry is made in the config file)
+
+The queue named 'cmsprod' supports only the CMS VO:
+   * cmsprod_blacklist = *
+   * cmsprod_whitelist = cms
+
+The queue named 'pushpa' is excluded:
+   * queue_exclude=pushpa
+
+These semantics should be applied consistently for the PBS, SGE, and LSF batch systems.
+
+---++ WS-GRAM Support
+
+In order to advertise WS-GRAM support, one must advertise a second CE per queue for the WS-GRAM endpoint.  The following is a valid WS-GRAM CE entry:
+<verbatim>
+dn: GlueCEUniqueID=https://red.unl.edu:9443/wsrf/services/ManagedJobFactoryService-cms,mds-vo-name=local,o=grid
+objectClass: GlueCETop
+objectClass: GlueCE
+objectClass: GlueSchemaVersion
+objectClass: GlueCEAccessControlBase
+objectClass: GlueCEInfo
+objectClass: GlueCEPolicy
+objectClass: GlueCEState
+objectClass: GlueInformationService
+objectClass: GlueKey
+GlueCEHostingCluster: red.unl.edu
+GlueCEName: red.unl.edu
+GlueCEImplementationName: Globus
+GlueCEImplementationVersion: 4.0.6
+GlueCEUniqueID: https://red.unl.edu:9443/wsrf/services/ManagedJobFactoryService-cms
+GlueCEInfoGatekeeperPort: 9443
+GlueCEInfoHostName: red.unl.edu
+GlueCEInfoLRMSType: pbs
+GlueCEInfoLRMSVersion: PBSPro_9.1.0.72982
+GlueCEInfoGRAMVersion: 4.0
+GlueCEInfoTotalCPUs: 444
+GlueCEInfoJobManager: pbs
+GlueCEInfoContactString: https://red.unl.edu:9443/wsrf/services/ManagedJobFactoryService
+GlueCEInfoApplicationDir: /opt/osg/app
+GlueCEInfoDataDir: /opt/osg/data
+GlueCEInfoDefaultSE: T2_Nebraska_Storage
+GlueCEStateEstimatedResponseTime: 3600
+GlueCEStateFreeCPUs: 189
+GlueCEStateRunningJobs: 202
+GlueCEStateStatus: Production
+GlueCEStateTotalJobs: 202
+GlueCEStateWaitingJobs: 0
+GlueCEStateWorstResponseTime: 3600
+GlueCEStateFreeJobSlots: 189
+GlueCEPolicyMaxCPUTime: 1440
+GlueCEPolicyMaxObtainableCPUTime: 1440
+GlueCEPolicyMaxRunningJobs: 444
+GlueCEPolicyMaxWaitingJobs: 999999
+GlueCEPolicyMaxTotalJobs: 444
+GlueCEPolicyMaxWallClockTime: 1440
+GlueCEPolicyMaxObtainableWallClockTime: 1440
+GlueCEPolicyPriority: 118
+GlueCEPolicyAssignedJobSlots: 444
+GlueCEPolicyMaxSlotsPerJob: 1
+GlueCEPolicyPreemption: FALSE
+GlueCEAccessControlBaseRule:VO: cms
+GlueForeignKey: GlueClusterUniqueID=red.unl.edu
+GlueInformationServiceURL: ldap://is.grid.iu.edu:2170
+GlueSchemaVersionMajor: 1
+GlueSchemaVersionMinor: 3
+</verbatim>
+
+The current pre-WS GRAM version is 2.0.  The current WS-GRAM version is 4.0.  The upcoming WS-GRAM version is 4.2.
+
+---++ MPI Support
+For any CE implementation which supports multiple batch slots per job (usually for running MPI) *and* supports the "count" RSL attribute for multiple slots per job, this support can be advertised.
+
+In order to do this, set:
+
+<verbatim>
+GlueCEPolicyMaxSlotsPerJob: 4
+</verbatim>
+in the CE entry (adjust the number '4' for the maximum slots which can be achieved).
+
+In addition to increasing the max slots per job in the CE entry, one should additionally advertise the software locations for MPI.
+
+-- Main.BrianBockelman - 11 Mar 2008
