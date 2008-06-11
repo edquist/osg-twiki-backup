@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1213103618" format="1.1" reprev="1.48" version="1.48"}%
+%META:TOPICINFO{author="JohnWeigand" date="1213194076" format="1.1" reprev="1.49" version="1.49"}%
 %META:TOPICPARENT{name="WebHome"}%
 <!--
 These are general in nature and should be changed in the this template if the location changes:
@@ -199,10 +199,13 @@ cvs tag -F v0-34-2  common/configuration/summary-procedures.sql
 <hr width="80%" />
 <b>5/21/2008 11:03 CDT</b>
 <verbatim>
-Since the osg_daily record does not have a jobid or anything similar, we must keep the UserIdentity field in the md5 calculation otherwise we find many false duplicate
+Since the osg_daily record does not have a jobid or anything similar, we must keep the 
+UserIdentity field in the md5 calculation otherwise we find many false duplicate
 U collector/gratia-services/net/sf/gratia/storage/JobUsageRecord.java
 
-Add support for DN comming from cron (/DC=gov/DC=fnal/O=Fermilab/OU=Robots/CN=fermigrid0.fnal.gov/CN=cron/CN=Keith Chadwick/CN=UID:chadwick).  In that case, use the 3rd CN
+Add support for DN comming from cron 
+(/DC=gov/DC=fnal/O=Fermilab/OU=Robots/CN=fermigrid0.fnal.gov/CN=cron/CN=Keith Chadwick/CN=UID:chadwick).  
+In that case, use the 3rd CN
 U collector/gratia-services/net/sf/gratia/storage/JobUsageRecordUpdater.java
 
 Re-add VOName Correction link
@@ -425,9 +428,26 @@ U common/configuration/JobUsage.hbm.xml
    * cvs tag -F %RELEASE_TAG%  collector/gratia-services/net/sf/gratia/storage/UsageRecordLoader.java
    * cvs tag -F %RELEASE_TAG%  common/configuration/JobUsage.hbm.xml
 
+<b>6/11/2008  09:00 CDT</b>
+<verbatim>
+Changes:
+
+Refrain from overwriting the locally-generated ExtraXML attribute with
+that received from an external source.
+P collector/gratia-services/net/sf/gratia/services/ListenerThread.java
+</verbatim>
+
+   * cvs tag -F %RELEASE_TAG%  collector/gratia-services/net/sf/gratia/services/ListenerThread.java
+
+<u>Status of checksum differences</u>%BR%
+Philippe and Chris have ascertained that the reason for the difference between the checksums is benign: the <nop>ExtraXML which is used in the checksum calculation is different due to legitimate differences in the make-up of the incoming record. The fact that there are no differences in checksum for anything received since 5/27 on gratiax33 is encouraging.
+
+One change was made to <nop>ListenerThread.java in that previous behavior was to overwrite the <nop>ExtraXML produced from the bits that the receiving server couldn't understand with the incoming <nop>ExtraXML from the replicated (or history) record. This has been changed such that the lately-generated <nop>ExtraXml is used and any previous occupant of that title is ignored. 
+
+
 Steps 3 through 6 were repeated for these modules.%BR%
 Note: 
-the export done as:
+the export done *as yourself* :
    * cvs export -d gratia-%CURRENT_RELEASE% -r %RELEASE_TAG% gratia
 and copy it to the /home/gratia/gratia-releases area (as *gratia* user):
    * cp -pr %BUILD_DIRECTORY% %GRATIA_RELEASES%/.
@@ -522,7 +542,7 @@ The general procedure for this upgrade is:
 Did not have to do the stop/start of update service as you those services never got started
 %ENDCOLOR%
 
----++ Status
+---++ Status v0.34. through v0.34.7
 
 %TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}%
 %EDITTABLE{  header="|*Schema*|*URL*|*Description*|" format="| text, 20 | text, 20 | text, 20 | text, 15 | text, 5 | text, 10 | text, 18 |"  changerows="on" quietsave="on" editbutton="Edit table" }%
@@ -546,9 +566,10 @@ Did not have to do the stop/start of update service as you those services never 
 %RED% 
 *Issues/Problems:*
    1 No host certificate.  So administratiion functions disabled.  Will have to wait until Monday to request host and http certificates from Steve.
+      * %GREEN%Installed host certificate on 5/12%ENDCOLOR%
    1 Static reports not working on fermi_transfer and osg_transfer.  These databases are completely empty (zero records) and this is causing the problem.
    1 The _update_gratia_local_ adds a cron entry for static reports every time it is run.  You have to manually edit the crontab of the old entries.
-      * It is also adding it with the ssl port number where in the past it was using the non-ssl port.
+      * It is also adding it with the ssl port number where in the past it was using the non-ssl port. %GREEN%Resolved on 6/6%ENDCOLOR%
       <verbatim>
 42 0 * * * '/data/tomcat-fermi_osg/gratia/staticReports.py'
                  '/data/tomcat-fermi_osg' 
@@ -676,6 +697,39 @@ gratia    6415 14500 42 Apr25 ?        10-01:17:45
       * source /usr/local/vdt-certificates.1101/setup.sh
       * vdt-control --on
 %ENDCOLOR%
+
+---++ Status v0.34.9
+Since changes have been made to the checksum calculation and these instances have already been upgraded for the new md5 (md5v2) value, the upgrade to v0.34.9 will require the following.  This is so a new checksum (md5v2) value is calculated.
+   1 Shutdown the tomcat service
+   1 Backup the log files and clean the log directory
+   1 In !MySql client ( *as root* ), we need to force the recalculation of the new checksum values:
+      * show index from !JobUsageRecord_Meta;
+      * alter table !JobUsageRecord_Meta drop index index17; %BR%  (index17 should be the md5v2 unique index. If not, drop the one that is.)
+      * update !JobUsageRecord_Meta set md5v2 = null;
+      * delete from !SystemProplist where car = 'gratia.database.disableChecksumUpgrade';
+   1 Upgrade the software on the instance
+   1 Start the tomcat service
+
+
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}%
+%EDITTABLE{  header="|*Schema*|*URL*|*Description*|" format="| text, 20 | text, 20 | text, 20 | text, 15 | text, 5 | text, 10 | text, 18 |"  changerows="on" quietsave="on" editbutton="Edit table" }%
+|*Database*|*Tomcat node*|*init.d service*|*tomcat location*|*Size*|*Start*|*Complete*|
+| fermi_transfer |  gratia08.fnal.gov:8886 | tomcat-fermi_transfer | /data/tomcat-fermi_transfer |  5.2M | 6/11  | 6/11  |
+| fermi_itb |  gratia08.fnal.gov:8881 | tomcat-fermi_itb | /data/tomcat-fermi_itb |  558M | 6/11  | 6/11  |
+| gratia_qcd  |  gratia08.fnal.gov:8883 | tomcat-qcd | /data/tomcat-qcd |  4.3G | 6/11  | 6/11  |
+| gratia_psacct |  gratia08.fnal.gov:8882 | tomcat-ps | /data/tomcat-ps |  13G | 6/11  | 6/11  |
+| fermi_osg |  gratia08.fnal.gov:8880 | fermi_osg | /data/tomcat-fermi_osg |  24G | 6/11  | 6/11  |
+
+
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}%
+%EDITTABLE{  header="|*Schema*|*URL*|*Description*|" format="| text, 20 | text, 20 | text, 20 | text, 15 | text, 5 | text, 10 | text, 18 |"  changerows="on" quietsave="on" editbutton="Edit table" }%
+|*Database*|*Tomcat node*|*init.d service*|*tomcat location*|*Size*|*Start*|*Complete*|
+| gratia_osg_transfer |  gratia09.fnal.org:8886 | tomcat-osg_transfer | /data/tomcat-osg_transfer |  5.2M | 6/11  | 6/11  |
+| gratia_osg_daily |  gratia09.fnal.gov:8884 | tomcat-osg_daily | /data/tomcat-osg_daily |  89M | 6/11  | 6/11  |
+| gratia_osg_integration |  gratia09.fnal.gov:8885 | tomcat-osg_integration | /data/tomcat-osg_integration |  8.1G | 6/11  | 6/11  |
+| gratia_itb |  gratia09.fnal.gov:8881 | tomcat-itb | /data/tomcat-itb |  21G | 6/11  | 6/11  |
+
+
 
 
 <!-- ----------------- POST MORTEM  ------------- -->
