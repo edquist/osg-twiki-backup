@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1213197633" format="1.1" version="1.8"}%
+%META:TOPICINFO{author="ChrisGreen" date="1213199369" format="1.1" reprev="1.9" version="1.9"}%
 %META:TOPICPARENT{name="GratiaReleaseV0dot34"}%
 ---+!! Main gratia DB - Upgrade  to v0.34.9%BR% 
 %TOC%
@@ -38,29 +38,25 @@ On *gratia08*, edit the */data/tomcat-conversion/gratia/service-configuration.pr
 
 %GREEN%Done - 6/3/08 12:37 CDT (John Weigand)%ENDCOLOR%
 
-*VERY IMPORTANT* - This *must* be a v0.32 version of Gratia.
+---+++ Upgrade _but do not start_ *gratia08:/data/tomcat-conversion* to *v0-34-9*
 
-Before activating this tomcat instance, 
-   * check that the item =gratia.database.version= in the =SystemProplist= table on the *gratia07/gratia* database matches the variable =gratiaDatabaseVersion= in =DatabaseMaintenance.java= in the source for the code you have installed in *gratia08:/data/tomcat-conversion*. 
-   * If this is *not* the case, you must install a version of the code that *does* match.
+---+++ Prepare *gratia08:/data/tomcat-conversion* for activation
 
-%GREEN%Done - 6/3/08 13:45 CDT (John Weigand)%ENDCOLOR%
+   * Add or update the property =gratia.database.disableChecksumUpgrade= to have =cdr= = *1*.
 
-Start this tomcat instance:
+---+++ Start *gratia08:/data/tomcat-conversion*
    * service tomcat-conversion start
-
-%GREEN%Done - 6/3/08 13:58 CDT (John Weigand)%ENDCOLOR%
 
 ---+++ Bring the *gratia07* database up to current
 Since the *gratia07* database is based on a nightly backup and production has been collecting data from the CE nodes, it needs to be brought up to current by replicating from *gratia06* to *gratia07* using the  administrative services *Replication* menu.
    * on http://gratia.opensciencegrid.org:8880/gratia-administration
    * both *Job Usage* and *Metric* replication services should be activated to replicate to:%BR%
      - <nop>http://gratia-fermi.fnal.gov:8884 
-   * The starting *dbid* should be determined using the mysql client on *gratia07* %BR%
+   * The starting *dbid* should be determined (*once only* after the backup is restored) using the mysql client on *gratia07* %BR%
       - select max(dbid) from <nop>JobUsageRecord_Meta; %BR%
       - select max(dbid) from <nop>MetricRecord_Meta; %BR%
 
-%GREEN%Done - 6/3/08 13:45 CDT (John Weigand)
+%GREEN% *Partially done* - 6/3/08 13:45 CDT (John Weigand)
 <pre>
 select max(dbid) from JobUsageRecord_Meta; 
 +-----------+
@@ -124,33 +120,35 @@ Catch up complete around 6/3/08 23:00 CDT
 When they are close, stop the *administrative update service* on
    *  http://gratia.opensciencegrid.org:8880/gratia-administration
 
+The replication services should still be running to ensure we "catch up" the last of the updates on *gratia06* to *gratia07*.  The replication activity shall be complete when both replication data pumps (as shown by =gratia-0.log= on gratia08) have been through at least one check-duplicate cycle without uploading records.
 
-
-
-The replication services should still be running to ensure we "catch up" the last of the updates on *gratia06* to *gratia07*.  So repeat the verification process for the *dbid* on each database until the *dbid* values are equal in both databases. Then turn off both the *Job Usage* and *Metric* replication services on:
+Then, turn off both the *Job Usage* and *Metric* replication services on:
    * http://gratia.opensciencegrid.org:8880/gratia-administration for <nop>http://gratia-fermi.fnal.gov:8884. 
    * Do *not* delete the entries at this time.%BR%
-      -  We will be using these same entries to keep the *gratia06* database up-to-date with the temporary *gratia07 production* database while the *gratia06* database is being upgraded.  This will reduce the catch-up time later.
+
+Take note of max(dbid) in =JobUsageRecord_Meta= and =MetricRecord_Meta= on *gratia07*, as these numbers will be used to set up replication from *gratia07* back to *gratia06* while checksums are being upgraded on *gratia06*.
 
 ---+++ Update the Replication services on *gratia06* to *gratia07*
 On *gratia06*, if there are *Job Usage* and *Metric* replication services active, we will need to create entries in the *gratia07* instance as this will shortly become our production database.
 
-When creating this entries, we will need to insure that we start with the last *dbid* replicated from *gratia06*.
+When creating these entries, we will need to insure that we start with the last record replicated from *gratia06*, which may not have the same dbid on gratia06 as it did on gratia07.
 
 Instructions for doing this will be provided later if this needs to be performed for this release.
 
 This should be done *before* we switch the *gratia09:/data/tomcat-gratia* to use the *gratia07/gratia* database.
 
-The entries should be added and *only* a test that the entry is correct made at this time.  We will set the * starting dbid* 
- later and activate he entry after we switch the tomcat collectors.
+The entries should be added and *only* a test that the entry is correct made at this time.  We will set the *starting dbid* 
+ later and activate the entry after we switch the tomcat collectors.
 
----++ Switch the current *gratia09:/data/tomcat-gratia* to use the *gratia07/gratia* database
-To switch-over the tomcat collectors:
+
+---++ Upgrade the current *gratia09:/data/tomcat-gratia* to *v0.34.9* and switch it to use the *gratia07/gratia* database
+To upgrade and/or switch-over the tomcat collectors:
    1 Stop each collector
       * on *gratia08* %BR%
          - service tomcat-conversion stop
       * on *gratia09* %BR%
          - service tomcat-gratia stop
+   1 Upgrade *gratia09:/data/tomcat-gratia* to *v0.34.9*
    1 Update the *service-configuration.properties* file to change the database that the production instance points to:
       * on *gratia09:/data/tomcat-gratia/gratia* %BR%
          - service.mysql.url=jdbc:mysql://<b>gratia07</b>.fnal.gov:3320/gratia
@@ -211,7 +209,6 @@ The <b>/usr/local/bin/gratia_backup_cron.sh</b> script needs to be copied over f
 ---+++ Nebraska (Brian Bockelman) interfaces
 
 
-
 ---++ Upgrade  the *gratia06/gratia* database to v0.34.9 
 
 ---+++ Upgrade the tomcat-conversion instance to v0.34.9
@@ -231,13 +228,11 @@ Start the newly-upgraded tomcat-conversion collector
 
 ---+++ Start replication from production collector to upgrade collector.
 
-After initial schema upgrades on *gratia06/gratia* are complete and *gratia08:/data/tomcat-conversion/gratia* is listening for new records, activate the replication of !JobUsage and Metric records. The starting DBID entries should be correct based on the previous replication activity, but this must be verified.
+After initial schema upgrades on *gratia06/gratia* are complete and *gratia08:/data/tomcat-conversion/gratia* is listening for new records, activate the replication of !JobUsage and Metric records. The starting DBID entries should be filled in based on max(dbid) for each =Meta= table on *gratia07*.
 
 ---+++ Monitor upgrade process and stop replication 
 
-Note that replication *from* v0.32 is not robust against the replicatee being unavailable, so we need to be careful.
-
-Towards the end of the upgrade of *gratia06/gratia*, updates to the DB will be stopped pending a final duplicate resolution phase and conversion of the index on =md5v2= to unique. Between this happening and the listener queue hitting its threshold, replication from *gratia09:/data/tomcat-gratia* to *gratia08:/data/tomcat-conversion/gratia* must be stopped.
+Towards the end of the upgrade of *gratia06/gratia*, updates to the DB will be stopped pending a final duplicate resolution phase and conversion of the index on =md5v2= to unique. Between this happening and the listener queue hitting its threshold, replication from *gratia09:/data/tomcat-gratia* to *gratia08:/data/tomcat-conversion/gratia* should be stopped.
 
 ---+++ Watch for upgrade completion and complete replication
 
@@ -259,6 +254,7 @@ To switch-over the tomcat collectors:
          - service.mysql.url=jdbc:mysql://<b>gratia07</b>.fnal.gov:3320/gratia
       * on *gratia09:/data/tomcat-gratia/gratia* %BR%
          - service.mysql.url=jdbc:mysql://<b>gratia06</b>.fnal.gov:3320/gratia
+   1 If necessary, change dbid in =Replication= table entries on gratia06 to match correct max(dbid) values for =Meta= tables on *gratia06*
    1 Start the *gratia09* production collector *only* (it will be using the *gratia06* database
       * on *gratia09* %BR%
          - service tomcat-gratia start
