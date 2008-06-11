@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ChrisGreen" date="1213199369" format="1.1" reprev="1.9" version="1.9"}%
+%META:TOPICINFO{author="JohnWeigand" date="1213208210" format="1.1" reprev="1.10" version="1.10"}%
 %META:TOPICPARENT{name="GratiaReleaseV0dot34"}%
 ---+!! Main gratia DB - Upgrade  to v0.34.9%BR% 
 %TOC%
@@ -14,8 +14,12 @@
 The main Gratia database ( *gratia* ) served by the *gratia09:/data/tomcat-gratia* instance will require a very long 
 conversion time. So to maximize availability we will:
    1 create a current copy of the *gratia06/gratia* database on *gratia07*
+   1 using a temporary Gratia collector on *gratia08:/data/tomcat-conversion* 
+      * this collector will be upgraded to v0.34.9 allowing the new summary table and md5v2 checksums to be calculated.
+      * we will then replicate from *gratia06* to *gratia07* to "catch up" the database before we switch the production *gratia09:/data/tomcat-gratia* over to using it.
    1 switch the current *gratia09:/data/tomcat-gratia* to use the *gratia07/gratia* database
-   1 perform the upgrade of the *gratia06/gratia* database to v0.34.9 using a temporary Gratia collector on *gratia08:/data/tomcat-conversion* .
+   1 perform the upgrade of the *gratia06/gratia* database to v0.34.9 using the Gratia collector on *gratia08:/data/tomcat-conversion* .
+   1 While the checksum upgrades are occurring, we will replicate from *gratia07* to *gratia06* so the "catch up" time to make it current is reduced.
    1 when the upgrade is complete (inclusive of the conversion to the new md5 key), we will switch the *gratia09:/data/tomcat-gratia* instance back to using the *gratia06/gratia* database
 
 During the upgrade period, this will be the tomcat/database environement for the *gratia* database:
@@ -32,20 +36,43 @@ On 5/28, the *gratia07:/data/mysqldb* was re-partitioned into a single 200Gb are
 ---+++ Create the *gratia07:gratia* database using the ZRM backup
 This is in process now (5/30) and a finalized procedure will be included when it completes.
 
+%GREEN%Done - 6/3/08 08:00 CDT%ENDCOLOR% %BR%
+
 ---+++ Configure *gratia08:/data/tomcat-conversion* to use the *gratia07:gratia* database
 On *gratia08*, edit the */data/tomcat-conversion/gratia/service-configuration.properties* file for this resulting attribute:
    * service.mysql.url=jdbc:mysql://gratia07.fnal.gov:3320/gratia
 
-%GREEN%Done - 6/3/08 12:37 CDT (John Weigand)%ENDCOLOR%
+%GREEN%Done - 6/3/08 12:37 CDT (John Weigand)%ENDCOLOR% %BR%
+%GREEN%Re-confirmed - 6/11/08 10:30 CDT (John Weigand)%ENDCOLOR%
 
----+++ Upgrade _but do not start_ *gratia08:/data/tomcat-conversion* to *v0-34-9*
+---+++ Upgrade  *gratia08:/data/tomcat-conversion* to *v0-34-9*
+On *gratia08* :
+   1 Stop the tomcat service
+      * service tomcat-conversion stop
 
----+++ Prepare *gratia08:/data/tomcat-conversion* for activation
+On *gratia07* :
+   1 Disable the checksum upgrade on *gratia07/gratia* database.  In a !MySql client:
+      * update !SystemProplist set cdr=1 where car='gratia.database.disableChecksumUpgrade';
 
-   * Add or update the property =gratia.database.disableChecksumUpgrade= to have =cdr= = *1*.
+Back on *gratia08* :
+   1 Perform the upgrade to v0.34.9
+      * pswd=xxx
+      * source=/home/gratia/gratia-releases/gratia-0.34.9
+      * pgm=/home/gratia/gratia-releases/gratia-0.34.9/common/configuration/update-gratia-local 
+      * $pgm  -d $pswd -S $source -s  conversion
+   1 Effective with this release, there is an administrative login process that, by default, does not allow access to the admin functions.  You will need to update the __TOMCAT_LOCATION/gratia/service-configuration.properties__ file with the following attributes. You will also need to change 2 connection attributes, as well. (Note that if you forget to do this, the administrator can be added at anytime without restarting the tomcat service):
+      * service.admin.DN.0=/DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Philippe G. Canal/UID=pcanal
+      * service.admin.DN.1=/DC=org/DC=doegrids/OU=People/CN=Christopher H. Green 851859
+      * service.admin.DN.2=/DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+      * service.admin.DN.3=/DC=org/DC=doegrids/OU=People/CN=Steven Timm 74183
+      * service.admin.DN.4=/DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Steven C. Timm/UID=timm
+      * 
+      * service.open.connection=http://gratia-fermi.fnal.gov:8884
+      * service.secure.connection=https://gratia-fermi.fnal.gov:8860
+   1 Start the tomcat service
+      * service tomcat-conversion start
 
----+++ Start *gratia08:/data/tomcat-conversion*
-   * service tomcat-conversion start
+*WAIT* until the summary tables have been created.  Then you can proceed to the next step of "catching up" the *gratia07* database.
 
 ---+++ Bring the *gratia07* database up to current
 Since the *gratia07* database is based on a nightly backup and production has been collecting data from the CE nodes, it needs to be brought up to current by replicating from *gratia06* to *gratia07* using the  administrative services *Replication* menu.
@@ -137,27 +164,51 @@ Instructions for doing this will be provided later if this needs to be performed
 
 This should be done *before* we switch the *gratia09:/data/tomcat-gratia* to use the *gratia07/gratia* database.
 
-The entries should be added and *only* a test that the entry is correct made at this time.  We will set the *starting dbid* 
- later and activate the entry after we switch the tomcat collectors.
+The entries should be added and *only* a test that the entry is correct made at this time.  
+We will set the *starting dbid*  later and activate the entry after we switch the tomcat collectors.
 
+---++ Stop *gratia09:/data/tomcat-gratia* and *gratia08:/data/tomcat-conversion*
+Stop each collector:
+   1 on *gratia08* 
+      * service tomcat-conversion stop
+   1 on *gratia09* 
+      * service tomcat-gratia stop
 
----++ Upgrade the current *gratia09:/data/tomcat-gratia* to *v0.34.9* and switch it to use the *gratia07/gratia* database
-To upgrade and/or switch-over the tomcat collectors:
-   1 Stop each collector
-      * on *gratia08* %BR%
-         - service tomcat-conversion stop
-      * on *gratia09* %BR%
-         - service tomcat-gratia stop
-   1 Upgrade *gratia09:/data/tomcat-gratia* to *v0.34.9*
-   1 Update the *service-configuration.properties* file to change the database that the production instance points to:
-      * on *gratia09:/data/tomcat-gratia/gratia* %BR%
-         - service.mysql.url=jdbc:mysql://<b>gratia07</b>.fnal.gov:3320/gratia
+---++ Upgrade the current *gratia09:/data/tomcat-gratia* to *v0.34.9* 
+On gratia09:
+   1 Perform the upgrade to v0.34.9
+      * pswd=xxx
+      * source=/home/gratia/gratia-releases/gratia-0.34.9
+      * pgm=/home/gratia/gratia-releases/gratia-0.34.9/common/configuration/update-gratia-local 
+      * $pgm  -d $pswd -S $source -s  gratia
+   1 Effective with this release, there is an administrative login process that, by default, does not allow access to the admin functions.  You will need to update the __TOMCAT_LOCATION/gratia/service-configuration.properties__ file with the following attributes. You will also need to change 2 connection attributes, as well. (Note that if you forget to do this, the administrator can be added at anytime without restarting the tomcat service):
+      * service.admin.DN.0=/DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Philippe G. Canal/UID=pcanal
+      * service.admin.DN.1=/DC=org/DC=doegrids/OU=People/CN=Christopher H. Green 851859
+      * service.admin.DN.2=/DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+      * service.admin.DN.3=/DC=org/DC=doegrids/OU=People/CN=Steven Timm 74183
+      * service.admin.DN.4=/DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Steven C. Timm/UID=timm
+      * 
+      * service.open.connection=http://gratia-fermi.fnal.gov:8884
+      * service.secure.connection=https://gratia-fermi.fnal.gov:8860
+
+---++ Switch *gratia09:/data/tomcat-gratia* to use the *gratia07/gratia* database
+Update the *service-configuration.properties* file to change the database that the production instance points to:
+   1 In *gratia09:/data/tomcat-gratia/gratia/service-configuration.properties
+      * service.mysql.url=jdbc:mysql://<b>gratia07</b>.fnal.gov:3320/gratia
    1 Start the *gratia09* production collector *only* (it will be using the *gratia07* database
-      * on *gratia09* %BR%
-         - service tomcat-gratia start
+      * service tomcat-gratia start
 
-At this point we have production gratia reporting and services back on-line and available.  Verify there are no problems by tailing the 
-log files in *gratia09:/data/tomcat-gratia/logs* .   If all is well, we can proceed to the v0.34.9 upgrade of the *gratia06:gratia* database.
+At this point we have production gratia reporting and services back on-line and available.  Verify there are no problems by tailing the log files in *gratia09:/data/tomcat-gratia/logs* .   
+
+If all is well, we can proceed to the v0.34.9 upgrade of the *gratia06:gratia* database.
+
+---++ Backups
+We will need to take backups on the *gratia07* database for the *gratia* database.
+
+And also *stop* the backups on *gratia06* for the *gratia* database.
+
+---++ Crons
+This section can be delayed depending on the time of day.
 
 ---+++ Cron processes during upgrade
 There are several processes (cron) that will need to be copied/modified on  _gratia06_ and _gratia09_  for reports and interfaces.
@@ -207,40 +258,45 @@ The <b>/usr/local/bin/gratia_backup_cron.sh</b> script needs to be copied over f
 </ol>
 
 ---+++ Nebraska (Brian Bockelman) interfaces
+Notify Brian to effect the changes necessary for his processes to use the *gratia07:3320* database
 
+---++ Switch the current *gratia08:/data/tomcat-conversion* to use the *gratia06/gratia* database
+Update *gratia08:/data/tomcat-conversion/gratia/service-configuration.properties* to point to the *gratia06/gratia* database:
+   * service.mysql.url=jdbc:mysql://<b>gratia06</b>.fnal.gov:3320/gratia
 
----++ Upgrade  the *gratia06/gratia* database to v0.34.9 
+On *gratia08* ,start the newly-upgraded tomcat-conversion collector
+   * service tomcat-conversion start
 
----+++ Upgrade the tomcat-conversion instance to v0.34.9
+---++ Start replication from production collector to upgrade collector.
+After initial schema upgrades on *gratia06/gratia* are complete and *gratia08:/data/tomcat-conversion/gratia* is listening for new records, activate the replication of !JobUsage and Metric records. The starting *dbid* entries should be filled in based on max(dbid) for each =Meta= table on *gratia07*.
 
-Use =update-gratia-local= to upgrade the tomcat-conversion instance to v0.34.9.
+On *gratia07* :
+   * select max(dbid) from <nop>JobUsageRecord_Meta; 
+   * select max(dbid) from <nop>MetricRecord_Meta; 
 
----+++ Switch the current *gratia08:/data/tomcat-conversion* to use the *gratia06/gratia* database
+<pre>
+update Replication set dbid=?????
+where openconnection='http://gratia-fermi.fnal.gov:8884' and replicationid=??;
+update Replication set dbid=??????
+where openconnection='http://gratia-fermi.fnal.gov:8884' and replicationid=??;
+</pre>
 
-      * on *gratia08:/data/tomcat-conversion/gratia* %BR%
-         - service.mysql.url=jdbc:mysql://<b>gratia06</b>.fnal.gov:3320/gratia
+---++ Monitor upgrade process on *gratia06/gratia and stop replication 
+Towards the end of the upgrade of *gratia06/gratia*, updates to the DB will be stopped pending a final duplicate resolution phase and conversion of the index on =md5v2= to unique. 
 
----+++ Start the upgrade of the *gratia06/gratia database*
+Between this happening and the listener queue hitting its threshold, replication from *gratia09:/data/tomcat-gratia* to *gratia08:/data/tomcat-conversion/gratia* should be stopped.
 
-Start the newly-upgraded tomcat-conversion collector
-      * on *gratia08* %BR%
-         - service tomcat-conversion start
+---++ Watch for upgrade completion and complete replication
 
----+++ Start replication from production collector to upgrade collector.
+When the upgrade of *gratia06/gratia* is complete, 
+   * the index =index17(md5v2)= on !JobUsageRecord_Meta will have its =non_unique= attribute set to 0    
+   * and, *gratia09:/data/tomcat-gratia/logs/gratia-0.log* will indicate that the listeners have been reactivated. 
 
-After initial schema upgrades on *gratia06/gratia* are complete and *gratia08:/data/tomcat-conversion/gratia* is listening for new records, activate the replication of !JobUsage and Metric records. The starting DBID entries should be filled in based on max(dbid) for each =Meta= table on *gratia07*.
-
----+++ Monitor upgrade process and stop replication 
-
-Towards the end of the upgrade of *gratia06/gratia*, updates to the DB will be stopped pending a final duplicate resolution phase and conversion of the index on =md5v2= to unique. Between this happening and the listener queue hitting its threshold, replication from *gratia09:/data/tomcat-gratia* to *gratia08:/data/tomcat-conversion/gratia* should be stopped.
-
----+++ Watch for upgrade completion and complete replication
-
-When the upgrade of *gratia06/gratia* is complete, the index =index17(md5v2)= on !JobUsageRecord_Meta will have its =non_unique= attribute set to 0 and *gratia09:/data/tomcat-gratia/logs/gratia-0.log* will indicate that the listeners have been reactivated. At this time:
-
-   1 Restart replication from *gratia09:/data/tomcat-gratia* to *gratia09:/data/tomcat-conversion*.
+At this time:
+   1 Restart replication from *gratia09:/data/tomcat-gratia* to *gratia08:/data/tomcat-conversion*.
    1 Stop DB updates on *gratia09:/data/tomcat-gratia*.
    1 Wait until replication is complete.
+
 
 ---++ Switch the current *gratia09:/data/tomcat-gratia* to use the *gratia06/gratia* database
 To switch-over the tomcat collectors:
@@ -259,10 +315,17 @@ To switch-over the tomcat collectors:
       * on *gratia09* %BR%
          - service tomcat-gratia start
 
-At this point production gratia reporting and services area back on-line and available and  using the *gratia06* database  Verify there are no problems by tailing the 
-log files in *gratia09:/data/tomcat-gratia/logs* .   
+At this point production gratia reporting and services area back on-line and available and  using the *gratia06* database  
+
+Verify there are no problems by tailing the log files in *gratia09:/data/tomcat-gratia/logs* .   
 
 
+---++ Backups
+We will need to  *start* the backups on *gratia06* for the *gratia* database.
+
+And *deactivate* the backups on the *gratia07* database for the gratia database.
+
+---++ Crons
 ---+++ Cron processes
 There are several processes (cron) that will need to be copied/modified on  _gratia06_ and _gratia09_  for reports and interfaces.
 <ol>
@@ -306,7 +369,7 @@ The <b>/usr/local/bin/gratia_backup_cron.sh</b> script can be removed as well.
 </ol>
 
 ---+++ Nebraska (Brian Bockelman) interfaces
-
+Notify Brian to switch back to using *gratia-db01:3320* database.
 
 
 <!-- ----------------- POST MORTEM  ------------- -->
