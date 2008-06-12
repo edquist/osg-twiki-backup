@@ -1,0 +1,134 @@
+%META:TOPICINFO{author="RobGardner" date="1213305676" format="1.1" reprev="1.6" version="1.6"}%
+%META:TOPICPARENT{name="ComputeElementInstall"}%
+---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+%STARTINCLUDE%
+%BR%
+---+ _%INCLUDEHEADING%  %SPACEOUT{ "%TOPIC%" }%_
+Enabling Full Privilege Authentication for CE Install
+
+%EDITTHIS%
+%BR%
+---++Introduction
+It is necessary to enable some mode of authentication before you can successfully 
+run the OSG configuration script.  There is no mode of authentication that is enabled by 
+default.  This section of the document describes how to enable the recommended Full Privilege Authorization using a GUMS server that all OSG sites are strongly encouraged to use.  There is more 
+background information about the other privilege modes  at AboutAuthorizationForCE.   If you  
+wish to enable a different mode, please consult [[CompatibilityAuthPreConfig][CompatibilityAuthPreConfig]] or [[LocalAuthPreConfig][LocalAuthPreConfig]]
+
+---++ Prerequisites
+To successfully complete the steps below, you need to have installed a GUMS service. See the [[InstallConfigureAndManageGUMS][Install Configure And Manage GUMS]] topic of the %CACHE% documentation for information on installing GUMS. 
+
+---++ Configure GUMS clients to point to the correct GUMS service
+The GUMS-Client package is installed as part of the %CACHE% CE install  The essential commands are located in the =$VDT_LOCATION/gums/scripts= directory, and the essential configuration files are located in =$VDT_LOCATION/gums/config= directory.  You will need to configure these for Full Privilege authorization mode, which is explained in the following sections.
+
+---+++!! gums-client.properties file
+You need to edit the =$VDT_LOCATION/gums/config/gums-client.properties= configuration file to point to the appropriate GUMS server.   Upon installation, the file contains two entries both populated with the hostname of the CE node you are configuring, in the following example, the GUMS node is on =gums.domain.org= .   Change both the =gums.location= and the =gums.authz= properties to the hostname of your GUMS server.
+ 
+*Note* If you set the VDT_GUMS_HOST environment variable while installing the CE, the modifications will have already been made to these template files.
+
+<pre class="programlisting">
+gums.location=https://gums.domain.org:8443/gums/services/GUMSAdmin
+gums.authz=https://gums.domain.org:8443/gums/services/GUMSAuthorizationServicePort
+</pre>
+
+The =gums.authz= entry is used by the client tool to test specific mappings from this host.  Documentation of this client is found at the [[https://www.racf.bnl.gov/Facility/GUMS/1.2/use_test.html][GUMS web site]].  This same functionality can be executed using the GUMS web UI.
+
+---++ Configure Globus to use the PRIMA callout
+Templates for the necessary configuration files, =prima-authz.conf= and =gsi-authz.conf=,  are located in the =$VDT_LOCATION/post-install= directory.  Both files must be copied into =/etc/grid-security/=.  These are critical for both pre-ws and WS-GRAM.
+
+*Note* If you set the VDT_GUMS_HOST environment variable while installing the CE, the modifications will have already been made to these template files.
+
+---+++!! gsi-authz.conf
+The presence of an  =/etc/grid-security/gsi-authz= file, containing an entry for the PRIMA callout,  tells the Globus gatekeeper and gsiftp services to use PRIMA.  It does not need to be edited, just copied over to =/etc/grid-security/=.  The PRIMA callout is identified by this entry:
+<pre>
+globus_mapping /usr/local/osg-ce/prima/lib/libprima_authz_module_gcc32dbg globus_gridmap_callout
+   <b>OR</b>
+globus_mapping /usr/local/osg-ce/prima/lib/libprima_authz_module_gcc64dbg globus_gridmap_callout
+</pre>
+
+   *Note:* =gsi-authz.conf= is the key to the callout being invoked.  If you remove this file from =/etc/grid-security/= (or if you comment out the line for the PRIMA callout),  the Globus services will revert to local grid-mapfile mode.
+  
+---+++!! prima-authz.conf
+This configuration file is used by the PRIMA callout and  identifies the GUMS service.  The appropriate line comes pre-configured with the CE hostname in the =imsContact= string.  For example, say one installed a *%CACHE% %VERSION%* CE on host =osg-ce.domain.org=, but the GUMS service was on host =gums.domain.org=.   Then, one would change the line
+
+<pre>
+imsContact <nop>https://osg-ce.domain.org:8443/gums/services/GUMSAuthorizationServicePort
+    <b>TO</b>
+imsContact <nop>https://gums.domain.org:8443/gums/services/GUMSAuthorizationServicePort
+</pre>
+and copy this file to =/etc/grid-security/=.   
+
+By default, the installation has the =prima-authz.conf= file's log file verbosity set to 'debug'.  You may want to change the =logLevel= attribute  to 'info'.
+
+---++ Enable and run  the gums-host-cron service
+To keep the  =osg-user-vo-map.txt= file up to date, a cron file script (=gums-host-cron=) was  installed but not  activated. The activation of this service is *critical* in Full Privilege authorization mode.  
+Enable it with the following command (as root)
+
+<pre>
+vdt-control --enable gums-host-cron
+</pre>
+Then run gums-host-cron manually once to populate the osg-user-vo-map.txt.  This step is critical 
+because it is the full list of VO's you will support and this information is needed as input to
+the OSG configuration step which comes next.
+
+<pre>
+$VDT_LOCATION/gums/scripts/gums-host-cron
+</pre>
+
+---++ WS-GRAM configuration for full privilege mode
+When there is a /etc/grid-security/gsi-authz.conf file in place that uses the PRIMA callout, and 
+wsgram is set to "enabled" in the config.ini file of =configure-osg.py=, then the =configure-osg.py=
+(previously =configure-osg.sh=) script will automatically do the changes needed to configure the WS-GRAM
+software to use PRIMA.   All that is necessary is to add an =/etc/sudoers= file manually.
+The =/etc/sudoers= file may be added either at this time or after the configuration tool is run.
+
+---+++ WS-GRAM services sudoers file
+WS-GRAM is a CE service that submits user jobs from the grid to an underlying local batch system. Users present their grid identities (user proxy) to WS-GRAM. This identity is mapped to a local user (UNIX username), for example using a gridmap-file (as explained above). Jobs are run in the batch system using this local identity. Pre-WS-GRAM and WS-GRAM use two different mechanisms to switch to the appropriate local user.
+
+The <i>pre-WS</i> GRAM processes run as privileged user (root) and can, therefore, change to any local unprivileged user. This mechanism, however, may present security risks: bugs in the code, which runs as root, may be exploited to gain privileged access to the machine.
+
+To mitigate this risk, WS-GRAM processes run as an unprivileged user (either <b>globus</b> or <b>daemon</b>, depending on the local configuration). In order for these users to be able to switch to another local unprivileged user, though, the local =sudo= service must be appropriately configured. The configuration requires editing the =/etc/sudoers= file manually.  
+
+In =$VDT_LOCATION/post-install/README=, the section <i>Globus-Base-WSGRAM-Server</i> describes the modifications to =/etc/sudoers= necessary for the web services GRAM to function properly.  To facilitate the necessary modification, the =configure-osg.py= script produces the necessary additions for the =/etc/sudoers= file and writes them into a new file =$VDT_LOCATION/monitoring/sudo-example.txt= . The administrator should simply copy and paste the content of that file into the =/etc/sudoers= file using =visudo=.
+*Note the following:*
+   * You __must__ use the same authorization mode for pre-ws and web services.
+   * This must be done manually.
+   * The path defined in =/etc/sudoer= cannot be soft links. Use full paths only. Therefore, if you have your $VDT_LOCATION (e.g. /opt/local/ce-0.8/) soft linked from a generic directory (e.g. /opt/local/ce), it is the explicit path (ce-0.8) that *must* used in the =/etc/sudoers= file. If you install another version of the software into a different directory, you must change the =/etc/sudoers= to reflect the new installation since making a softlink will not work.
+   * Use the =visudo= command to modify the =/etc/sudoers= file. 
+   * Beware of extra whitespace when modifying the =sudoers= file, especially at the end of a line.
+
+Make these changes now, keeping in mind the user under which VDT determined your container will run.
+
+In the example (for Full Privilege mode) that follows, the web services user is the <i>daemon</i> user and the real path to the VDT_LOCATION is =/usr/local/osg-ce=:
+<pre class="programlisting">
+Runas_Alias GLOBUSUSERS = ALL, !root
+daemon ALL=(GLOBUSUSERS) \
+     NOPASSWD: \
+     /usr/local/osg-ce/globus/libexec/globus-job-manager-script.pl *
+daemon ALL=(GLOBUSUSERS) \
+     NOPASSWD: \
+     /usr/local/osg-ce/globus/libexec/globus-gram-local-proxy-tool *
+</pre>
+
+---++ Check supported VOs and Unix accounts
+One can validate authorization for supported VOs and that the required Unix accounts exist on the CE host.  This is further discussed in the [[OsgSupportedVos][Supported VOs and Undefined UNIX Accounts]] topic. 
+
+---++  Monitoring and publishing the authorization service 
+The authorization service configuration is monitored and published to the OSG information service (!CEMon, GIP, BDII) for all 3 modes:
+   * it identifies your authorization mode as being either grid-mapfile based (Local and Compatibility modes) or GUMS based (Full Privilege mode)
+   * for a Full Privilege (GUMS) based authorization service, it will periodically "probe" your GUMS service with an authorization request and report on the availability of the service.
+This monitoring is automatically enabled on any %CACHE% CE node installation. 
+
+On the GUMS service side for Full Privilege mode, GUMS v1.2 or later is required.  This is done automatically when upgrading GUMS to v1.2 or when doing a fresh GUMS v1.2 install.  If your GUMS version is not at this level, ask  your GUMS administrator to authorize a mapping for the information provider probe.  In case of problem, you can look at the manual version of the steps performed to authorize the authorization probe on the GUMS server at the [[%VDT_DOCS_URL%/notes/GUMS.html][VDT GUMS release notes]].
+
+
+
+%STOPINCLUDE%
+%BR%
+%COMPLETE3% %BR%
+%RESPONSIBLE% Main.StevenTimm - 20 May 2008 %BR%
+%REVIEW% Main.RobGardner -  12 Jun 2008 %BR%
+%REVCOM%  Would like to distill the default case so one doesn't have to read a novel every time.  %BR%
+%REVFLAG% %Y% %BR%
