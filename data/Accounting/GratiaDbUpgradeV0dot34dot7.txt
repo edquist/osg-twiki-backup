@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1214314043" format="1.1" reprev="1.21" version="1.21"}%
+%META:TOPICINFO{author="JohnWeigand" date="1214335758" format="1.1" reprev="1.22" version="1.22"}%
 %META:TOPICPARENT{name="GratiaReleaseV0dot34"}%
 ---+!! Main gratia DB - Upgrade  to v0.34.9%BR% 
 %TOC%
@@ -275,12 +275,6 @@ Stop each collector:
    1 on gratia07 my.cnf, we need to  eliminate the binary log files.... NO BACKUPS WILL NOT WORK W/O BINARY LOGS... AT LEAST SO FAR.
    1 on gratia06 my.cnf, we need to change the buffer size as we did on gratia07.  Also need to eliminate the binary log files.  This will mean stopping all collectors and bouncing the mysql. BE CAREFUL THAT BACKUPS HAVE COMPLETED.
    1 backups on gratia07
-   1 manual mysql client execution of the following so we reduce the time for the tables to be changed.  The hibernate single threads these.
-   <pre>
-alter table JobUsageRecord_Meta add column GridDescription varchar(255), 
-add column md5v2 varchar(255), add index index17(md5v2);
-   </pre>
-
 </b>
 
 On gratia09:
@@ -300,7 +294,9 @@ On gratia09:
       * 
       * service.open.connection=http://gratia.opensciencegrid.org:8880
       * service.secure.connection=https://gratia.opensciencegrid.org:8845
-%GREEN%Done 6/24 08:24%ENDCOLOR%
+   1 Change the *post_install.sh* script to point to *gratia07.fnal.gov*
+
+%GREEN%Started 6/24 08:17 Done 6/24 08:24%ENDCOLOR%
 
 
 ---++ Switch *gratia09:/data/tomcat-gratia* to use the *gratia07/gratia* database
@@ -312,6 +308,24 @@ Update the *service-configuration.properties* file to change the database that t
       * service tomcat-gratia start
 
 At this point we have production gratia reporting and services back on-line and available.  Verify there are no problems by tailing the log files in *gratia09:/data/tomcat-gratia/logs* .   
+
+%GREEN%Done 6/24 08:30%ENDCOLOR%
+
+%RED%Problems:
+   1 *catalina.out* exceptions
+   <pre>
+command: select T.SiteName, P.currenttime, P.probename from Probe P, Site T where P.active = 1 and T.siteid = P.siteid order by T.SiteName,P.currenttime desc
+java.lang.ArrayIndexOutOfBoundsException
+   </pre>
+   1 *gratia-rmi-servlet0.log* - coming every 10 minutes.  Chris thinks from a probe.
+   <pre>
+INFO: RMIHandlerServlet: Error: Problematic req: org.apache.catalina.connector.RequestFacade@564a38
+Jun 24, 2008 2:29:25 PM net.sf.gratia.util.Logging info
+   </pre>
+      * A v0.34.9a was installed (not put in CVS) as 11:35am to trouble-shoot the problem.
+      * A new v0.34.a installed (11:47 - 11:51) with problem fixed hopefully
+   1 Static reports appear to be truncating... should be landscape to fit in or scaled differently.
+%ENDCOLOR%
 
 If all is well, we can proceed to the v0.34.9 upgrade of the *gratia06:gratia* database.
 
@@ -334,6 +348,7 @@ There are several processes (cron) that will need to be copied/modified on  _gra
        This cron process can remain on *gratia06*.  The only modification required is to the */home/gratia/interfaces/apel-lcg/lcg-db.conf* file for the following parameter:
    <ul><li>GratiaHost  <b>gratia07</b>.fnal.gov</li></ul>
 
+%GREEN%Done - 6/24 13:19%ENDCOLOR%
 
 <li>OSG daily reports 
 <verbatim>
@@ -349,6 +364,7 @@ There are several processes (cron) that will need to be copied/modified on  _gra
 
 Change in /home/gratia/gratia-summary/PSACCTReport.py the 
 <verbatim>gMySQLConnectString = " -h gratia-db01.fnal.gov -u reader --port=3320 --password=reader "</verbatim>
+%GREEN%Done - 6/24 13:20%ENDCOLOR%
 
 
 <li>gratia06 - user root<br>
@@ -357,9 +373,16 @@ Database backups on *gratia06* will need to be changed to exclude the *gratia* d
 /usr/local/bin/gratia_backup_cron.sh 
 /usr/bin/mysql-zrm --action purge
 </pre>
+%GREEN%Done 06/24 12:43 - commented the *gratia* database backup.
+
+However, could not really stop the purging.  So copied them to */backup/mysqldb/gratia/zrm.20080624.backup* to preserve them.%BR%
+Done 6/24 13:05
+%ENDCOLOR%
+</li>
 
 <li>gratia09 - user root<br>
 The static reports cron on gratia09 *does not* require changing as it references the gratia09 gratia collector which will be pointing to the gratia07 database.
+</li>
 
 <li>gratia07 - user root<br>
 A database backup cron entry needs to be *added* to this cron.  The appropriate zrm configuration files have already been added.  
@@ -368,14 +391,48 @@ A database backup cron entry needs to be *added* to this cron.  The appropriate 
 /usr/bin/mysql-zrm --action purge
 </pre>
 The <b>/usr/local/bin/gratia_backup_cron.sh</b> script needs to be copied over from *gratia06* to *gratia07* and modified to only backup the *gratia* database.  There should be no copies made to other machines.
+
+%GREEN%Done 6/24/08 12:40
+
+The backups are being performed in /test/backup and then copied to /backup/zrm.gratia07 after they are compressed.
+This is being done as the /test file system is the only one with sufficient space for the uncompressed dump.
+%ENDCOLOR%
+</li>
 </ol>
 
 ---+++ Nebraska (Brian Bockelman) interfaces
 Notify Brian to effect the changes necessary for his processes to use the *gratia07:3320* database
 
+%GREEN%Done on 6/20.   Had Brian do this early.  Re-verified on 6/24%ENDCOLOR%
+
+
+---++ Upgrade the gratia06 database
+---+++ Manual mysql client updates
+The first thing that has to be done is to bounce the gratia06 database to allow the new my.cnf entries to take affect.
+<pre>
+innodb_buffer_pool_size = 768M
+</pre>
+This parameter was expended from 512 to 768 to hopefully avoid the table lock problem experienced on gratia07 last week.
+
+The use of binary log files has been left in effect as they are needed for backups.
+
+%GREEN%Started: 6/24 14:03  Ended: 6/14 14:06%ENDCOLOR%
+
+Perform a manual mysql client execution of the following so we reduce the time for the tables to be changed.  The hibernate instance single threads these.
+   <pre>
+alter table JobUsageRecord_Meta add column GridDescription varchar(255), 
+add column md5v2 varchar(255), add index index17(md5v2);
+   </pre>
+
+%GREEN%Started: 6/24 14:20   %ENDCOLOR%
+
+*MUST WAIT FOR THIS TO FINISH*
+
 ---++ Switch the current *gratia08:/data/tomcat-conversion* to use the *gratia06/gratia* database
 Update *gratia08:/data/tomcat-conversion/gratia/service-configuration.properties* to point to the *gratia06/gratia* database:
    * service.mysql.url=jdbc:mysql://<b>gratia06</b>.fnal.gov:3320/gratia
+
+In *post-install.sh*, change the mysql client execution *from* %RED%gratia-db01%ENDCOLOR% *to* %RED%gratia06%ENDCOLOR%.
 
 On *gratia08* ,start the newly-upgraded tomcat-conversion collector
    * service tomcat-conversion start
@@ -384,14 +441,13 @@ On *gratia08* ,start the newly-upgraded tomcat-conversion collector
 After initial schema upgrades on *gratia06/gratia* are complete and *gratia08:/data/tomcat-conversion/gratia* is listening for new records, activate the replication of !JobUsage and Metric records. The starting *dbid* entries should be filled in based on max(dbid) for each =Meta= table on *gratia07*.
 
 On *gratia07* :
-   * select max(dbid) from <nop>JobUsageRecord_Meta; 
-   * select max(dbid) from <nop>MetricRecord_Meta; 
+   * select max(dbid) from <nop>JobUsageRecord_Meta; *dbid value on initial switchover for gratia07 (79801016)*
+   * select max(dbid) from <nop>MetricRecord_Meta; %RED% Not required.  Should be no !MetricRecords. Those that are there are a mistake%ENDCOLOR%
 
 <pre>
-update Replication set dbid=?????
+update Replication set dbid=79801016
 where openconnection='http://gratia-fermi.fnal.gov:8884' and replicationid=??;
-update Replication set dbid=??????
-where openconnection='http://gratia-fermi.fnal.gov:8884' and replicationid=??;
+
 </pre>
 
 ---++ Monitor upgrade process on *gratia06/gratia and stop replication 
@@ -490,6 +546,29 @@ Notify Brian to switch back to using *gratia-db01:3320* database.
 At this time, this will appear to be random notes.  After the conversion, they may be organized.
 
 <ol>
+<li> *catalina.out* exceptions
+   <pre>
+command: select T.SiteName, P.currenttime, P.probename from Probe P, Site T where P.active = 1 and T.siteid = P.siteid order by T.SiteName,P.currenttime desc
+java.lang.ArrayIndexOutOfBoundsException
+   </pre>
+
+Chris is creating a patched  v0.34.9a without putting things in CVS so we can troubleshoot this and not destroy our real v0.34.9 set.
+
+</li>
+
+<li> *gratia-rmi-servlet0.log* - coming every 10 minutes.  Chris thinks from a probe.
+   <pre>
+INFO: RMIHandlerServlet: Error: Problematic req: org.apache.catalina.connector.RequestFacade@564a38
+Jun 24, 2008 2:29:25 PM net.sf.gratia.util.Logging info
+   </pre>
+      * 11:35 - 11:39:  A v0.34.9a was installed (not put in CVS)  to trouble-shoot the problem.
+      * 11:47 - 11:51: A new v0.34.a installed with problem fixed hopefully. Chris fix.
+      * 13:34 - 13:51: another new install
+</li>
+
+<li>Static reports appear to be truncating... should be landscape to fit in or scaled differently.
+</li>
+
 
 </ol>
 
