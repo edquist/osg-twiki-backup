@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="StevenTimm" date="1214592671" format="1.1" version="1.8"}%
+%META:TOPICINFO{author="BrianBockelman" date="1214775207" format="1.1" version="1.9"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+ dCache Information Provider
 
@@ -12,32 +12,27 @@ The information provider requires access to:
 
 ---++ Extra dependency installation
 
-In order to access the SRM postgres database, you must additionally install the postgresql and postgresql-python RPMs on your system.  These is available from the standard SL4 yum repository. 
-%RED%  Clarification:  are the postgres 7.x rpms that come with SL4 OK for this purpose?  The dCache installation is based on postgres 8.1.4.  What about
-for SL5, is the postgres 8.1.11 compatible with the postgres 8.1.4 that dCache is using? 
-Most SL5 users will have to install compat-readline43 and mx rpms for the dependencies to make this work.  Steve Timm %ENDCOLOR%
+In order to access the SRM postgres database, you must additionally install the postgresql and postgresql-python RPMs on your system.  These is available from the standard SL4 yum repository.
+
+Notes:
+   * The Postgres 7.x client RPMs which come with SL4 are compatible with the Postgres 8.x servers.
+   * You will want to use yum to install these RPMs to resolve any dependencies; on SL5, the install of postgresql-python will require the compat-readline43 and mx RPMs to make this work.
+
 ---++ SE Configuration.
 
 You must be able to log into your SRM postgres database from the CE node.  If you are unable to do this from the command-line using "psql", it's highly unlikely that you'll be able to get this done from the configuration script.
 
-You must also be able to log in to the dCache admin interface via SSH from the CE node.
-%RED% It would be mighty nice to have examples of the command line syntax
-for both of the above steps %ENDCOLOR%
+The following shows an example of how to connect to Postgres using the psql utility.
+<verbatim>
+psql -U srmdcache -d dcache -h SRM_HOSTNAME.example.org -p 5432 -W
+</verbatim>
 
----++ Configuration (OSG 0.8.0 branch)
+You must also be able to log in to the dCache admin interface via SSH from the CE node.  The usual user name for the admin interface is "admin", the port is 22223, and cipher blowfish.  This translates into the following command:
 
-As passwords may be required, the GIP configuration for dCache is kept in a separate file, =$VDT_LOCATION/lcg/etc/gip.conf=.  You need to edit the following fields to reflect your site's setup:
-   * dCache admin interface (section: [dcache_admin]):
-      * hostname= _your dCache admin interface hostname_
-      * port= _most likely 22223_
-      * password= _your site's password_  If you do put the password in this file, make sure it is not world- or group- readable!
-      * username= _most likely admin_
-   * SRM database (section: [dcache_config])
-      * database= _Postgres DB name; most likely dcache_
-      * dbuser= _Postgres DB user; srmdcache_
-      * dbpasswd= _defaults is dcache_
-      * pghost= _Hostname of your postgres server_
-      * pgport= _Your postgres port, 5432_
+<verbatim>
+ssh -l admin -c blowfish -p 22223 DCACHE_HOSTNAME.example.org
+</verbatim>
+
 
 ---++ Configuration (OSG 1.0.0 branch)
 
@@ -122,6 +117,18 @@ The file created which contains the passwords is owned by root and chmod'd to 60
 chown daemon:root $VDT_LOCATION/gip/etc/dcache_storage.conf
 </verbatim>
 
+---++ OSG 1.0 WARNING
+Large sites may run into timeout problems with these providers - basically, if every pool fails, each script can take 5 * (number of pools) seconds to run; these are also run sequentially.  The default timeout is 60 seconds, which has in practice proven to be too small.
+
+Adjust the timeouts for your site; edit the file $GIP_LOCATION/etc/osg-info-generic.conf to have the following two lines:
+
+<verbatim>
+response = 300
+timeout = 350
+</verbatim>
+
+Both response *and* timeout must be changed!
+
 ---++ Testing
 
 The GIP providers are fairly straightforward to test.  Make sure that $VDT_LOCATION (OSG 0.8.0) or $GIP_LOCATION (for OSG 1.0.0; should be $VDT_LOCATION/gip) is set in your environment and run the following (OSG 0.8.0):
@@ -144,7 +151,9 @@ Examine the output of the above scripts for correctness; they will fail fairly v
 
 What to do when things go wrong:
 
-   * Make sure
+   * Test the output by hand.  Run token_info_provider.py and services_info_provider.py as user daemon.  Suppress the stdout and report any error messages on stderr.
+   * Try adjusting the timeouts.  By default, the information is ignored if the GIP takes longer than 60 seconds to run - and these two python scripts are run sequentially, not in parallel.
+   * Make sure any files in $GIP_LOCATION/var/tmp are owned by daemon; if in doubt, clear them out.
    * Re-run configure-osg and/or configure_gip_dcache.
    * Email the osg-gip@opensciencegrid.org to get help via email, or goc@opensciencegrid.org to get help via tickets.  The ticket is less likely to get "lost", but the email response may be more immediate.
       * Include the stderr and stdout, separately, of the script which failed.
