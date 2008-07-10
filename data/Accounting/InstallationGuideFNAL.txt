@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1215708127" format="1.1" reprev="1.15" version="1.15"}%
+%META:TOPICINFO{author="JohnWeigand" date="1215726542" format="1.1" reprev="1.16" version="1.16"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+ FNAL-specific Gratia collector installation guide
 
@@ -20,12 +20,61 @@ Expand into the desired area:
 
 *Do not* configure tomcat at this time: there is a script to do this automatically -- see below.
 
+---++ Installing CA certificates for administrative login
+ If the host you are installing your collector on does *not* have a host/http certificate and the VDT CA Certificates package installed, you will have do so before you proceed.
+
+---+++ Host/http Certificates
+ To obtain a host/http certificate, contact your UNIX administrator.
+
+The host certificates should be installed in */etc/grid-security* as:
+<verbatim>
+-rw-r--r--  1 root root 1477 May 19 10:08 hostcert.pem
+-rw-------  1 root root 1675 May 19 10:09 hostkey.pem
+</verbatim>
+
+The http certificate should be installed in */etc/grid-security* as:
+<verbatim>
+drwxr-xr-x  2 root root 4096 May 19 09:34 http
+   -rw-r--r--  1 root root 1485 May 19 09:34 httpcert.pem
+   -rw-------  1 root root 1675 May 19 09:34 httpkey.pem
+</verbatim>
+
+---+++ VDT CA Certificates package
+ If you do not have *pacman* installed, you can install it in */usr/local*: 
+   * cd /usr/local 
+   * mkdir pacman 
+   * cd pacman 
+   * wget http://physics.bu.edu/pacman/sample_cache/tarballs/pacman-latest.tar.gz 
+   * tar zxf pacman-latest.tar.gz 
+
+To install the VDT CA Certificates package, you will need to go to the VDT site.
+   * For information on how VDT installations work with pacman, refer to http://vdt.cs.wisc.edu/download.html 
+   * The latest VDT packages can be found here: http://vdt.cs.wisc.edu/documentation.html 
+   * The CA Certificates package for the 1.10.1 release is: http://vdt.cs.wisc.edu/vdt_1101_cache/CA-Certificates.pacman 
+
+To install the CA-Certificates package:
+   * cd /usr/local/pacman/pacman-[VERSION} 
+   * source setup.sh 
+   * cd /usr/local 
+   * mkdir vdt-certificates-{VERSION] 
+   * cd vdt-certificates-{VERSION] 
+   * pacman -get http://vdt.cs.wisc.edu/vdt_1101_cache:CA-Certificates . 
+
+Answer "y" to all the questions.
+
+When asked where to install the certificates, it is your choice. Most common place is /etc/grid-security.
+
+After all of the above has been done, you will need to turn on the VDT installed services (crons) necessary to maintain the certificates.
+   * cd /usr/local/vdt-certificates-{VERSION] 
+   * source setup.sh 
+   * vdt-control --on 
+
 ---++ Ensure the existence of a suitable DB schema.
 
 Create a new empty DB if necessary with appropriate access permissions for gratia (all) and reader (SELECT and EXECUTE).
 
 These are the !MySql commands (as !MySql root user) using _gratia_mydb_ with tomcat on _gratia-vm02.fnal.gov_ as the example:
-   * CREATE DATABASE gratia_mydb; <br /></pre> 
+   * CREATE DATABASE gratia_mydb; 
    * GRANT ALL PRIVILEGES ON gratia_mydb.* TO 'gratia'@'%.fnal.gov' IDENTIFIED BY 'update_password'; 
    * GRANT SELECT,EXECUTE ON gratia_mydb.* TO 'reader'@'%' IDENTIFIED BY 'reader_password'; 
 
@@ -52,24 +101,28 @@ Build the release:
 
 There are 2 data files in [PATH-TO-GRATIA-RELEASE]/common/configuration/ that are used by the =configure-collector= script:
    * *collector-pro.dat* - for configuring the *production* gratia collectors at FNAL 
+   * *collector-itb.dat* - for configuring the *itb* gratia collectors at FNAL 
    * *collector-dev.dat* - for configuring *development* gratia collectors at FNAL 
 
 Edit the appropriate data file if it does not already contain the correct information for the collector you wish to install. Refer to =%default_attributes= for possible attributes. Be especially careful not to use ports already in use.
 
 Example configuration:
 <verbatim>  
-weigand => { http_port => 8887,
-               ssl_port => 8867,
-               rmi_port => 24000,
+itb_gratia_psacct => { http_port => 8880,
+               ssl_port => 8847,
+               rmi_port => 17000,
                jmx_port => 8074,
                server_port => 8174,
-               db_host => "gratia-vm02.fnal.gov",
-               db_schema => "gratia_weigand",
+               db_schema => "itb_gratia_psacct",
+               db_host => "gratia07.fnal.gov",
+               db_port => "3322",
+               remote_host => "gratia02.fnal.gov",
+               collector_host => "gratia02.fnal.gov",
                 "properties.attributes" =>  
                {
                  "maintain.history.log" => 2,
                  "monitor.listener.wait" => 240,
-                 "monitor.to.address0" => 'weigand@fnal.gov',
+                 "monitor.to.address0" => 'gratia-operation@fnal.gov',
                  "service.admin.DN.0" => 'ALLOW ALL' 
                }
             }, 
@@ -77,28 +130,34 @@ weigand => { http_port => 8887,
 
 To install/upgrade your collector, run the following command (see =-h= for usage):
 <verbatim>
-[PATH-TO-GRATIA-RELEASE]/common/configuration/update-gratia-local \
-    -c [PATH-TO-GRATIA-RELEASE]/common/configuration \
-    -S [PATH-TO-GRATIA-RELEASE] \
-    -p {DEST-PATH]  \
-     -j [JRE_HOME]  \
-    -d [DB_ROOT_PASSWORD]  \
-    [COLLECTOR_DESIGNATOR]
+[PATH-TO-GRATIA-RELEASE]/common/configuration/update-gratia-local     
+ -c [PATH-TO-GRATIA-RELEASE]/common/configuration/configure-collector     
+ -S [PATH-TO-GRATIA-RELEASE] 
+ -p {DEST-PATH]
+ -j [JRE_HOME]
+ -d [DB_ROOT_PASSWORD]
+ -s
+       [COLLECTOR_DESIGNATOR]
 </verbatim>
 
-For example on gratia-vm02:
+For example if you are installing from the nightly gratia builds in /home/gratia on the collector node gratia02:
 <verbatim>
-cd [PATH-TO-GRATIA-RELEASE]
-common/configuration/update-gratia-local -S ${PWD} -p /data -d  [DB_ROOT_PASSWORD] pcanal 
+/home/gratia/gratia-builds/gratia-latest/common/configuration/update-gratia-local
+ -S /home/gratia/gratia-builds/gratia-latest/common/configuration/configure-collector
+ -p /data
+ -j /data/jre
+ -d  [DB_ROOT_PASSWORD] 
+ -s
+ itb_gratia_psacct 
 </verbatim>
 
 ---++ Optionally scrub or save the collector logs
 
-   1 cd [collector-top-dir]/logs
+   1 cd /data/tomcat-itb_gratia_psacct/logs 
    1 rm -f *.log *.lck; _OR_ 
-   1 logdir="../logs.`date +%Y%m%d`"; mkdir -p "$logdir" && mv -f * "$logdir" 
+   1 logdir="../logs.`date +%Y<nop>%m%d`"; mkdir -p "$logdir" && mv -f * "$logdir" 
 
 ---++ Start the collector
-/etc/rc.d/init.d/tomcat-[collector-designator] start
+ /etc/rc.d/init.d/tomcat-itb_gratia_psacct start
 
 -- Main.ChrisGreen - 20 Jun 2007
