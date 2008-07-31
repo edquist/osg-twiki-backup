@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1217426345" format="1.1" reprev="1.42" version="1.42"}%
+%META:TOPICINFO{author="JohnWeigand" date="1217467636" format="1.1" reprev="1.43" version="1.43"}%
 %META:TOPICPARENT{name="GratiaReleaseV0dot34"}%
 ---+!! Main gratia DB - Upgrade to v0.34.9%BR%
 %TOC%
@@ -515,54 +515,74 @@ Average Rate: 55,518 / hr%BR%
 %ENDCOLOR%
 
 ---++ Monitor "catch-up" progress on gratia06/gratia and stop replication when done
-
-<font color="crimson">NOTHING THAT FOLLOWS HAS BEEN UPDATED AS YET (7/21 11:30) AND SHOULD NOT BE CONSIDERED AS CORRECT. <br /></font>
-
 Towards the end of the upgrade of *gratia06/gratia*, updates to the DB will be stopped pending a final duplicate resolution phase and conversion of the index on =md5v2= to unique.
 
-Between this happening and the listener queue hitting its threshold, replication from *gratia09:/data/tomcat-gratia* to *gratia08:/data/tomcat-conversion/gratia* should be stopped.
+Between this happening and the listener queue hitting its threshold, replication from *gratia09:/data/tomcat-gratia* to *gratia08:/data/tomcat-conversion/gratia* should be stopped.  %GREEN% DONE: 7/30 18:45%ENDCOLOR%
 
 ---++ Switch the current *gratia09:/data/tomcat-gratia* to use the *gratia06/gratia* database
  To switch-over the tomcat collectors: 
+   1 Delete the replication data entries in both collectors so they are no longer pointing to each other
+      * gratia08:/tomcat-conversion %GREEN%Has already beed removed (7/30 19:13 confirmed JGW)%ENDCOLOR%
+      * gratia09:/tomcat-gratia %GREEN% Removed entry 7/30 19:14   Last dbid replicated: 89980675 %ENDCOLOR%
    1 Stop each collector 
-      * on *gratia08* %BR% - service tomcat-conversion stop 
-      * on *gratia09* %BR% - service tomcat-gratia stop 
+      * on *gratia08* %BR% - service tomcat-conversion stop  %GREEN%  Jul 30 19:19   %ENDCOLOR%
+      * on *gratia09* %BR% - service tomcat-gratia stop  %GREEN%  Jul 30 19:21   %ENDCOLOR%
+   1 Upgrade tthe gratia09:tomcat-gratia to v0.36 (do not start)  %GREEN%  Jul 30 19:23   %ENDCOLOR%
    1 Update the *service-configuration.properties* file to change the databases they point to 
-      * on *gratia08:/data/tomcat-conversion/gratia* %BR% - service.mysql.url=jdbc:mysql:// *gratia07*.fnal.gov:3320/gratia 
-      * on *gratia09:/data/tomcat-gratia/gratia* %BR% - service.mysql.url=jdbc:mysql:// *gratia06*.fnal.gov:3320/gratia 
-   1 If necessary, change dbid in =Replication= table entries on gratia06 to match correct max(dbid) values for =Meta= tables on *gratia06* 
-   1 Start the *gratia09* production collector *only* (it will be using the *gratia06* database 
-      * on *gratia09* %BR% - service tomcat-gratia start 
+      * on *gratia08:/data/tomcat-conversion/gratia* %BR% - service.mysql.url=jdbc:mysql:// *xxxxx*.fnal.gov:3320/xxxxx  %GREEN%  Jul 30 19:19   %ENDCOLOR%
+      * on *gratia09:/data/tomcat-gratia/gratia* %BR% - service.mysql.url=jdbc:mysql:// *gratia06*.fnal.gov:3320/gratia   %GREEN% Verified (JGW) Jul 30 19:27   %ENDCOLOR%
+      1 Start the *gratia09* production collector *only* (it will be using the *gratia06* database 
+      * on *gratia09* %BR% - service tomcat-gratia start   %GREEN%  Jul 30 19:29   %ENDCOLOR%
+      * turn housekeeping off %GREEN%  Jul 30 19:33  %ENDCOLOR%
+   1 Verified gratia08:tomcat-conversion is not set to restart at any run level
+      <pre>
+[root@gratia08 init.d]# chkconfig --list tomcat-conversion
+tomcat-conversion       0:off   1:off   2:off   3:off   4:off   5:off   6:off
+</pre>
+
+
 
 At this point production gratia reporting and services area back on-line and available and using the *gratia06* database
 
-Verify there are no problems by tailing the log files in *gratia09:/data/tomcat-gratia/logs* .
+Verify there are no problems by tailing the log files in *gratia09:/data/tomcat-gratia/logs* .%BR% 
+%GREEN%EVERYTHING LOOKS GOOD!  HOORAY!!!  07/30 07:35 %ENDCOLOR%
 
----++ Backups
- We will need to *start* the backups on *gratia06* for the *gratia* database.
 
-And *deactivate* the backups on the *gratia07* database for the gratia database.
+---++ Backups for  switchback
+ We will need to *start* the backups on *gratia06* for the *gratia* database.%BR%
+%GREEN%They were started back when we started the "catchup" phase%ENDCOLOR%
 
----++ Crons
+And *deactivate* the backups on the *gratia07* database for the gratia database.%BR%
+%GREEN% Commented root cron for backups on gratia07   -  Jul 30 19:56%ENDCOLOR%
+
+---++ Crons - switchback
 ---+++ Cron processes
  There are several processes (cron) that will need to be copied/modified on _gratia06_ and _gratia09_ for reports and interfaces. 
    1 gratia06 - user gratia 
-      * APEL-WLCG interface <pre> dir=/home/gratia/interfaces/apel-lcg; cd $dir; ./lcg.sh --config=lcg.conf --date=current --update </pre> This cron process remained on *gratia06*. The only modification required is to the */home/gratia/interfaces/apel-lcg/lcg-db.conf* file for the following parameter to point it back to the *gratia06* database. 
-         * GratiaHost *gratia-db01*.fnal.gov <p> </p> 
-      * OSG daily reports <verbatim>
+      * APEL-WLCG interface - This cron process remained on *gratia06*. The only modification required is to the */home/gratia/interfaces/apel-lcg/lcg-db.conf* file for the following parameter to point it back to the *gratia06* database. 
+         * GratiaHost *gratia-db01*.fnal.gov <p> </p>  %COLOR%7/30 20:03%ENDCOLOR%
+      * OSG daily reports  - %GREEN% in /home/gratia/gratia-summary/Gratia.C changed '   static TSQLServer *db = TSQLServer::Connect("mysql://gratia06.fnal.gov:3320/gratia","reader", "reader");' - Jul 30 20:18 %ENDCOLOR%
+<verbatim>
 /home/gratia/gratia-summary/gratiaSum.cron.sh
 /home/gratia/gratia-summary/daily_mail_cron.sh
 /home/gratia/gratia-summary/range_mail_cron.sh --weekly
 /home/gratia/gratia-summary/range_mail_cron.sh --monthly
 /home/gratia/gratia-summary/rungratia.sh --production 
 </verbatim> 
-      * CMS weekly reports <verbatim>/home/gratia/gratia-summary/cms_mail_cron.sh --weekly</verbatim> <p> </p> <p> </p> 
-   1 gratia06 - user root<br /> Database backups on *gratia06* will need to be changed to now include the *gratia* database. This includes the purging of log files by the zrm process. <pre>/usr/local/bin/gratia_backup_cron.sh /usr/bin/mysql-zrm --action purge </pre> <p> </p> <p> </p> 
+      * CMS weekly reports %GREEN% 7/30 20:12 - Moved /home/gratia/gratia-summary/PSACCTReport.py.gratia06.2  PSACCTReport.py%ENDCOLOR%
+      <verbatim>
+/home/gratia/gratia-summary/cms_mail_cron.sh --weekly
+</verbatim> 
+   1 gratia06 - user root<br /> Database backups on *gratia06* will need to be changed to now include the *gratia* database. This includes the purging of log files by the zrm process.  %GREEN%These were activated when the catchup phase started.%ENDCOLOR%
+<pre>/usr/local/bin/gratia_backup_cron.sh /usr/bin/mysql-zrm --action purge </pre> 
+<p> </p> <p> </p> 
    1 gratia09 - user root<br /> The static reports cron on gratia09 *did not* require changing as it references the gratia09 gratia collector which will now be pointed back to the gratia06 database. <p> </p> <p> </p> 
-   1 gratia07 - user root<br /> This database backup cron entry needs to be *removed* from this cron. <pre>/usr/local/bin/gratia_backup_cron.sh /usr/bin/mysql-zrm --action purge </pre> The */usr/local/bin/gratia_backup_cron.sh* script can be removed as well. 
+   1 gratia07 - user root<br /> This database backup cron entry needs to be *removed* from this cron.  The */usr/local/bin/gratia_backup_cron.sh* script can be removed as well.  %GREEN% root cron commented out - 7/30 20:14 %ENDCOLOR% 
+<pre>/usr/local/bin/gratia_backup_cron.sh /usr/bin/mysql-zrm --action purge </pre>
+
 
 ---+++ Nebraska (Brian Bockelman) interfaces
- Notify Brian to switch back to using *gratia-db01:3320* database.
+ Notify Brian to switch back to using *gratia-db01:3320* database. %GREEN% DONE: 7/30 20:07 %ENDCOLOR%
 
 <!-- ----------------- POST MORTEM  ------------- -->
 ---+ Post-mortem
