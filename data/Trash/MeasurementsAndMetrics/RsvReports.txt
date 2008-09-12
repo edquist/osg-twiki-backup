@@ -1,5 +1,7 @@
-%META:TOPICINFO{author="BrianBockelman" date="1220637434" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="ArvindGopu" date="1221224581" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="WebHome"}%
+---++ Installation
+
 ---+++ Install the Nebraska YUM repository
 
 Install the following RPM on SL5 / i686:
@@ -13,6 +15,7 @@ http://t2.unl.edu/documentation/dcache/dcachenebraska-install
 
 ---+++ Install the RSV Reports RPM
 
+Note, the RPM might require other RPMs/packages -- I will add more information on the yum commands needed, etc. soon. -agopu
 <verbatim>
 yum install RSV-Reports
 </verbatim>
@@ -27,18 +30,26 @@ The RSV vs WLCG comparison report requires an additional perl module which is no
   cpan> install S/SZ/SZABGAB/Spreadsheet-ParseExcel-0.32.tar.gz
 </verbatim>
 
----+++ Update the config file and the cron file
+---++ Configuration
+
+---+++ Update the reports config file (and the logging config file)
+   * Edit =/etc/rsv_logging.conf=, as shown below: <pre> . . . args: ['/var/log/rsvreports/main.log', 'a', 2097152, 5] . . . [logger_root] level: INFO handlers: console,file . . . </pre> 
 
    * Copy the file =/etc/rsvreports.conf.template= to =/etc/rsvreports.conf=. 
-   * Edit the file; add the necessary passwords to connect to the RSV database. 
-   * Edit =/etc/cron.daily/rsvreports.cron= to reflect any special setup your site might need to get a valid MySQL client. 
+   * Edit the file; add the necessary passwords to connect to the RSV database; 
+   * Also edit fromName, fromEmail, toName, and toEmail as applicable (for each report); See [[#recipients][Who gets these reports section below]]. 
 
----+++ ATLAS and CMS Reports
+---+++ Additional Reports: WLCG comparison Report; and ATLAS/CMS Reports
 
-   * Create a separate config file for each VO; I call them rsv_cms.conf and rsv_atlas.conf.
-      * Use the exact same config as the primary config file in /etc/rsvreports.conf, with the two exceptions noted below.
-   * Update the destination email addresses as appropriate. Make sure you are able to send emails to the mail lists 
-   * Update the CMS and ATLAS lines in the [wlcg] section to include the T3s and non-MoU sites: 
+   * Create a separate config file for ATLAS and CMS VO's reports plus one for the RSV vs. WLCG comparison report; I call them =rsv_reports_cms.conf=, =rsv_reports_atlas.conf=, =rsv_reports_wlcg_compare.conf=, all in /etc. 
+      * Use the exact same config as the primary config file in =/etc/rsvreports.conf=, with the two exceptions noted below. 
+
+   * Update the destination email addresses as appropriate. See [[#recipients][Who gets these reports section below]]. Make sure you are able to send emails to the mail lists. 
+
+   * Update the [wlcg] section to include the T3s and non-MoU sites: 
+      * Include both of the following lines in =rsv_reports_wlcg_compare.conf= 
+      * Include only the =ATLAS= line in =rsv_reports_atlas.conf= 
+      * Include only the =CMS= line in =rsv_reports_cms.conf= 
 
 <verbatim>
 [wlcg]
@@ -46,23 +57,41 @@ ATLAS=['UTA', 'MWT2', 'BU', 'OU', 'BNL_ATLAS', 'AGLT2', 'IU_OSG', 'SLAC',      '
 CMS=['Nebraska', 'CIT', 'MIT_CMS', 'Purdue', 'GLOW', 'UCSD', 'UFlorida',      'SPRACE', 'USCMS-FNAL', 'UERJ', 'UCSandiegoOSG']
 </verbatim>
 
----+++ WLCG comparison reports
-
-To run the comparison reports (v7), you will want a separate config file if the set of destination email addresses is different from the primary ones.
-
-Create a second copy of /etc/rsvreports.conf (At Nebraska, this is named rsv_v7.conf) and adjust the destination email addresses as necessary.  No other change is needed.
-
----+++ Sample Crontab
- Currently, additional reports are sent out beyond the standard one with the RPM install. The Nebraska server has the following installed:
+---+++ Cron Setup
+   * Comment out =/etc/cron.daily/rsvreports.cron=; At the GOC, we're just going to use root's crontab ( =crontab -e= as =root=) to schedule these reports. 
+   * Create /var/log/rsvreports/ if need be. 
+   * Here's what we have as of 2008-09-12. 
 
 <verbatim>
-35 1 * * * rsvreport -d production -r yesterday -v7 -c /home/brian/dbinfo/rsv_v7.conf
-30 1 * * * rsvreport -d production -r yesterday -v9 -c /home/brian/dbinfo/rsv_atlas.conf
-25 1 * * * rsvreport -d production -r yesterday -v11 -c /home/brian/dbinfo/rsv_atlas.conf
-20 1 * * * rsvreport -d production -r yesterday -v10 -c /home/brian/dbinfo/rsv_cms.conf
-15 1 * * * rsvreport -d production -r yesterday -v12 -c /home/brian/dbinfo/rsv_cms.conf
+## Added for additional rsvreports; times in UTC; by agopu 2008-09-10 
+01 7 * * * rsvreport -d production -r yesterday -v7 -c /etc/rsvreports_wlcg_compare.conf 1>> /var/log/rsvreports/v7.out 2>> /var/log/rsvreports/v7.err
+06 7 * * * rsvreport -d production -r yesterday -v9 -c /etc/rsvreports_atlas.conf 1>> /var/log/rsvreports/v9.out 2>> /var/log/rsvreports/v9.err
+11 7 * * * rsvreport -d production -r yesterday -v11 -c /etc/rsvreports_atlas.conf 1>> /var/log/rsvreports/v11.out 2>> /var/log/rsvreports/v11.err
+16 7 * * * rsvreport -d production -r yesterday -v10 -c /etc/rsvreports_cms.conf 1>> /var/log/rsvreports/v10.out 2>> /var/log/rsvreports/v10.err
+21 7 * * * rsvreport -d production -r yesterday -v12 -c /etc/rsvreports_cms.conf 1>> /var/log/rsvreports/v12.out 2>> /var/log/rsvreports/v12.err
+## Have v13 as the last entry since it takes about 20 mins to complete! -agopu 2008-09-11
+# 30 7 * * * rsvreport -d production -r yesterday -v13 /etc/rsvreports.conf 1>> /var/log/rsvreports/v13.out 2>> /var/log/rsvreports/v13.err
 </verbatim>
 
-V7, V11, and V12 are the RSV vs WLCG comparison reports; V9 and V10 are the VO-specific reports. By default, V13 should also be run and sent to the osg-info-accounting list every day.
+V7, V11, and V12 are the RSV vs WLCG comparison reports; V9 and V10 are the VO-specific reports. By default, V13 should also be run and sent to the osg-sites list every day.
+
+<a name="recipients"></a>
+---+++ Who gets these reports?
+
+   1 RSV report for all OSG resources/services that are being monitored by RSV clients. 
+      * Sent to GOC, osg-sites, and myself 
+      * Brian is going to continue sending these till the next version of RPM he expects to release in a day or two. 
+   1 RSV vs. WLCG comparison report 
+      * Sent to a select group of people; currently: GOC, 'Brian Bockelman', 'Rob Gardner', 'Rob Quick', 'Arvind Gopu', 'Michael Ernst', 'Frederick Luehring', 'Ruth Pordes' 
+   1 ATLAS VO specific reports
+      1 RSV report for only ATLAS resources
+      1 RSV vs. WLCG comparison report only for ATLAS resources 
+         * Sent to GOC, USAtlas mailing list (usatlas-grid-l lists.bnl.gov - replace space with @), and myself 
+   1 CMS VO specific reports 
+      1 RSV report for only CMS resources 
+      1 RSV vs. WLCG comparison report only for CMS resources 
+         * Sent to GOC, CMS-T2 mailing list (cms-t2 fnal.gov - replace space with @), and myself 
 
 -- Main.BrianBockelman - 05 Jun 2008
+
+-- Main.ArvindGopu - 12 Sep 2008
