@@ -1,0 +1,101 @@
+%META:TOPICINFO{author="MineAltunay" date="1221607749" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
+---++ COMMAND LINE SECURITY TOOLS MANAGEMENT PLAN
+
+%TOC%
+
+This is the plan for implementing a CA management tool. The tool interface is copied below:
+Purpose: This script shall show the accepted CAs, check and renew the CRLs, add and remove CAs from the list of accepted CAs.
+
+---+++ ca_manage Options:
+
+   * --dir <path of the CA repository> This takes the CA directory path as an input. Default: $X509_CERT_DIR, resp. 
+/etc/grid-security/certificates
+
+--showDir, complements the above option. It shows whatever the CA directory is set to.  
+
+   * --distribution <URL>: sets location from where the CA files will be downloaded from. 
+showDistribution. This will print out which ever location is being used in the config file
+
+   * --listCA <pattern>: lists all currently accepted CAs, whose DN (CA’s own DN, or end user DN patterns?) match the pattern. All CAs are listed if no pattern is given. 
+The outputs are: Which CA distribution service is used to install this CA list, when it is installed, The CAs’ name, their hash value, whether a CA is IGTF or TeraGrid accredited. The format of the pattern needs to be defined (regex?). –verbose 
+
+Note if the configuration file is changed after the installation, no longer you will know which CA distribution service was used to download. You can create a log file for the ca_mgmt tool such that when it runs the vdt-cert-update script to install a new package, it writes an entry into the log file. 
+
+Can we use vdt-status-update script for this option?
+
+   * --checkCRL <CAhash or pattern>: prints out the last time the CRLs was updated. I added the CA name option because you should be able to see for a particular CA if you have updated its CRL or not. Imagine if a CA revoked bunch of people due to an incident, you like to ensure that CRL for that CA is updated. 
+Prints out two dates: one CA created the CRL and the date the CRL is actually downloaded. 
+
+We decided to get rid of this  and combine with verifyCA below. 
+
+   * --fetchCRL <CAhash or pattern>: When no input specified, it retrieves CRL files for all CA within the directory. The crl_url file should have the CRL location to be fetched. When input is defined, it only retrieves the CRL for that CA.
+
+   * --fetchCRL <CA hash or pattern> --force: it forces to download the CRL file from the CA. Normally if there is no update in CRL, fetchCRL would not download it. This command forces the download.   
+
+   * --refreshCAPackage: It updates the CA directory: checks the new package, if there is anew distribution, it retrieves the CA certificates, CRL location files, signing policies. This command replaces the old files with newly retrieved files. When a file cannot be retrieved, the old one (if existing) is not updated. A warning message is printed. Currently, this command should go to VDT caches and download the CA package. 
+
+   * refreshCAPackage –force. It downloads the CA package whether or not there is a new CA package distribution
+
+   * --add <XYZ>: add the CA. XYZ are the filenames of the corresponding CAs/CRLs or the URL from where the CA files are being fetched. If more files are added, then the command –add is given multiple times. 
+
+It will take two arguments: add <CA hash or pattern> <filePath to CA files>
+
+We agreed to have XYZ as the file location on the disk. XYZ is not a URL because we are not sure if all CAs publish their files in a uniform format over the www. We will assume the site admin copied CA files on disk . 
+
+   * --remove <CAhash or patterns>: It removes all files associated the specified CA. The files should be moved into a dedicated directory, from where they can easily be restored again. By default this should also remove all descendent certificates or the removed certificate. 
+
+First give a warning. We decided not to remove subordinate CAs when removing a root CA. So the last line above is no longer valid. 
+
+Explicit warning. This should give explicit warnings. When a root CA is removed, warning should list any subordinate CAs in the CA directory. Because subordinate CAs may be kept in the directory, they do not have to be removed as well. Imagine the case root CA is removed and updated with different files. We will still need subordinate CAs. 
+
+   * --refreshCA <CAName><URL>: this command updates the CA files: CA certificates, signing policy, info and CRL location files. Unlike refreshCAPackage, this command only refreshes a specific CA. The second input URL tells where to pick up the files for that CA. When a root CA is updated, the effects on the subordinate CAs must also be evaluated. The output should list which subordinate CAs became invalid and needed updates. If possible, the subordinate CAs must also be updated with this command. 
+
+Do not know how to implement because  ca does not distr .
+At the meeting we decided not to implement this. However, it is possible to implement this against the GOC or VDT CA distribution service. Instead of installoing the entire CA tarball, only the specified CA files are copied from the GOC or VDT service (based on the second input to the command. ) 
+
+   * --show <CAcert>: outputs detailed about the certificate, similar or identical to the ‘openssl x509’ command. 
+
+   * --showChain <CA cert>: outputs the trust chain of the certificate; used together with show. I think it would be useful if we can pass end user certs as input to this command. 
+
+   * --verifyCAs: this command will verify all CAs presented in the directory of “--dir”  and their corresponding CRL files. This command checks if a CA cert is expired; and whether CRL is expired. 
+
+Verbose output can include the numbers of verified CAs and list of CAs.
+
+We decided to combine checkCRL and verify CA and turn this into a checkCA option
+
+checkCA <CA hash or pattern> when no input is given the command runs for all CAs. 
+It prints out: whether the CA cert is expired, the date the CA cert is downloaded, the date CA cert will be expired. whether CRL is expired. The date the CRL is downloaded and the date the CRL file actually created (by the CA), the date the CRL file will be expired. 
+
+We can implement this with verbose option. In that case, without verbose we can print out whether CA file and CRL file is expired or not. The remaining outputs are printed when –verbose is set.   
+
+   * diffCAPackage. This command checks the distribution package from GOC or VDT against the CA directory on disk. It lists all differences between the CAs on disk and the CAs included in the distribution at GOC or VDT (the config file tells us which distribution service is used by the user; therefore it runs diff against only one of these services.) 
+By difference we mean, the CA files different on the CA package and on file. 
+
+   * Rpm –q whatprovides
+ it would be good if the script did  rpm -qf  first to check if the files are owned by an RPM and issue a warning. People looking at systems with YUM set up to fetch new CA files automatically should be fixing that if it goes wrong, rather than doing stuff manually.
+
+Installed on: all hosts, where the CA repository is installed. 
+Note: 
+
+   1.	A newly added/removed CA must be handled properly when updating the CA repository.
+   2.	Race conditions during updates must be handled properly.
+  
+
+---+++ TIMELINE AND MANAGEMENT PLAN  
+
+__Please update your assigned tasks below__
+
+|*DueDate*|*Person Responsible*|*Involved People (either helping or approving)*|*Task Description*|*Logs/Comments/Updates*|
+| 9/12| Mine and Alain|None|Understand OSG sites’ needs: whether they use RPMs or not. If OSG sites do not need RPM installations for CA distributions, then implement the above tool only for Pacman repository|We will not consider RPM implementation for now. Decided on 9/15| 
+|9/22|Alain|None|Code repository. VDT's SVN will be used for repository. Alain provide access to Anand| | 
+|9/22|Anand|Alain helps|A list of all security scripts in VDT will be documented: how they work currently and they the scripts interact. How how the existing code will be reused in any of the above options| |
+|9/22|Alain|None|The recent changes to the vdt-update-certs and vdt-update-certs.conf files will be documented and examined.|Alain claims the documentation is done. is there a link ???| 
+|9/29|Anand|Alain, Jim, Mine|A detailed document stating how the tool will work. This document will describe the execution steps for each capability above and describe the choices made. ||
+|10/20|Anand|Alain, Mine, Jim|Implementation of the code| |
+|11/17|ITB, Alain, Suchandra| Anand, Mine, Jim|Testing of the new code| | 
+
+
+
+
+-- Main.MineAltunay - 16 Sep 2008
