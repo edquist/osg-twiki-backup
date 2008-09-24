@@ -1,9 +1,11 @@
-%META:TOPICINFO{author="AndrewHoward" date="1218812187" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="AndrewHoward" date="1222264769" format="1.1" reprev="1.2" version="1.2"}%
 ---++ Picking A Site
 
 The first step is to pick an OSG site that supports your VO and has an MPI version installed. The easiest way to do this is decide on an MPI implementation (MPICH, MPICH2, OpenMPI, etc.) and perform an LDAP query. For example, to see all of the MPICH versions installed on Purdue's Steele cluster, the following command can be used:
 
-<verbatim>ldapsearch -x -l 60 -b mds-vo-name=Purdue-Steele,mds-vo-name=local,o=grid -h is.grid.iu.edu -p 2170 "GlueSoftwareName=MPICH" GlueSoftwareEnvironmentSetup</verbatim>
+<pre class=screen>
+ldapsearch -x -l 60 -b mds-vo-name=Purdue-Steele,mds-vo-name=local,o=grid -h is.grid.iu.edu -p 2170 "GlueSoftwareName=MPICH" GlueSoftwareEnvironmentSetup
+</pre>
 
 The "GlueSoftwareEnvironmentSetup" field shows what command to use in order to load the MPI version into your environment. This is important for compiling and running the application.
 
@@ -14,7 +16,7 @@ Compiling the application can be done in one of two ways. If the site allows loc
 Since most sites don't allow local logins, however, another way to compile your application is to submit a batch job that will compile the application for you. This can be accomplished by writing a short script that will source the module and compile the application. The following is an example script that will compile the cpi program.
 ---+++ A Sample Compile Script
 
-<verbatim>
+<pre class=screen>
 #!/bin/bash
 #
 # Right now on Purdue's Steele cluster, the modules program is not in the user's
@@ -27,14 +29,13 @@ source /etc/profile.d/modules.sh
 module load mpich-gcc
 
 mpicc -o cpi cpi.c
-
-</verbatim>
+</pre>
 
 ---+++ A Sample Submit Script
 
 Once you have a script that will compile your application, you can submit a Condor-G job to compile your application. For example, the following submit script will compile and return the working executable for the above compile script on Purdue's Steele cluster:
 
-<verbatim>
+<pre class=screen>
 Universe = grid
 Grid_Resource = gt2 lepton.rcac.purdue.edu/jobmanager-pbs
 
@@ -47,7 +48,53 @@ WhenToTransferOutput = ON_EXIT
 Transfer_Input_Files = cpi.c,compile.sh
 Transfer_Output_Files = cpi
 
-Queue </verbatim>
+Queue 
+</pre>
 
 Once the Condor-G job ends, you'll most likely have to make your program executable by running:
-<verbatim>chmod +x <program_name></verbatim> -- Main.AndrewHoward - 15 Aug 2008
+<pre class=screen>
+chmod +x <program_name>
+</pre>
+
+---++ Running your application
+
+Now that you've compiled the executable, it's time to run the job. The following RSL attributes need to be included in your Condor-G job:
+   * jobType=mpi
+   * handle=MODULE_NAME
+   * directory=JOB_DIRECTORY
+
+Here is an example submit script for a simple "cpi" application:
+
+<pre class=screen>
+# file: cpi.submit
+Universe = grid
+
+# Set Scheduler to the proper resource
+Grid_Resource = gt2 lepton.rcac.purdue.edu/jobmanager-pbs
+
+# Make sure to set handle to the appropriate software module
+GlobusRSL = (jobType=mpi)(xcount=2)(host_xcount=1)(directory=/home/ba01/u100/ahoward/testjobs/cpi)(handle=mpich2-gcc)
+
+Executable = /home/ba01/u100/ahoward/testjobs/cpi/cpi
+Arguments = -i 10000 
+
+Stream_output = False
+Stream_error = False
+
+WhenToTransferOutput = ON_EXIT
+TransferExecutable = False
+
+Output = cpi.out
+Error = cpi.err
+Log = cpi.log
+
+Notification = NEVER
+Queue
+</pre>
+
+Finally, the job can be started by running:
+
+<pre class=screen>
+grid-proxy-init
+condor_submit cpi.submit
+</pre>
