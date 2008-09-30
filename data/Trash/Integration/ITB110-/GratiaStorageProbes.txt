@@ -1,0 +1,65 @@
+%META:TOPICINFO{author="NehaSharma" date="1222805429" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Documentation.WebHome"}%
+---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+%STARTINCLUDE%
+
+---+++ Introduction
+
+Gratia Probes collect information about your Storage Element. At present, these are only available for dCache based SEs. These are of two types:
+   * Storage Probe 
+   * Transfer Probe 
+
+*Storage Probe*
+
+The dCache Storage Probe for Gratia is responsible for reporting storage capacity and storage usage to the central Gratia repository.
+
+It gets the pool information from the dCache admin server. It gets the SRM information from the SRM tables in the SRM Postgres database.<br /><br />The probe runs as a cron job on the host running the Postgres database server for SRM. It should be run under a user id that is able to access to the<br />Postgres database. This is typically "srmdcache". In order to look up the information collected by the probe:
+
+1. Open the web page<br /> http://gratia-transfer.opensciencegrid.org:8886/gratia-reporting/<br /> or other address based on the value of SOAPHost in !ProbeConfig. If<br /> configured for ITB, use<br /> http://gratia.opensciencegrid.org:8881/gratia-reporting/<br /> or if configured for FNAL, use<br /> http://gratia-fermi.fnal.gov:8886/gratia-reporting<br /><br />2. Click on "Custom SQL Report" in the left frame.<br /><br />3. In the text box, enter:
+<pre>select j.VOName as `VO` ,</pre><pre> j.StartTime as `Space Reservation Time` ,</pre><pre>m.CreateTime,</pre><pre>r.Value as `Space State`,</pre><pre>d.Description,</pre><pre>d.Value as `Size`,</pre><pre>d.StorageUnit from JobUsageRecord j</pre><pre>join JobUsageRecord_Meta m on (m.dbid = j.dbid)</pre><pre>join Resource r on (r.dbid = j.dbid and r.Description = 'State')     </pre><pre>join Disk d on (d.dbid = j.dbid) where m.ProbeName like 'dcache-storage:%' </pre><pre>order by j.dbid desc </pre><pre>limit 200;  </pre>
+
+and execute to show all phases of space reservation (reservation, copying files, removing files, releasing space). Alter the selection on !ProbeName to narrow the search to a particular probe.<br /><br />4. Another sample SQL query you can run is:
+<pre>select j.Host as`Pool Name`,</pre><pre>m.CreateTime,</pre><pre>r.Value as `File Type`,</pre><pre>d.Value as `Disk Usage`,</pre><pre>d.StorageUnit from JobUsageRecord j </pre><pre>join JobUsageRecord_Meta m on (m.dbid = j.dbid)     </pre><pre>join Resource r on (r.dbid = j.dbid and r.Description = 'Type' and r.Value = 'precious') </pre><pre>join Disk d on (d.dbid = j.dbid and d.description = 'used') where m.ProbeName like 'dcache-storage:%' </pre><pre>order by j.dbid desc </pre><pre>limit 200;  </pre>
+
+*Transfer Probe*
+
+This probe reports to Gratia the details of each file transfer into or out of a dCache file server. It gets this information from the dCache "billing" database. Unlike most other dCache probes, this one runs continuously in the background.<br /><br />For performance reasons, sites with large dCache billing databases are advised to alter the "billinginfo" table by adding an index on the pair of columns<br />(datestamp, transaction) and to alter the "doorinfo" table by adding an index on the (transaction) column. This should speed up the search for newly added records. In order to look up the information collected by the probe:
+
+1. Open the web page<br /> http://gratia-transfer.opensciencegrid.org:8886/gratia-reporting/<br /> or other address based on the value of SOAPHost in !ProbeConfig. If<br /> configured for ITB, use<br /> http://gratia.opensciencegrid.org:8881/gratia-reporting/<br /> or if configured for FNAL, use<br /> http://gratia-fermi.fnal.gov:8886/gratia-reporting<br /><br />2. Click on "Custom SQL Report" in the left frame.<br /><br />3. In the text box, enter:
+<pre>select j.dbid,</pre><pre>j.LocalJobId,</pre><pre>j.CommonName,</pre><pre>m.CreateTime,</pre><pre>rs.Value as `Source`,</pre><pre>rd.Value as `Destination`,</pre><pre>rp.Value as `Protocol` from JobUsageRecord j</pre><pre>join JobUsageRecord_Meta m on (m.dbid = j.dbid)</pre><pre>join Resource rs on (rs.dbid = j.dbid and </pre><pre>rs.Description = 'Source')</pre><pre>join Resource rd on (rd.dbid = j.dbid and rd.Description = 'Destination')</pre><pre>join Resource rp on (rp.dbid = j.dbid and  rp.Description = 'Protocol' and (rp.Value like 'gftp%' or rp.Value like '%gsiftp%')) </pre><pre>where m.ProbeName like 'dcache-transfer:%'  and j.CommonName like '%' </pre><pre>order by dbid desc </pre><pre>limit 200;  </pre>
+
+and execute to show recent !GridFtp transfers. Alter the selection on !ProbeName to narrow the search to a particular probe, or that on !CommonName to narrow to a particular user.<br /><br />To show !ReplicaManager transfers only, run following query:
+<pre>select j.dbid,</pre><pre>j.LocalJobId,</pre><pre>m.CreateTime,</pre><pre>rs.Value as `Source`,</pre><pre>rd.Value as `Destination`,</pre><pre>rp.Value as `Protocol` from JobUsageRecord j</pre><pre>join JobUsageRecord_Meta m on (m.dbid = j.dbid) </pre><pre>join Resource rs on (rs.dbid = j.dbid and rs.Description = 'Source') </pre><pre>join Resource rd on (rd.dbid = j.dbid and rd.Description = 'Destination') </pre><pre>join Resource rp on (rp.dbid = j.dbid and rp.Description = 'Protocol' and </pre><pre>rp.Value like 'dcap-%') where m.ProbeName like 'dcache-transfer:%'  and j.CommonName = 'Unknown' </pre><pre>order by dbid desc </pre><pre>limit 200;  </pre>
+
+<br />To show all transfers, remove the conditional checks on !CommonName and rp.Value; and the limit clause.
+---+++ Installation
+
+The standard VDT-dCache installation process gives you an option to install these probes. Once the probes are installed, the configuration and upgrade instructions are available in the README file.
+---+++ Information collected by the probes
+
+The transfer probe currently collects the following information:
+   * Destination (including pool name) 
+   * Protocol 
+   * Start time 
+   * Wall duration 
+   * Transfer status 
+   * Site name 
+   * Grid name 
+   * Space token id 
+   * VOName 
+   * !SiteName 
+   * Grid Name 
+   * Total space 
+   * Used space 
+   * Type (Replica...) 
+   * State of the space (valid, released) 
+
+<br />The storage probe currently collects following information for each pool:
+   * !SiteName 
+   * !GridName 
+   * Pool name 
+   * Pool status 
+   * Used size 
+   * Type of date (precious)
