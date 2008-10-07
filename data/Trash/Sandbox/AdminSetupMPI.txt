@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AndrewHoward" date="1223386609" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="AndrewHoward" date="1223393132" format="1.1" reprev="1.3" version="1.3"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
@@ -6,7 +6,7 @@
 Follow the instructions on the [[ReleaseDocumentation.GenericInformationProviders][Generic Information Providers]] page to add Glue attributes. The following is an example of how to add an MPICH version along with the module information.
 
 In etc/add-attributes.conf:
-<verbatim>
+<pre class=screen>
 # MPICH Intel
 dn: GlueSoftwareLocalID=MPICH_1.2.7p1_intel, GlueSubClusterUniqueID=lepton.rcac.
 purdue.edu, GlueClusterUniqueID=lepton.rcac.purdue.edu,mds-vo-name=local,o=grid
@@ -24,12 +24,12 @@ GlueSoftwareEnvironmentSetup: module load mpich-intel
 GlueChunkKey: GlueSubClusterUniqueID=lepton.rcac.purdue.edu
 GlueSchemaVersionMajor: 1
 GlueSchemaVersionMinor: 3
-</verbatim>
+</pre>
 
 in etc/alter-attributes.conf:
-<verbatim>
+<pre class=screen>
 GlueHostApplicationSoftwareRunTimeEnvironment: MPICH_1.2.7p1_gcc
-</verbatim>
+</pre>
 
 There are a few points to make here. First, the SoftwareInstalledRoot tells the user the location of the binaries and libraries for each MPI version. The SoftwareEnvironmentSetup attribute tells the user what module or softenv command to use in order to utilize the MPI version in their job. Finally, the SoftwareName and SoftwareVersion attributes make the MPI version easier to find using an ldapsearch.
 
@@ -46,21 +46,78 @@ Purdue uses a combination of the PBS scheduler and the [[http://modules.sourcefo
 The first thing to do is to change the appropriate .rvf file in Globus. For PBS, this is in $GLOBUS_LOCATION/share/globus_gram_job_manager/pbs.rvf
 
 Add the following lines to enable the "handle" RSL attribute:
-<verbatim>
+<pre class=screen>
 Attribute: handle
 Description: "Defines the module that should be loaded"
 ValidWhen: GLOBUS_GRAM_JOB_SUBMIT
-</verbatim>
+</pre>
 
 ---+++ Make appropriate changes to the Globus JobManager
 Next, the appropriate JobManager file needs to be modified to do something with our new handle attribute. For PBS, this file is located in $GLOBUS_LOCATION/lib/perl/Globus/GRAM/JobManager/pbs.pm
 
 The first change to make is to get the handle name from the job description. To do this, add the following line in the sub submit{} stanza:
-<verbatim>
+<pre class=screen>
     my $handle = $description->handle();
-</verbatim>
+</pre>
 
+The next change is the stanza to take care of the PBS job script:
+<pre class=screen>
+        if ($description->jobtype() eq "mpi")
+        {
+            my $this_count = ($description->totalprocesses() > 0) ?
+                $description->totalprocesses() : $description->count();
+            my $machinefilearg = ($cluster) ? ' -machinefile $PBS_NODEFILE' : '';
 
+            if ($mpisoftenv)
+            {
+                print JOB 'which mpiexec >/dev/null 2>&1' . "\n";
+                print JOB 'if [ $? == 0 ]; then' . "\n";
+                print JOB "  mpiexec $machinefilearg -n " . $this_count;
+                print JOB " $cmd_script_name < " .  $description->stdin() . "\n";
+                print JOB 'else' . "\n";
+                print JOB '  which mpirun >/dev/null 2>&1' . "\n";
+                print JOB '  if [ $? == 0 ]; then' . "\n";
+                print JOB "    mpirun -np " . $this_count . $machinefilearg;
+                print JOB " $cmd_script_name < " .  $description->stdin() . "\n";
+                print JOB '  else' . "\n";
+            }
+            else
+            {
+                print JOB ". /etc/profile.d/modules.sh\n";
+                # ahoward Thu Aug 21 14:05:57 EDT 2008  
+                # Check to see if user specified a module to load...
+                if ($description->handle() ne '')
+                {
+                    print JOB "module load $handle\n";
+                }
+                # ... otherwise load a default module
+                else
+                {
+                    print JOB " module load mpich-1.2.7p1-intel64/9.1.045\n";
+                }
+        
+                if ($handle =~ m/mpich2/)
+                {
+                    print JOB "$mpirun -np " . $this_count;
+                }
+                else        
+                {
+                    print JOB "$mpirun -np " . $this_count . $machinefilearg;
+                }
+                
+                #print JOB " " .  $description->executable() . " < " .  $description->stdin() . "\n";
+                print JOB " " .  $description->executable() . " $args < " . $description->stdin() . "\n";
+                #print JOB " $cmd_script_name < " .  $description->stdin() . "\n";
+
+            }
+            if ($mpisoftenv)
+            {
+                print JOB '  fi' . "\n";
+                print JOB 'fi' . "\n";
+            }
+
+        }
+</pre>
 
 
 
