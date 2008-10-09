@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MineAltunay" date="1223581614" format="1.1" reprev="1.10" version="1.10"}%
+%META:TOPICINFO{author="MineAltunay" date="1223590577" format="1.1" reprev="1.11" version="1.11"}%
 %META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
 ---+ Banning Service Use Cases & Requirements
 
@@ -11,47 +11,65 @@ In OSG we provide access based on grid proxies and voms proxies. A grid proxy sh
 
 It is the resource policy that determines who should NOT access the resource. The site policy could be as complex as the site wishes. Above examples are just a few illustrative cases. As an example of more complicated cases, the resource may refuse access to any user who has submitted his job from a hostile domain, or his job has traveled through a hostile domain. The resource may refuse access to proxies with a lifetime over 1 week regardless of the proxy owner. (A proxy has its private key unencrypted and open for any attack. The longer its lifetime, the likelier it gets stolen) 
 
-
 The site policy will determine how fast the banning information should propagate throughout the site, but in general this time will be less than propagation delays for normal access-policy updates. 
 
-- A site needs to be able to ban a single user from submitting new jobs or initiating new data transfers within 1 hour of deciding it. This is all for all machines that may accept a user at a site<br /><br />- A site needs to able to stop all running jobs or existing data transfers from a single user within 1 hour of decide it.<br /><br />- The security team needs to maintain of list of suggested users to ban, and sites need to be able to access this in both human-readable and machine-readable form.<br /><br />- 
+A site needs to be able to ban a single user from submitting new jobs or initiating new data transfers within 1 hour of deciding it. This is all for all machines that may accept a user at a site<br /><br />- A site needs to able to stop all running jobs or existing data transfers from a single user within 1 hour of decide it.<br /><br />- The security team needs to maintain of list of suggested users to ban, and sites need to be able to access this in both human-readable and machine-readable form.
+
+---+++ Mapping Management in GUMS
+
+GUMS is one of the authorization services that resources use in OSG widely. The other one is edg-mkgridmapfile and it is very similar to GUMS in terms of authorization decisions and logic. GUMS and edg-mkgridmapfiles determine whether a user should be allowed access to a resource based on user's DN and/or DN+FQAN. If there is an entry for teh user DN+FQAN in GUMS or edg-mkgridmapfile database, the user is allowed access into the unix account that is tied to that database entry. In other words, GUMS or edg-mkgridmapfile has an entry for each user and a unix account to map that user into. 
+ 
+There is a new feature of GUMS that makes mapping management very easy for site admins. It allows site admins to drop an existing mapping and restore back a previously dropped mapping. For more information on how GUMS does this, refer to this page....  Once a site admin drops a mapping, the user does not get authorized to access the resource. If there are several mappings existing for the user, and site admin wants t get rid of all of them, site admin can create a "negative" mapping for the user and denies access to the user. 
+
+Because GUMS only manages mappings, it understands only DN and FQANs. Based on this ability of GUMS, I updated the requirements list below with %BLUE% blue text %ENDCOLOR%that shows whether the requirement has been met with GUMS or not. I also provided the status with respect to edg-mkgridmpfiles in parenthesis. 
 
 ---+++ Requirements:
 
 Our high level requirements from a banning tool:
 
-   1 The ability to ban based on a DN, or a local user name, or a DN + FQAN, or certificate serial number 
+   * The ability to ban based on a DN, or a local user name, or a DN + FQAN, or certificate serial number 
       * A relying party should "know" which entities and assertions are critical for the access determination, and all those should be checked for blacklist membership. 
       * Currently OSG resources only use DNs and/or DN+FQANs to allow access to users. Therefore, being able to ban a user based on DN and DN+FQAN is the highest priority. 
-      * Banning based on certificate serial number is required for fast recovery from an incident. If a user's proxy is compromised -- NOT the actual credential, the user can generate a new proxy and request access based on new proxy. If we cannot ban based on a proxy serial number, the user has to get a new certificate from scratch. This is cumbersome for the users. 
-       * The ability to cater for the blacklisting of more different entities allows one to limit the banning to the assertions derived from a single compromised machine instead of banning a whole site/VO or even a user: finer grained banning enforcement allows for greater availability of resources by the user communities in case of compromise. 
-   * %BLUE% M.A this requirements tells me we should have finer-grained banning assertions. such as instead of banning a user from a compromised machine, just ban the user's proxy that landed on that machine. OR just ban the proxies that may traveled through a compromised domain. This different from banning the user who have used the compromised machine. User can produce another proxy and continue working. A counter point is how do we know which proxies even landed on the machine. In case of an incident, we do not have sufficient trusted logging to know which proxies to be banned. %ENDCOLOR% 
-   2 Easily administer the blacklist and easily restore access. 
+      * %BLUE% MET by GUMS. (Also MET by edg-mkgridmapfiles). HOWEVER, This requirement is still NOT MET for resources which do not use a mapping service as an authorization engine. For example a VO service such as VOMS admin is as crucial for protection and access control as a resource is. Because VOMS is a service that does not use a mapping tool as an authorization engine, this requirement is still valid. Moreover, OSG services such as gratia lack a denying mechanism %ENDCOLOR%
+      * Banning based on certificate serial number is required for fast recovery from an incident. If a user's proxy is compromised -- NOT the actual credential, the user can generate a new proxy and request access based on new proxy. If we cannot ban based on a proxy serial number, the user has to get a new certificate from scratch. This is cumbersome for the users.
+      * %BLUE% NOT MET%ENDCOLOR%
+      * Banning based on attributes other than DN and DN+FQAN. This includes data drawn from the certificate such as proxy serial number and proxy life time, submitting host certificate, hosts traveled prior to job submission. 
+      * %BLUE% NOT MET%ENDCOLOR%
+   * Fast response and ability to respond high number of queries. Each authorization request is going to go through the banning service. therefore the response time of the banning service affects the authorization process and it should not slow down the authorization checks in place right now. Stress tests with number of banned users and # queries must be made.    
+   * %BLUE% GUMS is already proven to respond to a high number of queries efficiently. (This is not a problem for edg-mkgridmapfile because there is no site-central service that answers queries. Each edg-mkgridmapfile answers queries coming to the resource on which it is installed. ). However, once having a high number of dropped mappings may cause GUMS to slow down. The dropped mappings works as a regular expression match and they may be checked if they are costly to perform when there is a high number of dropped mappings. %ENDCOLOR%
+   * Easily administer the blacklist and easily restore access. 
       * The policy administration of the blacklist membership should be simple, it should be easy to browse and verify the membership, and it should be easy to restore the access rights after the threat has passed. 
-   3 Propagation of banning information 
+   * %BLUE% MET by GUMS. (Also met by edg-mkgridmapfile)%ENDCOLOR%
+   * Propagation of banning information 
       * Upstream: from site to GOC. Based on site admin's preference. When a user is banned at a certain site because her account has been compromised, and that same user also has access to OSG's resources, then we want that information to be sent to GOC, if site admin agrees to. This is an upload from site's local banning tool to a central OSG banning service. 
       * Downstream: From GOC to sites. Based on site admin's preference. Site admin can grab a list of banned users from GOC and apply them to their own resources.  
+   * %BLUE% This is in progress by GUMS team. CAN BE MET by GUMS. CANNOT BE MET by edg-mkgridmapfile%ENDCOLOR%
+
   
-   5 Banning service interface should be pluggable into different authorization service. 
+   * Banning service interface should be pluggable into different authorization service. 
       * The blacklist inclusion check is in essence no different from the normal authorization queries, and by leveraging the same (pluggable) interfaces the banning service should be easily incorporated in the normal authorization processing. 
-   6 Simple banning policy expression. 
+   * %BLUE% CAN BE MET by GUMS. CANNOT BE MET by edg-mkgridmapfile %ENDCOLOR%
+   * Simple banning policy expression. 
       * If banning information is shared across administrative domains, then the policy has to be simple such that local approval is trivial. 
       * When caching is a requirement for performance reasons, then simple policy expressions facilitate implementations. 
-   7 Keep banning information coherent within a site and across sites 
-      * Normally, a site has numerous authorization policy evaluator implementations with different associated policy languages. By having a single banning tool with a single simple policy language it is easier to enforce a coherent banning policy accross a site/VO. 
-   8 Share and consume banning information from a grid-central admin center. 
-      * Sharing of banning information should/could be a major task for the central Grid center. 
-   9 Easier verification/auditting of correct banning policy 
+   * %BLUE% MET by GUMS and edg-mkgridmapfile %ENDCOLOR%
+   * Keep banning information coherent within a site and across sites 
+      * Normally, a site has numerous authorization policy evaluator implementations with different associated policy languages. By having a single banning tool with a single simple policy language it is easier to enforce a coherent banning policy across a site/VO. 
+   * %BLUE% MET by GUMS. CANNOT BE MET by edg-mkgridmapfile %ENDCOLOR%
+   * Easier verification/auditing of correct banning policy 
       * Negative permission are notorious for making the overall policy more complex and less transparent. By having explicit blacklist policy rules that only include negative permissions separate from the normal access policy, the transparency of the overall enforced policy doesn't suffer. 
       * Adding negative permissions to some policy languages doesn't work well, while taking away permissions is often cumbersome and error prone as many access-policy rules depend on roles/groups defined in other places. 
-   10 Easier separation of responsibility/concerns between resource-owner/site and collaborators/VO 
-      * The site/resource-owner normally doesn't care too much who exactly uses the resources as long as the users adhere to the high-level stipulated usage policy, and the site-admins certainly do not want to be bothered with the fine-grained policy rules that determine the access within the collaboration. Except for those cases where misuse and/or compromise has been detected, then site admins want the ability to step-in and possibly over-write the existing collaborator's policy in order to protect their site-resources and avert the threats. A separate banning tool with administrative interface that can be used by the site-admins addresses those requirements very well. 
-   11 Staged deployment of banning tools and services. 
-      * Banning service could be deployed by a single site without ever sharing anything with anyone, and that could be very useful by itself. It could also be deployed by a single VO if the VO "owns" the resource services and can mandate a standardized call-out to a VO-central banning service that would be administered by the VO itself. The multiple sites could use the same banning tools, but not share their information in real-time but possibly through secured emails or phone calls. Then sites could have more automated configurations set-up to share banning info in real-time. Lastly, a central Grid Operation Center could be a central site that aggregates the banning info and shares it through a standardized tool and format. 
+   * %BLUE% MET by GUMS. CAN BE MET by edg-mkgridmapfiles %ENDCOLOR%
+   * Easier separation of responsibility/concerns between resource-owner/site and collaborators/VO 
+      * The site/resource-owner normally doesn't care too much who exactly uses the resources as long as the users adhere to the high-level stipulated usage policy, and the site-admins certainly do not want to be bothered with the fine-grained policy rules that determine the access within the collaboration. Except for those cases where misuse and/or compromise has been detected, then site admins want the ability to step-in and possibly over-write the existing collaborator's policy in order to protect their site-resources and avert the threats. A separate banning tool with administrative interface that can be used by the site-admins addresses those requirements very well.
+   * %BLUE% MET by GUMS. CAN BE MET by edg-mkgridmapfile %ENDCOLOR%
+   * Staged deployment of banning tools and services. 
+      * Banning service could be deployed by a single site without ever sharing anything with anyone, and that could be very useful by itself. It could also be deployed by a single VO if the VO "owns" the resources and can mandate a standardized call-out to a VO-central banning service that would be administered by the VO itself. The multiple sites could use the same banning tools, but not share their information in real-time but possibly through secured emails or phone calls. Then sites could have more automated configurations set-up to share banning info in real-time. Lastly, a central Grid Operation Center could be a central site that aggregates the banning info and shares it through a standardized tool and format. 
       * A call-out to a banning service could be added inside of existing authZ engines like GUMS. This approach would have the advantage that you do not have to change the normal policy rules and memberships and it could help to incorporate blacklist checks without having to change the the individual resource's PEPs. 
-   12 Anticipate high number of blacklist service queries per minute 
+   * %BLUE% MET by GUMS. CANNOT BE MET by edg-mkgridmapfile %ENDCOLOR%
+   * Anticipate high number of blacklist service queries per minute 
       * When the policy requires the propagation delays associated with banning information to be less than normal policy access rules, the access of the banning service will be more frequent than to normal authz svervices because the caching strategies are to be less aggressive. 
-
+   * %BLUE% MET by GUMS. Further testing is needed to see how the increasing number of dropped mappings will affect GUMS' performance. NOT APPLICABLE to edg-mkgridmapfiles.  %ENDCOLOR%
 ---+++ Implementation Considerations
    1 Blacklist membership query interface should use standardized SAML2-XACML2 webservice interface 
       * In order to make the banning tool services fit well within the overall (future) security infrastructure, the membership query interface should leverage the same SAML2-XACML2 interface that OSG/EGEE/Fermi/Condor/Globus are defining in their ongoing privilege projec. 
