@@ -1,49 +1,55 @@
-%META:TOPICINFO{author="MineAltunay" date="1221754423" format="1.1" version="1.9"}%
+%META:TOPICINFO{author="MineAltunay" date="1223581614" format="1.1" reprev="1.10" version="1.10"}%
 %META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
 ---+ Banning Service Use Cases & Requirements
 
 A Banning Service is often referred to as a black-list: a list of entities that is not allowed access to the resources.This wiki-page documents the use cases and requirements for such a banning service for OSG and should help determine the right path forward in adopting/enhancing and/or development of such a tool.
 ---+++ Use Cases:
 
-The compromise of a user account or server exposes any service that allows access to the associated identities, to unauthorized access. After such a compromise is detected or suspected, the site requires that all services that can potentially be accessed by those identities are informed and can enforce deny access. The entities that can be banned are not just the identities associated with the accounts, but also the derived identities and assertions that are issued by those identities, which can include proxy-certificate identities, CAs, Attribute Authorities, group-membership/role/attribute assertions, certificates, etc. The site policy will determine how fast the banning information should propagate throughout the site, but in general this time will be less than propagation delays for normal access-policy updates. The Virtual Organizations and other sites may depend on the sharing of the banning information for their own policy enforcement, and thus banning information should propagate accross administrative boundaries.
+The compromise of a user account/or user credentials exposes any service that allows access to the compromised user to unauthorized access. After such a compromise is detected or suspected,  the resources that can potentially be accessed by compromised user must be informed and these resources must deny access. The compromise can happen on a number of places such as user's laptop that generated the user's proxy, or on a grid machine that user had submitted his job previously along with his proxy. Alternatively, a VO server such as VOMS that maintains VO membership list may also be compromised. In that case entire VO members must be banned until VO restores order. 
 
-- A site needs to be able to ban a single user from submitting new jobs or initiating new data transfers within 1 hour of deciding it. This is all for all machines that may accept a user at a site<br /><br />- A site needs to able to stop all running jobs or existing data transfers from a single user within 1 hour of decide it.<br /><br />- The security team needs to maintain of list of suggested users to ban, and sites need to be able to access this in both human-readable and machine-readable form.<br /><br />- Banning is based on a DN, or a local user name, or a DN + FQAN, or certificate serial number.
+In OSG we provide access based on grid proxies and voms proxies. A grid proxy shows the identity of a user and a voms proxy shows the VO membership of the user. Both proxies holds a rich set of data about the user: the proxy lifetime, delegation chain, VO roles groups, signing CA, etc. Any of the data from voms or grid proxies can be used to ban a user. In other words, a resource may want to ban users based on their VO roles, or their common names in their grid proxies, or their proxy lifetimes, or the delegation chain of the proxy. 
+
+It is the resource policy that determines who should NOT access the resource. The site policy could be as complex as the site wishes. Above examples are just a few illustrative cases. As an example of more complicated cases, the resource may refuse access to any user who has submitted his job from a hostile domain, or his job has traveled through a hostile domain. The resource may refuse access to proxies with a lifetime over 1 week regardless of the proxy owner. (A proxy has its private key unencrypted and open for any attack. The longer its lifetime, the likelier it gets stolen) 
+
+
+The site policy will determine how fast the banning information should propagate throughout the site, but in general this time will be less than propagation delays for normal access-policy updates. 
+
+- A site needs to be able to ban a single user from submitting new jobs or initiating new data transfers within 1 hour of deciding it. This is all for all machines that may accept a user at a site<br /><br />- A site needs to able to stop all running jobs or existing data transfers from a single user within 1 hour of decide it.<br /><br />- The security team needs to maintain of list of suggested users to ban, and sites need to be able to access this in both human-readable and machine-readable form.<br /><br />- 
 
 ---+++ Requirements:
 
 Our high level requirements from a banning tool:
 
-   1 The ability to ban entities, users, certs, proxies, FQAN, and/or VOs 
+   1 The ability to ban based on a DN, or a local user name, or a DN + FQAN, or certificate serial number 
       * A relying party should "know" which entities and assertions are critical for the access determination, and all those should be checked for blacklist membership. 
-   * %BLUE% MA. what do we mean by "entities" ? e,g could different proxies produced  the same person called an entity? %ENDCOLOR% 
-      * The ability to cater for the blacklisting of more different entities allows one to limit the banning to the assertions derived from a single compromised machine instead of banning a whole site/VO or even a user: finer grained banning enforcement allows for greater availability of resources by the user communities in case of compromise. 
+      * Currently OSG resources only use DNs and/or DN+FQANs to allow access to users. Therefore, being able to ban a user based on DN and DN+FQAN is the highest priority. 
+      * Banning based on certificate serial number is required for fast recovery from an incident. If a user's proxy is compromised -- NOT the actual credential, the user can generate a new proxy and request access based on new proxy. If we cannot ban based on a proxy serial number, the user has to get a new certificate from scratch. This is cumbersome for the users. 
+       * The ability to cater for the blacklisting of more different entities allows one to limit the banning to the assertions derived from a single compromised machine instead of banning a whole site/VO or even a user: finer grained banning enforcement allows for greater availability of resources by the user communities in case of compromise. 
    * %BLUE% M.A this requirements tells me we should have finer-grained banning assertions. such as instead of banning a user from a compromised machine, just ban the user's proxy that landed on that machine. OR just ban the proxies that may traveled through a compromised domain. This different from banning the user who have used the compromised machine. User can produce another proxy and continue working. A counter point is how do we know which proxies even landed on the machine. In case of an incident, we do not have sufficient trusted logging to know which proxies to be banned. %ENDCOLOR% 
-   1 Easily administer the blacklist and easily restore acces. 
+   2 Easily administer the blacklist and easily restore access. 
       * The policy administration of the blacklist membership should be simple, it should be easy to browse and verify the membership, and it should be easy to restore the access rights after the threat has passed. 
-   1 Banning information propagated accross sites and VOs 
-      * When a user is banned at a certain site because her account has been compromised, and that same user also has access to OSG's resources, then we want that information to be propagate/shared. 
-      * Individual sites/VOs should have the option to approve the banning entries "proposed" by other sites before they are enforced locally. Note that explicit approval makes the propagation delay across a site much more sensitive. 
-      * Note that banning information is more site- than VO-specific. 
-   1 Relying parties should be able to trust only a local (VO-) banning service that aggregates the banning info from other sites. 
-      * otherwise resources will have to trust all banning-authorities from all sites, which is a "challenging" administrative requirement. 
-   1 Banning service interface should be pluggable into different authorization service. 
+   3 Propagation of banning information 
+      * Upstream: from site to GOC. Based on site admin's preference. When a user is banned at a certain site because her account has been compromised, and that same user also has access to OSG's resources, then we want that information to be sent to GOC, if site admin agrees to. This is an upload from site's local banning tool to a central OSG banning service. 
+      * Downstream: From GOC to sites. Based on site admin's preference. Site admin can grab a list of banned users from GOC and apply them to their own resources.  
+  
+   5 Banning service interface should be pluggable into different authorization service. 
       * The blacklist inclusion check is in essence no different from the normal authorization queries, and by leveraging the same (pluggable) interfaces the banning service should be easily incorporated in the normal authorization processing. 
-   1 Simple banning policy expression. 
-      * If banning information is shared accross administrative domains, then the policy has to be simple such that local approval is trivial. 
+   6 Simple banning policy expression. 
+      * If banning information is shared across administrative domains, then the policy has to be simple such that local approval is trivial. 
       * When caching is a requirement for performance reasons, then simple policy expressions facilitate implementations. 
-   1 Keep banning information coherent within a site and across sites 
+   7 Keep banning information coherent within a site and across sites 
       * Normally, a site has numerous authorization policy evaluator implementations with different associated policy languages. By having a single banning tool with a single simple policy language it is easier to enforce a coherent banning policy accross a site/VO. 
-   1 Share and consume banning information from a grid-central admin center. 
+   8 Share and consume banning information from a grid-central admin center. 
       * Sharing of banning information should/could be a major task for the central Grid center. 
-   1 Easier verification/auditting of correct banning policy 
+   9 Easier verification/auditting of correct banning policy 
       * Negative permission are notorious for making the overall policy more complex and less transparent. By having explicit blacklist policy rules that only include negative permissions separate from the normal access policy, the transparency of the overall enforced policy doesn't suffer. 
       * Adding negative permissions to some policy languages doesn't work well, while taking away permissions is often cumbersome and error prone as many access-policy rules depend on roles/groups defined in other places. 
-   1 Easier separation of responsibility/concerns between resource-owner/site and collaborators/VO 
+   10 Easier separation of responsibility/concerns between resource-owner/site and collaborators/VO 
       * The site/resource-owner normally doesn't care too much who exactly uses the resources as long as the users adhere to the high-level stipulated usage policy, and the site-admins certainly do not want to be bothered with the fine-grained policy rules that determine the access within the collaboration. Except for those cases where misuse and/or compromise has been detected, then site admins want the ability to step-in and possibly over-write the existing collaborator's policy in order to protect their site-resources and avert the threats. A separate banning tool with administrative interface that can be used by the site-admins addresses those requirements very well. 
-   1 Staged deployment of banning tools and services. 
+   11 Staged deployment of banning tools and services. 
       * Banning service could be deployed by a single site without ever sharing anything with anyone, and that could be very useful by itself. It could also be deployed by a single VO if the VO "owns" the resource services and can mandate a standardized call-out to a VO-central banning service that would be administered by the VO itself. The multiple sites could use the same banning tools, but not share their information in real-time but possibly through secured emails or phone calls. Then sites could have more automated configurations set-up to share banning info in real-time. Lastly, a central Grid Operation Center could be a central site that aggregates the banning info and shares it through a standardized tool and format. 
       * A call-out to a banning service could be added inside of existing authZ engines like GUMS. This approach would have the advantage that you do not have to change the normal policy rules and memberships and it could help to incorporate blacklist checks without having to change the the individual resource's PEPs. 
-   1 Anticipate high number of blacklist service queries per minute 
+   12 Anticipate high number of blacklist service queries per minute 
       * When the policy requires the propagation delays associated with banning information to be less than normal policy access rules, the access of the banning service will be more frequent than to normal authz svervices because the caching strategies are to be less aggressive. 
 
 ---+++ Implementation Considerations
