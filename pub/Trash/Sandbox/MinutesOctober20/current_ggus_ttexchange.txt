@@ -1,0 +1,222 @@
+This is an explanation of the systems and components of the OSG/GGUS trouble ticket exchange process.
+
+SYSTEMS
+
+The OSG portion of the OSG/GGUS trouble ticket exchange is located entirely on the Footprints (FP) server at Indiana University. (tick.globalnoc.iu.edu) The scripts are stored in the ticket_exchange directory.
+
+
+LOGIN PROCEDURE
+
+1) First login to SKIP (skip.grnoc.iu.edu) or JUMP (jump.grnoc.iu.edu) 
+ -- These machines accept your IU Keberos password.
+ -- A SAFE WORD card is required.
+
+2) Then ssh ggus@tick.globalnoc.iu.edu
+
+ This requires a password -- Tim Silvers, Elizabeth Chism and Arvind Gopu know it. 
+
+--------------------------------------------------------------------
+
+The OSGtoEGEE.pl perl script which was used in order to open a new ticket or send an update for an existing ticket to GGUS HAS BEEN DEPRACATED!!  
+
+
+
+The exchage process consists of two perl scripts and two cron jobs (explained below).
+
+INCOMING TICKET PROCESS
+-----------------------
+
+The GGUS ticketing system sends mail to the ggus@tick.globalnoc.iu.edu email account. A cron job runs the perl script (EGEEtoOSG.pl) every five minutes and sends output to /dev/null.
+
+The EGEEtoOSG.pl script uses the following perl modules:
+	Mail::IMAPClient
+	XML::Simple
+	Data::Dumper
+	DBI
+
+The EGEEtoOSG.pl is located on tick at /home/ggus/ticket_exchange
+
+	SCRIPT FLOW
+	1. Mailbox and FP options are set
+	2. Archive file is created for storing mail
+	3. Connect to mailbox
+	4. Check for mail and exit if empty
+	5. Write incoming message to file
+	6. Delete mail and close mailbox
+	7. Parse XML data
+	8. Check the Footprints DB to see if there is an existing ticket for the GGUS ticket
+	9. Format email to FP
+	10. Send mail. (This will either create a new ticket or update and existing ticket, depending on step 8)
+
+A second cron job runs nightly at midnight to clean up all empty archives that are created.
+
+All questions should be directed to rquick@iupui.edu or tsilver@indiana.edu
+
+PARSING
+-------
+
+The fields we are parsing from the GGUS email in order to populate the FP ticket are:
+
+<GHD_Name>			-> First/Last Name** 
+<GHD_Description> 	-> Description (if no FP ticket exists)
+<GHD_Public_Diary>	-> Description (if ticket already exists in FP)
+<GHD_Request-ID>	-> Originating Ticket Number
+<GHD_E-Mail>		-> Email Address
+
+Other GGUS ticket info dumped into the Description of the FP ticket:
+
+<GHD_Date_Time_Of_Problem>	-> Date GGUS Ticket Opened
+<GHD_Short_Description>		-> Short Description
+<GHD_Experiment>			-> Experiment
+<GHD_Short_Solution>		-> Solution
+
+**Data goes into an array. We take the last element from the array to get the last name, the first element is the first name.
+
+THE SCRIPT
+----------
+
+NOTE: Passwords for MySQL and Mail Accounts Deleted
+
+#! /usr/bin/perl -w
+
+###########################################################################
+# GGUS to OSG FP TT Exchanger v1.0  Author: Rob Quick  08.04.2006         #
+#-------------------------------------------------------------------------#
+# Edited by Tim Silvers 10.2008                                           #
+#-------------------------------------------------------------------------#
+# 1. Eliminated error due to no value in the $fetched_data variable upon  #
+# new incoming ticket. No ticket exists, so no data. Set null value " "   #
+# for this.																  # 
+# 2. Eliminated numerous extra new lines from the data obtained by the XML#
+# parser for the $content variable, in particular.                        #
+# 3. Eliminated the "-- ISSUE=" from the title/subject of the email when a#
+#  new ticket is generated since there is no ticket in the db			  #
+# 4. Put parsed name data into a scalar, then split it into two pieces to #
+# get First/Last Name data, which will populate Contact Info in the FP    #
+# ticket automatically.						          					  #
+# 5. Updated $content to include customer email address, which will       #
+# populate Contact Info in the ticket. 		                          	  #
+# 6. Eliminated line getting $save_string b/c it was redundant with the   #
+# $string value line							  						  #
+# 7.Changed the name of $string variable to the more descriptive,         #
+# $xml_mail_body since it is the XML data taken from the GGUS mail. 	  #
+# 8. Made variable for Description so we can use the original description #
+# given by GGUS or the update if they send us an update to an existing    #
+# ticket.						                  						  #
+###########################################################################
+
+#Use Modules
+	use strict;
+	use Mail::IMAPClient;
+	use XML::Simple;
+	use Data::Dumper;
+        use DBI;
+
+#Mailbox options
+	my $server = 'localhost';
+	my $usr = 'ggus';
+	my $pass = 'xxxxxxxxx';
+	my $folder = 'INBOX';
+	my $save_folder = 'mail/saved-messages';
+
+#Open File for XML Data From Email
+	open(FILE, "> input.xml");
+	my $time = time();
+	open(SAVEFILE, "> /home/ggus/ticket_exchange/saved-mail/$time");
+
+#Connect to mailbox
+	my $imap = Mail::IMAPClient->new(Server=>$server, User=>$usr, Password=>$pass);
+	$imap->select($folder) or die "Cannot select the inbox for $usr: $@\n";
+
+#Count Mail and Exit if Mailbox is empty
+	my $message_count = $imap->message_count($folder);
+	defined($message_count) or die "Could not count messages: $@\n";
+	if ($message_count == 0){
+		die "Mailbox is empty!\n";
+		}
+	else{
+		print "There are $message_count message(s) in the $folder.\n";
+		}
+	
+#Grab body of XML GGUS mail and store, then write Message to File and Close file
+	my $msg_uid=$imap->message_uid(0) or die "Could not get UID for: $@\n";
+        my $xml_mail_body=$imap->bodypart_string($msg_uid,1) or die "Could not write message to file: $@\n";
+	print SAVEFILE $xml_mail_body;
+	close SAVEFILE;
+
+#Remove ALL whitespace from xml tags mail
+	(my $nospaces_xml_mail_body = $xml_mail_body) =~ s[\</\s+][\</]g;   
+	FILE->autoflush(1);
+	print FILE $nospaces_xml_mail_body; 
+	close FILE;
+
+#Delete Mail from INBOX
+        $imap->set_flag("Deleted", $msg_uid) or die "Could not get flag: $@\n";
+
+#Close Mailbox
+	$imap->close or die "Could not close: $@\n";
+
+#Parse XML 
+	my $data = new XML::Simple;
+        my $file = $data->XMLin("input.xml");
+
+#Check FP Database for existing Ticket
+	my $db_name = 'Footprints';
+	my $db = "dbi:mysql:$db_name;host=$server;user=$usr;password=$pass";
+	my $dbc = DBI->connect($db, {RaiseError => 1, AutoCommit => 0}) || die "Error connection to the FP Database: $DBI::errsrt\n";
+	my $query = "SELECT mrID FROM MASTER71 WHERE Originating__bTicket__bNumber = $file->{'GHD_Request-ID'}";
+
+	my $ref = $dbc->prepare($query);
+	$ref->execute() || die "Couldn't execute query '$query': $DBI::errsrt\n";
+        #my $fetched_data;       # The FP ticket number
+        #$fetched_data = " " unless ($ref->fetchrow);
+        #$fetched_data = ($ref->fetchrow) if ($ref->fetchrow);
+	my @fetched_data = ($ref->fetchrow); # if ($ref->fetchrow);
+	$ref->finish;
+	$dbc->disconnect;
+
+#Pull carriage returns from subject line
+	(my $newsubject = $file->{'GHD_Short_Description'}) =~ s/\n//g;
+
+#Put name into an array so we can split first/last names
+	my $name = $file->{'GHD_Name'};
+	my @name = split(/\s+/, $name);
+
+#Format mail to Footprints
+	my $sendmail = "/usr/sbin/sendmail -t";
+	my $reply_to = 'Reply-to: goc@opensciencegrid.org'; 		
+	my $send_to = "To: osg\@tick.globalnoc.iu.edu\n";
+        my $subject;
+	my $description_data;
+#For Description, use GHD_Public_Diary data from GGUS if not new ticket
+        if (@fetched_data != 0) {
+                $subject = "\nSubject: $newsubject -- ISSUE=@fetched_data\n";
+		$description_data = $file->{'GHD_Public_Diary'};
+        } else {
+                $subject = "\nSubject: $newsubject\n";
+		$description_data = $file->{'GHD_Description'};
+        }
+	my $ggus_ticket = $file->{'GHD_Request-ID'};
+	my $content = "Originating Ticket Number=$ggus_ticket\n
+		$description_data\n
+		Assignees=GGUS \"OSG GOC Support Team\"\n";
+		Ticket-Type=Problem/Request
+		Originating VO Support Center=GGUS
+		ENG Next Action Item=Operator Review
+		SD Next Action Item=Operator Review
+		First Name=$name[0]
+		Last Name=$name[-1]
+		Email Address=$file->{'GHD_E-Mail'}
+        Other GGUS Ticket Info:\n-------------------------
+		Date GGUS Ticket Opened: $file->{'GHD_Date_Time_Of_Problem'}
+        Short Description: $file->{'GHD_Short_Description'}
+		Experiment: $file->{'GHD_Experiment'}
+		Solution: $file->{'GHD_Short_Solution'}
+
+#Send Mail to FP
+	open(SENDMAIL, "|$sendmail") or die "Cannot open $sendmail: $!";
+		print SENDMAIL $reply_to;
+		print SENDMAIL $subject;
+		print SENDMAIL $send_to;
+		print SENDMAIL $content;
+	close(SENDMAIL);
