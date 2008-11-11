@@ -1,0 +1,72 @@
+%META:TOPICINFO{author="MineAltunay" date="1226446956" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
+---+ RSV security Probes Phase 3 v2
+%TOC%
+
+---++Centralized Probes
+
+The Centralized RSV probes will be run by GOC and will monitor the status of the CAs being distributed by both OSG and VDT and the corresponding CRLs.
+
+---++++Distribution Availability Probes
+*High-level Goal*: check OSG provided CA distribution mechanisms are available 
+We have at least four separate distribution mechanisms provided by OSG: pacman caches at VDT and GOC and yum repositories at GOC and VDT. These services are critical for OSG operations. We will check if these services are up and running and provide the CA content. 
+
+---++++Distribution Content Probes
+*High-level Goal*: check if the CAs included in a distribution service complies with OSG requirements. For each distribution service, we have a list of CAs to be included. For example, VDT must include IGTF latest distribution + Fermi KCA. GOC must include IGTF latest distribution+ FNAL KCA+ TeraGrid CAs. I expect this probe to check if the distribution service has the latest version of IGTF distribution and includes all other necessary CAs. The security team is responsible for detecting a new IGTF distribution and creating a new CA package to be distributed. Having said that this is done very ad-hoc manner: it is likely Jim may be on vacation and I miss email from IGTF on new distribution. To prevent this situation, I like to automate this process. I am ready to list the expected content of CAs in each distribution service we have.   
+  
+---++++CA Probe 
+*High-level Goal*: check if CAs contained in a distribution service are up-to-date. Check if any of the certificates are expired or about to expire. This probe must be applied to all distribution services that passed the availability and content probes successfully. Any distribution service who failed the availability and content probes will be examined first. 
+ 
+CA probes will use vdt-update-ca –force-download to fetch the cert files from the OSG/VDT distribution, once fetched the certificates are checked using openssl commands (or vdt-ca-manage) to check for any error or warning condition. An error condition will occur if the “openssl verify” command fails on a particular certificate. A warning will be issued if the certificate is about to expire within the next 14 days. NOTE: Implementing this might require a change in the vdt-update-certs, so that it can take cacerts_url as a command line argument.
+
+
+---++++CRL Probe
+*High-level Goal*: Check if CRL files of CAs included in a distribution service is up-to-date. This probe downloads the CRLs directly from the CA web site and checks whether the current CRL has expired or not.  If the CRLs are expired, the CA name will be outputted. Additionally the probes will produce warnings if the CRLs are set to expire within 3 days. 
+
+
+*Implementation Considerations:*
+This probe will pass out any error information from fetch-crl. Additionally the probe will also check the timestamps associated with the files and produce an error if the file has not been updated over the last X runs, because this could indicate a problem with the crl_url distributing the crl files. 
+*M. Altunay* : how frequently does  CA have to produce a new CRL, if there is no revocation? Why X runs? 
+
+*Arvind's Comments*: Arvind has similar comment for the CRL probe as CA probe, he wanted to keep the fetch-crl process separate from the probe. 
+
+*Anand's Comments*: Keeping the probe and the fetch-crl process separate could be good from a design perspective, but could again cause the probes to miss potential errors being reported by fetch-crl. Another aspect to consider is the interaction between the CAs and CRLs. If we use the same directory to downloaded cas and crls, if one of them expires then other probe could also report problem 
+
+*M. Altunay:* I do not care how we fetch the CRLs. Given we encourage OSG sites to use fetch-crl, I would like to use the same method as our users do. Since we do not have another mechanism ready for fetching the CRLs, I do not see why not using it? 
+
+
+
+---++Site (Local) Probes
+
+These probes are meant to run locally on a site machine
+
+---++++CA probe (availability)
+*High-level Goal*: Check if a site has up-to-date CA distribution package provided by OSG. Note I did NOT say if a site has up-to-date certificates. This is on purpose: certificates are provided by OSG distribution services and OSG is responsible for content, availability and freshness of these distribution services. Sites are NOT expected to individually download a CA certificate directly from that CA’s website. However, we do expect sites to have the latest versions of our distribution services. I want this probe to return a success as long as a site has downloaded the latest version of OSG CA distribution services. 
+
+*Address to Arvind's comment*: I do not care if a certificate has expired in the latest OSG distribution in terms of this probe. That is NOT site’s problem and site has no reason to fail. Our central probes will tell us which CA has expired and failing, and we can remedy the situation. It is regardless of site’s responsibility towards OSG. 
+
+*Address to Arvind's 2nd comment*: Arvind claimed if a site uses VDT or GOC's RPM distribution service, the above method may not work. ? I think we can check which version of RPMs have been installed from YUM repository and as long as it matches the latest version, we return a success status. 
+
+
+---++++CRL probe
+*High-level Goal:* Check if a site has filestamps for the CRL files that are within the last 6 hours. Note I am NOT saying site has to have up-to-date CRLs. I do not need to bring any complexity to this. WLCG requirement only asks about filestamp to be within last 6 hour. 
+
+---++Additional local probes that are CURRENTLY NOT reported to WLCG, and only used by OSG for our own purposes
+
+---++++CRL expiry-dates probe
+*High-level goal*: Check if a site has up-to-date CRL files for all CAs installed on the machine. This probe checks if the CRLs are expired or not and sends GOC a list of expired CRLs
+
+---++++CRL update-mechanism probe 
+*High-level Goal:* This probe checks if the site has enabled fetch-crl mechanism to run every 6 hours. 
+
+---++++CA supported-VO probe
+*High-level Goal:* Check if a site has CAs installed that are necessary to support the VOs that site has agreed to support. This probe will check if site has installed all of the CAs that supported VOs has advertised. I expect this probe will become the availability probe in future. I do not expect the siet to manually go download the CA certificates. They should have dimply keep up-to-date versions of OSG distribution services. This probe will make sure that none of the required CAs are excluded from the installation. (This may require checking the vdt-cert-update.config file. The sites that uses RPMs will install the entire CA stack from the yum repository anyway. So those sites would be good as long as they have the latest version of yum repository.) Important Note: All of the CAs that are used by OSG VOs will be included in OSG CA distribution services. 
+
+---++++CRL supported-VO probe
+*High-level Goal:* Check if the site has an up-to-date version of CRLs for supported VO CAs. check the filestamp on the CRL files to determine if site has updated the CRLs in the last 6 hours. 
+*As long this probe is reported to WLCG, I will keep it identical to EGEE implementation.* 
+
+
+
+
+-- Main.MineAltunay - 11 Nov 2008
