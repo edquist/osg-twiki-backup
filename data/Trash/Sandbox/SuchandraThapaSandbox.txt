@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="SuchandraThapa" date="1226439891" format="1.1" reprev="1.5" version="1.5"}%
+%META:TOPICINFO{author="SuchandraThapa" date="1226449461" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="Main.SuchandraThapa"}%
 ---+ Installing a CE in A Few Easy Steps
 ---++ Preinstallation
@@ -7,10 +7,15 @@ Before you install you'll need a few things:
     2 DOE host certificate 
     3 an user account for rsv
     4 an user account called daemon for the osg services 
+    5 ntp set up and providing time synchronization
 Getting these will require some time so it's best to do these well in advance of installing your CE.  We will outline how to do steps 1 and 2 below, the other steps are system specific so you will need to do that as well.
 
 ----+++ Getting a DOE grid certificate
 A DOE grid certificate is a certificate for individuals that will allow you to identify yourself when access grid services.  It is needed to submit jobs to grid sites and to test your new installation.  In order to get  a certificate, you will need to go to the DOE certificate [[https://pki1.doegrids.org/ca/][page]] and then fill in the form.  You will need to have a sponsor and know the VO that your site will be a member of.  If you are not a member of any VO, then you should be able to use OSG if you discuss it with the OSG registration authority.
+
+Once you get the certificate, you should move it and your private key to the =~/.globus= directory of your user account  in order to use it.  The certificate should be saved to =~/.globus/usercert.pem= and the corresponding private key should be called =~/.globus/userkey.pem=
+
+Also you should make note of your certificate's distinguished name (DN).  This is a string that should be something like =DC=org/DC=doegrids/OU=People/CN=Your Name Serial= where =Serial= is a automatically generated serial number for the certificate and =Your Name= is the name you gave when applying for the certificate.
 
 ---+++ Getting a DOE host  certificate
 Getting a host certificate is a little more involved.  You will need a host certificate and 2 service certificates (http and rsv) for your site so that your site will be able to authenticate itself when accepting requests from grid enabled tools such as globus-job-run or gridftp.  If you have an existing OSG installation you can request certificates by issuing the following commands:
@@ -33,7 +38,7 @@ to request certificates.  You will need to answer a few questions when generatin
 If you don't have an existing OSG CE installation, you can create a certificate in the process of installing the CE software.  We will outline how to do so below.
 
 ---++ Installation
-This guide will assume that you install software in the /opt directory.   Please adjust this to your specific circumstances.  
+This guide will assume that you install software in the /opt directory and that this directory is located on a local drive (or a networked drive that has fairly high performance and low latency).  The installation will require about 4 GB of space.  This guide will also install a condor batch manager in your osg installation.  *Please adjust this to your specific circumstances.*
 
 ---+++ Pacman
 The first component you will need to install is pacman.  Pacman is the package manager that is used by the OSG to distribute it's software.  The installation process for this is fairly simple and is outlined below
@@ -61,6 +66,12 @@ Length: 852,424 (832K) [application/x-gzip]
 
 At this point, pacman is setup and is ready for your use.
 
+---+++ Create directories for OSG services
+    * =cd /opt=
+    * =mkdir share=
+    * =mkdir share/data=
+    * =mkdir share/app=
+
 ---+++ Installing the CE software
 This guide assumes that you will be using a gridmap for your setup and not a GUMS server.  To setup things up using a gums server, please refer to the release documentation for OSG CE software.
 
@@ -68,11 +79,61 @@ This guide assumes that you will be using a gridmap for your setup and not a GUM
    * =mkdir osg-1.0.0=
    * =ln -s osg-1.0.0 osg=, Doing this lets you refer to things in /opt/osg so that you can upgrade your osg ce installation in a versioned directory (e.g. osg-x.y.z) and seamlessly switch from an older install to a newer install.
    * =cd osg=
+   * =export PER_JOB_HISTORY_DIR = /opt/osg/gratia/var/data=
    * =pacman -get OSG:ce= , you should see the following
 <verbatim>
-</verbatim>
+[root@uct3-edge5 osg]# pacman -get OSG:ce
+Do you want to add [http://software.grid.iu.edu/pacman/] to [trusted.caches]? (y/n/yall): yall
+Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check...       
 
+All prerequisite checks are satisfied.
+                                                               
+
+
+========== IMPORTANT ==========
+The VDT no longer installs certificate authority certificates at install time.
+Most of the software installed by the VDT *will not work* until you install
+certificates.  To complete your CA certificate installation, see the notes
+in the post-install/README file.
+
+
+
+Existing /tmp/opt/osg-1.0.0/edg/etc/edg-mkgridmap.conf moved to /tmp/opt/osg-1.0.0/edg/etc/edg-mkgridmap.conf.orig
+Merge it manually with the new /tmp/opt/osg-1.0.0/edg/etc/edg-mkgridmap.conf if you had a special edg-mkgridmap.conf
+                                  
+Pacman Installation of OSG-1.0.0 Complete
+</verbatim>
+   * =source setup.sh=
+   * =pacman -get OSG:Globus-Condor-Setup=
+
+The software should be installed at this point and you can move on to configuration.
 ---+++ Configuring the CE software
+At this point, the CE software will have been installed and is partially configured.  There are a few more steps needed to get a working setup.
+
+---++++ Setting up gridmap files
+For a simple install, you can use a gridmap file to create a list of users that are allowed to access your compute element.  Since this is an example installation, we will just set things up so that you are the sole authorized user.
+
+   * =cd /etc=
+   * =mkdir grid-security=
+   * =chmod 755 grid-security=
+   * =cd grid-security=
+   * =echo '"DN" USER_ACCOUNT' > grid-mapfile= , here you will need to replace *DN* with the DN of your grid certificate and *USER_ACCOUNT* with the name of the account that this DN should map to.  *Note, the do not map this DN to root or any other privileged account*
+   * =chmod 644 grid-mapfile=
+
+---++++ Setting up your CA certificate updater
+You will now need to setup and retrieve the ca certs updater in order to have a functional 
+   * 
+
+---++++ Generating host certificates
+
+---++++ Installing host certificates
+At this point you should have 3 pem files with your host certificates and the corresponding private keys.  You will need to place these in the grid-security directory as follows.
+   * copy the host certificate to =/etc/grid-security/hostcert.pem=
+   * copy the host private key to =/etc/grid-security/hostkey.pem=
+   * =mkdir /etc/grid-security/http=
+   * =mkdir /etc/grid-security/rsv=
+ 
+
 ---++ Finishing up
 
 -- Main.SuchandraThapa - 10 Nov 2008
