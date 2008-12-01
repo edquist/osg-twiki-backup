@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ChrisGreen" date="1228159356" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="ChrisGreen" date="1228166601" format="1.1" reprev="1.5" version="1.5"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! Gratia Data Collection Notes
 
@@ -40,7 +40,7 @@ At the collector these data are received, stored in a DB and summarized as appro
         <li>Give the send instruction for the record (<tt>record.Send()</tt>).</li>
         <li>Pre-process the data prior to sending by:
         <ul><li>Checking the !MeterName, !SiteName and Grid attributes and adding them to the record as appropriate.</li>
-            <li>Checking and obtaining the best possible values for !VOName and !ReportableVOName according to an established order of precedence. Please see the specific [[#Methods_used_to_ascertain_the_VO][notes on !VOName and !ReportableVOName]] below.</li>
+            <li id="check_vo">Checking and obtaining the best possible values for !VOName and !ReportableVOName according to an established order of precedence. Please see the specific [[#Methods_used_to_ascertain_the_us][notes on !VOName and !ReportableVOName]] below.</li>
         <li>Suppress records as appropriate according to configuration settings and data checks ([[#record_suppression][see below]]).</li>
         <li>Create a file backup of the record.</li>
         <li>Send the record and delete the file backup upon successful completion.</li>
@@ -70,7 +70,41 @@ At the collector these data are received, stored in a DB and summarized as appro
 
 ---++ Behavior common to LRMS probes.
 
----+++ Methods used to ascertain the VO associated with a job.
+[ LRMS -> Local Resource Management System a.k.a batch manager ]
+
+---+++ Methods used to ascertain the user details associated with a job.
+
+The user details attributes of an LRMS Gratia record are:
+   * !LocalUserId;
+   * !GlobalUserName;
+   * DN;
+   * !VOName; _and_
+   * !ReportableVOName
+
+In particular, !VOName and !ReportableVOName correspond respectively to _either_:
+   * FQAN, VO Name (or sub-VO name as appropriate, eg Minos); _or_
+   * voi, !VOc as specified in =$VDT_LOCATION/monitoring/osg-user-vo-map.txt=.
+
+On a modern system (OSG 1.0+ for Condor probe, OSG 1.0/VDT 1.10.1n+ for other probes), the DN, FQAN and VO name are obtained via a Gratia-specific hook in the job manager Perl code which runs voms-proxy-info on the delegated proxy (if available). The proxy is available if the jobs was submitted via:
+   * !CondorG;
+   * =globus-job-run= (or =globusrun=); _or_
+   * =globusrun-ws= with explicit credential delegation.
+
+Whether FQAN / !VOName are available in this manner depends on whether the submitter used a voms-proxy (yes) or vanilla grid-proxy (no).
+
+The information gleaned in this way is stored in a, "certinfo" file in =$VDT_LOCATION/gratia/var/data=.
+
+If the DN is not available via this method, it is obtainable from the !ClassAd for Condor jobs or via reverse grid map file look-up for the SGE probe.
+
+On older OSG installations or if a delegated proxy is not available, the !LocalUserId is used to look up the voi & !VOc. 
+
+To summarize: following algorithm is used by the =Gratia.py= infrastructure at the [[#check_vo][relevant point]] to decide what gets sent to the collector:
+   1. !VOName / !ReportableVOName as provided by the specific probe if !VOName is the FQAN;
+   1. Credentials from a certinfo file if one can be associated with the job record;
+   1. !VOName / !ReportableVOName if provided by the specific probe; _or_
+   1. voi & !VOc from a reverse grid map file.
+
+At the collector level every unique combination of !VOName / !ReportableVOName is put into a table. This combination is used to look up the "true" VO name for reporting purposes. If this combination has not been seen before the default translation of the combination is the !VOName unless the !VOName is an FQAN, in which case the default translation is the !ReportableVOName. This translation may be changed on the collector using the administration GUI.
 
 ---++ Specific probe behavior and other notes.
 
