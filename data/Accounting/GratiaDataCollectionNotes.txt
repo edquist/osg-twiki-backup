@@ -1,10 +1,10 @@
-%META:TOPICINFO{author="ChrisGreen" date="1227743914" format="1.1" version="1.3"}%
+%META:TOPICINFO{author="ChrisGreen" date="1228159356" format="1.1" reprev="1.4" version="1.4"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! Gratia Data Collection Notes
 
 ---++ Introduction
 
-This attempts to put, all in one place, a description of the algorithms followed when collecting and processing job level Gratia data. Where appropriate, common and probe-specific behaviors will be discussed, including any historical behaviors that still may be of relevance.
+This attempts to put all in one place a description of the algorithms followed when collecting and processing job level Gratia data. Where appropriate, common and probe-specific behaviors will be discussed, including any historical behaviors that still may be of relevance.
 
 ---++ Overview of Gratia data collection.
 
@@ -16,7 +16,7 @@ Speaking very generally, a Gratia probe will:
 The different types of data sent to Gratia collectors include:
 
    1. Local and OSG-originated job level information on batch jobs executed by a variety of LRMS (Local Resource Management Systems) including Condor, PBS (including Torque), LSF, SGE;
-   1. Summary level information from a variety of resources (PANDA is a prime example) for /ad hoc/ comparison with job-level data.
+   1. Summary level information from a variety of resources (PANDA is a prime example) for _ad hoc_ comparison with job-level data.
    1. Summarized process-level information.
    1. Metric information from RSV tests.
    1. Pilot level information from the glExec pilot/glide-in system.
@@ -34,18 +34,43 @@ At the collector these data are received, stored in a DB and summarized as appro
     </dl>
     A useful utility routine here is <tt>Gratia.extractRevision("$Revision: %")</tt> </li>
     <li>Initialize the Gratia system and perform a handshake with the collector: <tt>Gratia.initialize(<em>[config-file]</em>)</tt> </li>
+    <li>Attempt to send any records written to file but not uploaded successfully.</li>
     <li>For each job record to upload:
     <ul><li>Define the job level record with information gleaned from the primary information source (eg LRMS log).</li>
         <li>Give the send instruction for the record (<tt>record.Send()</tt>).</li>
-        <li></li>
-        <li></li>
-        <li></li>
-    </ul>
+        <li>Pre-process the data prior to sending by:
+        <ul><li>Checking the !MeterName, !SiteName and Grid attributes and adding them to the record as appropriate.</li>
+            <li>Checking and obtaining the best possible values for !VOName and !ReportableVOName according to an established order of precedence. Please see the specific [[#Methods_used_to_ascertain_the_VO][notes on !VOName and !ReportableVOName]] below.</li>
+        <li>Suppress records as appropriate according to configuration settings and data checks ([[#record_suppression][see below]]).</li>
+        <li>Create a file backup of the record.</li>
+        <li>Send the record and delete the file backup upon successful completion.</li>
+        </ul></li>
+    </ul></li>
+    <li>Remove old log files and old (unusable) data files.</li>
+    <li>Produce a summary of records sent and failed.</li>
+    <li>Disconnect and exit.</li>
 </ol>
 
 ---++ Behavior common to all probes.
 
+<ul>
+    <li> _Any_ probe reading data from elsewhere (DB, log files, etc) must take care to track progress and avoid sending multiple records describing the same event.</li>
+    <li>The second and subsequent records received by the collector describing a given event are not written to the DB in the usual manner but are stored in the !DupRecord table along with a reference to the original record. These are not considered further by the collector except to be cleaned up according to the configured housekeeping schedule. A revised description of an event therefore must be incorporated in the DB manually.</li>
+    <li>Records not sent to the collector successfully will be stored on disk and sent when connection is re-established.</li>
+    <li>Log-scraping probes (eg PBS / LSF, SGE) must take special care to track progress and avoid rewinding and re-sending information about old jobs. In addition, one must take care to avoid problems associated with the possibility of reading the log at the same time as new information is being added (possibly at high rate). This problem is especially acute when the log is mirrored in some way from its primary location (rsync or NFS).</li>
+    <li id="record_suppression">Several !ProbeConfig attributes control whether and how records are suppressed without being uploaded to the collector:
+    <dl><dt><tt>SuppressUnknownVORecords</tt></dt>
+        <dd>Suppress records with a !VOName of "Unknown."</dd>
+        <dt><tt>SuppressNoDNRecords</tt></dt>
+        <dd>Suppress records with no DN.</dd>
+        <dt><tt>SuppressGridLocalRecords</tt></dt>
+        <dd>Suppress records with a Grid attribute of "Local."</dd>
+    </dl></li>
+</ul>
+
 ---++ Behavior common to LRMS probes.
+
+---+++ Methods used to ascertain the VO associated with a job.
 
 ---++ Specific probe behavior and other notes.
 
@@ -56,4 +81,4 @@ At the collector these data are received, stored in a DB and summarized as appro
 ---+++ Things to ask of the sites where you run jobs.
 
 
--- Main.ChrisGreen - 26 Nov 2008
+-- Main.ChrisGreen - 01 Dec 2008
