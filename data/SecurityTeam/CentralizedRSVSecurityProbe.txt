@@ -1,0 +1,205 @@
+%META:TOPICINFO{author="AnandPadmanabhan" date="1229024657" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
+---+ Centralized RSV Security Probes 
+%TOC%
+
+The Centralized RSV probes will be run by GOC and will monitor the status of the CAs and CRLs being distributed by both OSG and VDT. In addition to checking the contents of the CAs and CRLs distributed by OSG and VDT these probes will also monitor the distribution process or the update mechanisms used by the OSG.
+
+---++ Probes Implemented
+
+The centralized probes can be classified into content and distribution process verification probes.
+
+---+++ Distribution process verification probes 
+The high level goal of the distribution process verification probes is to check OSG provided CA and CRL distribution mechanisms including 
+   1. vdt-update-certs
+   1. yum update
+   1. fetch-crl
+are available and functioning correctly. Both the vdt-update-certs and yum update probes should be deployed to run against both the VDT and GOC cache.
+
+---++++ Probe to test vdt-update-certs
+
+*Probe Name*: cacert-process-vdtupdatecerts-centralized-probe <br>
+*Metrics*: org.osg.centralized.cacert.process.vdt-update-certs <br>
+*Parameters* :--warning-hours \<hours\>, --error-hours \<hours\> <br>
+    =--error-hours=:  Number hours since the failing downloads before an error is issued
+    =--warning-hours=:  Number hours since the failing downloads before a warning is issued
+   (Default Values: 3 days and 1 day respectively). 
+
+For all probes the parameters described here are in addition to the usual rsv-probe parameters (e.g. =--vdt-location=).
+
+---+++++ !!Description
+This probe check the process of downloading the certs using vdt-update-certs. This probe invokes =vdt-update-certs --force-download= with other appropriate parameters. It will capture the exitcode and out resulting from the execution of this command and will populate the result in RSV. Additionally this probe also checks the status file maintained by vdt-update-certs  (=vdt/var/certs-updater-status=) to figure out when was the last time the probe executed successfully.
+
+---+++++!! Results
+The probe will produce: 
+   * *critical error*: If 1.) vdt-update-certs exits with a non-zero exit code; 2.) last successful run as recorded in =certs-updater-status= is greater than 'error-hours' old; or 3.) vdt-update-certs or its status file is missing.
+   * *warning*: If last successful run as recorded in =certs-updater-status= is greater than 'warn-hours' old, but no critical error is detected.
+   * *ok*: All other cases
+
+---+++++!! Deployment recommendation
+We will recommend GOC deploy this probe against both the VDT and OSG cache. This can be done by installing multiple instances of vdt-update-certs package and setting the cacerts_url in one to point to OSG while the other points to the vdt distribution.  The location of the instance to be used may be passed to the probe using the =--vdt-location=.
+
+---++++ Probe to test yum-update
+
+*Probe Name*: cacert-process-yumupdate-centralized-probe
+*Metrics*: org.osg.centralized.cacert.process.yum-update
+*Parameters* :--install-dir \<directory\>. <br>
+     =--install-dir= is a required parameter specifying the location of the local yum installation directory. This parameter specifies the root directory of the local yum installation that will be just used for RSV tests. 
+---+++++!! Description
+This probe is designed to check the process of downloading the certs using yum update. There is an extra complication in the process yum update process can only be run as root. So this RSV prove running as an 'rsvuser' will be unable to actually execute yum update and get the results. In order to over come this problem we wrote a shell script rsv_yum_update_cron.sh, that can be put into the roots crontab. This cron job does an =yum update= on the local yum installation and records the results in =rsv-test-yumupdate= directory within the local installtion. This captures 1.) the stdout and stderr ($local-yum-install/rsv-test-yumupdate/output); and 2.) the exit code ($local-yum-install/rsv-test-yumupdate/status) from the execution on =yum update= as well as the time when the update of last run ($local-yum-install/rsv-test-yumupdate/lastrun).
+
+---+++++!! Results
+The probe will produce: 
+   * *critical error*: If a non-zero exit code is recoded in status file.
+   * *unknown* : If any of the output, status or lastrun files are missing.
+   * *ok*: All other cases.
+
+---+++++!! Deployment recommendation
+We will recommend GOC deploy this probe against both the VDT and OSG cache. 
+
+In addition to following the instruction at [[http://yum.grid.iu.edu/]] for setting up a yum repository, here are the steps we went through to establish the local yum install that contained the  osg-ca-certs.
+<verbatim>
+mkdir /root/my_yum_local
+mkdir -p /root/my_yum_local/var/lock/rpm/
+touch /root/my_yum_local/var/lock/rpm/transaction
+yum install osg-ca-certs --installroot /root/my_yum_local -y
+</verbatim>
+
+All the above commands were run as root. Steps 2 & 3 above (mkdir and touch command) were needed (atleast on our SL4 install yum version 2.4.3) to create the lock file that is needed by yum to do a local install. 
+
+After the yum installation you will also need to add the rsv_yum_update_cron.sh in  your cron
+<verbatim>
+30 * * * * /etc/osg/osg-rsv/bin/probes/rsv_yum_update_cron.sh -l /root/my_yum_local
+</verbatim>
+
+---++++ Probe to test fetch-crl
+
+*Probe Name*:  cacert-crl-fetchcrl-centralized-probe <br>
+*Metrics*: org.osg.centralized.cacert.crl.process.fetchcrl <br>
+*Parameters* :--cacerts-dir \<directory\><br>
+    =--cacerts-dir=:      Location of CA certificate files
+   (Default Value:  $VDT_LOCATION'/globus/TRUSTED_CA). 
+
+---+++++!! Description
+This probe check the process of downloading the CRLs using fetchCRL. It invokes fetch CRL with appropriate parameter and captures its output and exit code.
+
+---+++++!! Results
+The probe will produce: 
+   * *critical error*: If fetch-crl file is missing.
+   * *warning*: If fetch-crl exits with a non-zero exit code. We produce warning instead of error, because there are usually transient which may cause one of the CRL to fail update and we don't want an error for that case. In order to capture cases where the failures are persistent we have a crl freshness probe (cacert-crl-freshness-centralized-probe), that will issue a warning and error, if a crl has not been updated a certain period of time. 
+   * *ok*: All other cases
+
+---+++++!! Deployment recommendation
+
+We only need one deployment of the fetch-crl probe, we recommend establishing it against the CAs from the OSG cache since the CAs included in the OSG package are a superset of what is distributed by the VDT. 
+
+---++++ Probe to test freshness of the CRLs 
+
+*Probe Name*:  cacert-crl-freshness-centralized-probe <br>
+*Metrics*: org.osg.centralized.cacerts.crl.freshness <br>
+*Parameters* :--cacerts-dir \<directory\> --warning-hours \<hour\>, --error-hours \<hours\> <br>
+    =--cacerts-dir=:      Location of CA certificate files
+    =--error-hours=:  Number hours since the failing downloads before an error is issued
+    =--warning-hours=:  Number hours since the failing downloads before a warning is issued
+   (Default Values:  $VDT_LOCATION'/globus/TRUSTED_CA, 2 days and 9 hrs respectively). 
+
+---+++++!! Description
+This probe checks the last time when the CRLs were successfully downloaded. If any of the CRLs have not been updated for 9 hrs (warning-hours) the probe will issue a warning. This will be escalated to a critical error if a CRL has not updated for 48 Hrs (error-hours). This probe is intended to capture cases where the for any reason the CRLs of any CA were not updated. 
+
+This probe should also appropriate to be used as a site level CRL availability and it follows the same approach used by WLCG.
+
+---+++++ !!Results
+The probe will produce: 
+   * *critical error*: If any CRL files in CA directory have not been updated for 48 (error-hours) hours
+   * *warning*: If any CRL files in CA directory have not been updated for 9 (warnhing-hours) hours
+   * *ok*: All other cases
+
+---+++++ !! Deployment recommendation
+We will recommend deploying this probe against the same CA directory used by 'cacert-crl-fetchcrl-centralized-probe' probe.
+
+We will also recommend using the same probe (with possibly different default values) for site-level CRL probe.
+
+
+---+++ Content verification probes 
+The high level goal of these probes is to ensure that the CAs and CRLs distributed by OSG/VDT are valid and match are in sync with IGTF. These test are designed so that the OSG security team can identify and resolve potential problems. (For e.g the security team will know if a CA or CRL is close to expiry and take proactive action to work with the CA to resolve it.)
+
+---++++ Probe to test for the expiry of CA certificates
+
+*Probe Name*: cacert-expiry-centralized-probe <br>
+*Metrics*: org.osg.centralized.cacert.expiry <br>
+*Parameters* :--cacerts-dir \<directory\>, --warning-hours \<hour\> <br>
+    =--cacerts-dir=:      Location of CA certificate files
+    =--warning-hours=:   Number hours before certificate expiry a warning should be issued
+   (Default Values:  $VDT_LOCATION'/globus/TRUSTED_CA and 14 days respectively). 
+
+---+++++!! Description
+This probe  verifies all the CAs in the certificate directory, to make sure that the certificates there are not expired or about to expire. This probe run =openssl= commands against the certificate to make sure the certificate is valid. It also looks at the expiry dates on the certificate and issues a warning if a certificate is about to expire in 14 days (warning-hours). 
+
+---+++++ !!Results
+The probe will produce: 
+   * *critical error*: If any CA 1.) fails =openssl verify=; or 2.) has passed expiry date (Note: 2 => 1)
+   * *warning*: If any CA is about to expire with in the next 14 days (warnhing-hours).
+  * *unknown*: If the certificate directory specified does not exist
+   * *ok*: All other cases
+
+---+++++ !! Deployment recommendation
+Ideally we will recommend deploying this probe against the all CA directories the 'cacert-process-vdtupdatecerts-centralized-probe' and 'cacert-process-yumupdate-centralized-probe' process probes are downloading certificates. At the very least we should deploy this probe against CAs coming from both the OSG and VDT cache.
+
+We will also recommend providing this probe to site-level to verify their CA installation, but this probe should not be counted for 'Availability' purposes.
+
+
+---++++ Probe to test for the expiry of CRLs issued by CA
+
+*Probe Name*: cacert-expiry-centralized-probe <br>
+*Metrics*: org.osg.centralized.cacert.expiry <br>
+*Parameters* :--cacerts-dir \<directory\>, --warning-hours \<hour\> <br>
+    =--cacerts-dir=:      Location of CA certificate files
+    =--warning-hours=:   Number hours before certificate expiry a warning should be issued
+    =--short-warning-hours=:   Number hours before certificate expiry a warning should be issued for Short lived CRLs (CRLs that have a life time less than warning-hours)
+   (Default Values:  $VDT_LOCATION'/globus/TRUSTED_CA, 3 days and 12 hours respectively). 
+
+---+++++!! Description
+This probe  verifies all the CRLs present in the certificate directory, to make sure that the certificates there are not expired or about to expire. This probe run =openssl= commands against the certificate to make sure the certificate is valid. It also looks at the expiry dates on the CRL and issues an error if CRL has already expired and a warning if it is about to expire in 3 days (warning-hours). We also have a special case for short lived CRLs (CRLs that have a life time less than warning-hours)). For e.g. Purdue CA issues CRL that only lasts for 36 hrs, so this CRL will always generate a warning, to mitigate this problem for short lived CRLs we have a different threshold for warning generation (short-warnihng-hours (defaults to 24 Hrs))
+
+---+++++ !!Results
+The probe will produce: 
+   * *critical error*: If any CRL 1.) fails =openssl crl= verify command; or 2.) has passed expiry date 
+   * *warning*: If any CRL is about to expire with in the next 3 days (warnhing-hours) (24 Hrs (short-warnihng-hours) for short lived CRLs)
+  * *unknown*: If CRL for a particular CA is missing.
+   * *ok*: All other cases
+
+---+++++ !! Deployment recommendation
+We will recommend deploying this probe against the same directory used by the 'cacert-crl-fetchcrl-centralized-probe' probe to download CRLs. 
+
+We will also recommend providing this probe to site-level to verify their CRLs, but this probe should not be counted for 'Availability' purposes.
+
+
+---++++ Probe to test OSG and VDT tarball and RPMs against the IGTF latest tarball
+
+*Probe Name*:cacert-verify-igtf-centralized-probe  <br>
+*Metrics*: org.osg.centralized.cacert.verify.igtf <br>
+*Parameters* :--igtf-tar \<URL\>, -osg-tar \<URL\>. -vdt-tar \<URL\>, -osg-rpm \<URL\>, -vdt-rpm \<URL\> <br>
+    --igtf-tar \<URL\>       Location of CA certificate tarball distributed by IGTF. (Default: http://dist.eugridpma.info/distribution/igtf/current/accredited)
+    --osg-tar \<URL\>      Location of CA certificate tarball distributed by OSG. (Default: http://software.grid.iu.edu/pacman/cadist/ca-certs-version)
+    --vdt-tar \<URL\>       Location of CA certificate tarball distributed by VDT. (Default: http://vdt.cs.wisc.edu/software/certificates/vdt-igtf-ca-certs-version)
+    --osg-rpm \<URL\>       Location of CA certificate RPMs distributed by OSG. (Default: http://yum.grid.iu.edu/rpms/noarch)
+    --vdt-rpm \<UR\L>       Location of CA certificate RPMs distributed by VDT. (Default: http://vdt.cs.wisc.edu/vdt_rpms/vdt-ca-certs)
+
+   * Please use the default values for the parametersunless you are absolutely certain*
+
+---+++++!! Description
+This probe is designed to verify the tarballs and RPMs distributed by OSG and VDT against the latest tarball from IGTF. This probe downloads the latest IGTF tarball, OSG CA tarball, VDT CA tarball, OSG CA RPMs and VDT CA RPMs for their respective web sites and does the comparison using md5sums. If a IGTF certificate is missing from the distribution a warning is issued, an error is issued if the md5sums dont match.
+
+---+++++ !!Results
+The probe will produce: 
+   * *critical error*: If 1.) any CA for OSG/VDT distribution has a different md5sum than the corresponding certificate file in IGTF; 2.) any of distribution tarballs/rpms could not be correctly downloaded
+   * *warning*: If a file included in IGTF is missing from OSG/VDT distribution
+   * *ok*: All other cases
+
+---+++++ !! Deployment recommendation
+We will just recommend once instance of this probe tunning centrally at the GOC.
+
+---++ Links
+   * Installed instance of the centralized RSV probes [[https://everest.cigi.uiuc.edu:8443/rsv/]] (It has other probes too and needs a DOE grid certificate to view)
+
+-- Main.AnandPadmanabhan - 11 Dec 2008
