@@ -1,0 +1,603 @@
+%META:TOPICINFO{author="TanyaLevshina" date="1229720335" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+%LINKCSS%
+
+<!-- This is the default OSG documentation template. Please modify it in -->
+<!-- the sections indicated to create your topic.                        --> 
+
+<!-- By default the title is the WikiWord used to create this topic. If  -->
+<!-- you want to modify it to something more meaningful, just replace    -->
+<!-- %TOPIC% below with i.e "My Topic".                                  -->
+
+---+!! %SPACEOUT{ "%TOPIC%" }%
+%TOC%
+---+ Installation  and Configuration for OSG Tier-2, Tier-3 sites 
+
+---++ Introduction 
+OSG Storage VDT group has been asked to provide a full support of !BeStMan-gateway/Xrootd storage solution. This goal has been set by OSG for the year 3 (2008- 
+2009 fiscal year). In order to satisfy OSG requirements we will have to incorporate several new packages in VDT cache including !BeStMan-gateway, !XrootdFS,  modified 
+!GridFTP package and Xrootd. 
+ 
+This document is written for system administrators who are planning to use storage that spans on multiple file systems.  In this case they may consider either SRM/dCache or  !BeStMan-gateway/Xrootd as a storage solution. The installation of !BeStMan  in “full mode” on top of  the existing FS might be sufficient for small sites [[https://twiki.grid.iu.edu/bin/view/Documentation/AboutStorageElements  OSG Storage Documentation]] 
+ 
+The configuration of this distributed storage is pretty complicated, so we will not be able to provide automatic configuration scripts for all components for the time being. The goal 
+of this document is to give enough information for system administrators to do initial simple configuration of the storage as well as provide references to the documents that 
+may help to accomplish more sophisticated configuration. 
+ 
+ 
+---++ Proposed Architecture 
+ 
+!BeStMan-gateway/Xrootd storage consists of the following components: 
+   *  FUSE -   [[http://fuse.sourceforge.net File System in User Space]] is required for !XrootdFS 
+   * !XrootdFS -  is a Posix filesystem for an Xrootd storage cluster ([[http://wt2.slac.stanford.edu/xrootdfs/xrootdfs.html XrootdFS Home Page]] ), is required for !BeStMan, !GridFTP to work with  Xrootd  
+   * !BeStMan-gateway is a partial implementation of SRM v2.2, developed by LBNL, for disk based storage systems maintenance ( [[http://datagrid.lbl.gov/bestman BeStMan HomePage]] ) 
+   * !GridFTP server  provides a high-performance, secure, reliable data transfer ( [[http://www.globus.org/toolkit/docs/3.2/gridftp GrdiFTP Documentation]] ) 
+   * Xrootd   provides POSIX-like access to files and their enclosing directory namespace ( [[http://xrootd.slac.stanford.edu/papers/Scalla-Intro.htm Xrootd Home Page]] ) 
+ <img src="%ATTACHURLPATH%/betsman_gateway_xrootd.jpeg" alt="betsman_gateway_xrootd.jpeg" width='576' height='432' />    
+
+---++ Configuration decisions 
+ 
+The following questions should be answered before you can proceed with installation and configuration of !BeStMan-gateway/Xrootd storage solution: 
+ 
+Q. _How many nodes could be used for storage?_
+ 
+      The absolute minimum number of nodes is 3: 
+   1. !BeStMan, !XroodFS, FUSE, !GridFTP  
+   1. Xrootd redirector 
+   1. Xrootd data server node 
+Usually one would prefer to separate !GridFTP from !BeStMan for better 
+performance.   More machines could be added as Xrootd data server nodes or 
+!GridFTP servers. The decision should be based on your load and storage 
+requirements.  
+ 
+Q. _What authorization mechanism do you prefer?_ 
+ 
+You have to decide if you want to use grid-map-file or !GUMS server for users’ 
+authentication and authorization. 
+More details about !GUMS could be found at 
+[[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS  GUMS Documentation]]
+
+ Q. _Do you need to support space tokens?_
+  
+!BeStMan-gateway supports predefined, static space tokens that should be 
+included in configuration. It doesn't keep trace or enforce static space tokens.  If 
+you want partition your storage space and have a “designated” space for some 
+VOs or users you can choose to use space tokens. You will have to decide the 
+names and descriptions of the tokens as well as the size of the area. This 
+information will be used in !BeStMan configuration, and Xrootd server 
+configuration on data server and redirector nodes. 
+ 
+Q. _What is your Mount Point for !XrootdFS  on !BeStMan node?_
+ 
+ You will need this information for !XrootdFS and for !GridFTP configuration. 
+ 
+Q. _How to partition storage areas on Xrootd redirector and data server nodes?_ 
+
+The Xrootd developers recommended to use partition for both storage areas, but 
+in principal for shadow storage a directory can be used as well. In Xrootd 
+production instillation at SLAC an ext3 partition is used for storage area. The 
+shadow area requires a significant amount of inodes. However, too many inodes 
+means small block size. For real file, that means a limit of file size (though not 
+clear about shadow files, which are big in size but are filled with empty holes). At 
+SLAC, the block size is set to 1k (thus put a limit of real file size at ~256GB). 
+ 
+
+Q. _Do you want to enable Gratia gridftp-transfer probes?_
+
+If you want to report all the transfers in and out of your storage you would need to install or enable Gratia gridftp-transfer probes. More details should be found at [[https://twiki.grid.iu.edu/bin/view/Accounting/WebHome  Gratia Home Page]]. The reported information will include the source and destination of transfer, certificate subject of transfer initiator, size and status of the transferred file.   
+ 
+---++ VDT packages 
+All the required components but FUSE can be installed from  [[http://vdt.cs.wisc.edu/download.html VDT cache]]: 
+ 
+   a. !BeStMan 
+   a. !XrootdFS 
+   a. Xrootd-GridFTP and !PRIMA (if you would like to use !GUMS as authorization server)  
+   a. Xrootd
+   a. Gratia gridftp-transfer probe  
+   a. srm-lbnl-client 
+Please follow the instructions provided on the VDT web page about how to download 
+and install them. In this document we are using XXX to indicate current 
+production version. 
+ 
+You have to select the root directory for your installation of VDT packages.  In this 
+document we will refer to this directory as $INSTALLATION_DIR. 
+
+---++ !BeStMan-gateway installation and configuration 
+ 
+!BeStMan, !XrootdFS  and !FUSE should be installed on same node. !BeStMan and !XrootdFS should be installed under the same directory. 
+
+---+++ !FUSE 
+!FUSE is a kernel module that intercepts and services user requests to the !XrootdFS.  
+
+!FUSE can be installed via “yum install” or rpms. You will need three packages: 
+   * fuse-2.7.3-1 
+   * fuse-libs-2.7.3-1 
+   * kernel-module-fuse-2.6.9-78.0.1.EL-2.7.3-1 
+
+or you can download it  from   
+http://sourceforge.net/project/showfiles.php?group_id=121684&package_id=132802 and build according to instructions  provided at http://fuse.sourceforge.net.   
+ 
+You will need to have root access to install it. 
+It is essential that FUSE version and flavor match your kernel. Conact your sys admin if you have any questions.
+
+---+++ !XrootdFS 
+!XrootdFS is a Posix filesystem  that allows !GridFTP, !BeStMan and other grid applications to work with Xrootd storage system. !XrootdFS works on top of !FUSE. !XrootdFS can be installed from VDT cache:
+<pre class="screen"> 
+cd $INSTALLATION_DIR 
+mkdir vdt 
+cd vdt 
+pacman -get http://vdt.cs.wisc.edu/vdt_XXX_cache:XrootdFS 
+. setup.sh 
+</pre>
+ 
+ 
+In order to configure !XrootdFS you will need to do the following: 
+<pre class="screen">
+$VDT_LOCATION/vdt/setup/configure_xrootdfs \ 
+ --user &lt;user&gt; \ 
+ --cache &lt;mount-point&gt; \ 
+ --xrdr-host &lt;hostname&gt;  \ 
+ --xrdr-storage-path &lt;path&gt;
+</pre>
+ 
+Where _$VDT_LOCATION_  is a directory where the package is installed,<br/> 
+_mount_point_ is a !XrootdFS mount point that will be created for you <br/> 
+_user name_ of the non-privileged user that runs xrootdfs daemon and  is an owner of 
+mount_point directory<br/> 
+_hostname_ is a FQDN of Xrootd redirector host <br/> 
+_path_ is shadow storage area on redirector node  <br/> 
+
+---+++ !BeStMan-gateway 
+ 
+!BeStMan-gateway is a generic SRM v2.2 load balancing frontend for GridFTP servers. It 
+is developed by the Scientific Data Management Group of Lawrence Berkeley National 
+Laboratory. It implements a subset of SRM v2.2 specifications that includes: 
+   * !srmPing() 
+   * !srmGetTransferProtocols() 
+   * !srmLs()  
+   * !srmRm()  
+   * !srmMkdir()  
+   * !srmRmdir() 
+   * !srmPrepareToPut()  
+   * !srmPrepareToGet()  
+   * !srmPutDone()  
+   * !srmReleaseFiles()  
+   * !srmGetSpaceTokens() 
+   * !srmGetSpaceMetaData()  
+Some of the abovementioned specs are just partially implemented. 
+For more information see [[http://wt2.slac.stanford.edu/xrootdfs/bestman-gateway.html BeStMan-gateway Home Page]]
+ 
+!BeStMan can be installed from VDT cache in the same directory where !XrootdFS has been  already installed (see !XrootdFS installation): 
+<pre class="screen">
+ cd $INSTALLATION_DIR/ vdt 
+pacman -get http://vdt.cs.wisc.edu/vdt_XXX_cache:Bestman 
+ . setup.sh 
+</pre>
+ 
+You will need to reconfigure !BeStMan to enable gateway-mode. In gateway-mode !BeStMan is not managing your disk but rather relies on Xrootd to do so. You have to 
+choose what authorization mechanism to use. Also, you have to decide if you would like 
+to use static space token reservation, and in this case to come up with a list of token 
+names, description and size of space allocated for each token. 
+ 
+The example below shows how to configure !BeStMan in gateway-mode, enable !GUMS
+and space token usage: 
+<pre class="screen">
+$VDT_LOCATION/vdt/setup/configure_bestman --server y \ 
+ --user &lt;user&gt; \ 
+ --cert  &lt;service_cert&gt; \ 
+ --key   &lt;service_key&gt; \ 
+ --http-port  &lt;public_port&gt; \  
+ --https-port  &lt;secured_port&gt; \ 
+ --gums-host  &lt;GUMS hostname&gt; \ 
+ --gums-port  &lt;GUMS port number&gt; \ 
+ --gums-dn  &lt;Client DN for GUMS interface&gt; \ 
+ --use-xrootd  \ 
+ --with-tokens-list  "&lt;TOKEN_1_NAME&gt;[desc:&lt;TOKEN_1_DESC&gt;][&lt;TOKEN_1_SIZE_GB&gt;];&lt;TOKEN_2_NAME&gt;[desc:&lt;TOKEN_2_DESC&gt;][&lt;TOKEN_2_SIZE&gt;]"   \ 
+ --with-transfer-servers &lt;GridFTP server list&gt;
+</pre> 
+Where  _user_ name of the non-privileged user that runs !BeStMan,</br>  
+_!GridFTP server list_  is FQDN of your !GridFTP servers,  </br>  
+_GUMS hostname_ the name of  !GUMS server, </br>  
+_GUMS port number_ the port of !GUMS  server,   </br>  
+_Client DN for GUMS interface_ is  a service certificate subject.  
+ 
+If you want to use grid-map-file for user authentication and authorization do not specify 
+the following options: </br>  
+--gums-host   </br>  
+--gums-port </br>  
+--gums-dn   
+ 
+If you do not want to use statically reserved space tokens do not specify the following 
+options: </br>  
+--with-tokens-list 
+ 
+Please, make the appropriate modification to _/etc/sudoers_ described in !BeStMan 
+documentation, namely add the following lines to this file: 
+<pre class="screen">
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls 
+Runas_Alias SRM_USR = ALL, !root 
+&lt;user_name&gt; ALL=(SRM_USR) NOPASSWD: SRM_CMD 
+</pre>
+
+---++ !GridFTP 
+ 
+!GridFTP server can be installed from VDT cache. It could be several !GridFTP server 
+installed on all the nodes you have specified in !BeStMan configuration. 
+<pre class="screen">
+cd $INSTALLATION_DIR 
+mkdir vdt 
+cd vdt 
+pacman -get http://vdt.cs.wisc.edu/vdt_XXX_cache:Xrootd-GridFTP 
+. setup.sh 
+$VDT_LOCATION/vdt/setup/configure_gridftp --use-xrootd \ 
+ --xrootd-host &lt;hostname&gt; \ 
+ --xrootd-mount-point &lt;mount_point&gt; \ 
+ --xrootd-storage-path &lt;path&gt; 
+</pre> 
+Where _$VDT_LOCATION_ is a directory for !GridFTP installation,  <br/>
+_hostname_ is a FQDN of the Xrootd redirector host,  <br/>
+_mount_point_  is !XrootdFS mount point( e.g /storage/data/cache) <br/> 
+_path_ is shadow storage area on redirector node (e.g /storage/data/xrootdata ). 
+ 
+If you want to use the grid-map-file for user authentication and authorization ignore the 
+rest of this section. 
+ 
+If you want to use GUMS for user authorization you will need to install PRIMA package 
+from VDT  
+cd $INSTALLATION_DIR/ vdt 
+export VDT_GUMS_HOST=<GUMS hostname> 
+pacman -get http://vdt.cs.wisc.edu/vdt_XXX_cache:PRIMA 
+ 
+Where GUMS hostname is a GUMS server and   
+VDT_LOCATION is root directory of VDT installation. 
+ 
+Then copy two files from $VDT_LOCATION/post-install to  in /etc/grid-security: 
+ 
+cp $VDT_LOCATION/post-install/prima-authz.conf /etc/grid-security 
+cp $VDT_LOCATION/post-install/gsi-authz.conf /etc/grid-security 
+ 
+
+---++ Gratia gridftp-transfer Probe
+If you are using !GridFTP server that is installed during the !BeStMan installation you will need just to enable Gratia grdiftp-transfer probe:
+<pre class="screen">
+cd $VDT_LOCATION
+vdt-control -enable  gratia-gridftp-transfer
+</pre>
+
+If you are running !GridFTP server on a different node, on each node you will need to install Gratia grdiftp-transfer probe. In order to do so you will need to
+change directory to !GridFTP installation directory
+<pre class="screen">
+cd  &lt;VDT_LOCATION&gt;
+. setup.sh
+pacman -get http://vdt.cs.wisc.edu/vdt_XXX_cache:Gratia-GridFTP-Transfer-Probe 
+</pre> 
+
+After Gratia grdiftp-transfer probe is installed or enabled you will need to configure it:
+<pre class="screen">
+$VDT_LOCATION/vdt/setup/configure_gratia  \
+ --probe gridftp-transfer \
+ --report-to &lt;gratia_host:gratia_port&gt; \
+ --probe-cron --site-name &lt;SiteName&gt;
+</pre>
+
+Where _gratia_host_ is FQDN of Gratia collector, _gratia_port_ is Gratia Collector port and  _SiteName_ is your site name.
+
+If you want to do additional changes in configuration, eg change location of gridftp logs or name of the Grid (default is OSG) you can edit _ProbConfig_file  located in
+_$VDT_LOCATION/gratia/probe/gridftp-transfer_ directory
+</pre>
+ 
+---++ Xrootd data server node 
+ 
+You will have to install Xrootd on each data server node.  
+<pre class="screen">
+cd $INSTALLATION_DIR 
+ mkdir vdt 
+ cd vdt 
+  pacman -get http://vdt.cs.wisc.edu/vdt_XXX_cache/Xrootd 
+. setup.sh 
+$VDT_LOCATION/vdt/setup/configure_xrootd \ 
+ --server y \ 
+ --user &lt;user&gt; \ 
+ --xrdr-host  &lt;hostname&gt; \ 
+ --xrdr-storage-path &lt;path&gt; \ 
+ --xrdr-storage-cache &lt;cache&gt; \ 
+ --with-tokens-list "&lt;TOKEN_1_NAME&gt;[desc:&lt;TOKEN_1_DESC&gt;][&lt;TOKEN_1_SIZE_GB&gt;];&lt;TOKEN_2_NAME&gt;[desc:&lt;TOKEN_2_DESC&gt;][&lt;TOKEN_2_SIZE&gt;]"   \ 
+ --public-cache-size &lt;PUBLIC_SPACE_SIZE&gt;
+</pre>
+Where _$VDT_LOCATION_ is a directory of  Xrootd installation, <br/>
+_user_ name of the non-privileged user that runs Xrootd (this user SHOULD have a login shell) <br/>
+_hostname_ that FQDN of redirector  host <br/>
+_path_ is a name of the data directory <br/>
+_cache_  is a name of the data directory that will be used to store files that are transferred with specified space token<br/>
+_TOKEN_NAME_,_TOKEN_SIZE_ should matched tokens described in the !BeStMan configuration  <br/>
+_PUBLIC_SPACE_SIZE_ is the size of storage area allocated for public use (are not reserved with a particular space token)   
+ 
+---++ Xrootd redirector node 
+You will have to install Xrootd on a redirector node 
+<pre class="screen">
+cd $INSTALLATION_DIR 
+  mkdir vdt 
+  cd vdt 
+   pacman -get http://vdt.cs.wisc.edu/vdt_XXX_cache/Unsup-Xrootd 
+. setup.sh 
+$VDT_LOCATION/vdt/setup/configure_xrootd \ 
+ --server y \ 
+ --user &lt;user&gt; \ 
+ --this-is-xrdr \
+ --xrdr-storage-path &lt;path&gt; \ 
+ --xrdr-storage-cache &lt;cache&gt; \ 
+ --with-tokens-list "&lt;TOKEN_1_NAME&gt;[desc:&lt;TOKEN_1_DESC&gt;][&lt;TOKEN_1_SIZE_GB&gt;];&lt;TOKEN_2_NAME&gt;[desc:&lt;TOKEN_2_DESC&gt;][&lt;TOKEN_2_SIZE&gt;]"   \ 
+ --public-cache-size &lt;PUBLIC_SPACE_SIZE&gt;
+</pre>
+ 
+Where _$VDT_LOCATION_ is a directory of  Xrootd installation, <br/>
+_user_ name of the non-privileged user that runs Xrootd (this user SHOULD have a login shell) <br/>
+_hostname_ that FQDN of redirector  host <br/>
+_path_ is a name of the data directory <br/>
+_cache_  is a name of the data directory that will be used to store files that are transferred with specified space token<br/>
+_TOKEN_NAME_,_TOKEN_SIZE_ should matched tokens described in the !BeStMan configuration  <br/>
+_PUBLIC_SPACE_SIZE_ is the size of storage area allocated for public use (are not reserved with a particular space token)   
+ 
+---++ Start  the system 
+You have to be root to start each service. You have to start all the components in the 
+following order (this is order is optional but seems logical): 
+   1. Start Xrootd redirector. Login on redirector node,  then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+. setup.sh 
+vdt_control –on
+</pre> 
+   1. Start Xrootd on all the data server nodes. Login on each Xrootd data server node, then:<pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+. setup.sh 
+vdt_control –on
+</pre> 
+   1, Start !XrootdFS and !BeStMan. Login on !BeStMan node, then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+. setup.sh 
+vdt_control –on
+</pre> 
+   1. Start !GridFTP servers. Login on each !GridFTP server node, then:  <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+. setup.sh 
+vdt_control –on
+</pre> 
+
+---++ Stop the system 
+You have to be root to stop each service. You have to stop all the components in the 
+following order (this is order is optional but seems logical): 
+ 
+   1. Stop !XrootdFS and !BeStMan. Login on !BeStMan node, then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+. setup.sh 
+vdt_control –off
+</pre> 
+   1. Stop !GridFTP servers. Login on each !GridFTP server node, then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+. setup.sh 
+vdt_control –off
+</pre>  
+   1. Stop Xrootd redirector. Login on redirector node,  then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+. setup.sh 
+vdt_control –off
+</pre> 
+   1.. Stop Xrootd on all the data server nodes. Login on each Xrootd data server node, then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+. setup.sh 
+vdt_control –off
+</pre> 
+
+---++ System sanity check 
+In order to verify that the system is functional you will need to download VDT-client package:
+<pre class="screen"> 
+cd $INSTALLATION_DIR 
+mkdir vdt_client 
+cd vdt_client 
+pacman pacman -get http://vdt.cs.wisc.edu/vdt_XXX_cache:VDT-Client 
+. setup.sh 
+</pre>
+You will need to get your _voms-proxy_ certificate:
+<pre class="screen"> 
+voms-proxy-init –voms &lt;voname&gt;:/&lt;voname&gt;
+</pre>
+ 
+Execute srm-ping: 
+<pre class="screen">
+ srm-ping srm://<BeStMan_host>:8443/srm/v2/server 
+ </pre>
+Expected results:
+<pre class="screen"> 
+########################################### 
+SRM_HOME is /usr/local/osg-client/srm-client-lbnl 
+JAVA_HOME is /usr/local/osg-client/jdk1.5 X509_CERT_DIR = 
+/usr/local/osg-client/globus/TRUSTED_CA 
+GSI_DAEMON_TRUSTED_CA_DIR = /usr/local/osg-client/globus/TRUSTED_CA 
+########################################### 
+ 
+SRM-CLIENT: got remote srm object 
+ 
+SRM-PING: Thu Sep 18 11:55:50 CDT 2008 Calling SrmPing Request... 
+Ping versionInfo=v2.2 
+ 
+Extra information 
+        Key=backend_type 
+        Value=BeStMan 
+        Key=backend_version 
+        Value=2.2.1.1 
+        Key=GatewayMode 
+        Value=Enabled 
+        Key=gsiftpTxfServers 
+        Value=gsiftp://osg-ress-2.fnal.gov 
+        Key=clientDN 
+        Value=/DC=org/DC=doegrids/OU=People/CN=Tanya Levshina 508821 
+        Key=localIDMapped 
+        Value=fnalgrid 
+        Key=staticToken(0) 
+        Value=DISK1 desc=DATA1 size=1073741824 
+        Key=staticToken(1) 
+        Value=DISK2 desc=DATA2 size=2147483648 
+</pre> 
+If you have reasonable result you may try to srm copy. In order to do so create a file _test1_ in _/tmp_ directory and execute: 
+<pre class="screen"> 
+srm-copy   file:////tmp/test1 srm://&lt;!BeStMan_host&gt;:8443/srm/v2/server\?SFN=&lt;MOUNT_POINT&gt;/test1 -spacetoken &lt;TOKEN_1_NAME&gt; 
+</pre> 
+You should get back something like that: 
+<pre class="screen"> 
+########################################### 
+SRM_HOME is /usr/local/osg-client/srm-client-lbnl 
+JAVA_HOME is /usr/local/osg-client/jdk1.5 X509_CERT_DIR = 
+/usr/local/osg-client/globus/TRUSTED_CA 
+GSI_DAEMON_TRUSTED_CA_DIR = /usr/local/osg-client/globus/TRUSTED_CA 
+########################################### 
+SRM-CLIENT: Thu Sep 18 11:57:09 CDT 2008 Connecting to 
+httpg://cmswn086.fnal.gov:8443/srm/v2/server 
+ SRM-CLIENT: Thu Sep 18 11:57:10 CDT 2008 Calling SrmPrepareToPutRequest 
+now ... 
+request.token=put:0 
+status=SRM_SUCCESS 
+explanation=null 
+ 
+SRM-CLIENT: RequestFileStatus for SURL=file:////tmp/test1 is Ready. 
+SRM-CLIENT: received TURL=gsiftp://osg-ress- 
+2.fnal.gov//storage/local/data1/testxrootfs/test36 
+ 
+SRM-CLIENT: Thu Sep 18 11:57:14 CDT 2008 start file transfer. 
+SRM-CLIENT:Source=file:////tmp/test1 
+SRM-CLIENT:Target=gsiftp://osg-ress- 
+2.fnal.gov//storage/local/data1/testxrootfs/test36 
+ 
+SRM-CLIENT: Thu Sep 18 11:57:22 CDT 2008 end file transfer. 
+ 
+SRM-CLIENT: Thu Sep 18 11:57:22 CDT 2008 Calling putDone for 
+srm://cmswn086.fnal.gov:8443/srm/v2/server?SFN=/storage/local/data1/tes 
+txrootfs/test36 
+ 
+SRM-CLIENT: Thu Sep 18 11:57:27 CDT 2008 end file transfer. 
+ 
+SRM-CLIENT: Request completed with success 
+ 
+SRM-CLIENT: Printing text report now ... 
+ 
+SRM-CLIENT*REQUESTTYPE=put 
+SRM-CLIENT*TOTALFILES=1 
+SRM-CLIENT*TOTAL_SUCCESS=1 
+SRM-CLIENT*TOTAL_FAILED=0 
+SRM-CLIENT*REQUEST_TOKEN=put:0 
+SRM-CLIENT*REQUEST_STATUS=SRM_SUCCESS 
+SRM-CLIENT*SOURCEURL[0]=file:////tmp/test1 
+SRM- 
+CLIENT*TARGETURL[0]=srm://cmswn086.fnal.gov:8443/srm/v2/server?SFN=/sto 
+rage/local/data1/testxrootfs/test36 
+SRM-CLIENT*TRANSFERURL[0]=gsiftp://osg-ress- 
+2.fnal.gov//storage/local/data1/testxrootfs/test36 
+SRM-CLIENT*ACTUALSIZE[0]=15 
+SRM-CLIENT*FILE_STATUS[0]=SRM_SUCCESS 
+SRM-CLIENT*EXPLANATION[0]=SRM-CLIENT: PutDone is called successfully 
+ 
+SRM-CLIENT: Thu Sep 18 11:57:27 CDT 2008 end file transfer. 
+ExitCode=0 
+</pre> 
+
+
+If you turn on Gratia gridftp-transfer probes you should be able to see the accounting information by accessing your Gratia collector. Keep in mind that probe collection is executed by a cron job, so check the time
+the corn job will be executed:
+<pre class="screen">
+crontab -l
+5,15,25,35,45,55 * * * * &lt;VDT_LOCATION&gt;/gratia/probe/gridftp-transfer/gridftp-transfer_meter.cron.sh > &lt;VDT_LOCATION&gt;gratia/var/logs/gratia-probe-gridftp-transfer.log 2>&1
+</pre>
+
+To access the information, go to http://&lt;gratia_host&gt;:&lt;gratia_port&gt;/gratia-reporting/, click on "Custom SQL Query" on the right site menu frame, enter the following query into provided text box:
+<pre class="screen">
+select * from MasterTransferSummary where ProbeName like 'gridftp-transfer:%';
+</pre>
+click on "Execute Query" and you will see the total number of transfer per user. To get more detailed information you can execute the following query:
+<pre class="screen">
+select j.dbid, j.ResourceType ,j.LocalJobId,LocalUserId,j.CommonName,j.KeyInfoContent,j.Status,j.StartTime,j.EndTime,j.SubmitHost,m.ReportedSiteName,m.Grid, n.Value,n.StorageUnit 
+from JobUsageRecord j, JobUsageRecord_Meta m, Network n  where j.dbid=m.dbid and j.dbid=n.dbid and m.ProbeName like 'gridftp-transfer:%' 
+order by dbid;
+</pre>
+ 
+---++ Troubleshooting – What could go wrong with such trivial tasks? 
+ 
+If   sanity checks failed you would probably need to check the each component in order 
+to verify what went wrong with your installation. In order to do so you should ,probably, 
+check all them in the following order: 
+   * Xrootd 
+   * !XroodFS 
+   * !GUMS (if in use) 
+   * !GridFTP 
+   * !BeStMan 
+
+---+++ Verifying Xrootd 
+Login on the node where you have installed !BeStMan, then 
+<pre class="screen">
+cd $VDT_LOCATION
+export LD_LIBRARY_PATH= $LD_LIBRARY_PATH :$VDT_LOCATION/xrootd/lib 
+export LD_PRELOAD=$VDT_LOCATION/xrootd/liblibXrdPosixPreload.so 
+echo “This is a test” >/tmp/test 
+cp /tmp/test xroot://&lt;XRDR_host&gt;:1094//&lt;XRDR_storage_path&gt;/test 
+cp xroot://&lt;XRDR_host&gt;:1094//&lt;XRDR_storage_path&gt;/tmp/test1 diff /tmp/test1 /tmp/test 
+</pre>
+
+---+++ Verifying !XrootdFS 
+Login on the node where you have installed !XrootdFS, then 
+<pre class="screen">
+cd &lt;mount_point&gt;
+echo “This is a test” >test1 
+ls –l test1 
+cat test1 
+</pre>
+
+---+++ Verifying !GUMS 
+Make sure that the service certificate you are specified for !BeStMan  configuration with  
+--cert &lt;service_cert&gt; , --key  &lt;service_key&gt;  options and !GridFTP service certificate are 
+accepted by !GUMS  (see [[http://vdt.cs.wisc.edu/releases/1.10.1/notes/GUMS.html GUMS Installation Documentation]])   
+ 
+Get mapping _uid_ for your certificate and verify that this _uid_ exists on !BeStMan and !GridFTP node. 
+ 
+---+++ Verifying !GridFTP 
+Login on the node where you have installed !BeStMan 
+<pre class="screen">
+cd $VDT_LOCATION 
+. setup.sh 
+echo “This is a test” >/tmp/test 
+globus-url-copy –vb file:///tmp/test gsiftp://&lt;GridFtp_host&gt;:/tmp/test 
+</pre>
+---++ Log file and configuration locations 
+ 
+If any of the tests described above have failed or you are just curious to see what’s going 
+on you could find log and configuration files for each of the module in the following 
+location on a relevant node: 
+|*Module Name*|*Configuration files*| *Log files*| 
+|!BeStMan| $VDT_LOCATION/bestman/conf/bestman.rc |$VDT_LOCATION/vdt-app-data/betsman/logs/event.srm.log| 
+|!GridFTP|$VDT_LOCATION/services/vdt-run-gsiftp.sh.env | $VDT_LOCATION/globus/var/log/gridftp.log <br/>$VDT_LOCATION/globus/var/log/gridftp-auth.log | 
+|!XrootdFS |$VDT_LOCATION/xrootdfs/start.sh <br/>$VDT_LOCATION/xrootdfs/stop.sh |NA| 
+|Xrootd – redirector |$VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/xrootd_2.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf  <br/>|$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog  <br/>$VDT_LOCATION/xrootd/var/logs/ xrootd_cnd/xrdlog |
+|Xrootd – data server| $VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf |$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog |
+ 
+---++ Looking for help? 
+The detailed information about each component can found on the following web sites: 
+   * [[http://fuse.sourceforge.net  FUSE]]
+   * [[http://wt2.slac.stanford.edu/xrootdfs/xrootdfs.html  XrootdFS]]
+   * [[http://datagrid.lbl.gov/bestman BeStMan]]  
+   * [[http://www.globus.org/toolkit/docs/3.2/gridftp  GridFTP]]
+   * [[http://xrootd.slac.stanford.edu/papers/Scalla-Intro.htm  Xrootd]]
+   * [[http://vdt.cs.wisc.edu/index.html current VDT cache]]
+
+
+ 
+Numerous documents about storage solutions supported by OSG as well as other useful 
+links could be found at [[https://twiki.grid.iu.edu/twiki/bin/view/Documentation/WebHome OSG Documnetation]]
+ 
+See if your question is already answered under the [[https://twiki.grid.iu.edu/bin/view/Documentation/SETools%2cTips%2cFAQs FAQ section]] If not, please send all your questions to osg-storage@opensciencegrid.org  
+---++ Acknowledgments 
+Many thanks to the following people who have helped to understand the configuration 
+and installation procedure and BeStMan-gateway/Xrootd inclusion in VDT: 
+   * Alain Roy (OSG Software coordinator) 
+   * Scot Kronenfeld (VDT team member) 
+   * Alex Sim and Junmin Gu  - !BeStMan developers 
+   * Wei Yang  - !XrootdFS developer 
+   * Andrew  Hanushevsky – Xrootd developer 
+   * Malina Kirn for reviewing this document 
+ 
+ 
+
+%BOTTOMMATTER%
+
+-- Main.TanyaLevshina - 19 Dec 2008
+
+    
+
+%META:FILEATTACHMENT{name="betsman_gateway_xrootd.jpeg" attachment="betsman_gateway_xrootd.jpeg" attr="h" comment="" date="1229720298" path="betsman_gateway_xrootd.jpeg" size="35418" stream="betsman_gateway_xrootd.jpeg" tmpFilename="/usr/tmp/CGItemp11939" user="TanyaLevshina" version="1"}%
