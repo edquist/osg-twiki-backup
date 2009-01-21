@@ -1,0 +1,311 @@
+%META:TOPICINFO{author="SarahWilliams" date="1232498319" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="ChileWorkshop09"}%
+---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+---++ Requirements
+   * A RedHat-linux based server like RHEL, CentOS, and Scientific Linux.
+   * A fully-qualifed hostname for the server
+   * A valid host certificate
+   * SSH access and root access
+   * These ports open through the firewall: 2119, 2811, 8443
+
+---++ Preparing the server
+   * Copy hostcert.pem & hostkey.pem to /etc/grid-security/
+<pre class="screen">
+$ scp host*.pem root@installhost:/etc/grid-security/
+</pre>
+   * Check that the hostcert is correct.  The CN should be the fully qualified domain name of your server, and notAfter should not be expired.
+<pre class="screen">
+$ openssl x509 -in /etc/grid-security/hostcert.pem -noout -subject -enddate
+subject= /DC=org/DC=doegrids/OU=Services/CN=uct2-grid6.uchicago.edu
+notAfter=Oct 23 17:24:54 2009 GMT
+</pre>
+   * Turn off SELinux
+   * Check for required library libstdc++.so.5
+<pre class="screen">
+$ ldconfig -p | grep libstdc++.so.5
+</pre>
+If necessary, install it:
+<pre class="screen">
+$ yum -y install compat-libstdc++-33
+</pre>
+   * Check for required client ldapsearch, and install if neccessary
+<pre class="screen">
+$ which ldapsearch
+$ yum -y install openldap-clients
+</pre>
+   * Add a user account and install your personal grid certificate
+<pre class="screen">
+$ useradd sarah
+$ passwd sarah
+$ su – sarah
+$ mkdir .globus
+$ chmod 0755 .globus
+$ cd .globus
+$ scp user*.pem installhost:/home/sarah/.globus/
+$ chmod 0644 usercert.pem 
+$ chmod 0400 userkey.pem
+</pre>
+   * Add a user account for the RSV service
+<pre class="screen">
+$ useradd rsv_user
+$ passwd rsv_user
+</pre>
+
+---++ Installation
+This guide will assume that you install software in the /opt directory and that this directory is located on a local drive (or a networked drive that has fairly high performance and low latency).  The installation will require about 4 GB of space.  This guide will also install a condor batch manager in your osg installation.  *Please adjust this to your specific circumstances.*
+
+If you are installing on a server that already has a jobmanager, please read the documentation on [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/ComputeElementInstall#Install_job_managers][Install job managers]].  If you do not have a jobmanager, Condor will be installed with OSG:Globus-Condor-Setup.
+
+---+++ Create directories for OSG services
+<pre class="screen">
+  =cd /opt=
+  =mkdir share=
+  =mkdir share/data=
+  =mkdir share/app=
+  =mkdir wn-client
+  chmod a+rwx /opt/share/*
+  mkdir osg
+  mkdir osg-1.0.0
+  mount --bind osg-1.0.0 osg
+</pre>
+ Using a bind mount lets you refer to things in /opt/osg so that you can upgrade your osg ce installation in a versioned directory (e.g. osg-x.y.z) and seamlessly switch from an older install to a newer install.
+
+---+++ Installing the CE software
+This guide assumes that you will be using a gridmap for your setup and not a GUMS server.  To setup things up using a gums server, please refer to the release documentation for OSG CE software.
+
+   * =cd osg=
+   * =export PER_JOB_HISTORY_DIR = /opt/osg/gratia/var/data=
+   * =pacman -get OSG:ce= , you should see the following
+<verbatim>
+[root@uct3-edge5 osg]# pacman -get OSG:ce
+Do you want to add [http://software.grid.iu.edu/pacman/] to [trusted.caches]? (y/n/yall): yall
+Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check...       
+
+All prerequisite checks are satisfied.
+                                                               
+
+
+========== IMPORTANT ==========
+The VDT no longer installs certificate authority certificates at install time.
+Most of the software installed by the VDT *will not work* until you install
+certificates.  To complete your CA certificate installation, see the notes
+in the post-install/README file.
+
+
+
+Existing /tmp/opt/osg-1.0.0/edg/etc/edg-mkgridmap.conf moved to /tmp/opt/osg-1.0.0/edg/etc/edg-mkgridmap.conf.orig
+Merge it manually with the new /tmp/opt/osg-1.0.0/edg/etc/edg-mkgridmap.conf if you had a special edg-mkgridmap.conf
+                                  
+Pacman Installation of OSG-1.0.0 Complete
+</verbatim>
+   * =source setup.sh=
+   * =pacman -get OSG:Globus-Condor-Setup=
+   * =pacman -get OSG:ManagedFork=
+
+The software should be installed at this point and you can move on to configuration.
+---+++ Configuring the CE software
+At this point, the CE software will have been installed and is partially configured.  There are a few more steps needed to get a working setup.
+
+---++++ Setting up gridmap files
+For a simple install, you can use a gridmap file to create a list of users that are allowed to access your compute element. 
+   * =cd /etc=
+   * =mkdir grid-security=
+   * =chmod 755 grid-security=
+   * =cd grid-security=
+   * =echo '"DN" USER_ACCOUNT' >> grid-mapfile-local= , here you will need to replace *DN* with the DN of your personal grid certificate and *USER_ACCOUNT* with the name of the account that this DN should map to.  *Note, the do not map this DN to root or any other privileged account*
+      * Hint: openssl x509 -in /home/sarah/.globus/usercert.pem -noout -subject
+   *  =echo '"RSVDN" rsv_user' >> grid-mapfile-local= , here you will need to replace *DN* with the DN of your rsv service certificate.  *Note, the do not map this DN to root or any other privileged account*
+      * Hint: openssl x509 -in /etc/grid-security/rsv/rsvcert.pem -noout -subject
+   * =chmod 644 grid-mapfile-local=
+   * Edit /opt/osg/edg/etc/edg-mkgridmap.conf and add this line to the end:
+<pre class="screen">
+#### GMF_LOCAL: gmf_local grid-mapfile-local gmf_local   /etc/grid-security/grid-mapfile-local
+</pre>
+   * =vdt-register-service --name edg-mkgridmap --enable=
+   * =vdt-control --on edg-mkgridmap=
+   * =/opt/osg/edg/sbin/edg-mkgridmap  >>/opt/osg/edg/log/edg-mkgridmap.log 2>&1=
+
+---++++ Setting up your CA certificate updater
+You will now need to setup and retrieve the ca certs updater in order to have a functional 
+   * Open =/opt/osg/vdt/etc/vdt-update-certs.conf= in your text editor of choice
+   * Uncomment the line the following line (i.e. remove the leading =#= mark)
+<verbatim>
+#cacerts_url = http://software.grid.iu.edu/pacman/cadist/ca-certs-version
+</verbatim>
+   * Run the following commands at the command line:
+<verbatim>
+. $VDT_LOCATION/vdt-questions.sh; $VDT_LOCATION/vdt/sbin/vdt-setup-ca-certificates
+vdt-control --enable vdt-update-certs
+vdt-control --on vdt-update-certs
+</verbatim>
+
+You should now have the ca certs updater setup and it will automatically update your ca certificates using the certs distributed by the OSG grid operations center (GOC).
+
+---++++ Generating host and service certificates (Optional)
+If you already have your host and service certificates, you can skip this section.  Otherwise, the instructions in this section will allow you to create host and service certificates.
+
+First go to a directory that is readable only by the root account and which can be used to hold your certificate requests and private keys. Then run the following commands:
+<verbatim>
+source $OSG_LOCATION/setup.sh
+cd 
+mkdir host_cert
+cd host_cert
+cert-request  -host your.host  -dir .  -ou s
+mkdir http_cert
+cd http_cert
+cert-request  -host your.host  -dir .  -ou s -service http 
+mkdir rsv_cert
+cd rsv_cert
+cert-request  -host your.host  -dir .  -ou s -service rsv 
+</verbatim>
+
+You will need to answer a few questions when generating the requests and will get a serial number after the command completes.  This serial will let you retrieve your certificate once it has been signed.  Also after running these commands, you will have a file of the form xxxkey.pem where xxx is a number.  You will need that file since it contains the private key for your certificate.    
+
+After a little time, you should receive an email from the registration authority (RA) of the virtual organization (VO) that you indicated that your site is a member of.  The email will give you instructions on how to retrieve your host certificates.  You can also check the status of your request and retrieve your certificates from the [[https://pki1.doegrids.org/ca/][DOE Grids site]].
+
+---++++ Installing host certificates
+At this point you should have 3 pem files with your host certificates and the corresponding private keys.  You will need to place these in the grid-security directory as follows.
+   * copy the host certificate to =/etc/grid-security/hostcert.pem=
+   * copy the host private key to =/etc/grid-security/hostkey.pem=
+   * =mkdir /etc/grid-security/http=
+   * =mkdir /etc/grid-security/rsv=
+   * =chmod 755 /etc/grid-security/http=
+   * =chmod 755 /etc/grid-security/rsv=
+   * =chmod 644 /etc/grid-security/hostcert.pem=
+   * =chmod 400 /etc/grid-security/hostkey.pem=
+   * copy the http service certificate to  =/etc/grid-security/http/httpcert.pem=
+   * copy the http service key to  =/etc/grid-security/http/httpkey.pem=
+   * =chmod 644 /etc/grid-security/http/httpcert.pem=
+   * =chmod 400 /etc/grid-security/http/httpkey.pem=
+   * copy the http service certificate to  =/etc/grid-security/containercert.pem=
+   * copy the http service key to  =/etc/grid-security/containerkey.pem=
+   * =chmod 644 /etc/grid-security/containercert.pem=
+   * =chmod 400 /etc/grid-security/containerkey.pem=
+   * copy the rsv service certificate to  =/etc/grid-security/rsv/rsvcert.pem=
+   * copy the rsv service key to  =/etc/grid-security/rsv/rsvkey.pem=
+   * =chmod 644 /etc/grid-security/rsv/rsvcert.pem=
+   * =chmod 400 /etc/grid-security/rsv/rsvkey.pem=
+   
+
+
+---++++ Configuring your system 
+Here we will configure the majority of the system using the configure-osg script and a configuration file.  In order to do this, follow the steps below:
+
+   * =cd /tmp=
+   * =source /opt/osg/setup.sh=
+   * =cp $VDT_LOCATION/monitoring/simple-config.ini .=
+   * Edit the simple-config.ini file and make the following changes
+      * Go to the section starting with =[Default]=
+         * 
+      * Go to the section starting with =[Site Information]=
+         * Remove the =%(unavailable)s= and replace it with the correct values for the variables listed below
+         * =site_name=
+         * =sponsor=
+         * =site_policy=
+         * =contact=, set this to your email address
+         * =city=
+         * =country=
+         * =latitude=
+         * =longitude=
+      * Go to the section starting with =[Condor]=
+         * Remove the =%(unavailable)s= and replace it with the correct values for the variables listed below
+         * =enabled= , change the =%(unavailable)s= to =%(enable)s=
+         * =home=, set this to =/opt/osg/condor=
+         * =wsgram= , change the =%(unavailable)s= to =%(enable)s=
+      * Go to the section starting with =[ManagedFork]=
+         * Remove the =%(unavailable)s= and replace it with the correct values for the variables listed below
+         * =enabled= , change the =%(unavailable)s= to =%(enable)s=
+         * =condor_location= , change the =%(unavailable)s= to =/opt/osg/condor=
+      * Go to the section starting with =[Misc Services]=
+         * Remove the =%(unavailable)s= and replace it with the correct values for the variables listed below
+         * =use_cert_updater= , change the =%(unavailable)s= to =%(enable)s=
+      * Go to the section starting with =[Storage]=
+         * Remove the =%(unavailable)s= and replace it with the correct values for the variables listed below
+         * =grid_dir= , change the =%(unavailable)s= to =/opt/wn=
+         * =app_dir= , change the =%(unavailable)s= to =/opt/share/app=
+         * =data_dir= , change the =%(unavailable)s= to =/opt/share/data=
+         * =worker_node_temp= , change the =%(unavailable)s= to =/tmp=
+         * =site_read= , change the =%(unavailable)s= to =/opt/share/data=
+         * =site_write= , change the =%(unavailable)s= to =/opt/share/data=
+      * Go to the section starting with =[GIP]=
+         * Remove the =%(unavailable)s= and replace it with the correct values for the variables listed below
+         * =batch= , change the =%(unavailable)s= to =condor=
+         * =gsiftp_path= , change the =%(unavailable)s= to =/opt/share/data=
+         * =sc_name_1= , change the =%(unavailable)s= to the name of your cluster
+         * =sc_vendor_1= , change the =%(unavailable)s= to the vendor of your  cluster's cpus (e.g. =Genuine Intel=, =Authentic AMD=)
+         * =sc_model_1= , change the =%(unavailable)s= to the model of your  cluster's cpus 
+         * =sc_clock_1= , change the =%(unavailable)s= to the clock speed of your  cluster's cpus 
+         * =sc_numlcpus_1= , change the =%(unavailable)s= to the number of logical cpus your cluster has
+         * =sc_numpcpus_1= , change the =%(unavailable)s= to the number of physical cpus your cluster has
+         * =sc_ramsize_1= , change the =%(unavailable)s= to the ram that the worker nodes your cluster has
+         * =sc_nodes_1= , change the =%(unavailable)s= to =1=
+      * Go to the section starting with =[RSV]=
+         * Remove the =%(unavailable)s= and replace it with the correct values for the variables listed below
+         * =enabled= , change the =%(unavailable)s= to =%(enable)s=
+         * =rsv_user= , change the =%(unavailable)s= to name of the account that has been created for rsv
+         * =enable_ce_probes= , change the =%(unavailable)s= to =%(enable)s=
+         * =ce_hosts= , change the =%(unavailable)s= to =%(localhost)s=
+         * =enable_gridftp_probes= , change the =%(unavailable)s= to =%(enable)s=
+         * =gridftp_hosts= , change the =%(unavailable)s= to =%(localhost)s=
+         * =use_service_cert= , change the =%(unavailable)s= to =%(enable)s=
+         * =rsv_cert_file= , change the =%(unavailable)s= to =/etc/grid-security/rsv/rsvcert.pem=
+         * =rsv_key_file= , change the =%(unavailable)s= to =/etc/grid-security/rsv/rsvkey.pem=
+           
+
+
+---++++ Configuring WS-GRAM
+The ws-gram system is a web services enabled method for submitting and monitoring jobs on grid resources.  The ws-gram system requires the following steps to configure it.
+
+   * run =visudo= to edit the sudoers file
+   * copy the contents of the =/opt/osg/monitoring/sudo-example.txt= file to the sudoers file
+ 
+---++ Finishing up
+----+++ Testing your installation
+We will test your installation by checking to see whether it accepts grid jobs, gridftp requests, ws-gram job requests and that the rsv system checks are up and running.
+
+For these steps, you will need to  login to your user account which should have your grid cert and key in the =~/.globus= directory.  Before you start you will need to do the following:
+   * =source  /opt/osg/setup.sh=
+   * =grid-proxy-init= , you should get output similar to:
+<verbatim>
+[sthapa@uct3-edge6 ~]$ grid-proxy-init
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Suchandra Thapa 757586
+Enter GRID pass phrase for this identity:
+Creating proxy ...................................................... Done
+Your proxy is valid until: Wed Nov 12 23:21:53 2008
+</verbatim>
+
+----++++ Testing grid jobs
+Here we will test the grid job submission system.  You can do this using the following steps:
+
+   * =globus-job-run your.ce.hostname:2119/jobmanager /usr/bin/id= where your.ce.hostname is replaced with the hostname of your CE
+
+You should get the uid and gids for the user account that your DN is mapped to.  In addition, you should be able to do this using a different job manager by specifying jobmanager-condor instead of jobmanager.
+
+---++++ Testing gridftp
+Gridftp is a system for transfering files between various grid aware systems.  You can test your system by following the steps below:
+    
+   * =echo "test file" > test.file=
+   * =globus-url-copy file://path/to/current/dir/test.file gsiftp://your.ce.hostname/tmp/=  where the appropriate path to the current directory and your CE's hostname has been substituted
+   * Once this is done, you should see a test.file in the /tmp on your ce
+   * =globus-url-copy gsiftp://your.ce.hostname/tmp/test.file file://path/to/current/dir/new.file= where the appropriate substitutions have been made again
+   * Once this is done, you should have a file called new.file in your current directory
+
+---++++ Testing WS-GRAM
+Testing ws-gram is similar to testing the job grid submission:
+
+   * =globusrun-ws -submit -Ft Fork -F uct3-edge7.uchicago.edu:9443 -s -c /usr/bin/whoami=
+
+You should get the uid and gids for the user account that your DN is mapped to.  In addition, you should be able to do this using a different job manager by specifying jobmanager-condor instead of jobmanager.
+
+---++++ Checking RSV
+RSV consists of a series of probes that run at varying intervals on your system to test your system's integrity and functionality. You can see the results of these probe tests by going to [[https://uct3-edge7.uchicago.edu:8443/rsv/][https://uct3-edge7.uchicago.edu:8443/rsv/]].
+
+----++++
+At this point your installation should be complete and operational.  The =README= file in the =/opt/osg/post-install= directory will have more information on other things you can do and additional information on your installation.
+
+%BR%
+%COMPLETE1% %BR%
+%RESPONSIBLE% Main.SarahWilliams - 20 Jan 2009 %BR%
+%REVIEW%
