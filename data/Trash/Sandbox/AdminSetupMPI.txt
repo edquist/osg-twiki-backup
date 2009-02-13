@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ShreyasCholia" date="1234303102" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="ShreyasCholia" date="1234484832" format="1.1" reprev="1.5" version="1.5"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
@@ -121,6 +121,14 @@ The next change is the stanza to take care of the PBS job script:
 
 ---++ PBS and Modules (NERSC)
 ---+++ NERSC-Franklin (Cray Environment)
+The interactive login environment on the NERSC-Franklin Cray XT4 CE (based on SLES 10) is fundamentally different from the Worker node environment (Compute Node Linux). The implications of this are:
+   * All MPI codes must be cross compiled so that they can run on the worker nodes
+   * Worker nodes do not have support for dynamically loaded libraries. This means that the MPI job executable must be launched directly, and cannot be contained in a wrapper script
+   * Users do not invoke "modules" in their jobs because of the above constraint.
+   * Because of the complexities of cross-compilation, it is recommended to login directly via ssh and compile any codes directly on the interactive nodes. More details can be found here: http://www.nersc.gov/nusers/systems/franklin/programming/
+
+Once codes have been compiled for the worker node environment, users may launch MPI jobs using grid interfaces, with the caveat that MPI jobs must *not* be wrapped in a shell script. 
+
 ---+++ NERSC-Jacquard and NERSC-Davinci (SLES 10 environment)
 MPI Modules are automatically sourced for jobs on the NERSC-Jacquard and NERSC-Davinci systems. To enable this we add the following lines to $VDT_LOCATION/vdt/etc/vdt-local-setup.sh{.csh}
 <pre class=screen>
@@ -140,5 +148,91 @@ module load module_name
 
 ---+++ Globus Jobmanager Changes
 
+Here is a diff of the NERSC PBS jobmanager from the original PBS jobmanager (for non Cray systems NERSC-Jacquard and NERSC-Davinci)
+
+<pre class='screen'>
+$ diff pbs.pm pbs.pm.orig 
+24,25c24
+<     # Change CPU per node - SPC, NERSC
+<     $cpu_per_node = 2;
+---
+>     $cpu_per_node = 1;
+72,78d70
+< 
+<         # For non-mpi jobs, change cluster variable to bypass bogus ssh - SPC, NERSC
+<         if($description->jobtype !~ /^(mpi)$/)
+<         {
+<            $cluster = 0;
+<         }
+< 
+271d262
+<         # Add ppn parameter - SPC, NERSC
+273c264
+<         myceil($description->count() / $cpu_per_node), ":ppn=$cpu_per_node", "\n";
+---
+>         myceil($description->count() / $cpu_per_node), "\n";
+512,514c503
+<             # NODEFILE semantics not supported at NERSC - SPC, NERSC
+<             # my $machinefilearg = ($cluster) ? ' -machinefile $PBS_NODEFILE' : '';
+<             my $machinefilearg = '';
+---
+>             my $machinefilearg = ($cluster) ? ' -machinefile $PBS_NODEFILE' : '';
+</pre>
+
+The Cray systems have additional MPI changes due to an idiosyncratic job launcher (aprun instead of mpirun), lack of dynamic library support and specialized PBS variables.
+Here is the diff for the NERSC-Franklin Cray XT4 system:
+<pre class='screen'>
+19,20c19
+<     # Change to aprun - SPC, NERSC
+<     $mpirun = '/usr/bin/aprun';
+
+---
+>     $mpirun = 'no';
+72,77d70
+< 
+<         # For non-mpi jobs, change cluster variable to bypass bogus ssh - SPC, NERSC
+<         if($description->jobtype !~ /^(mpi)$/)
+<         {
+<            $cluster = 0;
+<         }
+262,265c255
+< 
+<       # Change -l nodes to -l mppwidth - SPC, NERSC
+<       print JOB '#PBS -l mppwidth=', $description->nodes(), "\n";
+---
+>       print JOB '#PBS -l nodes=', $description->nodes(), "\n";
+269,271c259
+<       # Change -l nodes to -l mppwidth - SPC, NERSC
+<       print JOB '#PBS -l mppwidth=', $description->host_count(), "\n";
+---
+>       print JOB '#PBS -l nodes=', $description->host_count(), "\n";
+275,284c263,264
+<       # Change -l nodes to -l mppwidth - SPC - NERSC
+<       print JOB '#PBS -l mppwidth=', $description->count(), "\n";
+< 
+<       # May want to tweak mppnppn later - SPC - NERSC
+<       # print JOB '#PBS -l mppnppn=', $cpu_per_node, "\n";
+<       # myceil($description->count() / $cpu_per_node), "\n";
+< 
+< 
+---
+>         print JOB '#PBS -l nodes=',
+>         myceil($description->count() / $cpu_per_node), "\n";
+523,525c503
+<           #  NODEFILE semantics not supported at NERSC - SPC - NERSC
+<           my $machinefilearg = '';
+---
+>             my $machinefilearg = ($cluster) ? ' -machinefile $PBS_NODEFILE' : '';
+547,551c525,526
+<               # NERSC aprun mods - SPC - NERSC
+<               # directly launch executable on worker node, since scripts are not supported
+<               print JOB "$mpirun -n " . $this_count . $machinefilearg . " ";
+<               print JOB $description->executable()," $args < " .  $description->stdin() . "\n";
+---
+>               print JOB "$mpirun -np " . $this_count . $machinefilearg;
+>               print JOB " $cmd_script_name < " .  $description->stdin() . "\n";
+</pre>
+
+-- Main.ShreyasCholia - 12 Feb 2009
 
 -- Main.AndrewHoward - 06 Oct 2008
