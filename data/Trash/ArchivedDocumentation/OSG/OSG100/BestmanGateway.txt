@@ -1,0 +1,174 @@
+%META:TOPICINFO{author="TanyaLevshina" date="1234998565" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+%STARTINCLUDE%
+%BR%
+---+ _%INCLUDEHEADING%  %SPACEOUT{ "%TOPIC%" }%_
+ !BeStMan-gateway, developed by the Scientific Data Management Group of Lawrence Berkeley National Laboratory, is a generic SRM v2.2 load balancing frontend for GridFTP servers.
+This document is written for system administrators who are planning to use storage that is installed on top of any Posix file system.  The goal of this document is to give enough information for system administrators to do initial simple configuration of the storage as well as provide references to the documents that may help to accomplish more sophisticated configuration. 
+
+See also [[Bestman][Bestman full mode]] for more information about !BeStMan full mode installation and  [[BestmanGatewayXrootd][BestmanGateway-Xrootd]] for more information about !BestmanGateway-Xrootd.
+
+%EDITTHIS%
+%BR%
+
+---++ Proposed Architecture 
+!BeStMan-gateway storage consists of the following components: 
+   * !BeStMan-gateway is a partial implementation of SRM v2.2, developed by LBNL, for disk based storage systems maintenance [[http://datagrid.lbl.gov/bestman  BeStMan Home Page]] 
+   * !GridFTP server  provides a high-performance, secure, reliable data transfer [[http://www.globus.org/toolkit/docs/3.2/gridftp GridFTP documentation]]
+   * POSIX-compliant FS 
+   * optional package - Gratia gridftp transfer probe - cron job that reports all the file transfers to [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GratiaSiteCollector Gratia collector]]
+
+     <img src="%ATTACHURLPATH%/bestman_gateway_arch.jpeg" alt="bestman_gateway_arch.jpeg" width='384' height='288' />    
+---++ Configuration decisions 
+ 
+The following questions should be answered before you can proceed with installation and 
+configuration of !BeStMan-gateway storage solution: 
+ 
+Q. _How many nodes could be used for storage?_ 
+    
+  The absolute minimum number of nodes is 1: 
+Usually one would prefer to separate !GridFTP from !BeStMan for better 
+performance.   Also, you may want to  have multiple !GridFTP server. The decision 
+should be based on your load and storage requirements.  
+ 
+Q. _What authorization mechanism do you prefer?_ 
+ 
+You have to decide if you want to use grid-map-file or !GUMS server for users’ 
+authentication and authorization. 
+More details about !GUMS could be found at 
+[[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS GUMS Installation Guide]]  
+ 
+Q. _Do you need to support space tokens?_  
+
+!BeStMan-gateway supports predefined, static space tokens that should be 
+included in configuration. It doesn't keep trace or enforce static space tokens.  If 
+you want partition your storage space and have a “designated” space for some 
+VOs or users you can choose to use space tokens. You will have to decide the 
+names and descriptions of the tokens as well as the size of the area.  
+
+Q. _Do you want to enable Gratia gridftp-transfer probes?_
+
+If you want to report all the transfers in and out of your storage you would need to install or enable Gratia gridftp-transfer probes. More details should be found at [[https://twiki.grid.iu.edu/bin/view/Accounting/WebHome  Gratia Home Page]]. The reported information will include the source and destination of transfer, certificate subject of transfer initiator, size and status of the transferred file.  
+
+---++ !BeStMan-gateway Installation
+ 
+!BeStMan-gateway implements a subset of !SRM v2.2 specifications that includes: 
+   *  !srmPing() 
+   *  !srmGetTransferProtocols() 
+   *  !srmLs()  
+   *  !srmRm()  
+   *  !srmMkdir()  
+   *  !srmRmdir() 
+   *  !srmPrepareToPut()  
+   *  !srmPrepareToGet()  
+   *  !srmPutDone()  
+   *  !srmReleaseFiles()  
+   *  !srmGetSpaceTokens() 
+   *  !srmGetSpaceMetaData()  
+
+Some of the abovementioned specs are just partially implemented. 
+For more information see [[http://wt2.slac.stanford.edu/xrootdfs/bestman-gateway.html BeStMan gateway Home Page]] 
+
+---+++ Create an installation directory
+Create a directory, e.g.  /opt/%CACHE%-bestman. Make sure there are no non-standard versions of perl, python, tcsh, or bash in your $PATH variable. 
+We will refer to this directory as _&lt;VDT_LOCATION&gt;_. 
+
+---+++ Downloading !BeStMan-gateway 
+The installation described here is done as root even though services does not  run as root:
+
+    * A few questions regarding trust of the caches from which the software is downloaded will be displayed.
+      Please answer y (yes) so that the software can be retrieved. 
+
+See the [[https://twiki.grid.iu.edu/bin/view/Integration/ITB092/PacmanBestPractices][Pacman] section of this guide if you encounter an 'unsupported' platform message. 
+
+<pre class="screen"> 
+cd &lt;VDT_LOCATION&gt;
+pacman -get %CACHE%:Bestman 
+</pre>
+ 
+---+++ Configuring !BeStMan-gateway 
+You will need to configure !BeStMan to enable gateway-mode. You have to decide if you 
+would like to use static space token reservation, and in this case to come up with a list of 
+token names, description and size of space allocated for each token. Keep in mind that in 
+gateway-mode !BeStMan is not managing your space. 
+
+  
+The example below shows how to configure !BeStMan in gateway-mode, enable !GUMS
+and space token usage: 
+<pre class="screen">
+cd &lt;VDT_LOCATION&gt; 
+. setup.sh 
+$VDT_LOCATION/vdt/setup/configure_bestman --server y \ 
+ --user &lt;user&gt; \ 
+ --cert &lt;service_cert&gt;  \ 
+ --key  &lt;service_key&gt;  \ 
+ --http-port  &lt;public_port&gt;  \  
+ --https-port  &lt;secured_port&gt;  \ 
+ --gums-host  &lt;GUMS hostname&gt;  \ 
+ --gums-port  &lt;GUMS port number&gt;  \ 
+ --gums-dn  &lt;Client DN for GUMS interface&gt;  \ 
+ --enable-gateway  \ 
+ --with-allowed-paths="&lt;allowed_dir_list&gt;"  \ 
+ --with-blocked-paths="&lt;blocked_dir_list&gt;"  \ 
+ --with-tokens-list  "&lt;TOKEN_1_NAME&gt;[desc:&lt;TOKEN_1_DESC&gt;][&lt;TOKEN_1_SIZE_GB&gt;];&lt;TOKEN_2_NAME&gt;[desc:&lt;TOKEN_2_DESC&gt;][&lt;TOKEN_2_SIZE&gt;]"   \ 
+ --with-transfer-servers  &lt;GridFTP server list&gt;  
+</pre> 
+ 
+Where  _user_ name of the non-privileged user that runs !BeStMan, <br/>
+_service_cert_  path to service certificate (the certificate file should belong to the _user_)<br/>
+_service_key_  path to service certificate private key (the certificate key file should belong to the _user_). Currently some clients (lcg-utils tool) require that service certificate is a host certificate <br/>
+_public_port_ http public port (default : 10080;commonly used port is 8080 unless there is a conflict) <br/> 
+_secured_port_ http private port (default: 10443;commonly used port is 8443 unless there is a conflict) <br/> 
+_allowed_dir_list_ list of directories, separated by semicolon, accessible to users <br/>
+_blocked_dir_list_ list of directories separated by semicolon, non-accessible to users (default are "/;/etc;/var") . One of the  --with-allowed-paths / --with-bloacked-paths options should be used.<br/>
+_GUMS hostname_ the name of  !GUMS server, <br/> 
+_GUMS port number_ the port of !GUMS  server, <br/>   
+_Client DN for GUMS_ interface is a service certificate subject. <br/> 
+ _GridFTP server list_  is a list !FQDN of your !GridFTP servers, separated by ; . e.g. 
+“gsiftp://host1.domain.tld;gsiftp://host2.domain.tld” <br/> 
+If you want to use grid-map-file for user authentication and authorization do not specify 
+the following options:
+ 
+ --gums-host   
+
+ --gums-port 
+
+ --gums-dn   
+ 
+If you do not want to use statically reserved space tokens do not specify the following 
+options: 
+
+--with-tokens-list 
+
+Please, make the appropriate modification to _/etc/sudoers_ described in !BeStMan 
+documentation, namely add the following lines to this file: 
+<pre class="screen">
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls 
+Runas_Alias SRM_USR = ALL, !root 
+&lt;user_name&gt; ALL=(SRM_USR) NOPASSWD: SRM_CMD 
+ </pre>
+Please keep in mind that this is just an example, you can choose more  be more restrictive policy for your site.
+
+If you are running your !BeStMan-gateway on the node that doesn’t have an access to 
+your FS you will have to modify the following attributes in _$VDT_LOCATION/bestman/conf/bestman.rc_
+configuration file: 
+<pre class="screen"> 
+checkSizeWithFS=false 
+checkSizeWithGsiftp=true 
+</pre>
+ 
+---++ Known issues
+
+---++ More information
+
+
+%STOPINCLUDE%
+%BR%
+%COMPLETE1% %BR%
+%RESPONSIBLE% Main.TanyaLevshina - 18 Feb 2009 %BR%
+%REVIEW%
+
+%META:FILEATTACHMENT{name="bestman_gateway_arch.jpeg" attachment="bestman_gateway_arch.jpeg" attr="" comment="BeStMan-gateway architecture" date="1234996663" path="bestman_gateway_arch.jpeg" size="9978" stream="bestman_gateway_arch.jpeg" tmpFilename="/usr/tmp/CGItemp8720" user="TanyaLevshina" version="1"}%
