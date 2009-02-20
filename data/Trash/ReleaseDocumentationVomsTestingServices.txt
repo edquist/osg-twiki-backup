@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="KyleGross" date="1227280706" format="1.1" version="1.10"}%
+%META:TOPICINFO{author="JohnWeigand" date="1235149603" format="1.1" reprev="1.11" version="1.11"}%
 %META:TOPICPARENT{name="VomsInstallGuide"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -26,7 +26,7 @@ The =voms-proxy-init= client command was included in the installation. It uses a
 lrwxrwxrwx    1 root     root           44 Sep  4 23:03 vomses -> /usr/local/osg-voms/vdt-app-data/voms/vomses
 
 &gt; <b>cat vomses/VDT</b>
-"VDT" "cms-xen3.fnal.gov" "15000" "/DC=org/DC=doegrids/OU=Services/CN=cms-xen3.fnal.gov" "VDT" "40"
+"VDT" "cms-xen3.fnal.gov" "15000" "/DC=org/DC=doegrids/OU=Services/CN=cms-xen3.fnal.gov" "VDT" 
 </pre>
 
 Tokens in the above =vomses/VDT= file:
@@ -35,7 +35,6 @@ Tokens in the above =vomses/VDT= file:
    1. Port number the server is listening on.
    1. DN of the server's VOMS certificate
    1. VO name
-   1. Globus version supported
 
 The =vomses= file syntax/values for each VO you create, can be viewed on the WEB UI of  your VO by selecting =Configuration information= on the left hand menu of the main page.
 
@@ -60,30 +59,6 @@ A couple of things about the output shown above that you might want to be aware 
    * The warning about not finding a =$prefix/etc/vomses= is not a problem.  It should have already picked up the VO server from the =$VDT_LOCATION/glite/etc/vomses/VDT= file.  This may be a legacy PATH when the vomses file was in =$VDT_LOCATION./voms/etc/vomses=.
    * The "temporary proxy" it generates is the good old grid proxy.  This is used for the access to VOMS and, as it says, just temporary.
 
-To verify the output of the voms proxy has the extended attributes the VOMS service provides, run the =voms-proxy-info= command as shown below. The extended attribute and location of the proxy file are highlighted in the output:
-
-<pre class="screen">
-&gt; <b>voms-proxy-info --all</b>
-<em>... output follows....</em>
-WARNING: Unable to verify signature! Server certificate possibly not installed.
-Error: Cannot find certificate of AC issuer for vo VDT
-subject   : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491/CN=proxy
-issuer    : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
-identity  : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
-type      : proxy
-strength  : 512 bits
-path      : /tmp/x509up_u9789
-timeleft  : 11:59:36
-=== VO VDT extension information ===
-VO        : VDT
-subject   : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
-issuer    : /DC=org/DC=doegrids/OU=Services/CN=cms-xen3.fnal.gov
-attribute : /VDT/Role=NULL/Capability=NULL
-timeleft  : 11:59:36
-</pre>
-
-Again, ignore the =WARNING= and =Error= in the output above, as all is fine.
-
 
 Now try one for a group you do not belong to, e.g., _/MyGroup_:
 
@@ -102,6 +77,44 @@ Failed to contact servers for VDT.
 </pre>
 
 %NOTE% If a subsequent attempt at a voms proxy fails, as ours did here, the previously generated proxy is still in effect. You can do another =voms-proxy-info --all= to verify this.
+
+---++ Testing voms-proxy-info
+To verify the output of the voms proxy has the extended attributes the VOMS service provides, run the =voms-proxy-info= command as shown below. The =--all= argument is important.  Without it, you will only see the basic proxy information and no extended attributes. The extended attribute and location of the proxy file are highlighted in the output:
+
+<pre class="screen">
+&gt; <b>voms-proxy-info --all</b>
+<em>... output follows....</em>
+WARNING: Unable to verify signature! Server certificate possibly not installed.
+Error: Cannot find certificate of AC issuer for vo VDT
+subject   : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491/CN=proxy
+issuer    : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+identity  : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+type      : proxy
+strength  : 512 bits
+<b>path      : /tmp/x509up_u9789</b>
+timeleft  : 11:59:36
+<b>=== VO VDT extension information ===
+VO        : VDT
+subject   : /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
+issuer    : /DC=org/DC=doegrids/OU=Services/CN=cms-xen3.fnal.gov
+attribute : /VDT/Role=NULL/Capability=NULL
+timeleft  : 11:59:36</b>
+</pre>
+
+__IMPORTANT__ : The =WARNING= and =Error= in the output above are the result of a check for an =/etc/grid-security/vomsdir= directory containing the certificate of the VOMS server you are accessing.  This is an EGEE grid requirement but __not__ an OSG grid requirement.   If you are scripting the =voms-proxy-info= command and check for the exit code, it will be non-zero.  This is a misleading as the voms proxy has been created and is valid.  A work-around for OSG sites had been provided which eliminates the 2 messages caused by this condition and also returns a zero exit code thus allowing you to script =voms-proxy-info= checking for validity, time remaining, etc, and use the exit code correctly.
+The work-around provides two options:
+   * use of a =VOMS_PROXY_INFO_DONT_VERIFY_AC= variable set to any value you want.
+   <pre class="screen">
+&gt; export VOMS_PROXY_INFO_DONT_VERIFY_AC=anything_you_want
+&gt; voms-proxy-info --all 
+&gt; voms-proxy-info --exists 
+&gt; voms-proxy-info --timeleft</pre>
+   * use of a =--dont-verify-ac= command line argument
+   <pre class="screen">
+&gt; voms-proxy-info --all --dont-verify-ac
+&gt; voms-proxy-info --exists --dont-verify-ac
+&gt; voms-proxy-info --timeleft --dont-verify-ac</pre>
+
 
 
 
