@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1234994976" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1235143461" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -6,12 +6,299 @@
 %STARTINCLUDE%
 %BR%
 ---+ _%INCLUDEHEADING%  %SPACEOUT{ "%TOPIC%" }%_
-_One line introduction._
-
+ !BeStMan-gateway/Xrootd  implements SRM v2.2 for generic posix file systems and provides storage that spans on multiple file systems. The installation of !BeStMan  in “full mode” on top of  the existing FS might be sufficient for small sites [[https://twiki.grid.iu.edu/bin/view/Documentation/AboutStorageElements  OSG Storage Documentation]] 
+ 
+The configuration of this distributed storage is pretty complicated, so we will not be able to provide automatic configuration scripts for all options available for each components for the time being. The goal of this document is to give enough information for system administrators to do initial simple configuration of the storage as well as provide references to the documents that 
+may help to accomplish more sophisticated configuration. 
 %EDITTHIS%
 %BR%
 
----++ Heading 2
+---++ Proposed Architecture 
+ 
+!BeStMan-gateway/Xrootd storage consists of the following components: 
+   *  FUSE -   [[http://fuse.sourceforge.net File System in User Space]] is required for !XrootdFS 
+   * !XrootdFS -  is a Posix filesystem for an Xrootd storage cluster ([[http://wt2.slac.stanford.edu/xrootdfs/xrootdfs.html XrootdFS Home Page]] ), is required for !BeStMan, !GridFTP to work with  Xrootd  
+   * !BeStMan-gateway is a partial implementation of SRM v2.2, developed by LBNL, for disk based storage systems maintenance ( [[http://datagrid.lbl.gov/bestman BeStMan HomePage]] ) 
+   * !GridFTP server  provides a high-performance, secure, reliable data transfer ( [[http://www.globus.org/toolkit/docs/3.2/gridftp GrdiFTP Documentation]] ) 
+   * Xrootd   provides POSIX-like access to files and their enclosing directory namespace ( [[http://xrootd.slac.stanford.edu/papers/Scalla-Intro.htm Xrootd Home Page]] ) 
+
+ <img src="%ATTACHURLPATH%/betsman_gateway_xrootd.jpeg" alt="betsman_gateway_xrootd.jpeg" width='576' height='432' />    
+
+---++ Configuration decisions 
+ 
+The following questions should be answered before you can proceed with installation and configuration of !BeStMan-gateway/Xrootd storage solution: 
+ 
+Q. _How many nodes could be used for storage?_
+ 
+      The absolute minimum number of nodes is 3: 
+   1. !BeStMan, !XroodFS, FUSE, !GridFTP  
+   1. Xrootd redirector 
+   1. Xrootd data server node 
+Usually one would prefer to separate !GridFTP from !BeStMan for better 
+performance.   More machines could be added as Xrootd data server nodes or 
+!GridFTP servers. The decision should be based on your load and storage 
+requirements.  
+ 
+Q. _What authorization mechanism do you prefer?_ 
+ 
+You have to decide if you want to use grid-map-file or !GUMS server for users’ 
+authentication and authorization. 
+More details about !GUMS could be found at 
+[[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS  GUMS Documentation]]
+
+ Q. _Do you need to support space tokens?_
+  
+!BeStMan-gateway supports predefined, static space tokens that should be 
+included in configuration. It doesn't keep trace or enforce static space tokens.  If 
+you want partition your storage space and have a “designated” space for some 
+VOs or users you can choose to use space tokens. You will have to decide the 
+names and descriptions of the tokens as well as the size of the area. This 
+information will be used in !BeStMan configuration, and Xrootd server 
+configuration on data server and redirector nodes. 
+ 
+Q. _What is your Mount Point for !XrootdFS  on !BeStMan node?_
+ 
+ You will need this information for !XrootdFS and for !GridFTP configuration. 
+ 
+Q. _How to partition storage areas on Xrootd redirector and data server nodes?_ 
+
+The Xrootd developers recommended to use partition for both storage areas, but 
+in principal for shadow storage a directory can be used as well. In Xrootd 
+production instillation at SLAC an ext3 partition is used for storage area. The 
+shadow area requires a significant amount of inodes. However, too many inodes 
+means small block size. For real file, that means a limit of file size (though not 
+clear about shadow files, which are big in size but are filled with empty holes). At 
+SLAC, the block size is set to 1k (thus put a limit of real file size at ~256GB). 
+ 
+
+Q. _Do you want to enable Gratia gridftp-transfer probes?_
+
+If you want to report all the transfers in and out of your storage you would need to install or enable Gratia gridftp-transfer probes. More details should be found at [[https://twiki.grid.iu.edu/bin/view/Accounting/WebHome  Gratia Home Page]]. The reported information will include the source and destination of transfer, certificate subject of transfer initiator, size and status of the transferred file.   
+ 
+---++ VDT packages 
+All the required components but FUSE can be installed from  [[http://vdt.cs.wisc.edu/download.html VDT cache]]: 
+ 
+   a. !BeStMan 
+   a. !XrootdFS 
+   a. Xrootd-GridFTP and !PRIMA (if you would like to use !GUMS as authorization server)  
+   a. Xrootd
+   a. Gratia gridftp-transfer probe  
+   a. srm-lbnl-client 
+Please follow the instructions provided on the VDT web page about how to download 
+and install them. In this document we are using XXX to indicate current 
+production version. 
+ 
+You have to select the root directory for your installation of VDT packages.  In this 
+document we will refer to this directory as $INSTALLATION_DIR. 
+
+---++ !BeStMan-gateway installation and configuration 
+ 
+!BeStMan, !XrootdFS  and !FUSE should be installed on same node. !BeStMan and !XrootdFS should be installed under the same directory. 
+
+---+++ !FUSE 
+!FUSE is a kernel module that intercepts and services user requests to the !XrootdFS.  
+
+!FUSE can be installed via “yum install” or rpms. You will need three packages: 
+   * fuse
+   * fuse-libs
+   * kernel-module-fuse
+
+or you can download it  from   
+http://sourceforge.net/project/showfiles.php?group_id=121684&package_id=132802 and build according to instructions  provided at http://fuse.sourceforge.net.   
+ 
+You will need to have root access to install it. 
+It is essential that FUSE version ( &gt; 2.7.3) and flavor match your kernel. Conact your sys admin if you have any questions.
+
+---+++ Create an installation directory 
+Create a directory, e.g.  /opt/%CACHE%-bestman. Make sure there are no non-standard versions of perl, python, tcsh, or bash in your $PATH variable. 
+We will refer to this directory as _&lt;VDT_LOCATION&gt;_. 
+
+---+++ !XrootdFS 
+!XrootdFS is a Posix filesystem  that allows !GridFTP, !BeStMan and other grid applications to work with Xrootd storage system. !XrootdFS works on top of !FUSE. !XrootdFS can be installed from %CACHE% cache. The installation described here is done as root even though services does not  run as root:
+
+    * A few questions regarding trust of the caches from which the software is downloaded will be displayed.
+      Please answer y (yes) so that the software can be retrieved. 
+
+<pre class="screen"> 
+cd &lt;VDT_LOCATION&gt; 
+pacman -get %CACHE%:XrootdFS 
+. setup.sh 
+</pre>
+ 
+ 
+In order to configure !XrootdFS you will need to do the following: 
+<pre class="screen">
+$VDT_LOCATION/vdt/setup/configure_xrootdfs \ 
+ --user &lt;user&gt; \ 
+ --cache &lt;mount-point&gt; \ 
+ --xrdr-host &lt;hostname&gt;  \ 
+ --xrdr-storage-path &lt;path&gt;
+</pre>
+ 
+Where _$VDT_LOCATION_  is a directory where the package is installed,<br/> 
+_mount_point_ is a !XrootdFS mount point that will be created for you <br/> 
+_user name_ of the non-privileged user that runs xrootdfs daemon and  is an owner of 
+mount_point directory<br/> 
+_hostname_ is a FQDN of Xrootd redirector host <br/> 
+_path_ is shadow storage area on redirector node  <br/> 
+
+---+++ !BeStMan-gateway 
+ 
+!BeStMan-gateway is a generic SRM v2.2 load balancing frontend for GridFTP servers. It is developed by the Scientific Data Management Group of Lawrence Berkeley National 
+Laboratory. It implements a subset of SRM v2.2 specifications that includes: 
+   * !srmPing() 
+   * !srmGetTransferProtocols() 
+   * !srmLs()  
+   * !srmRm()  
+   * !srmMkdir()  
+   * !srmRmdir() 
+   * !srmPrepareToPut()  
+   * !srmPrepareToGet()  
+   * !srmPutDone()  
+   * !srmReleaseFiles()  
+   * !srmGetSpaceTokens() 
+   * !srmGetSpaceMetaData()  
+Some of the abovementioned specs are just partially implemented. 
+For more information see [[http://wt2.slac.stanford.edu/xrootdfs/bestman-gateway.html BeStMan-gateway Home Page]]
+ 
+!BeStMan can be installed from %CACHE% cache in the same directory where !XrootdFS has been  already installed (see !XrootdFS installation). The installation described here is done as root even though services does not  run as root:
+
+    * A few questions regarding trust of the caches from which the software is downloaded will be displayed.
+      Please answer y (yes) so that the software can be retrieved. 
+
+<pre class="screen">
+ cd $VDT_LOCATION
+pacman -get %CACHE%:Bestman 
+ . setup.sh 
+</pre>
+ 
+You will need to configure !BeStMan to enable gateway-mode. In gateway-mode !BeStMan is not managing your disk but rather relies on !Xrootd to do so. You have to 
+choose what authorization mechanism to use. Also, you have to decide if you would like 
+to use static space token reservation, and in this case to come up with a list of token 
+names, description and size of space allocated for each token. 
+ 
+The example below shows how to configure !BeStMan in gateway-mode, enable !GUMS
+and space token usage: 
+<pre class="screen">
+$VDT_LOCATION/vdt/setup/configure_bestman --server y \ 
+ --user &lt;user&gt; \ 
+ --cert  &lt;service_cert&gt; \ 
+ --key   &lt;service_key&gt; \ 
+ --http-port  &lt;public_port&gt; \  
+ --https-port  &lt;secured_port&gt; \ 
+ --gums-host  &lt;GUMS hostname&gt; \ 
+ --gums-port  &lt;GUMS port number&gt; \ 
+ --gums-dn  &lt;Client DN for GUMS interface&gt; \ 
+ --use-xrootd  \ 
+ --with-tokens-list  "&lt;TOKEN_1_NAME&gt;[desc:&lt;TOKEN_1_DESC&gt;][&lt;TOKEN_1_SIZE_GB&gt;];&lt;TOKEN_2_NAME&gt;[desc:&lt;TOKEN_2_DESC&gt;][&lt;TOKEN_2_SIZE&gt;]"   \ 
+ --with-transfer-servers &lt;GridFTP server list&gt;
+</pre> 
+
+Where  _user_ name of the non-privileged user that runs !BeStMan,</br>  
+_service_cert_  path to service certificate (the certificate file should belong to the _user_)<br/>
+_service_key_  path to service certificate private key (the certificate key file should belong to the _user_). Currently some clients (lcg-utils tool) require that service certificate is a host certificate <br/>
+_public_port_ http public port (default : 10080;commonly used port is 8080 unless there is a conflict) <br/> 
+_secured_port_ http private port (default: 10443;commonly used port is 8443 unless there is a conflict) <br/> 
+_!GridFTP server list_  is FQDN of your !GridFTP servers,  </br>  
+_GUMS hostname_ the name of  !GUMS server, </br>  
+_GUMS port number_ the port of !GUMS  server,   </br>  
+_Client DN for GUMS interface_ is  a service certificate subject.  
+_GridFTP server list_  is a list !FQDN of your !GridFTP servers, separated by ; . e.g. 
+“gsiftp://host1.domain.tld;gsiftp://host2.domain.tld” <br/> 
+ 
+If you want to use grid-map-file for user authentication and authorization do not specify 
+the following options: </br>  
+--gums-host   </br>  
+--gums-port </br>  
+--gums-dn   
+ 
+If you do not want to use statically reserved space tokens do not specify the following 
+options: </br>  
+--with-tokens-list 
+ 
+Please, make the appropriate modification to _/etc/sudoers_ described in !BeStMan 
+documentation, namely add the following lines to this file: 
+<pre class="screen">
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls 
+Runas_Alias SRM_USR = ALL, !root 
+&lt;user_name&gt; ALL=(SRM_USR) NOPASSWD: SRM_CMD 
+</pre>
+Please keep in mind that this is just an example, you can choose more  be more restrictive policy for your site.
+To check what services have been installed on your node you can do:
+
+<pre class="screen"> 
+cd &lt;VDT_LOCATION&gt;
+. setup.sh
+ vdt-control --list
+Service            | Type   | Desired State
+-------------------+--------+--------------
+xrootdfs           | init   | enable
+fetch-crl          | cron   | enable
+vdt-rotate-logs    | cron   | enable
+vdt-update-certs   | cron   | enable
+gsiftp             | inetd  | enable
+gratia-gridftp-tran| cron   | do not enable
+bestman            | init   | enable
+</pre>
+
+Follow the instructions provided in _$VDT_LOCATION/post-install/README_ to configure CA package updates.
+
+---++++ Configuring !BeStMan-gateway 
+
+You will need to configure !BeStMan to enable gateway-mode. In gateway-mode !BeStMan is not managing your disk but rather relies on Xrootd to do so. You have to 
+choose what authorization mechanism to use. Also, you have to decide if you would like 
+to use static space token reservation, and in this case to come up with a list of token 
+names, description and size of space allocated for each token. 
+ 
+The example below shows how to configure !BeStMan in gateway-mode, enable !GUMS
+and space token usage: 
+<pre class="screen">
+cd $VDT_LOCATION
+. setup.sh
+$VDT_LOCATION/vdt/setup/configure_bestman --server y \ 
+ --user &lt;user&gt; \ 
+ --cert  &lt;service_cert&gt; \ 
+ --key   &lt;service_key&gt; \ 
+ --http-port  &lt;public_port&gt; \  
+ --https-port  &lt;secured_port&gt; \ 
+ --gums-host  &lt;GUMS hostname&gt; \ 
+ --gums-port  &lt;GUMS port number&gt; \ 
+ --gums-dn  &lt;Client DN for GUMS interface&gt; \ 
+ --use-xrootd  \ 
+ --with-tokens-list  "&lt;TOKEN_1_NAME&gt;[desc:&lt;TOKEN_1_DESC&gt;][&lt;TOKEN_1_SIZE_GB&gt;];&lt;TOKEN_2_NAME&gt;[desc:&lt;TOKEN_2_DESC&gt;][&lt;TOKEN_2_SIZE&gt;]"   \ 
+ --with-transfer-servers &lt;GridFTP server list&gt;
+</pre> 
+
+Where  _user_ name of the non-privileged user that runs !BeStMan,</br>  
+_service_cert_  path to service certificate (the certificate file should belong to the _user_)<br/>
+_service_key_  path to service certificate private key (the certificate key file should belong to the _user_). Currently some clients (lcg-utils tool) require that service certificate is a host certificate <br/>
+_public_port_ http public port (default : 10080;commonly used port is 8080 unless there is a conflict) <br/> 
+_secured_port_ http private port (default: 10443;commonly used port is 8443 unless there is a conflict) <br/> 
+_!GridFTP server list_  is FQDN of your !GridFTP servers,  </br>  
+_GUMS hostname_ the name of  !GUMS server, </br>  
+_GUMS port number_ the port of !GUMS  server,   </br>  
+_Client DN for GUMS interface_ is  a service certificate subject.  
+_GridFTP server list_  is a list !FQDN of your !GridFTP servers, separated by ; . e.g. 
+“gsiftp://host1.domain.tld;gsiftp://host2.domain.tld” <br/> 
+ 
+If you want to use grid-map-file for user authentication and authorization do not specify 
+the following options: </br>  
+--gums-host   </br>  
+--gums-port </br>  
+--gums-dn   
+ 
+If you do not want to use statically reserved space tokens do not specify the following 
+options: </br>  
+--with-tokens-list 
+ 
+Please, make the appropriate modification to _/etc/sudoers_ described in !BeStMan 
+documentation, namely add the following lines to this file: 
+<pre class="screen">
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls 
+Runas_Alias SRM_USR = ALL, !root 
+&lt;user_name&gt; ALL=(SRM_USR) NOPASSWD: SRM_CMD 
+</pre>
+Please keep in mind that this is just an example, you can choose more  be more restrictive policy for your site.
 
 ---++ Known issues
 
@@ -23,3 +310,5 @@ _One line introduction._
 %COMPLETE1% %BR%
 %RESPONSIBLE% Main.TanyaLevshina - 18 Feb 2009 %BR%
 %REVIEW%
+
+%META:FILEATTACHMENT{name="betsman_gateway_xrootd.jpeg" attachment="betsman_gateway_xrootd.jpeg" attr="" comment="BeStMan-gateway/Xrootd architecture" date="1235141572" path="betsman_gateway_xrootd.jpeg" size="35418" stream="betsman_gateway_xrootd.jpeg" tmpFilename="/usr/tmp/CGItemp11241" user="TanyaLevshina" version="1"}%
