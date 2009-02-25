@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AndrewHoward" date="1228418971" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="AndrewHoward" date="1235579313" format="1.1" reprev="1.2" version="1.2"}%
 %LINKCSS%
 
 <!-- This is the default OSG documentation template. Please modify it in -->
@@ -65,7 +65,31 @@ ValidWhen: GLOBUS_GRAM_JOB_SUBMIT
 ---+++ Make appropriate changes to the Globus JobManager
 Next, the appropriate JobManager file needs to be modified to do something with our new handle attribute. For PBS, this file is located in $GLOBUS_LOCATION/lib/perl/Globus/GRAM/JobManager/pbs.pm
 
-The first change to make is to get the handle name from the job description. To do this, add the following line in the sub submit{} stanza:
+First, we'll define a few variables to allow sites to customize the handle for whatever environment manager they use. The main variables to change are those starting with "$handle_" :
+<pre class=screen>
+BEGIN
+    {
+        $mpisoftenv     = 0;                                    # 0=false, 1=true
+        $handle_init    = 'source /etc/profile.d/modules.sh';   # Command to load environment manager
+        $handle_load    = 'module load';                        # Command to load module/softenv
+        $handle_default = 'mpich-1.2.7p1-intel64/9.1.045';
+        $mpiexec        = 'mpiexec';
+        $mpirun         = 'mpirun';
+        $qsub           = '/usr/pbs/bin/qsub';
+        $qstat          = '/usr/pbs/bin/qstat';
+        $qselect        = '/usr/pbs/bin/metascheduler2.pl';
+        $qdel           = '/usr/pbs/bin/qdel';
+        $cluster        = 1;
+        $cpu_per_node   = 2;
+        $remote_shell   = '/usr/bin/ssh';
+        $softenv_dir    = '/opt/softenv';
+        $soft_msc       = "$softenv_dir/bin/soft-msc";
+        $softenv_load   = "$softenv_dir/etc/softenv-load.sh";
+    }
+</pre>
+
+
+The next change to make is to get the handle name from the job description. To do this, add the following line in the sub submit{} stanza:
 <pre class=screen>
     my $handle = $description->handle();
 </pre>
@@ -93,17 +117,16 @@ The next change is the stanza to take care of the PBS job script:
             }
             else
             {
-                print JOB ". /etc/profile.d/modules.sh\n";
-                # ahoward Thu Aug 21 14:05:57 EDT 2008  
+                print JOB "$handle_init\n";
                 # Check to see if user specified a module to load...
-                if ($description->handle() ne '')
+                if ($handle ne '')
                 {
-                    print JOB "module load $handle\n";
+                    print JOB "$handle_load $handle\n";
                 }
                 # ... otherwise load a default module
                 else
                 {
-                    print JOB " module load mpich-1.2.7p1-intel64/9.1.045\n";
+                    print JOB "$handle_load $handle_default\n";
                 }
         
                 if ($handle =~ m/mpich2/)
@@ -116,15 +139,9 @@ The next change is the stanza to take care of the PBS job script:
                 }
                 
                 print JOB " " .  $description->executable() . " $args < " . $description->stdin() . "\n";
-
             }
-            if ($mpisoftenv)
-            {
-                print JOB '  fi' . "\n";
-                print JOB 'fi' . "\n";
-            }
-
         }
+
 </pre>
 
 
@@ -137,3 +154,5 @@ The next change is the stanza to take care of the PBS job script:
 %BOTTOMMATTER%
 
 -- Main.AndrewHoward - 04 Dec 2008
+
+-- Main.AndrewHoward - 25 Feb 2009 - Changed hard coded values to use variables
