@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1234994722" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1235763923" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -6,13 +6,159 @@
 %STARTINCLUDE%
 %BR%
 ---+ _%INCLUDEHEADING%  %SPACEOUT{ "%TOPIC%" }%_
-_One line introduction._
+The purpose of this document is to describe how to handle !BeStMan (full-mode or gateway) installation on Compute Element (CE) node. Please refer to [[https://twiki.grid.iu.edu/bin/view/Integration/ITB092/Bestman][BeStMan full-mode Installation Guide]] and [[https://twiki.grid.iu.edu/bin/view/Integration/ITB092/BestmanGetway][BeStMan-gateway Installation Guide]] for more details.
+
 
 %EDITTHIS%
 %BR%
 
----++ Heading 2
+---++ Configuration Decisions
+It could be not a very wise idea to install !BeStMan on heavily used CE node but if you need to do that you should keep in mind that you will need to use non-standard ports for !BeStMan to avoid conflict with apache/tomcat servers as well as use !GridFTP server and authorization infrastructure that are already installed on CE node.   
 
+The following questions should be answered before you can proceed with installation and  configuration:
+
+Q. _What authorization mechanism do you prefer?_ 
+ 
+You have to decide if you want to use grid-map-file or !GUMS server for users’ 
+authentication and authorization. Most logically will be to select the same approach that is already being used on CE (e.g for gratia probes)
+ 
+Q. _Do you need to support space tokens for !BeStMan-gatewy?_  
+
+!BeStMan-gateway supports predefined, static space tokens that should be 
+included in configuration. It doesn't keep trace or enforce static space tokens.  If 
+you want partition your storage space and have a “designated” space for some 
+VOs or users you can choose to use space tokens. You will have to decide the 
+names and descriptions of the tokens as well as the size of the area.  
+
+Q. _Do you want to enable Gratia gridftp-transfer probes?_
+
+If you want to report all the transfers in and out of your storage you would need to install or enable Gratia gridftp-transfer probes. More details should be found at [[https://twiki.grid.iu.edu/bin/view/Accounting/WebHome  Gratia Home Page]]. The reported information will include the source and destination of transfer, certificate subject of transfer initiator, size and status of the transferred file.  
+
+---++ Installing !BeStMan
+---+++ Create an installation directory
+Create a directory, e.g.  /opt/%CACHE%-bestman. Make sure there are no non-standard versions of perl, python, tcsh, or bash in your $PATH variable. 
+We will refer to this directory as _&lt;VDT_LOCATION&gt;_. 
+
+---+++ Downloading !BeStMan-gateway 
+The installation described here is done as root even though services does not  run as root:
+
+
+<pre class="screen"> 
+cd &lt;VDT_LOCATION&gt;
+pacman -get %CACHE%:Bestman 
+</pre>
+
+ %ICON{"warning"}%A few questions regarding trust of the caches from which the software is downloaded will be displayed. Please answer to these questions the following way:
+
+<pre class="screen">
+      Where would you like to install CA files?
+
+Choices:
+        r (root)  - install into /etc/grid-security/certificates
+                   (existing CA files will be preserved)
+        l (local) - install into $VDT_LOCATION/globus/share/certificates
+        n (no)    - do not install
+l
+...
+...
+Would you like to enable Globus GridFTP daemon to run automatically?
+
+Possible answers:
+    y: Yes, I want the service to run automatically (once enabled)
+    n: No, I do NOT want the service to run automatically
+
+Note: Services are enabled with vdt-control; see 'post-install/README'.
+
+n
+...
+Do you want edg-mkgridmap daemon to be run automatically? If so, we
+will run it four times a day via cron.
+
+edg-mkgridmap will update your gridmap file by communicating with
+VOMS servers. This will only be useful if you are part of a Virtual
+Organization (VO) or you allow users from VOs.
+
+Do you want edg-mkgridmap daemon to be run via cron? [y/n] n
+</pre>
+
+You may want to answer y (yes) to all other questions that would be asked during the installation.
+
+</pre>
+See the [[https://twiki.grid.iu.edu/bin/view/Integration/ITB092/PacmanBestPractices][Pacman]] guide if you encounter an 'unsupported' platform message. 
+
+
+
+To check what services have been installed on your node you can do:
+
+<pre class="screen"> 
+cd &lt;VDT_LOCATION&gt;
+. setup.sh
+ vdt-control --list
+
+Service            | Type   | Desired State
+-------------------+--------+--------------
+fetch-crl          | cron   | enable
+vdt-rotate-logs    | cron   | enable
+vdt-update-certs   | cron   | enable
+gsiftp             | inetd  | do not enable
+gratia-gridftp-tran| cron   | do not enable
+bestman            | init   | enable
+edg-mkgridmap      | cron   | do not enable
+gums-host-cron     | cron   | do not enable
+</pre>
+
+ %ICON{"warning"}% A  Follow the instructions provided in _$VDT_LOCATION/post-install/README_ to configure CA package updates.
+
+
+---++ Configuring !BeStMan
+
+Keep in mind that you have to use ports different from 8080 and 8443 and same authorization mechanism that is in use on that CE node.
+If you are installing !BeStMan-full mode follow [[https://twiki.grid.iu.edu/bin/view/Integration/ITB092/Bestman#Configuration][these instructions]]
+If you are installing !BeStMan-gateway follow [[https://twiki.grid.iu.edu/bin/view/Integration/ITB092/BestmanGateway#Configuring_BeStMan_gateway][these instructions]]
+
+---++ Configuring Gratia !GridFTP Transfer Probe
+If you want to enable Gratia !GridFTP transfer probe you will need to do the To configure Gratia !GridFTP transfer probe do the following:
+<pre class="screen">
+cd &lt;VDT_LOCATION&gt;
+. setup.sh
+$VDT_LOCATION/vdt/setup/configure_gratia  \
+ --probe gridftp-transfer \
+ --report-to &lt;gratia_host:gratia_port&gt; \
+ --probe-cron --site-name &lt;SiteName&gt;
+</pre>
+
+Where _gratia_host_ is FQDN of Gratia collector, _gratia_port_ is Gratia Collector port and  _SiteName_ is your site name.
+
+If you want to do additional changes in configuration, eg change location of gridftp logs or name of the Grid (default is OSG) you can edit _ProbConfig_ file  located in
+_$VDT_LOCATION/gratia/probe/gridftp-transfer_ directory.
+
+You will need to modify the following parameters in probe configuartion file.
+   1. Location of !GridFTP logs
+<pre class="screen">
+   UserVOMapFile="&lt;CE_VDT_LOCATION&gt;/monitoring/osg-user-vo-map.txt"
+</pre>   
+
+   1. Location of _osg-vo-map.txt_ file 
+<pre class="screen">
+    GridftpLogDir="&lt;CE_VDT_LOCATION&gt;/globus/var/log"
+</pre>
+
+---++ Start/Stop !BeStMan
+You have to be root to start/stop each service. 
+   1. Start !BeStMan  and !Gratia transfer probe.Login on CE node, then:<pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+. setup.sh 
+vdt-control –on 
+</pre>
+   1. Stop !BeStMan and !Gratia transfer probe.Login on CE node, then:<pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+. setup.sh 
+vdt-control –off
+</pre> 
+
+---++ Sanity Check
+
+Please see [[https://twiki.grid.iu.edu/bin/view/Integration/ITB092/BestmanGateway#System_sanity_check][that]] for sanity check verification and [[https://twiki.grid.iu.edu/bin/view/Integration/ITB092/BestmanGateway#Verifying_BeStMan][that]] for troubleshooting hints.
+
+ 
 ---++ Known issues
 
 ---++ More information
