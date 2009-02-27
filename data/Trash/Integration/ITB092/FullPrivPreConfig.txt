@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MichaelThomas" date="1234462905" format="1.1" version="1.12"}%
+%META:TOPICINFO{author="IgorSfiligoi" date="1235766701" format="1.1" reprev="1.13" version="1.13"}%
 %META:TOPICPARENT{name="ComputeElementInstall"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -15,10 +15,18 @@ It is necessary to enable some mode of authentication before you can successfull
 run the OSG configuration script.  There is no mode of authentication that is enabled by 
 default.  This section of the document describes how to enable the recommended Full Privilege Authorization using a GUMS server that all OSG sites are strongly encouraged to use.  There is more 
 background information about the other privilege modes  at AboutAuthorizationForCE.   If you  
-wish to enable a different mode, please consult [[CompatibilityAuthPreConfig][CompatibilityAuthPreConfig]] or [[LocalAuthPreConfig][LocalAuthPreConfig]]
+wish to enable a different mode, please consult [[CompatibilityAuthPreConfig][CompatibilityAuthPreConfig]] or [[LocalAuthPreConfig][LocalAuthPreConfig]].
+
+In Full Privilege mode,  the PRIMA authorization module with a GUMS service is used for all authorizations and does not use a grid-mapfile.  The Globus gatekeeper and WS-GRAM  use a callout to PRIMA such that upon receipt of each request, PRIMA forwards the request to a GUMS service which performs the dynamic mapping of the user's certificate to a local Unix account. PRIMA and GUMS can process VOMS FQAN (Fully Qualified Attribute Names), thus enabling mappings based on VO groups and roles as defined in a VOMS server.   This removes the need for maintaining a =grid-mapfile= on each gatekeeper and/or gridftp server.   
+
+Obviously, your site must run a GUMS server in order to run in Full Privilege mode. 
+
 
 ---++ Prerequisites
-To successfully complete the steps below, you need to have installed a GUMS service. See the [[InstallConfigureAndManageGUMS][Install Configure And Manage GUMS]] topic of the %CACHE% documentation for information on installing GUMS. 
+   * To successfully complete the steps below, you need to have installed a GUMS service. See the [[InstallConfigureAndManageGUMS][Install Configure And Manage GUMS]] topic of the %CACHE% documentation for information on installing GUMS. 
+      %BR%
+      <b>Note:</b> The GUMS service should be installed on a host independent of any CE node.
+   * You will also need a valid host certificate, or maintain a valid host proxy.
 
 ---++ Configure GUMS clients to point to the correct GUMS service
 The GUMS-Client package is installed as part of the %CACHE% CE install  The essential commands are located in the =$VDT_LOCATION/gums/scripts= directory, and the essential configuration files are located in =$VDT_LOCATION/gums/config= directory.  You will need to configure these for Full Privilege authorization mode, which is explained in the following sections.
@@ -36,14 +44,27 @@ gums.authz=https://gums.domain.org:8443/gums/services/GUMSAuthorizationServicePo
 The =gums.authz= entry is used by the client tool to test specific mappings from this host.  Documentation of this client is found at the [[https://www.racf.bnl.gov/Facility/GUMS/1.2/use_test.html][GUMS web site]].  This same functionality can be executed using the GUMS web UI.
 
 ---++ Configure Globus to use the PRIMA callout
-Templates for the necessary configuration files, =prima-authz.conf= and =gsi-authz.conf=,  are located in the =$VDT_LOCATION/post-install= directory.  Both files must be copied into =/etc/grid-security/=.  These are critical for both pre-ws and WS-GRAM.
+The Globus gatekeeper is a CE service (also known as Pre_WS-GRAM) that submits user jobs from the grid to an underlying local batch system. Users present their grid identities (user proxy) to Globus. 
+This identity is mapped to a local user (UNIX username) using the PRIMA libraries.
+Jobs are then run in the batch system using this local identity.
+
+To configure Globus to use the Full Privilege Authorization, you need to configure =prima-authz.conf= and =gsi-authz.conf= in the =/etc/grid-security/= directory.
+Templates for both the configuration files are located in the =$VDT_LOCATION/post-install= directory.  Both files must be copied into =/etc/grid-security/=. 
+These are critical for both Pre-WS-GRAM and WS-GRAM (see below).
 
 *Note* If you set the VDT_GUMS_HOST environment variable while installing the CE, the modifications will have already been made to these template files.
 
-*Note* The PRIMA module distributed in this OSG release supports two protocols to talk to GUMS: (1) the legacy SAML v1 protocol; (2) the SAML v2 / XACML v2 interoperability protocol. For backward compatibility, by default VDT configures the legacy protocol; if you have installed GUMS v1.3.0 or later, you should use the XACML v2 interoperability protocol. Detailed instructions are below.
+Starting with %CACHE% %VERSION%, GUMS and PRIMA can use two different ways to communicate with each other  
+   * the old PRIMA legacy protocol, based on SAML v1
+   * the new XACML2 protocol defined by the OSG-EGEE interoperability group
 
----+++!! gsi-authz.conf
-The presence of an  =/etc/grid-security/gsi-authz= file, containing an entry for the PRIMA callout,  tells the Globus gatekeeper and gsiftp services to use PRIMA.  It does not need to be edited, just copied over to =/etc/grid-security/=.  The PRIMA callout is identified by this entry:
+The default installation will, for backward compatibility reasons, use the old PRIMA legacy protocol.
+However, if you installed GUMS v1.3.0 or later, you should switch to the new interface. Only the =gsi-authz.conf=  needs to be changed.
+
+---+++!! Using the legacy SAML v1 GUMS interface
+
+The presence of an  =/etc/grid-security/gsi-authz= file, containing an entry for the PRIMA callout,  tells the Globus gatekeeper and gsiftp services to use PRIMA.  It does not need to be edited, just copied from the VDT location over to =/etc/grid-security/=. 
+ The PRIMA callout is identified by this entry:
 <pre>
 globus_mapping /usr/local/osg-ce/prima/lib/libprima_authz_module_gcc32dbg globus_gridmap_callout
    <b>OR</b>
@@ -52,8 +73,8 @@ globus_mapping /usr/local/osg-ce/prima/lib/libprima_authz_module_gcc64dbg globus
 
    *Note:* =gsi-authz.conf= is the key to the callout being invoked.  If you remove this file from =/etc/grid-security/= (or if you comment out the line for the PRIMA callout),  the Globus services will revert to local grid-mapfile mode.
   
----+++!! prima-authz.conf
-This configuration file is used by the PRIMA callout and  identifies the GUMS service.  The appropriate line comes pre-configured with the CE hostname in the =imsContact= string.  For example, say one installed a *%CACHE% %VERSION%* CE on host =osg-ce.domain.org=, but the GUMS service was on host =gums.domain.org=.   Then, one would change these lines:
+The =/etc/grid-security/prima-authz.conf= file configuration file is used by the PRIMA callout and  identifies the GUMS service.  The appropriate line comes pre-configured with the CE hostname in the =imsContact= string.  
+For example, say one installed a *%CACHE% %VERSION%* CE on host =osg-ce.domain.org=, but the GUMS service was on host =gums.domain.org=.   Then, one would change these lines:
 <pre>
 imsContact <nop>https://osg-ce.domain.org:8443/gums/services/GUMSAuthorizationServicePort
     <b>TO</b>
@@ -67,31 +88,37 @@ xacmlContact <nop>https://gums.domain.org:8443/gums/services/GUMSXACMLAuthorizat
 </pre>
 and copy this file to =/etc/grid-security/=.   
 
+You may notice that this file also contains the =xacmlContact= string. The reason for both being contained in the =prima-authz.conf= is to support an easy switch to the new XACML2 GUMS interface.
+
 By default, the installation has the =prima-authz.conf= file's log file verbosity set to 'debug'.  You may want to change the =logLevel= attribute  to 'info'.
 
 ---+++!! Using the new XACML2 GUMS interface
 
-Starting with this version of VDT, GUMS and PRIMA can use two different ways to communicate with each other  
-   * the old PRIMA legacy protocol, based on SAML v1
-   * the new XACML2 protocol defined by the OSG-EGEE interoperability group
-
-The default installation will, for backward compatibility reasons, use the old PRIMA legacy protocol.
-However, if you installed GUMS v1.3.0 or later, you should switch to the new interface. Only the =gsi-authz.conf=  need be changed.
-
-To use the XAML2 interface, change =gsi-authz.conf= to 
+As explained above, the presence of an  =/etc/grid-security/gsi-authz= file, containing an entry for the PRIMA callout,  tells the Globus gatekeeper and gsiftp services to use PRIMA.
+It should be copied from the VDT location over to =/etc/grid-security/= and changed to:
 <pre>
 globus_mapping /usr/local/osg-ce/prima/lib/libprima_authz_module_scas_gcc32dbg globus_gridmap_callout
    <b>OR</b>
 globus_mapping /usr/local/osg-ce/prima/lib/libprima_authz_module_scas_gcc64dbg globus_gridmap_callout
 </pre>
 
-The =prima-authz.conf= already accommodates both legacy and xacml protocols:
+The =/etc/grid-security/prima-authz.conf= file configuration file is used by the PRIMA callout and  identifies the GUMS service.  The appropriate line comes pre-configured with the CE hostname in the =xacmlContact= string.  
+For example, say one installed a *%CACHE% %VERSION%* CE on host =osg-ce.domain.org=, but the GUMS service was on host =gums.domain.org=.   Then, one would change these lines:
 <pre>
+imsContact <nop>https://osg-ce.domain.org:8443/gums/services/GUMSAuthorizationServicePort
+    <b>TO</b>
 imsContact <nop>https://gums.domain.org:8443/gums/services/GUMSAuthorizationServicePort
-xacmlContact https://gums.domain.org:8443/gums/services/GUMSXACMLAuthorizationServicePort
-</pre>
+   
+    <b>and</b>
 
-The reason for both being contained in the =prima-authz.conf= is that the PRIMA callout for gt2 (pre-ws) has been modified for the new protocol with the new library referenced in the =gsi-authz.conf= .   This was not done in the WS-GRAM PRIMA callout (gt4) as  support will be provided natively by various clients in Globus WS-GRAM v4.2.  This will also, in the near future, be supported by the authorization framework in EGEE (SCAS client/server).
+xacmlContact <nop>https://osg-ce.domain.org:8443/gums/services/GUMSXACMLAuthorizationServicePort
+    <b>TO</b>
+xacmlContact <nop>https://gums.domain.org:8443/gums/services/GUMSXACMLAuthorizationServicePort
+</pre>
+and copy this file to =/etc/grid-security/=.   
+
+You may notice that this file also contains the =imsContact= string. The reason for both being contained in the =prima-authz.conf= is that the PRIMA callout for gt2 (pre-ws) has been modified for the new protocol with the new library referenced in the =gsi-authz.conf= .  
+This was not done in the WS-GRAM PRIMA callout (gt4) as  support will be provided natively by various clients in Globus WS-GRAM v4.2.  This will also, in the near future, be supported by the authorization framework in EGEE (SCAS client/server).
 
 ---++ Enable and run  the gums-host-cron service
 To keep the  =osg-user-vo-map.txt= file up to date, a cron file script (=gums-host-cron=) was  installed but not  activated. The activation of this service is *critical* in Full Privilege authorization mode.  
@@ -107,6 +134,8 @@ the OSG configuration step which comes next.  Be sure to check the output for an
 <pre>
 $VDT_LOCATION/gums/scripts/gums-host-cron --gumsdebug
 </pre>
+
+For more information about =osg-undefined-accounts.txt=, see  [[OsgSupportedVos][Supported VOs and Undefined UNIX Accounts]].
 
 ---++ WS-GRAM configuration for full privilege mode
 When there is a =/etc/grid-security/gsi-authz.conf= file in place that uses the PRIMA callout, and 
