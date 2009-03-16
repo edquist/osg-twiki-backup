@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ArvindGopu" date="1228485280" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="AnandPadmanabhan" date="1237221168" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
 ---+ RSV security metrics - Phase 3 v2
 %TOC%
@@ -108,8 +108,49 @@ These probes are meant to run via RSV clients on OSG sites.
 *high-level Goal*: Check how frequently site is downloading VOMS membership information from VOs. In other words, check GUMS or edg-mkgridmapfile conifguration for download frequency
 [Comment from Arvind: Do all OSG sites use VOMS?]
 
+---+++++ Probe Implementation Considerations (Anand)
+*High Level Goal* The high level goal of this probe is to ensue that the sites are getting updated VO list from the correct VOMS servers periodically. (Note: High-level goal has been updated based on Mine'e requirement)
 
+Checking this high-level goal will entail at-least verifying the following two conditions:
+   1. The VO list is getting updated at-least every X (24?) hours 
+   1. The correct VOMS servers are being contacted.
+   
+Any other requirements?
+OSG sites could either use GUMS or edg-mkgridmap to get the list from the VOs, so we will need to address all paths
 
+---++++++ Requirement 1: Check if the VO list is getting updated at-least every X (24?) hours 
+*For sites using GUMS in full-privilege mode*: GUMS developers will need to add a functionality that will publish the information about how when was the last time the VO-list update process was run. This information needs to be queryable from the CE using the RSV service certificate.
+
+*For sites using edg-mkgridmap*: We will have to modify the edg-mkgridmap code so that it records the information about the last time it was run.
+
+*For sites using GUMS in compatibility mode*: These sites actually generate gridmap file (GMF) using a cron job that contacts their GUMS server. For sites using GUMS in compatibility mode, in addition to checking if GUMS is contacting the VOMS servers periodically, we will also have to ensure that the process used to generate the  GMF from GUMS is successfully running. I am unclear what this check will entail.
+
+*Issue 1* One potential issue will be to correctly identify sites which are using GUMS compatibility mode and not edg-mkgridmap, since both will not have a prima call out configured on the CE. Sites using gums can be easily identified by looking for prima.conf. Should we just ignore sites using GUMS compatibility mode (for this RSV probe) since it is being used only a few sites? Any other solutions?
+
+*Issue 2*: As stated, requirement 1 just checks if the process of updating the VO membership was run. It does not check whether VO membership was retrieved successfully from all the VOMS servers. Requiring the later will necessitate further changes to both GUMS and edg-mkgridmap process. Furthermore we will have to develop a mechanism to identify (within the RSV probe) if the problem lies on the site CE or at the VO level.
+
+---++++++ Requirement 2: Is the correct VOMS servers are being contacted
+*Step 1: Find out what VOMS servers the sites are connecting to*
+
+*For sites using GUMS* : A simple way to know this would be to access the entire GUMS configuration file, but that might be unwise from a security perspective to open up access to GUMS configuration from the CE. So Ideally the GUMS developers will also have to add a functionality that will return a list of VOMS server being contacted for each VO. This approach will work for both full-privilege and compatibility mode, assuming of-course that Issue 1 (listed in previous section) has been resolved.
+
+*For sites using edg-mkgridmap*: We could use the edg-mkgridmap.conf to figure out what VOs the site is downloading its membership list from. We will have to make the assumption that the sites are using the template that is being distributed by the GOC that has the comment line the lists VOi and VOc. This will allow us to associate the VOMS used for a particular VO. For e.g.
+
+    # USER-VO-MAP icecube IceCube -- 35 -- FName LName (email) <br>
+    group vomss://grid-voms.desy.de:8443/voms/icecube icecube
+
+This line will tell us that the CE is contacting the voms server 'group vomss://grid-voms.desy.de:8443/voms/icecube' to get the membership list of the  'icecube' VO.
+
+*Step 2: Is the site contacting the correct VOMS server*
+
+Once we have the list of VOMS servers being contacted by the site, we will need to compare it with the central list (from GOC). If the servers don't match up an error/warning message should be issued
+
+---++++++ Additional Comments
+
+*Issue 3*: Having site probes depend on a central list maintained at the GOC is not ideal and might be prone to problems.
+
+*Issue 4*: This probe seems to be operational rather than a security probe. I agree that the VOs will like the site to keep their membership list updated, so that if they remove/add a user from/to the VO this gets immediately reflected. A removed user can be misusing the VOs resources. But this still does not rise to a Grid level security problem. If the user is indeed behaving in bad-faith, and hence is posing security problem to the Grid, it would be more advisable to revoke the users certificate rather than just removing him from a VO.
+ 
 ---+++ The following should be central metrics, in my opinion -ag
 
 ---++++VOMS availability metric
@@ -132,6 +173,6 @@ These probes are meant to run via RSV clients on OSG sites.
 
 
 
-
+-- Main.AnandPadmanabhan - 16 Mar 2009 - comments
 -- Main.ArvindGopu - 05 Dec 2008 - comments, edits
 -- Main.MineAltunay - 11 Nov 2008
