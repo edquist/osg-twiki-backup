@@ -1,0 +1,152 @@
+%META:TOPICINFO{author="WillMaier" date="1237471015" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Hadoop"}%
+---+    Installation
+
+---++    Prerequisites
+
+The installation process is based on [[ReleaseDocumentation.PacmanBestPractices][Pacman]]; 
+see the [[ReleaseDocumentation.WebHome][release documentation]] for
+help on [[ReleaseDocumentation.PacmanInstall][installing Pacman]] if
+you do not have it already.
+
+Next, determine the node which will be your namenode and the list of
+the data nodes.  Finally, determine where the Hadoop software will
+be installed; we recommend either a pre-existing Pacman install
+(such as the OSG) or an NFS mount.
+
+---++    Hadoop
+
+The Hadoop install is relatively automated:
+
+<verbatim>
+cd $VDT_LOCATION
+echo "http://t2.unl.edu/store/cache" > trusted.caches
+echo "http://vdt.cs.wisc.edu/vdt_1101_cache" >> trusted.caches
+export VDTSETUP_AGREE_TO_LICENSES=y
+pacman -get http://t2.unl.edu/store/cache:Hadoop
+pacman -get http://t2.unl.edu/store/cache:Hadoop-Config
+</verbatim>
+
+The difference between the Hadoop and Hadoop-Config packages is that
+Hadoop-Config includes a set of handy aliases for interacting with
+HDFS and a set of init scripts.  You may skip that one if you like.
+
+We recommend also installing FUSE on all servers, and GridFTP-HDFS
+on external servers.
+
+---++ Hadoop Configuration
+
+We have included some sane default values for the Hadoop config; you
+ought to put any changes in hadoop-site.xml, not hadoop-default.xml.
+We recommend the following changes:
+
+   $ =hadoop-site.xml=: site configuration file.
+      $ =fs.default.name=: hostname of your namenode (default: hdfs://hadoop-name:9000).
+      $ =hadoop.tmp.dir=: location of the node's disk storage; may be a
+         comma-separated list of mount points (default: =/scratch/hadoop=). Note: 
+         do not put a space between the commas.
+   $ =conf/slaves=: list of datanodes attached to the cluster, one per
+      line. Only needed if you plan to use the provided scripts to start and stop the datanodes.
+   $ =conf/hadoop-metrics.properties=: Ganglia configuration.
+      $ =*.server=: Ganglia location; only needed if you want to use Ganglia to monitor Hadoop.
+   $ =conf/hadoop-env.sh=: daemon stdout redirection (default:
+      =/var/log=). Note: the log4j logs go to =${hadoop.tmp.dir}/logs=
+      and aren't affected by this configuration option.
+   $ =${hadoop.tmp.dir}/=: general-purpose directory. Note: if this
+      directory does not exist, none of the daemons will start up.
+   $ =${hadoop.tmp.dir}/hosts_exclude=: zero-length file. Note: if
+      this file does not exist, the namenode will not start up.
+
+In addition, it may be necessary to increase the open file limit on
+all the datanodes to 8192 or more. This configuration varies by
+platform.
+
+At this point, we recommend starting up the namenode and datanode
+daemons and reading the logfiles to make sure they can startup
+successfully.
+
+<verbatim>
+. $VDT_LOCATION/setup.sh
+start-dfs.sh
+</verbatim>
+
+If you have slaves set up in the slaves file, then the startup
+script will attempt to launch daemons through SSH.  If you use this
+method, you must have passwordless SSH installed for the user
+running Hadoop.  Passwordless SSH is only used for launching the
+daemons; it is by no means required to run Hadoop; many sites don't
+use this and use the VDT-provided init.d script instead.
+
+---++    FUSE
+
+FUSE provides a POSIX interface to the Hadoop filesystem. Hadoop
+itself provides the FUSE-DFS filesystem, but you must install FUSE
+separately.
+
+To install FUSE, you must first install the kernel sources for the
+current kernel version running on the nodes where you plan to mount
+FUSE. This version must match EXACTLY the version reported by =uname -r=.
+If you're using =yum=, you should install either the =kernel-devel=
+or =kerenl-smp-devel= RPMS.
+
+If the FUSE installation fails but you are sure that the correct
+kernel sources are present, you can override the kernel source check
+by setting the following environment variable:
+
+<verbatim>
+export VDT_HAS_KERNEL_SOURCES=1
+</verbatim>
+
+Then proceed with the installation:
+
+<verbatim>
+cd $VDT_LOCATION
+pacman -get http://t2.unl.edu/store/cache:FUSE
+modprobe fuse
+</verbatim>
+
+Before mounting FUSE, make sure that the desired mount point (for
+example, =/mnt/hadoop=) exists. Finally, as root:
+
+<verbatim>
+source $VDT_LOCATION/setup.sh
+export VDT_HDFS_FUSE_MOUNT=/mnt/hadoop
+fuse_dfs -oserver=hadoop-name -oport=9000 $VDT_HDFS_FUSE_MOUNT -oallow_other -ordbufffer=131072
+</verbatim>
+
+Modify the =VDT_HDFS_FUSE_MOUNT= variable as required for your site.
+This needs to be done at boot; sourcing the VDT is a necessary step
+as it brings in the correct environment for FUSE.
+
+When you run the mount command, it prints out some scary warnings:
+
+<verbatim>
+fuse-dfs didn't recognize /hadoop,-2
+fuse-dfs ignoring option allow_other
+</verbatim>
+
+Ignore them.
+
+---++    FUSE Configuration
+
+If you installed the Hadoop-Config package above, you can easily
+start FUSE on boot. First, tell the VDT what namenode and port you
+use.  Add the following to =$VDT_LOCATION/vdt/etc/vdt-local-setup.sh=:
+
+<verbatim>
+export VDT_GRIDFTP_HDFS_NAMENODE="hadoop-name"
+export VDT_GRIDFTP_HDFS_PORT="9000"
+export VDT_HDFS_FUSE_MOUNT="/mnt/hadoop"
+</verbatim>
+
+Edit these variables as you see fit.
+
+Enable the VDT packaging of the init script:
+
+<verbatim>
+. $VDT_LOCATION/setup.sh
+vdt-control --enable hadoop_fuse
+vdt-control --on
+</verbatim>
+
+-- Main.WillMaier - 19 Mar 2009
