@@ -1,0 +1,218 @@
+%META:TOPICINFO{author="WillMaier" date="1237481577" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Hadoop"}%
+---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+---+ Daily Operations
+
+All of the admin operations must be done as root on the Hadoop namenode unless
+otherwise noted.
+
+---++ Starting and Stopping Hadoop Daemons
+
+---+++ VDT
+
+<verbatim>
+. ${VDT_LOCATION}/setup.sh
+vdt-control [--on|--off] [gridftp-hdfs]
+</verbatim>
+
+---+++ Init Scripts
+
+<verbatim>
+/etc/init.d/hadoop_datanode [start|stop]
+/etc/init.d/hadoop_namenode [start|stop]
+/etc/init.d/hadoop_fuse [start|stop]
+</verbatim>
+
+---+++ Manual
+
+We recommend using the init scripts to start and stop daemons.
+However, if you must do this manually:
+
+<verbatim>
+cd $HADOOP_HOME/bin
+source ./hadoop-config.sh
+./hadoop-daemon.sh --config $HADOOP_CONF_DIR start datanode
+</verbatim>
+
+The valid actions are =start= or =stop=; the valid daemons are
+=datanode= or =namenode=.
+
+---+++ Manually Mounting FUSE
+
+To unmount:
+
+<verbatim>
+umount /mnt/hadoop
+</verbatim>
+
+To mount, after sourcing the Hadoop environment,
+
+<verbatim>
+fuse_dfs -oserver=hadoop-name -oport=9000 /mnt/hadoop -oallow_other -ordbufffer=131072
+</verbatim>
+
+---++ Hadoop Filesystem
+
+<verbatim>
+hadoop fsck / -blocks
+</verbatim>
+
+A successful check will end with these words:
+
+<verbatim>
+The filesystem under path '/' is HEALTHY
+</verbatim>
+
+A unsuccessful check will end with the following:
+
+<verbatim>
+The filesystem under path '/' is CORRUPTED
+</verbatim>
+
+For general information about HDFS, use =dfsadmin=:
+
+<verbatim>
+hadoop dfsadmin -report
+</verbatim>
+
+Similar information can be found on the name node's =dfshealth= webpage; for
+example: http://dcache-head.unl.edu:8088/dfshealth.jsp.
+
+To get the current safemode status:
+
+<verbatim>
+hadoop dfsadmin -safemode get
+</verbatim>
+
+To leave or enter safemode:
+
+<verbatim>
+hadoop dfsadmin -safemode leave
+
+hadoop dfsadmin -safemode enter
+</verbatim>
+
+---++ FUSE
+
+If you see the message "Transport endpoint is not connected" on nodes where
+FUSE is mounted, this means that the FUSE mount has died. Connect to the node,
+unmount the file system, and remount it:
+
+<verbatim>
+umount /mnt/hadoop
+fuse_dfs -oserver=hadoop-name -oport=9000 /mnt/hadoop -oallow_other -ordbufffer=131072
+ls /mnt/hadoop
+</verbatim>
+
+---+ Decommissioning Data Nodes
+
+First, add the node's name to the =hosts_exclude= file. Then, run:
+
+<verbatim>
+hadoop dfsadmin -refreshNodes
+</verbatim>
+
+Watch the namenode logs to make sure all the appropriate actions are taken. The
+decommissioning is complete when you see the following message in the logs:
+
+<verbatim>
+Decommission complete for node 172.16.1.55:50010
+</verbatim>
+
+Note: The namenode must see the transition from normal host to excluded host in
+order for it to realize a node is being decommissioned. If you stop the
+namenode, add the file to the hosts_exclude, then start the namenode again, the
+namenode will have the following complaints in the log: 
+
+<verbatim>
+ProcessReport from unregisterted node: node055:50010
+</verbatim>
+
+This is because the namenode thinks it is being contacted by a node
+which was never in the system at all, not by a node which should be
+decommissioned.
+
+---+ Cleaning Up a CORRUPT Filesystem
+
+When the namenode is in safemode, no edits to the filesystem are
+allowed. First, run =fsck= and determine the extent of the
+damage.  If it is acceptable to delete or otherwise move aside the
+damaged files, turn off safemode, and move the file using the
+following command:
+
+<verbatim>
+hadoop fsck -move
+</verbatim>
+
+This moves any files with problematic blocks into =/lost+found= in
+the Hadoop namespace.
+
+---+ Restoring from a checkpoint
+
+First, shut down the namenode. The namenode keeps two checkpoint
+images:
+
+   * =dfs/namesecondary/current/=
+   * =dfs/namesecondary/previous.checkpoint/=
+
+Copy all the files from one of these directories into
+=dfs/name/current/=.
+
+Start the namenode again, and watch the logs for activities.
+
+---+ Fixing Stuck and Under Replicated Files
+
+Sometimes, a small number of blocks may remain under-replicated.
+This often corresponds with blocks that were written during or
+shortly before or after a namenode crash. Block replications
+should occur fairly quickly (no more than 10 minutes); if the block
+remains under-replicated longer than that, proceed with the
+following instructions.
+
+First, confirm that the file has under-replicated blocks:
+
+<verbatim>
+hadoop fsck <file_name>
+</verbatim>
+
+Then, set the desired number of replicas to the current
+(insufficient) number of observed replicas:
+
+<verbatim>
+hadoop fsck -setrep <file_name> <actual_replicas>
+</verbatim>
+
+Using =fsck=, verify that the file no longer appears to have
+under-replicated blocks. Then, reset the replication policy for the
+file to the desired number:
+
+<verbatim>
+hadoop fsck -setrep <file_name> <desired_replicas>
+</verbatim>
+
+Verify again that Hadoop has begun to replicate the blocks using
+=fsck=.
+
+If several files are affected, a variation of the following script
+might help:
+
+<verbatim>
+hadoop fsck / | awk '{print $1}' | grep user | tr -d ':' | sort | uniq > /tmp/stuck_replicas
+cat /tmp/stuck_replicas | xargs -t -i hadoop fs -setrep 2 {}
+hadoop fsck / # Make sure everything is happy
+cat /tmp/stuck_replicas | xargs -t -i hadoop fs -setrep 3 {}
+hadoop fsck / # Watch and see if everything becomes happy
+</verbatim>
+
+---+ Port Forwarding for the Hadoop Web Interface
+
+This only needs to be done once:
+
+<verbatim>
+/sbin/iptables -t nat -A PREROUTING -p tcp --dport 8088 -i eth0 -j DNAT --to-destination 172.16.100.8:50070
+/sbin/iptables -t nat -A PREROUTING -p tcp --dport 8089 -i eth0 -j DNAT --to-destination 172.16.1.3:50030
+</verbatim>
+
+-- Main.WillMaier - 19 Mar 2009
