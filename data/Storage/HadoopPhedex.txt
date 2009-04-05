@@ -1,0 +1,152 @@
+%META:TOPICINFO{author="MichaelThomas" date="1238903722" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Hadoop"}%
+---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+
+The SRM interface to Hadoop is through the Bestman SRM server.  This SRM server has some slight differences in semantics compared with the dCache SRM server.  Two notable differences are:
+
+   1. The Bestman SRM server has a bug that causes it to ignore the VOMS FQAN of a non-delegated proxy.  SAM tests and PhEDEx do not use a delegated proxy.  The result is that Bestman may map the user incorrectly due to the missing VOMS extensions.  The Bestman developers are working on a fix for this issue.
+   1. The Bestman SRM server does not create the parent directories for file copy operations, as per the SRM specification.  The dCache SRM server violates this part of the specification, and phedex relies on this violation.
+
+The remainder of this document describes some suggested modifications to your phedex agents to work better with Hadoop and Bestman.
+
+---++ Use the FUSE mount on the phedex node
+
+Each invocation of the srm client tools launches a new JVM.  When many file operations occur at the same time (copy, delete, verify) then this can quickly bring a phedex server to its knees. Many sites mount the dCache pnfs filesystem on the phedex node to avoid the need to run =srmrm= to delete files.  Similarly with Hadoop, if you mount the HDFS filesystem with fuse on the phedex server, you can delete files with =rm= command instead of =srmrm=.  Even if you don't use the fuse mount on the phedex server, you can still use the Hadoop CLI to interact with the Hadoop filesystem.
+
+---++ Create leading directories in FileDownloadDelete
+
+Since Bestman SRM does not create the leading directories for file transfers, the phedex agents must do this.  The =FileDownload= agent can be configured to invoke the =FileDownloadDelete= script before transferring a file.  It is here that you will want to create the leading directories.
+
+---++ Delete load test files after transferring
+
+This isn't specific to Hadoop, but is listed here because more than one site has reported this problem.  If PhEDEx load test files are not cleaned up after the transfer is finished, then you will quickly fill up HDFS with junk files.  In the PhEDEx config for the load test agents, you can pass a =-d= flag to the verify script.  The default FileDownloadVerify agent should check for the existence of this flag and delete the file after performing the verification.
+
+---++ Example FileDownloadDeleteHadoop
+
+<verbatim>
+#!/bin/sh
+
+# Pick up arguments
+reason="$1" fullsrmpath="$2"
+
+# message
+echo "Removing $fullsrmpath"                                                                                                            
+
+# Rewrite PFN to form that's useful to our commands
+pfn=`echo $fullsrmpath | sed 's|.*/srm/v2/server?SFN=||'`
+
+echo "Local path is $pfn"
+
+# Handle removal.  We remove destination both before transfer and
+# after a failed transfer.
+case $reason in
+  pre )
+        echo "Executing: rm -f $pfn"
+        rm -f $pfn
+
+        # Create the leading directories that are not automatically created
+        # by the Bestman SRM server.
+        dir=`dirname $hadoop_path`
+        echo "Creating parent directories with 'hadoop fs -mkdir $dir'"
+        hadoop fs -mkdir $dir
+        ;;
+  post )
+        echo "Executing: rm -f $pfn"
+        rm -f $pfn
+        ;;
+  * ) echo "unrecognised reason to remove $pfn: $reason" 1>&2; exit 1
+        ;;
+esac
+
+exit 0
+</verbatim>
+
+---++ Example FileDownloadVerifyHadoop
+
+<verbatim>
+#!/bin/sh
+
+JAVA_HOME=/usr/java/latest
+PATH=$JAVA_HOME/bin:$PATH
+
+
+# Process command line arguments
+do_checksum=false do_delete=false do_force=false
+while [ $# -ge 1 ]; do
+  case $1 in
+    -c ) do_checksum=true; shift ;;
+    -d ) do_delete=true; shift ;;
+    -f ) do_force=true; shift ;;
+    -* ) echo "unrecognised option $1" 1>&2; exit 5 ;;
+    *  ) break ;;
+  esac
+done
+
+
+# Pick up arguments
+status="$1" fullsrmpath="$2" size="$3" checksum="$4"
+validity=0
+
+
+# Rewrite PFN to a form that's useful to our commands
+pfn=`echo $fullsrmpath | sed 's|srm://.*/srm/v2/server?SFN=||'`
+echo "***Extracted pfn: $pfn"
+hadoop_path=`echo $pfn | sed -e "s|/mnt/hadoop||"`
+echo "***Extracted hadoop path: $hadoop_path"
+
+if [ "$status" == "pre" ] ; then
+    dir=`dirname $hadoop_path`
+    echo "Creating parent directories with 'hadoop fs -mkdir $dir'"
+    hadoop fs -mkdir $dir
+fi
+
+                           # Check file size and mark file invalid on mismatch.
+if [ $validity = 0 ]; then
+# Take your pick.  You can either use the Hadoop CLI to get the file size
+# or use the fuse mount.
+#  disksize=`hadoop fs -ls $hadoop_path | tail -1 | awk '{print $5}'`
+  disksize=`ls -l $pfn | awk '{print $5}'`
+  if [ "$?" != 0 ] ; then
+      echo "Failed to get file size"
+      validity=1
+  else
+      [ X"$disksize" != X"$size" ] && echo "size mismatch disk=$disksize db=$size guid=$guid pfn=$pfn" && validity=2
+      [ X"$disksize" == X"$size" ] && echo "Success!!!  pfn=$pfn"
+  fi
+fi
+echo "***disksize: $disksize ----- ***size: $size   for $pfn"
+
+# If file deletion was requested, delete the file.
+$do_delete && echo "deleting $pfn"
+$do_delete && rm -f "$pfn" 2>/dev/null
+
+
+# If we are forcing true return value, lie about it all
+$do_force && validity=0
+
+
+# Return file validity
+exit $validity
+</verbatim>
+
+---++ Example agent config for Load Tests
+
+<verbatim>
+### AGENT LABEL=download-debug-ucsd PROGRAM=Toolkit/Transfer/FileDownload
+ -db              ${PHEDEX_DBPARAM}
+ -nodes           ${PHEDEX_NODE}
+ -delete          ${PHEDEX_CONF}/FileDownloadDeleteHadoop
+ -validate        ${PHEDEX_CONF}/FileDownloadVerifyHadoop -d
+ -accept          'T2_US_UCSD'
+ -backend         SRM
+ -protocols       srmv2,srm
+ -command         srmcp,-pushmode=true,-debug=true,-retry_num=2,-protocols=gsiftp,-srm_protocol_version=2
+ -batch-files     2
+ -jobs            5
+ -timeout         10800
+</verbatim>
+
+
+-- Main.MichaelThomas - 05 Apr 2009
