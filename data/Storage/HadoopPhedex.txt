@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MichaelThomas" date="1238903722" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="MichaelThomas" date="1238913048" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="Hadoop"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -28,39 +28,56 @@ This isn't specific to Hadoop, but is listed here because more than one site has
 <verbatim>
 #!/bin/sh
 
+# Make sure you use java 1.6 if you are invoking the Hadoop cli.
+JAVA_HOME=/usr/java/default
+PATH=$JAVA_HOME/bin:$PATH
+
 # Pick up arguments
 reason="$1" fullsrmpath="$2"
 
 # message
-echo "Removing $fullsrmpath"                                                                                                            
+echo "Removing $fullsrmpath"
 
 # Rewrite PFN to form that's useful to our commands
-pfn=`echo $fullsrmpath | sed 's|.*/srm/v2/server?SFN=||'`
-
-echo "Local path is $pfn"
+pfn=`echo $fullsrmpath | sed 's|srm://.*/srm/v2/server?SFN=||'`
+echo "***Extracted pfn: $pfn"
+hadoop_path=`echo $pfn | sed -e "s|/mnt/hadoop||"`
+echo "***Extracted hadoop path: $hadoop_path"
 
 # Handle removal.  We remove destination both before transfer and
 # after a failed transfer.
 case $reason in
   pre )
-        echo "Executing: rm -f $pfn"
-        rm -f $pfn
+        # You have the choice of using the rm command, or the Hadoop cli
+        # to remove the file.
+
+        echo "Executing: hadoop fs -rm $hadoop_path"
+        hadoop fs -rm $hadoop_path
+        #echo "Executing: rm -f $pfn"
+        #rm -f $pfn
+
 
         # Create the leading directories that are not automatically created
         # by the Bestman SRM server.
         dir=`dirname $hadoop_path`
         echo "Creating parent directories with 'hadoop fs -mkdir $dir'"
         hadoop fs -mkdir $dir
+        #dir=`dirname $pfn`
+        #echo "Creating parent directories with 'mkdir -p $dir'"
+        #hadoop fs -mkdir $dir
         ;;
-  post )
-        echo "Executing: rm -f $pfn"
-        rm -f $pfn
+  post )  
+        echo "Executing: hadoop fs -rm $hadoop_path"
+        hadoop fs -rm $hadoop_path
+        #echo "Executing: rm -f $pfn"
+        #rm -f $pfn
         ;;
   * ) echo "unrecognised reason to remove $pfn: $reason" 1>&2; exit 1
         ;;
 esac
 
 exit 0
+
 </verbatim>
 
 ---++ Example FileDownloadVerifyHadoop
@@ -68,9 +85,9 @@ exit 0
 <verbatim>
 #!/bin/sh
 
-JAVA_HOME=/usr/java/latest
+# Make sure you use java 1.6 if you are invoking the Hadoop cli.
+JAVA_HOME=/usr/java/default
 PATH=$JAVA_HOME/bin:$PATH
-
 
 # Process command line arguments
 do_checksum=false do_delete=false do_force=false
@@ -84,11 +101,9 @@ while [ $# -ge 1 ]; do
   esac
 done
 
-
 # Pick up arguments
 status="$1" fullsrmpath="$2" size="$3" checksum="$4"
 validity=0
-
 
 # Rewrite PFN to a form that's useful to our commands
 pfn=`echo $fullsrmpath | sed 's|srm://.*/srm/v2/server?SFN=||'`
@@ -96,39 +111,35 @@ echo "***Extracted pfn: $pfn"
 hadoop_path=`echo $pfn | sed -e "s|/mnt/hadoop||"`
 echo "***Extracted hadoop path: $hadoop_path"
 
-if [ "$status" == "pre" ] ; then
-    dir=`dirname $hadoop_path`
-    echo "Creating parent directories with 'hadoop fs -mkdir $dir'"
-    hadoop fs -mkdir $dir
-fi
-
-                           # Check file size and mark file invalid on mismatch.
+# Check file size and mark file invalid on mismatch.
 if [ $validity = 0 ]; then
 # Take your pick.  You can either use the Hadoop CLI to get the file size
 # or use the fuse mount.
-#  disksize=`hadoop fs -ls $hadoop_path | tail -1 | awk '{print $5}'`
-  disksize=`ls -l $pfn | awk '{print $5}'`
+  disksize=`hadoop fs -ls "$hadoop_path" | tail -1 | awk '{print $5}'`
+#  disksize=`ls -l "$pfn" | awk '{print $5}'`
   if [ "$?" != 0 ] ; then
       echo "Failed to get file size"
       validity=1
   else
-      [ X"$disksize" != X"$size" ] && echo "size mismatch disk=$disksize db=$size guid=$guid pfn=$pfn" && validity=2
+      [ X"$disksize" != X"$size" ] && echo "size mismatch disk=$disksize db=$siz
+e guid=$guid pfn=$pfn" && validity=2
       [ X"$disksize" == X"$size" ] && echo "Success!!!  pfn=$pfn"
   fi
 fi
+
 echo "***disksize: $disksize ----- ***size: $size   for $pfn"
 
 # If file deletion was requested, delete the file.
 $do_delete && echo "deleting $pfn"
-$do_delete && rm -f "$pfn" 2>/dev/null
-
+#$do_delete && rm -f "$pfn" 2>/dev/null
+$do_delete && hadoop fs -rm "$hadoop_path" 2>/dev/null
 
 # If we are forcing true return value, lie about it all
 $do_force && validity=0
 
-
 # Return file validity
 exit $validity
+
 </verbatim>
 
 ---++ Example agent config for Load Tests
