@@ -1,30 +1,35 @@
-%META:TOPICINFO{author="KarthikArun" date="1238802245" format="1.1" reprev="1.3" version="1.3"}%
+%META:TOPICINFO{author="KarthikArun" date="1239049682" format="1.1" reprev="1.4" version="1.4"}%
 %META:TOPICPARENT{name="BDIIServiceLevelAgreement"}%
 <table width="100%" border="0"> <tbody><tr><td valign="top"> </td> <td valign="top">
----+!! BDII adjustment script
+---+!! BDII filter/adjustment script
 %TOC% </td> <td width="25%" align="right" valign="top">
-%TABLE{ sort="off" dataalign="left" tableborder="0" cellpadding="1" cellspacing="3" headerbg="#F3EDE7" databg="#F3EDE7"}% </td></tr></tbody></table>
+%TABLE{ sort="off" dataalign="left" tableborder="0" cellpadding="1" cellspacing="3" headerbg="#F3EDE7" databg="#F3EDE7"}% </td></tr></tbody></table> 
 %STARTINCLUDE%
-
----+++ BDII adjustment script
 
 ---++++ What does it do?
 The script provides the logic for:
    * Using the BDII data to calculate the Installed capacity (based on the guidelines laidout in the installed capacity document) at a site.
-   * Comparing the calculated installed capacity to the pre-determined (upper and lower) limits
-   * If the calculated installed capacity falls outside the limits then:
-      * Adjusting the BDII data so that the calculated installed capacity falls within the limits
+   * Comparing the calculated installed computing capacity to the pre-determined (upper and lower) limits
+   * If the calculated installed computing capacity falls outside the limits then:
+      * Adjusting the BDII data so that the calculated installed computing capacity falls within the limits
 
----++++ Can you provide an example?
-Yes, here is an example scenario for AGLT2:
+So in its guts, the script does the following:
+<pre>
+Incoming BDII data -----> BDII filter/adjustment script -----> Adjusted BDII data
+</pre>
+
+Note that this BDII data adjustment operation is required mainly for sites supporting the ATLAS and CMS VOs. But the script will work for any OSG site if needed. 
+
+---++++ Can you provide an example scenario? 
+Yes, here is an example scenario for AGLT2. Note that AGLT2 has just been taken as an example for demonstration purposes only. This doesn't either confirm or deny the validity of the BDII data from AGLT2.  
 
 upper bound: 4000 (Fake value, for testing purposes only)<br>
 lower bound: 3000 (Fake value, for testing purposes only)<br>
 
 [ Question: Who will provide the upper/lower bounds for each site? ]
 
-Calculated installed capacity: 4136<br>
-Adjusted installed capacity: 4000 (limited to upper bound)<br>
+Calculated installed computing capacity: 4136<br>
+Adjusted installed computing capacity: 4000 (limited to upper bound)<br>
 Installed capacity adjustment:  -3%<br>
 
 Corresponding adjustments made in the physical/logical CPUs (-3% applied across all sub-clusters):<br>
@@ -35,5 +40,100 @@ GlueSubClusterLogicalCPUs: 876<br>
 GlueSubClusterPhysicalCPUs: 706<br>
 GlueSubClusterLogicalCPUs: 706<br>
 
+---++++ Why do we need it?
+We need the BDII adjustment script in order to do reactive data correction (if appropriate) of the BDII data that comes from a site. This avoids incorrect data from getting propagated further downstream to the WLCG BDII and ending up as bad data in the hands of management. This correction is purely reactive and isn't a reflection of the correct data for the site i.e. the data is simply adjusted to fit within the limits of the installed computing capacity. The real correction will come from the proactive correction methods, which will be done by contacting the sites that produce the bad data.  
+
+---++++ How does it work?
+I hope that the example above provides a feel for how the script works. Here are some more details about the script. The script gets the BDII data using curl, one site at a time, from the webpage maintained by the GOC. The url for the various sites could be obtained from http://is.grid.iu.edu/data/cemon_transitory. 
+Then It goes through the logic to calculate the installed computing capacity at the site. Then it compares the installed capacity with a list of pre-configured values for the site. If the value falls outside the limits, then the script calculates the percentage by which the installed capacity needs to be adjusted. The script goes through the BDII data one more time and applies this % adjustment to the sub-cluster data as shown above. This in turn keeps the installed capacity within the limits. So this is purely reactive adjustment. 
+
+
+---++++ Where/how will the script run?
+The script will be hosted at the Grid Operations Center (GOC) and will run there. Initially this script should be run in testing mode i.e. it could be used to filter BDII data from sites, but the filtered data should not be sent further downstream. The upper and lower bounds for different sites could be setup with various made up values (or real values if someone knows how to get those) and it should be verified how the script adjusts/filters the data. 
+
+---++++ How can I obtain the script code/package?
+The script package bdii_adjust.tar.gz is attached at the end of this page under 'Attachments'. So you can simply download it from there.  
+
+---++++ How do I install it?
+Go to the directory where you want to install the script and do the following:
+<pre>
+tar -zxvf bdii_adjust.tar.gz
+</pre>
+The installation is complete!
+
+---++++ What are the pre-requisites for running the script?
+curl should work from the command line
+
+---++++ How do I run the script?
+Run the script from the command line as shown below:
+<pre>
+export INSTALL_DIR=/absolute/path/to/installation/directory
+</pre>
+To filter the BDII data for just one site, do
+<pre>
+$INSTALL_DIR/bdii.sh -site SITE_NAME
+</pre>
+To filter the BDII data for all sites do
+<pre>
+$INSTALL_DIR/bdii.sh
+</pre>
+
+---++++ How do I set the upper and lower bounds for the Installed capacity values for a particular site?
+The upper and lower bounds for the installed capacity are configured in the $INSTALL_DIR/conf/setup.sh file. For example to set these values for the site AGLT2, edit the following values:
+
+AGLT2_ll refers to the lower limit
+<pre>
+export AGLT2_ll=3000
+</pre>
+AGLT2_ul refers to the upper limit
+<pre>
+export AGLT2_ul=4000
+</pre>
+
+Now when the script is run, it will adjust the BDII data (if appropriate) to limit the installed capacity value within these bounds
+
+---++++ Who is responsible for setting these upper and lower bounds and how do they know these values?
+Good questions. I don't have the answer for that. Feel free to provide that information here. 
+
+---++++ I would like to know if a site's BDII data is adjusted or not and by what percentage. Can I find that?
+Yes, you can find that by doing the following (for example for site AGLT2). May be this will be a useful test mode for the script. 
+<pre>
+$INSTALL_DIR/helper/ic.sh -adjust -site AGLT2
+</pre>
+If there is some adjustment to be made in the installed capacity data, then running the above command will show the percentage adjustment as below. This % correction will be applied in each sub-cluster BDII data as shown in the example scenario way above near the top. 
+<pre>
+AGLT2                -3
+</pre>
+If there is no adjustment to be made then the above command won't produce any output.
+
+---++++ OK, so this script adjusts the BDII data depending on if the installed capacity values fall outside the bounds. But I would like to know the installed capacity at a particular site. How do I find that?
+You can find the installed capacity at a particular site (AGLT2 for example) by running the following command:
+<pre> 
+$INSTALL_DIR/helper/ic.sh -site AGLT2
+</pre> 
+This produces the following output showing the installed capacity values at AGLT2.
+(If you want the calculated installed capacity for all ATLAS/CMS T2 sites then run the command without the "-site AGLT2" option)
+<pre>
+==============================================================
+SITE                 IC_CALC    IC_SS      DIFF       %DIFF
+==============================================================
+AGLT2                4000(4136) 4678       -678       -16
+==============================================================
+</pre>
+The description of the fields are:<br>
+(IC_CALC): The installed capacity calculated using the BDII data - (4136). If this value exceeds the bounds then it is adjusted within the bounds. In this particular case for AGLT2 the calculated value is 4136 KSI2K, which exceeds the upper limit of 4000. Hence the value is limited to 4000.<br>
+IC_SS: The installed capacity as maintained by the (ATLAS and CMS) T2 co-ordinators. This value is configured in $INSTALL_DIR/conf/setup.sh file. For example for the site AGLT2, it is configured as 
+<pre>
+export AGLT2=4678
+</pre>
+%DIFF: % difference between the calculated installed capacity value and the value maintained by the T2 co-ordinators.
+
+---++++ Can you refer me to some useful documents that I could go through in order to have a better understanding of the installed capacity work, BDII data etc. 
+The relevant documents are attached at the end under 'Attachments'. The installed capacity calculation is based on the guidelines laid out in the attached document "WLCG_GlueSchemaUsage-1.8.pdf".  This also needs an understanding of the GLUE schema as described in the attached document "GLUESchema.pdf"
+
+---++++ I have other questions/doubts/suggestions. Where do I get the answers?
+I know this page contains only limited information. So it is understandable that you have questions. I will try my best to answer these. If I don't know the answers, I could refer you to the right people. So get in touch with me! Also if you have any suggestions or comments, feel free to let me know. Thanks. 
 
 %META:FILEATTACHMENT{name="bdii_adjust.tar.gz" attachment="bdii_adjust.tar.gz" attr="" comment="BDII adjustment/filter script" date="1238802184" path="bdii_adjust.tar.gz" size="14349" stream="bdii_adjust.tar.gz" tmpFilename="/usr/tmp/CGItemp14458" user="KarthikArun" version="1"}%
+%META:FILEATTACHMENT{name="WLCG_GlueSchemaUsage-1.8.pdf" attachment="WLCG_GlueSchemaUsage-1.8.pdf" attr="" comment="Installed capacity document" date="1239047534" path="WLCG_GlueSchemaUsage-1.8.pdf" size="609248" stream="WLCG_GlueSchemaUsage-1.8.pdf" tmpFilename="/usr/tmp/CGItemp18448" user="KarthikArun" version="1"}%
+%META:FILEATTACHMENT{name="GLUESchema.pdf" attachment="GLUESchema.pdf" attr="" comment="GLUE schema" date="1239047566" path="GLUESchema.pdf" size="252932" stream="GLUESchema.pdf" tmpFilename="/usr/tmp/CGItemp18481" user="KarthikArun" version="1"}%
