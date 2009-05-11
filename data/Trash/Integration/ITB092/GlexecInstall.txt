@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="IgorSfiligoi" date="1228250845" format="1.1" reprev="1.19" version="1.19"}%
+%META:TOPICINFO{author="DaveDykstra" date="1242052389" format="1.1" version="1.20"}%
 %META:TOPICPARENT{name="WorkerNodeClient"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -31,39 +31,37 @@ and then copy the nfs-mounted glexec and related libraires to a local disk and p
 
 You must create a <b>"glexec" local user</b> before you attempt the installation. gLexec uses it for privilege separation and installation will fail without.
 
-Starting OSG1.0, gLexec also requires a range of <b>group ids</b> for tracking purposes. 
-Set aside at least 3 group ids per batch slot. They must be consecutive, but else can be in any range 
-(default range is 65000-65049).
+Starting in OSG 1.0.0, gLexec also requires a range of <b>group ids</b> for tracking purposes. 
+Define at least 3 group ids per batch slot per worker node. They must be consecutive, but else can be in any range 
+(default range is 65000-65049, configured in post-install section below).   The same group ids can be used on every
+worker node, so a good way to handle this is to multiply the number of batch slots on the largest worker node by 4
+and then share the group ids between all the worker nodes.
+
+For example for one batch slot:
+<pre class="screen">
+# groupadd -g 65000 glexec00
+# groupadd -g 65001 glexec01
+# groupadd -g 65002 glexec02
+# groupadd -g 65003 glexec03
+# useradd -c "gLexec user" -s /sbin/nologin glexec
+</pre>
 
 ---++Installing the gLexec package
 
 It is recommended that the gLexec package be installed within the OSG
 Worker Node Client area because most of its dependencies are the same 
-as those within the worker node client.  
+as those within the worker node client.   It must be installed in the same 
+location on all worker nodes managed by the same Compute Element.
 To install:
 
 <pre class="screen">
-# pacman -get %VDT_CACHE_URL%:Glexec
-</pre>
-The tail of the install will look like this:
-<pre>
-Downloading [VOMS-Client-1.10.98.tar.gz] from [http://vdt.cs.wisc.edu/software/questions/1.10.98]...
-Downloading [voms-essentials-1.8.8-2-x86_rhas_4.tar.gz] from [http://vdt.cs.wisc.edu/software//voms/1.8.8-2]...
-Downloading [voms-client-1.8.8-2-x86_rhas_4.tar.gz] from [http://vdt.cs.wisc.edu/software//voms/1.8.8-2]...
-Downloading [configure_glexec-1-115.tar.gz] from [http://vdt.cs.wisc.edu/software//configure_glexec/1]...
-Downloading [configure_prima-1-322.tar.gz] from [http://vdt.cs.wisc.edu/software//configure_prima/1]...
-Downloading [prima-0.8.x86_rhas_4.tar.gz] from [http://vdt.cs.wisc.edu/software//prima/0.8]...
-Downloading [Chrpath-1.10.98.tar.gz] from [http://vdt.cs.wisc.edu/software/questions/1.10.98]...
-Downloading [chrpath-0.13-2.x86_rhas_4.tar.gz] from [http://vdt.cs.wisc.edu/software//chrpath/0.13-2-2]...
-Downloading [Procd-1.10.98.tar.gz] from [http://vdt.cs.wisc.edu/software/questions/1.10.98]...
-Downloading [procd-0.2-x86_rhas_4.tar.gz] from [http://vdt.cs.wisc.edu/software//procd/0.2]...
-Downloading [glexec-osg-0.6-x86_rhas_4.tar.gz] from [http://vdt.cs.wisc.edu/software//glexec/0.6]...
+# pacman -get %CACHE%:Glexec
 </pre>
 
 Note that the =setup.sh= file is not changed to put the =glexec= binary into your path.
 The install will create config files under =/etc/glexec=, create the =/var/log/glexec=
-directory if it does not exist, and change the =glexec= binary to be suid.  (If you do not
-see these, check the vdt-install.log and the post-install README file.
+directory if it does not exist, and change the =glexec-osg/sbin/glexec= binary to be suid. 
+(If you do not see these, check the vdt-install.log and the post-install README file.
 
 Please also remember to install the CA Certificates as for every VDT install (procedure described in the post-install README file).
 
@@ -90,7 +88,9 @@ modify the =/etc/grid-security/certificates= directory to point to a set of curr
 Modify the file =/etc/glexec/contrib/gums_interface/getmapping.cfg=
 to point to the correct location of your GUMS server.  
 
-The gums_url variable is the only variable you should have to change.
+The gums_url variable is the only variable you should have to change unless you
+want to use the XACML2 interface; see below for that.  If you're using host proxies
+as described above you will also need to change host_x509_file and host_key_file.
 
 <pre class="screen">
 # gums_interface/getmapping config file
@@ -192,7 +192,7 @@ min_gid=65000
 max_gid=65049
 </pre>
 
----++Testing gLexec
+---+++Testing gLexec locally on the worker node
 
 Now as a non-privileged user, do the following (where "yourvo" is your vo, etc.):
 <pre class="screen">
@@ -211,7 +211,7 @@ proxy would normally be mapped to by your gums server.
 The gLexec utility also has a process called glexec_monitor which 
 runs as root through the life of the glexec'ed process..
 
----++About the gLexec log files
+---+++About the gLexec log files
 There are four gLexec log files that are made on each worker node and they have 
 four different timestamp formats.  They all live by default in /var/log/glexec:
 glexec_log, the main log of each glexec stamp, logs in GMT:
@@ -270,12 +270,52 @@ glemon[23093#22904]: 2008-12-02T19:59:07Z Terminated, CPU user 0 system 0
 glemon[23093#22904]: 2008-12-02T19:59:08Z Killing procd 23096
 glemon[23093#22904]: 2008-12-02T19:59:08Z All childs terminated
 </pre>
-%STOPINCLUDE%
 
+---+++Configuring the CE node
+
+After all worker nodes have been configured for glexec, the CE node 
+$VDT_LOCATION/monitoring/config.ini file needs to be modified to tell the
+location of the glexec executable:
+
+<pre class="screen">
+[Misc Services]
+; If you have glexec installed on your worker nodes, enter the location
+; of the glexec binary in this setting
+glexec_location = YOUR_WN_VDT_LOCATION/sbin/glexec
+</pre>
+
+To effect the change, you need to run this on the CE node:
+<pre class="screen">
+source YOUR_VDT_LOCATION/setup.sh
+$VDT_LOCATION/monitoring/configure-osg.py -c
+</pre>
+
+This will populate the OSG_GLEXEC_LOCATION variable in
+$VDT_LOCATION/monitoring/osg-job-environment.conf which contains variables
+available to all grid jobs.  This is how pilot jobs invoke glexec.
+
+To test this, create a script like this to run on a worker node via your batch system:
+<pre class="screen">
+#!/bin/bash
+echo "OSG_GLEXEC_LOCATION=$OSG_GLEXEC_LOCATION"
+export GLEXEC_CLIENT_CERT=$X509_USER_PROXY
+"$OSG_GLEXEC_LOCATION" /usr/bin/id
+echo glexec result: $?
+</pre>
+
+The result should be something like this:
+<pre class="screen">
+OSG_GLEXEC_LOCATION=/opt/osg-wn-client/glexec-osg/sbin/glexec
+uid=13160(fnalgrid) gid=9767(fnalgrid) groups=65000(glexec00)
+glexec result: 0
+It appears that the value of pthread_mutex_init is -43132256
+</pre>
+
+%STOPINCLUDE%
 
 %BR%
 %COMPLETE3% %BR%
-%RESPONSIBLE% Main.StevenTimm - 18 Oct 2007 %BR%
+%RESPONSIBLE% Main.DaveDykstra - 5 May 2009 %BR%
 %REVIEW%  %BR%
 %REVCOM%  %BR%
 %REVFLAG%  %BR%
