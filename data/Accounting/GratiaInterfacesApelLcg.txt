@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1237567964" format="1.1" reprev="1.36" version="1.36"}%
+%META:TOPICINFO{author="JohnWeigand" date="1242850350" format="1.1" reprev="1.37" version="1.37"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! Gratia Interfaces - APEL/WLCG
 
@@ -51,6 +51,13 @@ The EGEE aggregator runs at 20 minutes past the hour, every two hours. As this p
 
 
 ---++ Gratia Usage information as it maps to APEL
+Effective 5/20/09, two tables are being updated in the APEL database: 
+   1 OSG_DATA - where data is summarized by Site and VO
+   2 OSG_CN_DATA - where data is summarized by Site, VO and User DN. It should be noted that Gratia does not currently summarize data by the full DN of the user's proxy but by the CN portion of the proxy issuer.  This is the <nop>CommonName field of the Gratia <nop>VOProbeSummary table.  Use of <nop>CommonName is an interim solution until Gratia summarizes by DN.
+
+---+++ OSG_DATA table
+In the _OSG_DATA_ table, Gratia data is summarized by Site and VO.
+
 The table below shows mapping of Gratia data to the APEL database's _OSG_DATA_ table and to the %EGEE_PORTAL_OSG_VIEW%.  It's purpose is to aid in understanding the data where different names are used for the data shown.
  
 %TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}%
@@ -102,6 +109,68 @@ where
 group by ExecutingSite,
          LCGUserVO
 </pre>
+
+
+---+++ OSG_CN_DATA table
+In the _OSG_CN_DATA_ table, Gratia data is summarized by Site, VO and User DN.  
+
+It should be noted that Gratia does not currently summarize data by the full DN of the user's proxy but by the CN portion of the proxy issuer.  This is the <nop>CommonName field of the Gratia <nop>VOProbeSummary table.  Use of <nop>CommonName is an interim solution until Gratia summarizes by DN.
+
+The table below shows mapping of Gratia data to the APEL database's _OSG_CN_DATA_ table and to the %EGEE_PORTAL_OSG_VIEW%.  It's purpose is to aid in understanding the data where different names are used for the data shown.  The <nop>UserDN is not currently available in that view at this time.
+ 
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}%
+|  *EGEE Accounting Portal%BR%OSG view*  |  *APEL%BR%OSG_CN_DATA*  |  *Gratia data (all data is from the <nop>VOProbeSummary table unless otherwise noted)*  |
+| Sites | <nop>ExecutingSite | <nop>Site.SiteName |
+| VO | <nop>LCGUserVO | <nop>VOName |
+| User (not in EGGE portal)  | <nop>UserDN | <nop>CommonName |
+| Number of jobs |<nop>Njobs | Sum of <nop>NJobs |
+| Sum CPU | <nop>SumCPU | Sum of (<nop>CpuUserDuration + <nop>CpuSystemDuration) / 3600 |
+| Norm Sum CPU | <nop>NormSumCPU | (Sum of (<nop>CpuUserDuration + <nop>CpuSystemDuration) / 3600) * Normalization Factor |
+| Sum Elapsed | <nop>SumWCT | Sum of <nop>WallDuration / 3600  |
+| Norm Sum Elapsed | <nop>NormSumWCT | (Sum of <nop>WallDuration / 3600) * Normalization Factor |
+| | <nop>Month | The month the data is collected for |
+| | <nop>Year | The year the data is collected for |
+| | <nop>RecordStart | Earliest date reported for the month |
+| | <nop>RecordEnd | Latest data reported for the month |
+| | <nop>NormFactor | Normalization Factor used |
+| | <nop>MeasurementDate | Date of update into APEL |
+
+The SQL query below on the Gratia database is an example using the following criteria:
+   * <nop>SiteName: UTA_SWT2
+   * Normalization Factor: 1.543
+   * Month: November 2008
+<pre>
+SELECT Site.SiteName AS ExecutingSite,
+    VOName as LCGUserVO,
+   <b>CommonName as UserDN,</b>
+   Sum(NJobs),
+   Round(Sum(CpuUserDuration+CpuSystemDuration)/3600) as SumCPU,
+   Round((Sum(CpuUserDuration+CpuSystemDuration)/3600)*1.543) as NormSumCPU,
+   Round(Sum(WallDuration)/3600) as SumWCT,
+   Round((Sum(WallDuration)/3600)*1.543) as NormSumWCT,
+   date_format(min(EndTime),"%m")       as Month,
+   date_format(min(EndTime),"%Y")       as Year,
+   date_format(min(EndTime),"%Y-%m-%d") as RecordStart,
+   date_format(max(EndTime),"%Y-%m-%d") as RecordEnd,
+   "1.543",
+   NOW()
+from
+     Site,
+     Probe,
+     VOProbeSummary Main
+where
+      Site.SiteName = "UTA_SWT2"
+  and Site.siteid = Probe.siteid
+  and Probe.ProbeName  = Main.ProbeName
+  and Main.ResourceType = 'Batch'
+  and Main.VOName in ( "usatlas","atlas","uscms","cms" )
+  and Main.EndTime &gt;= "2008-11-01 00:00:00"
+  and Main.EndTime &lt; "2008-12-01 00:00:00"
+group by ExecutingSite,
+         LCGUserVO
+       <b>, UserDN</b>
+</pre>
+
 
 
 ---++ APEL/EGEE Treatment of Virtual Organizations / VO Info and Site Names
