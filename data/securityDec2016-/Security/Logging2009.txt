@@ -1,0 +1,69 @@
+%META:TOPICINFO{author="JimBasney" date="1244144883" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
+%TOC%
+---+ OSG Security Logging
+
+The OSG Security Team is collaborating with members of the CEDPS and Netlogger projects on improving the use of system logs at OSG sites for incident investigation and response.
+
+Contact: Main.JimBasney
+
+---++ Timeline
+
+   * March 2009: Project kick-off
+   * April 2009: Development of nl_snoop tool for querying logs about security events
+   * May 2009: Deployment testing at NCSA
+
+---++ NCSA Deployment Experience
+
+Jim Basney (NCSA), with help from Keith Beattie (LBL), deployed the software at NCSA:
+   * We configured the syslog-ng-sender according to [[http://www.cedps.net/index.php/Syslog-ng_package_for_VDT][these instructions]] on a test CE and a test GUMS server.
+      * This required running =$VDT_LOCATION/vdt/setup/configure_syslog_ng_sender --add-source= to add the logfiles. Otherwise, the default VDT packages and configuration worked out-of-the-box for us.
+   * We configured the syslog-ng-receiver according to the [[http://www.cedps.net/index.php/Syslog-ng_package_for_VDT][same instructions]] on a separate test log collector server. The default configuration from VDT worked well for us.
+   * We configured !MySQL5 (from VDT) and the Netlogger pipeline.
+      * This required creating a netlogger user and table in the !MySQL database.
+
+Conclusions:
+   1 VDT's syslog-ng packages look good. OSG sites should be able to use them (with some basic instructions) to setup a dedicated syslog-ng collector. It would be good, however, if the VDT's default syslog-ng-sender configuration included the logs matching the syslog-ng-receiver's configuration, so it's not necessary to run =$VDT_LOCATION/vdt/setup/configure_syslog_ng_sender --add-source=.
+   1 VDT's !MySQL5 works well for Netlogger.
+   1 VDT's Python version (2.3) is too old for Netlogger. VDT needs to upgrade its Python version to 2.4 or later for Netlogger. Netlogger also requires the Python !MySQL module.
+   1 When Netlogger is packaged in VDT, it should automatically setup the !MySQL tables similar to what VDT does for GUMS.
+
+Issues:
+   1 Shouldn't need to run =$VDT_LOCATION/vdt/setup/configure_syslog_ng_sender --add-source= to add default VDT logs. The default configuration should include the logs from standard VDT services.
+   1 How to configure the Netlogger pipeline to parse GUMS and WS-GRAM logs?
+   1 =/opt/netlogger/pipeline/my.cnf= needs to include contents of =/opt/vdt-syslog-ng/mysql5/var/my.cnf=.
+   1 Had to manually create =var/run= and =var/log= directories. =nl_pipeline= should create them automatically if they don't exist. Same for =parsed_logs= directory used by =nl_parser=.
+   1 The =nl_loader= doesn't understand the =!include= syntax used in VDT's my.cnf file.
+   1 The =nl_loader= crashed after running for about a day.
+   1 The =nl_snoop= command should take a my.cnf file as input so it's not necessary to specify the parameters for the VDT !MySQL setup. Currently there doesn't appear to be a way to tell =nl_snoop= to use =$VDT_LOCATION/vdt-app-data/mysql5/var/mysql.sock=.
+
+---+++ Example =nl_snoop= output
+
+Here's an example of =nl_snoop= output from the NCSA setup:
+<verbatim>
+$ nl_snoop -d netlogger -u mysql://netlogger@localhost:49152 -t "1 week ago"::now -p "/DC=org/DC=doegrids/OU=People/CN=James Alan Basney 710056"
+Password: 
+
+Activity for '/DC=org/DC=doegrids/OU=People/CN=James Alan Basney 710056'
+between 2009-05-28T14:10:11.429331-05:00 and 2009-06-04T14:10:11.429636-05:00
+
+* Jobs:
+   Start time (-05:00)  End time             Host                 User (UID,GID)  Scheduler  Executable          
+   -------------------  --------             ----                 --------------  ---------  ----------          
+   2009-06-04T13:15:49  2009-06-04T13:15:50  osg-test-ce.ncsa.uiuc.edu mis (65002,2)   fork       unknown             
+
+* GridFTP Transfers:
+   Start time (-05:00)  End time             Host                             Port   User       Filename  
+   -------------------  --------             ----                             ----   ----       --------  
+   2009-06-04T14:09:59  2009-06-04T14:09:59  osg-test-ce.ncsa.uiuc.edu        52383  mis        /tmp/jim.log
+
+* SRM transfers:
+   None
+
+* Connections:
+   None
+</verbatim>
+
+---++ References
+
+   *  http://www.cedps.net/index.php/Syslog-ng_package_for_VDT
