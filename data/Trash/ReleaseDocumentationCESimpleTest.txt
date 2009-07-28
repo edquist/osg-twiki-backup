@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="KyleGross" date="1227280704" format="1.1" version="1.25"}%
+%META:TOPICINFO{author="RobertEngel" date="1248814678" format="1.1" reprev="1.26" version="1.26"}%
 %META:TOPICPARENT{name="ValidatingComputeElement"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -11,109 +11,181 @@
 
 ---++ Notes
 
-This document is intended for those who are new to setting up an OSG Compute Element (grid gateway server) and is presented as a simple review of the most basic services.
+This document is a guide to verify the services that are installed as part of an OSG Compute Element (CE).
 
----++ Set up your credentials
+---++ Verify your grid credential
 
-The first step is to configure the CE to allow access using your own Grid credentials. (See the [[CertScripts#FAQ][Personal Certificates FAQ]] for more.) Once that's done you'll be able to run local tests and verify operation of your CE locally. Here we'll assume a =grid-mapfile= exists as the method for authorization and mapping of DN to a local account.  
-
-Make sure you have a grid proxy for yourself. This is based on your certificate. This is to be done as yourself, *not as root*. Here we assume the your =usercert.pem= and =userkey.pem= exist in the standard, =$HOME/.globus/= area. (If not check the man-pages for options).
+Your grid credential will be used to authenticate with every service provided by the CE. The authentication is based on the =X.509 Public Key Infrastructure= which consists of a private key (=userkey.pem=) and a public key (=usercert.pem=). Both files are by default located in =$HOME/.globus=:
 
 <pre class="screen">
- > <b>source $VDT_LOCATION/setup.(c)sh</b>
- > <b>grid-proxy-init</b>
-   <em>(you will be prompted for your GRID pass phrase)</em>
+[robert@osg-job ~]$ ls -al $HOME/.globus
+total 68
+drwxr-x---  4 robert robert  4096 Mar 18 18:50 .
+drwx------ 29 robert robert 12288 Jul 28 08:38 ..
+drwxrwxr-x  5 robert robert  4096 Jul 20 11:18 .gass_cache
+drwx------  4 robert robert  4096 Mar 27 12:14 job
+-rw-r-----  1 robert robert  1724 Dec 16  2008 usercert.pem
+-r--------  1 robert robert  1919 Dec 16  2008 userkey.pem
 </pre>
-   
-Then, to get the subject (DN) of your proxy, run: 
+
+To display detailed information about your grid certificate =grid-proxy-info= can be used. This program is part of the Globus Toolkit and was installed during the CE installation procedure.
 
 <pre class="screen">
- > <b>grid-proxy-info -identity</b>
-   /DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Joe Blow 830711
+[robert@osg-job ~]$ grid-proxy-info
+subject  : /DC=org/DC=doegrids/OU=People/CN=Robert Engel 392994/CN=1692124231
+issuer   : /DC=org/DC=doegrids/OU=People/CN=Robert Engel 392994
+identity : /DC=org/DC=doegrids/OU=People/CN=Robert Engel 392994
+type     : Proxy draft (pre-RFC) compliant impersonation proxy
+strength : 512 bits
+path     : /tmp/x509up_u500
+timeleft : 291:11:00  (12.1 days)
 </pre>
 
-As root again, take the identity string and pre-pend it to the =/etc/grid-security/grid-mapfile= and assign it to a local user account (you can use any of the VO accounts you've created at the beginning to test; you cannot use root). So the grid-mapfile should have at least one entry like:
-
-<pre class="programlisting">
-"/DC=org/DC=doegrids/OU=People/CN=Joe Blow 830711" usatlas1 
-</pre>
-
-Where " =usatlas1= " is the local account. This is enough to enable the rest of the installation testing.
-
-
----++ Simple Test of Fork Queue
-
-Using the grid proxy you just created, you can test the Globus gatekeeper fork queue (job run directly on the CE). The resource is specified by the <i>FQDN</i> represented by <i>hostname</i> (below) and the jobmanager type. Executing: 
+If there is no time left on your grid proxy, =grid-proxy-init= can be used to create a new grid proxy.
 
 <pre class="screen">
- > <b>globus-job-run <i>hostname</i>/jobmanager-fork /usr/bin/id</b> 
-  uid=9872(usatlas1) gid=9872(usatlas1) groups=9872(usatlas1)
+[robert@osg-job ~]$ grid-proxy-init -valid 500:00
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Robert Engel 392994
+Enter GRID pass phrase for this identity:
+Creating proxy ................................. Done
+Your proxy is valid until: Tue Aug 18 08:06:35 2009
 </pre>
 
-Should return the UNIX user account assignment based on the =grid-mapfile= created/updated in the last section.  A record of this submission can be found in the gatekeeper logfile,  =$VDT_LOCATION/globus/var/globus-gatekeeper.log= :
+---++ Test the Grid Resource Allocation Manager - GRAM
 
-<pre class="programlisting">
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 6: /opt/osg/vtb-0.8b1/globus/sbin/globus-gatekeeper pid=18512 starting at Fri Nov 16 11:51:51 2007 
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 0: GATEKEEPER_ACCT_FD=4 (/opt/osg/vtb-0.8b1/globus/var/accounting.log)
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 6: Got connection 128.3.30.236 at Fri Nov 16 11:51:51 2007
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=Joe Blow 830711
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 0: GATEKEEPER_JM_ID 2007-11-16.11:51:51.0000018512.0000000000 for /DC=org/DC=doegrids/OU=People/CN=Joe Blow 830711 on 128.3.30.236
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 0: GRID_SECURITY_HTTP_BODY_FD=7
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 5: Requested service: jobmanager 
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 5: Authorized as local user: usatlas1
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 5: Authorized as local uid: 9872
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 5:           and local gid: 9872
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 0: executing /opt/osg/vtb-0.8b1/globus/libexec/globus-job-manager
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 0: GRID_SECURITY_CONTEXT_FD=10
-TIME: Fri Nov 16 11:51:51 2007
- PID: 18512 -- Notice: 0: Child 18553 started
-</pre>
-
----++ Simple Test Of The  Job Manager Queue
-
-One can repeat the above test but direct the job to the cluster's batch scheduler.  The example below is for the Condor job manager.  Other supporter batch systems include PBS ( =jobmanager-pbs= ), LSF ( =jobmanager-lsf= ) and SGE ( =jobmanager-sge= ).
+A program can be executed remotely on a grid resource if the resource provides an interface to GRAM. By default GRAM is listening on port =2119=. You can verify that GRAM is running by using telnet:
 
 <pre class="screen">
- > <b>globus-job-run <i>hostname</i>/jobmanager-condor /usr/bin/id</b> 
-   uid=9872(usatlas1) gid=9872(usatlas1) groups=9872(usatlas1)
+[robert@osg-job ~]$ telnet osg-ce.ligo.caltech.edu 2119
+Trying 131.215.114.48...
+Connected to osg-ce.ligo.caltech.edu (131.215.114.48).
+Escape character is '^]'.
+Connection closed by foreign host.
 </pre>
 
-The same results should appear as with the fork queue submission.  The =globus-gatekeeper.log= file will look identical except for the "Request service" message:
+Using =telnet= only verifies if GRAM is provided on the <b>server side</b>. Please ask the grid resource administrator if you cannot connect to GRAM using telnet on port 2119. The service may be down or provided on a different port or host all together.
 
-<pre>
-   PID: 29703 -- Notice: 5: Requested service: jobmanager-condor
-</pre>
-
----++ Simple Test Of GSIFTP Services
-
-A simple test of the gsiftp services can be done by creating a simple test file and then copying it from one location on your machine to the default storage area for your CE. When you [[ComputeElementInstall#Configuring_the_OSG_Attributes][configured your OSG attributes]], you defined a shared storage space ( =$OSG_DATA= ) with read-write access for all users. We will use this as the destination directory for the file we are copying.  The steps here are: create the file, (source the osg-attributes), copy the file, verify the copy.  Again, substitute your <i>FQDN</i> for <i>hostname</i> below.
+To verify GRAM from the <b>client side</b> =globus-job-run= can be used to execute a program on the grid resource:
 
 <pre class="screen">
-> <b>echo "My test gsiftp file" > /tmp/gsiftp.test</b>
-> <b>source $VDT_LOCATION/monitoring/osg-attributes.conf</b>   
-> <b>globus-url-copy file:/tmp/gsiftp.test gsiftp://<i>hostname</i>${OSG_DATA}/gsiftp.test</b>
-> <b>ls -l  $OSG_DATA/gsiftp.test</b>
- -rw-r--r--  1 usatlas1 usatlas1  20 Jan  9 13:29 /storage/local/data1/osg/OSG.DIRS/data/gsiftp.test
+[robert@osg-job ~]$ globus-job-run osg-ce.ligo.caltech.edu /usr/bin/id
+uid=506(ligo) gid=506(ligo) groups=506(ligo)
 </pre>
 
-As with the job-submission tests above, one can view the interaction with the service in the relevant globus log files:  =$VDT_LOCATION/globus/var/log/gridftp-auth.log= for the authorization record and =$VDT_LOCATION/globus/var/log/gridftp.log= for the data transfer.
+=/usr/bin/id= will return the unix account used to execute the program on the grid resource. Upon success you verified that GRAM is working on the grid resource and that your grid credential was mapped to a unix account on the resource. Please contact the grid resource administrator if =globus-job-run= did not complete successfully.
+
+If you are the grid resource administrator and have sufficient access privileges, you will find a record of the job submission in =$VDT_LOCATION/globus/var/globus-gatekeeper.log= :
+
+<pre class="screen">
+[root@osg-ce robert]# tail -f $VDT_LOCATION/globus/var/globus-gatekeeper.log
+
+TIME: Tue Jul 28 12:58:42 2009
+ PID: 15771 -- Notice: 6: /opt/itb-1.1.0/globus/sbin/globus-gatekeeper pid=15771 starting at Tue Jul 28 12:58:42 2009
+TIME: Tue Jul 28 12:58:42 2009
+ PID: 15771 -- Notice: 0: GATEKEEPER_ACCT_FD=4 (/opt/itb-1.1.0/globus/var/accounting.log)
+TIME: Tue Jul 28 12:58:42 2009
+ PID: 15771 -- Notice: 6: Got connection 131.215.114.47 at Tue Jul 28 12:58:42 2009
+TIME: Tue Jul 28 12:58:43 2009
+ PID: 15771 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=Robert Engel 392994
+TIME: Tue Jul 28 12:58:43 2009
+ PID: 15771 -- Notice: 0: GATEKEEPER_JM_ID 2009-07-28.12:58:43.0000015771.0000000000 for /DC=org/DC=doegrids/OU=People/CN=Robert Engel 392994 on 131.215.114.47
+ PID: 15771 -- PRIMA INFO ts=2009-07-28T12:58:43-08:00 event=org.osg.prima.authz.start DN="/DC=org/DC=doegrids/OU=People/CN=Robert Engel 392994" Service_URL="https://osg-ce.ligo.caltech.edu:8443/gums/services/GUMSAuthorizationServicePort"
+ PID: 15771 -- PRIMA INFO ts=2009-07-28T12:58:43-08:00 event=org.osg.prima.authz.end status=0 decision=PERMIT DN="/DC=org/DC=doegrids/OU=People/CN=Robert Engel 392994" Service_URL="https://osg-ce.ligo.caltech.edu:8443/gums/services/GUMSAuthorizationServicePort" local_user=ligo
+TIME: Tue Jul 28 12:58:43 2009
+ PID: 15771 -- Notice: 0: GRID_SECURITY_HTTP_BODY_FD=8
+TIME: Tue Jul 28 12:58:43 2009
+ PID: 15771 -- Notice: 5: Requested service: jobmanager 
+TIME: Tue Jul 28 12:58:43 2009
+ PID: 15771 -- Notice: 5: Authorized as local user: ligo
+TIME: Tue Jul 28 12:58:43 2009
+ PID: 15771 -- Notice: 5: Authorized as local uid: 506
+TIME: Tue Jul 28 12:58:43 2009
+ PID: 15771 -- Notice: 5:           and local gid: 506
+TIME: Tue Jul 28 12:58:43 2009
+ PID: 15771 -- Notice: 0: executing /opt/itb-1.1.0/globus/libexec/globus-job-manager
+TIME: Tue Jul 28 12:58:43 2009
+ PID: 15771 -- Notice: 0: GRID_SECURITY_CONTEXT_FD=11
+TIME: Tue Jul 28 12:58:43 2009
+ PID: 15771 -- Notice: 0: Child 16074 started
+</pre>
+
+---++ Test the Availability of a Job Manager
+
+A =job manager= is a process running on the gatekeeper which is managing the execution of your job. By default =fork= will be used to fork your program directly on the gatekeeper. As a general rule of thumb you should avoid to use =fork= and to execute programs on the gatekeeper unless that is your intention. A not complete list of job managers includes =fork=, =managedfork=, =ccs=, =condor=, =lsf=, =pbs= and =sge=. Depending on the setup of the grid resource more than one job manager will be available.
+
+Following the example above you can use =globus-job-run= to verify that job manager =fork= is available:
+
+<pre class="screen">
+[robert@osg-job ~]$ globus-job-run osg-ce.ligo.caltech.edu/jobmanager-fork /usr/bin/id
+uid=506(ligo) gid=506(ligo) groups=506(ligo)
+</pre>
+
+Notice how we append =/jobmanager-fork= to the grid resource to request job manager =fork= explicitly now. Next, let's find out if job manager =condor= is available:
+
+<pre class="screen">
+[robert@osg-job ~]$ globus-job-run osg-ce.ligo.caltech.edu/jobmanager-condor /bin/hostname
+dom118
+</pre>
+
+Because the job is scheduled to be executed through Condor this command will likely require more time to complete. Here we used =/bin/hostname= to return the hostname of the worker node executing the job. To specify a job manager that is not supported by the grid resource makes for a convenient way to find out what job managers are supported by the resource using the comfort of the command line:
+
+<pre class="screen">
+[robert@osg-job ~]$ globus-job-run osg-ce.ligo.caltech.edu/jobmanager-pbs /bin/hostname
+GRAM Job submission failed because the gatekeeper failed to find the requested service (error code 93)
+[robert@osg-job ~]$ echo $?
+93
+</pre>
+
+Please note that the <b>names for job managers are case sensitive</b> and are <b>all lower case for GRAM</b>.
+
+---++ Transferring files using GridFTP
+
+The GridFTP server runs on port =2811= by default. Same as above we will use =telnet= to verify that the service is available:
+
+<pre class="screen">
+robert@osg-job ~]$ telnet osg-ce.ligo.caltech.edu 2811
+Trying 131.215.114.48...
+Connected to osg-ce.ligo.caltech.edu (131.215.114.48).
+Escape character is '^]'.
+220 osg-ce.ligo.caltech.edu GridFTP Server 2.8 (gcc64dbg, 1217607445-63) [VDT patched 4.0.8] ready.
+Connection closed by foreign host.
+</pre>
+ 
+To verify that GridFTP is working correctly we will first create a file using =dd=, transfer the file with =globus-url-copy= and verify that arrived on the grid resource using =globus-job-run=. First let's create the test file:
+
+<pre class="screen">
+[robert@osg-job ~]$ dd if=/dev/zero of=/tmp/osg-ce.ligo.caltech.edu.test.0 bs=1k count=1024
+1024+0 records in
+1024+0 records out
+1048576 bytes (1.0 MB) copied, 0.005173 seconds, 203 MB/s
+</pre>
+
+Next let's transfer the file with =globus-url-copy=:
+
+<pre class="screen">
+[robert@osg-job ~]$ globus-url-copy file:///tmp/osg-ce.ligo.caltech.edu.test.0 gsiftp://osg-ce.ligo.caltech.edu/~/osg-ce.ligo.caltech.edu.test.0
+[robert@osg-job ~]$ echo $?
+0
+</pre>
+
+Last but not least let's double check the file arrived at specified location:
+
+<pre class="screen">
+[robert@osg-job ~]$ globus-job-run osg-ce.ligo.caltech.edu /bin/bash -c "ls -al \$HOME/osg-ce.ligo.caltech.edu.test.0"
+-rw-r--r-- 1 ligo ligo 1048576 Jul 28 13:47 /home/ligo/osg-ce.ligo.caltech.edu.test.0
+</pre>
+
+Please contact the grid resource administrator if you failed to execute the example above. If you are the grid resource administrator and have sufficient access privileges you can find a record of the GridFTP transfer in  =$VDT_LOCATION/globus/var/log/gridftp.log=
+
+<pre class="screen">
+[root@osg-ce robert]# tail -f /opt/itb-1.1.0/globus/var/gridftp.log 
+DATE=20090728204731.177412 HOST=osg-ce.ligo.caltech.edu PROG=globus-gridftp-server NL.EVNT=FTP_INFO START=20090728204731.20179 USER=ligo FILE=/home/ligo/osg-ce.ligo.caltech.edu.test.0 BUFFER=0 BLOCK=262144 NBYTES=1048576 VOLUME=/ STREAMS=1 STRIPES=1 DEST=[131.215.114.47] TYPE=STOR CODE=226
+</pre>
 
 %STOPINCLUDE%
 %BR%
 %COMPLETE3% %BR%
-%RESPONSIBLE% Main.JeffPorter - 25 Oct 2007 %BR%
+%RESPONSIBLE% Main.RobertEngel - 28 Jul 2009 %BR%
 %REVIEW%
 
 %META:TOPICMOVED{by="ForrestChristian" date="1166042277" from="Integration.CESimpleTest050" to="Integration/ITB_0_5.CESimpleTest"}%
