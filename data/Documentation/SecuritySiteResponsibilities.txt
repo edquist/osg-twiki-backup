@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DougOlson" date="1248800820" format="1.1" reprev="1.6" version="1.6"}%
+%META:TOPICINFO{author="DougOlson" date="1248842566" format="1.1" reprev="1.7" version="1.7"}%
 %META:TOPICPARENT{name="Security.WebHome"}%
 %LINKCSS%
 
@@ -197,9 +197,134 @@ RSS Feed: http://osggoc.blogspot.com
 http://vdt.cs.wisc.edu/advisories/index.html
 
 ---++ Maintain up-to-date Trusted CA information
-use vdt-update-certs
+The Trusted CA certificates and their associated Certificate Revocation Lists (CRL) are used
+for every transaction on a resource which establishes an authenticated network
+connection based on the user's proxy certificate. In order for the authentication
+to succeed the user's certificate that generated the proxy must have been issued
+by one of the CAs in the Trusted CA directory, and the user's certificate
+must not be listed in the CRL for that CA. This is handled at the certificate
+validation stage even before the authorization check which will provide the mapping
+of an authenticated user to a local account UID/GID.
+If the information about the Trusted CAs is not kept up to date then it is possible that
+all transactions with your site will start to fail.
 
-vdt-ca-manage
+There are two services that should be running in order to keep the CA certificate
+information current, *vdt-update-certs* and *fetch-crl*.
+There is a tool called *vdt-ca-manage* which has many useful features and
+also is used to specify where the Trusted CA certificates are to be stored on your machine.
+
+The example below shows the use of *vdt-ca-manage* and turning on the
+*vdt-update-certs* and *fetch-crl* services for an installation of the OSG 1.2 client
+package but it is similar for any package installation which requires CA certificates.
+
+<verbatim>
+OSG Client 1.2 install
+
+# cd /opt/pacman
+# wget http://physics.bu.edu/pacman/sample_cache/tarballs/pacman-3.28.tar.gz
+
+# tar --no-same-owner -xzvf pacman-3.28.tar.gz
+
+# cd pacman-3.28
+# . ./setup.sh
+# cd /opt
+# mkdir osg-client-1.2
+# cd osg-client-1.2/
+
+# pacman -get http://software.grid.iu.edu/osg-1.2:client
+Do you want to add [http://software.grid.iu.edu/osg-1.2] to [trusted.caches]? (y/n/yall): y
+Do you want to add [http://vdt.cs.wisc.edu/vdt_200_cache] to [trusted.caches]? (y/n/yall): y
+Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check...
+
+All prerequisite checks are satisfied.
+
+
+
+========== IMPORTANT ==========
+Most of the software installed by the VDT *will not work* until you install
+certificates.  To complete your CA certificate installation, see the notes
+in the post-install/README file.
+
+
+The VDT version 2.0.0 has been installed.
+
+
+The OSG Client package OSG version 1.2.0 has been installed.
+
+# . ./setup.sh
+
+# vdt-ca-manage --help setupca
+vdt-ca-manage setupca --location [root|local|<PATH>] --url [vdt|osg|<URL>]
+  Location:
+    root  - install into /etc/grid-security
+    local - install into $VDT_LOCATION/globus/share
+    PATH  - install into PATH (e.g. /nfs/certificates)
+
+  URL:
+    vdt - use the VDT convenience distribution
+    osg - use the OSG GOC distribution
+    URL - use the distribution at URL (e.g. http://your.site.edu/ca-certificates-manifest-file)
+
+
+# vdt-ca-manage setupca --location local --url osg
+Setting CA Certificates for VDT installation at '/opt/osg-client-1.2'
+
+Setup completed successfully.
+
+
+# vdt-control --enable vdt-update-certs
+running 'vdt-register-service --name vdt-update-certs --enable'... ok
+# vdt-control --on vdt-update-certs
+enabling cron service vdt-update-certs... ok
+
+## Edit vdt/etc/vdt.logrotate to change rotation frequency and retention period
+## from daily - 1 week to monthly - 1 year
+# diff vdt/etc/vdt.logrotate vdt/etc/vdt.logrotate.orig
+2,3c2
+< # daily
+< monthly
+---
+> daily
+6,8c5
+< # rotate 7
+< # Keep a year's worth
+< rotate 12
+---
+> rotate 7
+
+# vdt-control --enable vdt-rotate-logs
+running 'vdt-register-service --name vdt-rotate-logs --enable'... ok
+# vdt-control --on vdt-rotate-logs
+enabling cron service vdt-rotate-logs... ok
+
+
+# vdt-control --enable fetch-crl
+running 'vdt-register-service --name fetch-crl --enable'... ok
+# vdt-control --on fetch-crl
+enabling cron service fetch-crl... ok
+
+# vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+fetch-crl               | cron   | enable
+vdt-rotate-logs         | cron   | enable
+vdt-update-certs        | cron   | enable
+condor                  | init   | do not enable
+globus-ws               | init   | do not enable
+
+# crontab -l
+55 * * * * /opt/osg-client-1.2/vdt/sbin/vdt-update-certs-wrapper --vdt-install /opt/osg-client-1.2 --called-from-cron
+0 0 * * * /opt/osg-client-1.2/vdt/bin/vdt-rotate-logs
+11 0,6,12,18 * * * /opt/osg-client-1.2/fetch-crl/share/doc/fetch-crl-2.6.6/fetch-crl.cron
+
+# cat vdt/var/ca-certs-version
+1.9
+</verbatim>
+
+Notice that the example ends with displaying the current version of the CA certificate package.
+
+%RED%Also add example of showing log info on the fetch-crl status.%ENDCOLOR%
+
 
 ---++ Maintain up-to-date VO and user access information
 preferred - install/configure/use GUMS and make sure it gets timely updates
