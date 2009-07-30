@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DougOlson" date="1248976439" format="1.1" reprev="1.3" version="1.3"}%
+%META:TOPICINFO{author="DougOlson" date="1248982672" format="1.1" reprev="1.4" version="1.4"}%
 %META:TOPICPARENT{name="BestPractices"}%
 ---+!! Cyber Security Risks of Grid Resources
 
@@ -36,31 +36,82 @@ The normal best practice to minimize risk is to run only the necessary services,
 (such as iptables) and to keep up with the OS and middleware patches.
 
 ---++ How does risk of Grid resource compare to risk of other internet services?
+Connecting a compute resource to OSG, and enabling users from the participating VOs to access the resource,
+you are adding potentially thousands of new users to your resources.
+The users are vetted by their VOs to some extent but one should assume that some of those
+users may have malicious intents.
+Because of the way grid credentials are issued and handled (expiration, can be revoked by CA, can be removed from VOMS)
+the risk of a grid resource is certainly less than a case of granting ssh access to the same thousands of users.
+But since there are thousands of users that can authenticate successfully to your resource you should
+assume that some of them will be probing for vulnerabilities on your site, looking for ways to gain root privilege, etc.
+The best way to minimize the risks for grid resources are basically the same as any other internet-connected service;
+i.e., keep up with patches, don't run more services than required, have services run under a separate non-root
+account where possible, and take care in the configurations of the services.
 
----++ Globus Gatekeeper
----+++ Credential theft
-Grid proxy credentials are stored on a gatekeeper so it is a potential target of credential theft.
+In today's internet, general purpose web services and ssh servers are at significantly greater risk
+of being hacked than grid services, mostly because there is a large, persistent and active community
+of people trying to attack those services but also because the authentication/authorization infrastructure
+for grid services is stronger than is typical for web and ssh services.
 
----+++ !DoS
+---++ Credential theft
+Grid credentials (proxy certificates) are stored as files owned by the local account to which that
+grid identity is mapped.  The protection of those credentials consists of the local filesystem permissions
+and the expiration lifetime of the credentials. The default lifetime for proxy credentials is
+usually 12 hours but users can set if much longer (and some do).  If a grid proxy certificate 
+with a few month lifetime is stolen then that proxy can be used to impersonate the real user
+for the remaining lifetime of that proxy.
+
+---++ !DoS
 The gatekeeper is susceptible to denial of service by having too many jobs submitted to it.
-Running the gridmanager helps alleviate this vulnerability but it is run by the client, and is one of the main reasons that
-OSG encourages the use of condor-g for job submission.
+This is one of the reasons OSG encourages the use of condor-g for client job submission
+since it has mechanisms to avoid accidental denial of service.
 
----+++ Data Integrity
+Gridftp servers are also susceptible to denial of service and that is one reason why most people
+use higher level tools when moving large amounts of data so transfers can be scheduled
+and resources not overloaded.
 
+---++ Data Integrity
+Data integrity is primarily an issue of how the mapping is done to translate the grid identity
+(the X.509 subjectname of the grid certificate) to a local account that will own the files
+on your local system. Obviously, if multiple grid identities are mapped to the same local
+account then that data is effectively  jointly owned by those grid users.
+There are many cases of VO groups where group ownership of the data is desired
+but that is not always the case.
 
+The installation and configuration of the GUMS service, and how other services
+will access GUMS, is important for managing data integrity properly.
 
----++ !GridFTP server (gsiftp)
+The minimal data services provided by the OSG software don't provide for any
+data confidentiality beyond what is managed by the local filesystem permissions.
+If applications need strong data confidentiality, as might be obtained using
+encryption, then additional software and infrastructure is required to support
+those requirements.
 
----++ SRM (!BeStMan), (!dCache)
+---++ Trusted CAs and CRLs
+The authentication mechanisms used for the grid rely on a trust fabric consisting
+of information about a set of Certificate Authorities which are accepted for
+issuing certificates that will access your site.  If a proxy credential accompanying
+a grid transaction to your site did not come from a certificate signed by one of the
+CAs with certificates in your Trusted CAs directory than that credential won't be
+accepted and the transaction will get an error for an invalid credential.
+Each CA issues a certificate revocation list (CRL) containing the serial numbers
+of certificates issued by that CA that have been revoked.  When a certificate is
+being validated as part of the authentication to your site, if the serial number shows
+up in the CRL for the CA that issued the certificate then the authentication will fail.
 
----++ RSV
+Maintaining accurate information about the trusted CAs and their associated CRLs
+is important for the authentication step to work correctly.  The services which maintain
+this information (vdt-update-certs, and fetch-crl) should be running properly
+and the Trusted CA directory should only be writable by the administrative account.
 
----++ GUMS
+If the trusted CA information gets stale or corrupted the first effect will be
+a denial of service.  
 
----++ Trusted CAs
-
-
+If a malicious intruder installs another CA into the
+trusted CAs directory they will also need to modify information in the
+authorization/mapping service  (GUMS, VOMS, ...) in order to access the site.
+In this case it is probably easier to steal a valid credential from an authorized user
+than manipulate the authentication/authorization framework.
 
 -- Main.DougOlson - 01 Jul 2009
 
