@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianBockelman" date="1243456804" format="1.1" version="1.14"}%
+%META:TOPICINFO{author="BrianBockelman" date="1249266591" format="1.1" version="1.15"}%
 %META:TOPICPARENT{name="Hadoop"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -11,8 +11,155 @@ groups on Linux; these groups confuse Hadoop and prevent its
 components from starting up successfully. If you plan to install
 Hadoop on a Linux !OpenAFS client, make sure you're running at least !OpenAFS 1.4.7.
 
+There used to be two choices for installation method - RPM-based or Pacman-based.  From feedback we have received from site admins, we are moving forward only with the RPM-based installs.  The Pacman install is documented below for posterity.
+
+---+ RPM installation
+
+Quickstart for the impatient (without fuse).  This assumes you already have the *jdk* 1.6.0 RPM installed on all relevant nodes.
+
+ <verbatim>
+rpm -ivh http://newman.ultralight.org/repos/hadoop/4/i386/caltech-hadoop-4-1.noarch.rpm
+yum install hadoop
+vi /etc/sysconfig/hadoop # Edit appropriately.
+service hadoop-firstboot start
+service hadoop start
+</verbatim>
+
+---++ Prerequisites and Assumptions
+
+The Hadoop RPMs require Sun Java jdk 1.6.0 or later.  You can download this from http://java.sun.com.
+
+The Hadoop init script assumes that you are not running multiple hadoop services (datanode, namenode, secondary namenode) on the same host.
+
+The fuse interface to HDFS requires the fuse kernel module.  The stock RHEL kernels do not include the fuse kernel module.  Atrpms provides kernel modules for the most recent RHEL4 and RHEL5 kernels at www.atrpms.net.  If you are running a custom kernel, then be sure to enable the fuse module with =CONFIG_FUSE_FS=m=.  Building and installing a fuse kernel module for your custom kernel is beyond the scope of this document.
+
+Hadoop and fuse userspace RPMs for RHEL4 and RHEL5 are available from:
+
+<verbatim>
+http://newman.ultralight.org/repos/hadoop/4/x86_64
+http://newman.ultralight.org/repos/hadoop/4/i386
+http://newman.ultralight.org/repos/hadoop/5/x86_64
+http://newman.ultralight.org/repos/hadoop/5/i386
+</verbatim>
+
+The recommended method for installation is *not* manual installation, but through the Yum repository documented below.
+
+---++ Manual Hadoop RPM install
+
+Download the latest Hadoop RPM from the appropriate directory above.  If you wish to use the fuse interface (recommended), then you should also download the fuse and fuse-libs RPMs.
+
+After downloading the RPMs, install it with:
+
+<verbatim>
+rpm -ivh hadoop-0.19.1*.rpm
+</verbatim>
+
+Proceed to the Hadoop configuration step below.
+
+---++ Yum install
+
+To further simplify the installation process, a yum repository has been set up.  To configure your local installation for the yum repository, you should install the caltech-hadoop package from:
+=http://newman.ultralight.org/repos/hadoop/4/x86_64/caltech-hadoop-4-1.noarch.rpm=
+
+You must have the fuse kernel module already installed on your system in order to use the yum installer.
+
+After installing the caltech-hadoop yum configuration package, you can install hadoop and fuse with:
+
+<verbatim>
+yum install hadoop
+</verbatim>
+
+Updates can be installed with:
+
+<verbatim>
+yum upgrade hadoop
+</verbatim>
+
+---++ Manual fuse install
+
+Download the hadoop-fuse, fuse, and fuse-libs rpms from the locations above.  If you downloaded the fuse-kmdl module from Atrpms, then you can install all of the RPMs with a single command:
+
+<verbatim>
+rpm -ivh hadoop-fuse*.rpm fuse-*.rpm
+</verbatim>
+
+If you obtained your fuse kernel module from elsewhere, or built the fuse module into your custom kernel, then you will need to add =--nodeps= to avoid errors:
+
+<verbatim>
+rpm -ivh --nodeps hadoop-fuse*.rpm fuse-*.rpm
+</verbatim>
+
+---++ Yum fuse install
+
+The yum installer will attempt to resolve any dependencies during the installation process. 
+
+<verbatim>
+yum install hadoop-fuse fuse
+</verbatim>
+
+If you installed the fuse kernel module from somewhere other than the Atrpms repository, then you will need to install the fuse rpm manually as described above.  The hadoop-fuse and fuse-libs packages can still be installed with yum:
+
+<verbatim>
+rpm -ivh --nodeps fuse*.rpm
+yum install hadoop-fuse fuse-libs
+</verbatim>
+
+---++ Configuration
+
+The Hadoop RPMs install files into the standard system locations:
+
+| Log files | =/var/log/hadoop/*= |
+| PID files | =/var/run/hadoop/*.pid= |
+| init scripts | =/etc/init.d/hadoop=, =/etc/init.d/hadoop-firstboot= |
+| init script config file | =/etc/sysconfig/hadoop= |
+| runtime config files | =/etc/hadoop/*= |
+| System binaries | =/usr/bin/hadoop*= |
+| JARs | =/usr/share/java/hadoop/*= |
+
+The most common site configuration settings can be changed in =/etc/sysconfig/hadoop=.  In most cases, this file will be identical on the namenode and datanodes.  The configuration settings are documented in the file itself.  After making changes to the file, you must run =service hadoop-firstboot start= to propagate the changes to the hadoop configuration files in =/etc/hadoop=.  =hadoop-firstboot= must be run every time you make changes to /etc/sysconfig/hadoop.
+
+This file will be saved with a =.rpmsave= extension if you ever update your hadoop rpms with rpm or yum.  Make sure to copy your settings from =/etc/sysconfig/hadoop.rpmsave= to =/etc/sysconfig/hadoop= if you ever update your hadoop rpms.  Any manual changes to the hadoop configuration files in =/etc/hadoop/= should be preserved during an upgrade, but may be overwritten when running =hadoop-firstboot=.
+
+---++ Running Hadoop
+
+The Hadoop rpms install a startup script in =/etc/init.d/hadoop=.  The same command is used to start hadoop services on a datanode, namenode, or secondary namenode:
+
+<verbatim>
+service hadoop start
+</verbatim>
+
+You will also want to configure hadoop to start at boot time with:
+
+<verbatim>
+chkconfig hadoop on
+</verbatim>
+
+---++ Mounting fuse at boot time
+
+After you have installed the fuse fuse-libs rpms as well as the fuse kernel module, you can mount fuse by adding the following line to =/etc/fstab=:
+
+(Be sure to change the =/mnt/hadoop= mount point and =namenode.host= to match your local configuration.)
+<verbatim>
+hdfs# /mnt/hadoop fuse server=namenode.host,port=9000,rdbuffer=131072,allow_other 0 0
+</verbatim>
+
+...and then run
+
+<verbatim>
+mount /mnt/hadoop
+</verbatim>
+
+To start the fuse mount in debug mode, you can run the fuse mount command by hand:
+
+<verbatim>
+/usr/bin/hdfs  /mnt/hadoop -o rw,server=compute-13-1,port=9000,rdbuffer=131072,allow_other -d
+</verbatim>
+
+Debug output will be printed to stderr, which you will probably want to redirect to a file.
 
 ---+   Pacman Installation
+
+*Beware: This installation method is deprecated!  Do not use for new installs.*
 
 ---++    Prerequisites
 
@@ -199,147 +346,6 @@ vdt-control --enable hadoop_fuse
 vdt-control --on
 </verbatim>
 
----+ RPM installation
-
-Quickstart for the impatient (without fuse):
-
- <verbatim>
-rpm -ivh http://newman.ultralight.org/repos/hadoop/4/i386/caltech-hadoop-4-1.noarch.rpm
-yum install hadoop
-vi /etc/sysconfig/hadoop
-service hadoop-firstboot start
-service hadoop start
-</verbatim>
-
----++ Prerequisites and Assumptions
-
-The Hadoop RPMs require Sun java jdk 1.6.0 or later.  You can download this from http://java.sun.com.
-
-The Hadoop init script assumes that you are not running multiple hadoop services (datanode, namenode, secondary namenode) on the same host.
-
-The fuse interface to HDFS requires the fuse kernel module.  The stock RHEL kernels do not include the fuse kernel module.  Atrpms provides kernel modules for the most recent RHEL4 and RHEL5 kernels at www.atrpms.net.  If you are running a custom kernel, then be sure to enable the fuse module with =CONFIG_FUSE_FS=m=.  Building and installing a fuse kernel module for your custom kernel is beyond the scope of this document.
-
-Hadoop and fuse userspace RPMs for RHEL4 and RHEL5 are available from:
-
-<verbatim>
-http://newman.ultralight.org/repos/hadoop/4/x86_64
-http://newman.ultralight.org/repos/hadoop/4/i386
-http://newman.ultralight.org/repos/hadoop/5/x86_64
-http://newman.ultralight.org/repos/hadoop/5/i386
-</verbatim>
-
----++ Manual Hadoop RPM install
-
-Download the latest Hadoop RPM from the appropriate directory above.  If you wish to use the fuse interface (recommended), then you should also download the fuse and fuse-libs RPMs.
-
-After downloading the RPMs, install it with:
-
-<verbatim>
-rpm -ivh hadoop-0.19.1*.rpm
-</verbatim>
-
-Proceed to the Hadoop configuration step below.
-
----++ Yum install
-
-To further simplify the installation process, a yum repository has been set up.  To configure your local installation for the yum repository, you should install the caltech-hadoop package from:
-=http://newman.ultralight.org/repos/hadoop/4/x86_64/caltech-hadoop-4-1.noarch.rpm=
-
-You must have the fuse kernel module already installed on your system in order to use the yum installer.
-
-After installing the caltech-hadoop yum configuration package, you can install hadoop and fuse with:
-
-<verbatim>
-yum install hadoop
-</verbatim>
-
-Updates can be installed with:
-
-<verbatim>
-yum upgrade hadoop
-</verbatim>
-
----++ Manual fuse install
-
-Download the hadoop-fuse, fuse, and fuse-libs rpms from the locations above.  If you downloaded the fuse-kmdl module from Atrpms, then you can install all of the RPMs with a single command:
-
-<verbatim>
-rpm -ivh hadoop-fuse*.rpm fuse-*.rpm
-</verbatim>
-
-If you obtained your fuse kernel module from elsewhere, or built the fuse module into your custom kernel, then you will need to add =--nodeps= to avoid errors:
-
-<verbatim>
-rpm -ivh --nodeps hadoop-fuse*.rpm fuse-*.rpm
-</verbatim>
-
----++ Yum fuse install
-
-The yum installer will attempt to resolve any dependencies during the installation process. 
-
-<verbatim>
-yum install hadoop-fuse fuse
-</verbatim>
-
-If you installed the fuse kernel module from somewhere other than the Atrpms repository, then you will need to install the fuse rpm manually as described above.  The hadoop-fuse and fuse-libs packages can still be installed with yum:
-
-<verbatim>
-rpm -ivh --nodeps fuse*.rpm
-yum install hadoop-fuse fuse-libs
-</verbatim>
-
----++ Configuration
-
-The Hadoop RPMs install files into the standard system locations:
-
-| Log files | =/var/log/hadoop/*= |
-| PID files | =/var/run/hadoop/*.pid= |
-| init scripts | =/etc/init.d/hadoop=, =/etc/init.d/hadoop-firstboot= |
-| init script config file | =/etc/sysconfig/hadoop= |
-| runtime config files | =/etc/hadoop/*= |
-| System binaries | =/usr/bin/hadoop*= |
-| JARs | =/usr/share/java/hadoop/*= |
-
-The most common site configuration settings can be changed in =/etc/sysconfig/hadoop=.  In most cases, this file will be identical on the namenode and datanodes.  The configuration settings are documented in the file itself.  After making changes to the file, you must run =service hadoop-firstboot start= to propogate the changes to the hadoop configuration files in =/etc/hadoop=.  =hadoop-firstboot= must be run every time you make changes to /etc/sysconfig/hadoop.
-
-This file will be saved with a =.rpmsave= extension if you ever update your hadoop rpms with rpm or yum.  Make sure to copy your settings from =/etc/sysconfig/hadoop.rpmsave= to =/etc/sysconfig/hadoop= if you ever update your hadoop rpms.  Any manual changes to the hadoop configuration files in =/etc/hadoop/= should be preserved during an upgrade, but may be overwritten when running =hadoop-firstboot=.
-
----++ Running Hadoop
-
-The Hadoop rpms install a startup script in =/etc/init.d/hadoop=.  The same command is used to start hadoop services on a datanode, namenode, or secondary namenode:
-
-<verbatim>
-service hadoop start
-</verbatim>
-
-You will also want to configure hadoop to start at boot time with:
-
-<verbatim>
-chkconfig hadoop on
-</verbatim>
-
----++ Mounting fuse at boot time
-
-After you have installed the fuse fuse-libs rpms as well as the fuse kernel module, you can mount fuse by adding the following line to =/etc/fstab=:
-
-(Be sure to change the =/mnt/hadoop= mount point and =namenode.host= to match your local configuration.)
-<verbatim>
-hdfs# /mnt/hadoop fuse server=namenode.host,port=9000,rdbuffer=131072,allow_other 0 0
-</verbatim>
-
-...and then run
-
-<verbatim>
-mount /mnt/hadoop
-</verbatim>
-
-To start the fuse mount in debug mode, you can run the fuse mount command by hand:
-
-<verbatim>
-/usr/bin/hdfs  /mnt/hadoop -o rw,server=compute-13-1,port=9000,rdbuffer=131072,allow_other -d
-</verbatim>
-
-Debug output will be printed to stderr, which you will probably want to redirect to a file.
 
 -- Main.WillMaier - 19 Mar 2009
 -- Main.MichaelThomas - 19 Mar 2009
