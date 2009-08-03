@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1249313188" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1249323104" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="SiteAdminsWorkshopTutorialsAug09"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -155,10 +155,11 @@ pacman -get %CACHE%:Xrootd-GridFTP
 Now, you have to configure  !GridFTP to work with !Xrootd
 
 <pre class="screen">
-$VDT_LOCATION/vdt/setup/configure_gridftp --use-xrootd \ 
- --xrootd-host nodeA \ 
- --xrootd-mount-point /data/cache \ 
- --xrootd-storage-path /data/storage; 
+$VDT_LOCATION/vdt/setup/configure_gridftp --use-xrootd \
+ --xrootd-host nodeA \
+ --xrootd-mount-point /data/cache \
+ --xrootd-storage-path /data/storage
+vdt-control -enable  gsiftp
 </pre>
 
 
@@ -175,7 +176,8 @@ cd  /opt/osg_bestman
 $VDT_LOCATION/vdt/setup/configure_gratia  \
  --probe gridftp-transfer \
  --report-to  gratia-osg-itb.opensciencegrid.org:8881\
- --probe-cron --site-name ITB_nodeA;
+ --probe-cron --site-name ITB_nodeA
+vdt-control -enable  gratia-gridftp-transfer
 </pre>
 
 ---++++  Creating osg-user-vo-map
@@ -189,7 +191,6 @@ In order to enable generation of gridmap-file and  osg-user-vo-map by using the 
 cd /opt/osg_bestmane
 . setup.sh
 vdt-control -enable edg-mkgridmap
-vdt-control -on edg-mkgridmap
 $VDT_LOCATION/edg/sbin/edg-mkgridmap 
 </pre>
 
@@ -206,9 +207,286 @@ Configuring EDG-Make-Gridmap... Done.
 Completed all configuration.
 </pre>
 
+---++ !Xrootd Redirector installation and configuration
+You will have to install Xrootd on a redirector node (node A). The installation described here is done as root even though services does not  run as root.
+
+    * A question regarding trust of the caches from which the software is downloaded will be displayed.
+      Please answer yall (yes to trust all caches) so that the software can be retrieved. 
+Open a new window and create a directory for xrootd installation  /opt/osg_xrootd. 
+<pre class="screen">
+cd osg_xrootd
+pacman -get %CACHE%:Xrootd 
+. setup.sh 
+vdt-post-install
+$VDT_LOCATION/vdt/setup/configure_xrootd \ 
+ --server y \ 
+ --user daemon \ 
+ --this-is-xrdr \
+ --xrdr-storage-path /data/storage \ 
+ --xrdr-storage-cache /data/xrdr_cache \ 
+ --public-cache-size 1
+</pre>
+ 
+Where _$VDT_LOCATION_ is a directory of  Xrootd installation, <br/>
+_daemon_ name of the non-privileged user that runs Xrootd (%ICON%{warning}this user SHOULD have a login shell) <br/>
+_/data/xrdr-cache_ is the name of a directory that hosts actual data. Files under_/data/xrdr-cache_ is not visible to users.<br/>
+_/data/storage_ is the name of a directory that hosts  symbolic links to actual files in _/data/xrdr-cache_.  Xrootd clients have access to  _/data/storage_.<br/>
+_1_ is the size of storage area (in GB) allocated for public use 
+ 
+
+---++ Xrootd data server node 
+You will have to install Xrootd on a data server node (node B). The installation described here is done as root even though services does not  run as root.
+
+    * A question regarding trust of the caches from which the software is downloaded will be displayed.
+      Please answer yall (yes to trust all caches) so that the software can be retrieved. 
+
+Create a directory, e.g.  /opt/osg_xrootd. Make sure there are no non-standard versions of perl, python, tcsh, or bash in your $PATH variable. 
+
+<pre class="screen">
+cd /opt/osg_xrootd
+pacman -get %CACHE%:Xrootd 
+. setup.sh 
+vdt-post-install 
+$VDT_LOCATION/vdt/setup/configure_xrootd \
+ --server y \
+ --user daemon\
+ --xrdr-host  nodeA \
+ --xrdr-storage-path /data/storage \
+ --xrdr-storage-cache /data/xrdr_cache \
+ --public-cache-size 1
+</pre>
+Where _$VDT_LOCATION_ is a directory of  Xrootd installation, <br/>
+_daemon_ name of the non-privileged user that runs Xrootd (%ICON%{warning}this user SHOULD have a login shell) <br/>
+_nodeA_ that FQDN of redirector  host <br/>
+_/data/xrdr_cache_ is the name of a directory that hosts actual data. Files under_cache_ is not visible to users.<br/>
+_/data/storage_ is the name of a directory that contains symbolic links to actual files in _/data/xrdr_cache_. Xrootd clients have access to _/data/storage_.<br/>
+_1_ is the size of storage area (in GB) allocated for public use (are not reserved with a particular space token)   
+  
+---++ Start  the system 
+You have to be root to start each service. You have to start all the components in the 
+following order (this is order is optional but seems logical): 
+   1. Start Xrootd redirector. Login on redirector node (node A),  then: <pre class="screen">cd  /opt/osg_xrootd 
+. setup.sh 
+vdt-control –on
+</pre> 
+   1. Start Xrootd on all the data server node. Login on each Xrootd data server node (node B), then:<pre class="screen">cd  /opt/osg_xrootd 
+. setup.sh 
+vdt-control –on
+</pre> 
+   1, Start !XrootdFS,!GridFTP and  !BeStMan. Login on !BeStMan node (node A), then: <pre class="screen">cd  /opt/osg_bestman
+. setup.sh 
+vdt-control –on
+</pre> 
+--++ Stop the system 
+You have to be root to stop each service. You have to stop all the components in the 
+following order (this is order is optional but seems logical): 
+ 
+   1. Stop !XrootdFS,!GridFTP and !BeStMan. Login on !BeStMan node, then: <pre class="screen">cd  /opt/osg_bestman
+. setup.sh 
+vdt-control –off
+</pre> 
+   1. Stop Xrootd redirector. Login on redirector node,  then: <pre class="screen">cd /opt/osg_xrootd 
+. setup.sh 
+vdt-control –off
+</pre> 
+   1.. Stop Xrootd on all the data server nodes. Login on each Xrootd data server node, then: <pre class="screen">cd  /opt/osg_xrootd
+. setup.sh 
+vdt-control –off
+</pre> 
 
 
+---++ System sanity check 
+In order to verify that the system is functional you will need to download client package. Login in your home directory, make sure that you have your certificate in .globus directory. Create a directory, e.g.  ~/osg_client. Make sure there are no non-standard versions of perl, python, tcsh, or bash in your $PATH variable. 
 
+
+<pre class="screen"> 
+cd ~/osg_client
+. /opt/pacman-3.28/setup.sh
+pacman -get %CACHE%:client  # answer "yall" to "Do you want to add [http://software.grid.iu.edu/osg-1.2] to [trusted.caches]?" question
+. setup.sh 
+vdt-ca-manage setupca --location local --url osg
+</pre>
+You will need to get your _grid-proxy_ certificate.
+<pre class="screen"> 
+grid-proxy-init 
+</pre>
+ 
+Execute srm-ping: 
+<pre class="screen">
+ srm-ping srm://nodeA:10443/srm/v2/server 
+ </pre>
+Expected results:
+<pre class="screen"> 
+srm-ping   2.2.1.2.i7.p3  Fri Jul 10 15:56:18 PDT 2009
+SRM-Clients and BeStMan Copyright(c) 2007-2009,
+Lawrence Berkeley National Laboratory. All rights reserved.
+Support at SRM@LBL.GOV and documents at http://datagrid.lbl.gov/bestman
+ 
+SRM-CLIENT: Connecting to serviceurl httpg://gw014k1:10443/srm/v2/server
+
+SRM-PING: Mon Aug 03 12:02:57 CDT 2009  Calling SrmPing Request...
+versionInfo=v2.2
+
+Extra information (Key=Value)
+backend_type=BeStMan
+backend_version=2.2.1.2.i7
+backend_build_date=2009-07-10T20:54:16.000Z 
+gsiftpTxfServers[0]=gsiftp://gw014k1.fnal.gov
+GatewayMode=Enabled
+clientDN=/DC=org/DC=doegrids/OU=People/CN=Tanya Levshina 508821
+localIDMapped=fnalgrid
+
+</pre> 
+If you have reasonable result you may try to srm copy. In order to do so create a file _test1_ in _/tmp_ directory and execute: 
+<pre class="screen"> 
+srm-copy   file:////tmp/test1 srm://nodeA:10443/srm/v2/server\?SFN=/data/cache/test1 
+</pre> 
+You should get back something like that: 
+<pre class="screen"> 
+srm-copy   2.2.1.2.i7.p3  Fri Jul 10 15:56:18 PDT 2009
+SRM-Clients and BeStMan Copyright(c) 2007-2009,
+Lawrence Berkeley National Laboratory. All rights reserved.
+Support at SRM@LBL.GOV and documents at http://datagrid.lbl.gov/bestman
+ 
+SRM-CLIENT: Mon Aug 03 12:08:24 CDT 2009 Connecting to httpg://gw014k1:10443/srm/v2/server
+
+SRM-CLIENT: Mon Aug 03 12:08:24 CDT 2009 Calling SrmPrepareToPutRequest now ...
+request.token=put:3
+status=SRM_SUCCESS
+explanation=null
+SRM-CLIENT: received TURL=gsiftp://gw014k1.fnal.gov//data/cache/test1
+
+SRM-CLIENT: Mon Aug 03 12:08:26 CDT 2009 start file transfer
+SRM-CLIENT:Source=file:////tmp/test1
+SRM-CLIENT:Target=gsiftp://gw014k1.fnal.gov//data/cache/test1
+
+SRM-CLIENT: Mon Aug 03 12:08:29 CDT 2009 end file transfer for file:////tmp/test1
+
+SRM-CLIENT: Mon Aug 03 12:08:29 CDT 2009 Calling putDone for srm://gw014k1:10443/srm/v2/server?SFN=/data/cache/test1
+Result.status=SRM_SUCCESS
+Result.Explanation=null
+
+SRM-CLIENT: Request completed with success
+
+SRM-CLIENT: Printing text report now ...
+
+SRM-CLIENT*REQUESTTYPE=put
+SRM-CLIENT*TOTALFILES=1
+SRM-CLIENT*TOTAL_SUCCESS=1
+SRM-CLIENT*TOTAL_FAILED=0
+SRM-CLIENT*REQUEST_TOKEN=put:3
+SRM-CLIENT*REQUEST_STATUS=SRM_SUCCESS
+SRM-CLIENT*SOURCEURL[0]=file:////tmp/test1
+SRM-CLIENT*TARGETURL[0]=srm://gw014k1:10443/srm/v2/server?SFN=/data/cache/test1
+SRM-CLIENT*TRANSFERURL[0]=gsiftp://gw014k1.fnal.gov//data/cache/test1
+SRM-CLIENT*ACTUALSIZE[0]=735004
+SRM-CLIENT*FILE_STATUS[0]=SRM_SUCCESS
+SRM-CLIENT*EXPLANATION[0]=SRM-CLIENT: PutDone is called successfully
+</pre> 
+
+
+If you turn on Gratia !GridFTP transfer probes you should be able to see the accounting information by accessing your Gratia collector. See details in  [[GratiaTransferProbe][Preparing, Installing and Validating Gratia transfer probe]].
+
+
+ 
+---++ Troubleshooting – What could go wrong with such trivial tasks? 
+ 
+If   sanity checks failed you would probably need to check the each component in order 
+to verify what went wrong with your installation. In order to do so you should ,probably, 
+check all them in the following order: 
+   * Xrootd 
+   * !XroodFS 
+   * !GridFTP 
+   * !BeStMan 
+
+---+++ Verifying Xrootd 
+Login on the node where you have installed !BeStMan (node A), then 
+<pre class="screen">
+cd /opt/osg_bestman
+. setup.sh
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$VDT_LOCATION/xrootd/lib 
+export LD_PRELOAD=$VDT_LOCATION/xrootd/lib/libXrdPosixPreload.so 
+echo “This is a test” >/tmp/test 
+cp /tmp/test xroot://nodeA:1094//data/storage;/test 
+cp xroot://nodeA:1094//tmp/test1 
+diff /tmp/test1 /tmp/test 
+</pre>
+
+---+++ Verifying !XrootdFS 
+Login on the node where you have installed !XrootdFS (node A), then 
+<pre class="screen">
+cd /data/cache
+echo “This is a test” >test1 
+ls –l test1 
+cat test1 
+</pre>
+
+---+++ Verifying !GridFTP 
+Login on the node where you have installed client cache and  have your certificate.
+
+You will need to get your voms-proxy certificate: 
+<pre class="screen">
+cd ~/osg_client
+. setup.sh
+grid-proxy-init 
+</pre>
+
+Then test !GridFtp: 
+
+<pre class="screen">
+. ~/osg_client/setup.sh 
+echo “This is a test” >/tmp/test 
+globus-url-copy -dbg file:///tmp/test gsiftp://nodeA/tmp/test 
+</pre>
+
+---+++ Verifying !BeStMan
+Make sure that !BeStMan is running and there is no error in the log file (_$VDT_LOCATION/vdt-app-data/bestman/logs/event.srm.log_). Login on the node where you have installed !BeStMan then
+
+<pre class="screen"> 
+ps auxww|grep $VDT_LOCATION/bestman|grep -v grep
+daemon   27648  0.0  0.0  4944 1168 pts/2    S    07:46   0:00 /bin/sh /opt/osg_bestman/bestman/sbin/bestman.server
+daemon   27676  3.3  7.4 715240 155208 pts/2 Sl   07:46   1:59 /opt/osg_bestman/jdk1.6/bin/java -server -Xmx512m - -DX509_CERT_DIR=/op/osg_bestman/globus/TRUSTED_CA -Daxis.ServerConfigFile=/opt/osg_bestman/bestman/conf/server-config.wsdd gov.lbl.srm.server.Server /opt/osg_bestman/bestman/conf/bestman.rc
+</pre>
+
+---++ List of utilized ports
+|*Module Name*|*Port Number*| *Protocol*|
+|!BeStMan| 10080| tcp|
+||10443|tcp|
+|!GridFTP|2811|tcp|
+||lowPort,maxPort if needed to control outbound globus connections|tcp|
+|!Xrootd redirector|1094|tcp|
+||2094|tcp|
+||1213|tcp|
+|!Xrootd data server| opens random port selected by OS;|tcp|
+|^|replace "xrd.port any" with a particular port in $VDT_LOCATION/xrootd/etc/xrootd.cfg| |
+
+---++ Log file and configuration locations 
+ 
+If any of the tests described above have failed or you are just curious to see what’s going 
+on you could find log and configuration files for each of the module in the following 
+location on a relevant node: 
+|*Module Name*|*Configuration files*| *Log files*| 
+|!BeStMan| $VDT_LOCATION/bestman/conf/bestman.rc |$VDT_LOCATION/vdt-app-data/bestman/logs/event.srm.log| 
+|!GridFTP|$VDT_LOCATION/vdt/services/vdt-run-gsiftp.sh.env | $VDT_LOCATION/globus/var/log/gridftp.log <br/>$VDT_LOCATION/globus/var/log/gridftp-auth.log | 
+|!XrootdFS |$VDT_LOCATION/xrootdfs/start.sh <br/>$VDT_LOCATION/xrootdfs/stop.sh |NA| 
+|Xrootd – redirector |$VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/xrootd_2.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf  <br/>|$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog  <br/>$VDT_LOCATION/xrootd/var/logs/ xrootd_cnd/xrdlog |
+|Xrootd – data server| $VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf |$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog |
+ 
+---++ Looking for help? 
+The detailed information about each component can found on the following web sites: 
+   * [[http://fuse.sourceforge.net  FUSE]]
+   * [[http://wt2.slac.stanford.edu/xrootdfs/xrootdfs.html  XrootdFS]]
+   * [[http://datagrid.lbl.gov/bestman BeStMan]]  
+   * [[http://www.globus.org/toolkit/docs/3.2/gridftp  GridFTP]]
+   * [[http://xrootd.slac.stanford.edu/papers/Scalla-Intro.htm  Xrootd]]
+   * [[http://vdt.cs.wisc.edu/index.html current VDT cache]]
+
+
+ 
+Numerous documents about storage solutions supported by OSG as well as other useful 
+links could be found at [[https://twiki.grid.iu.edu/twiki/bin/view/Documentation/WebHome OSG Documnetation]]
+ 
+See if your question is already answered under the [[https://twiki.grid.iu.edu/bin/view/Documentation/SETools%2cTips%2cFAQs FAQ section]] If not, please send all your questions to osg-storage@opensciencegrid.org  
 
 %STOPINCLUDE%
 %BR%
