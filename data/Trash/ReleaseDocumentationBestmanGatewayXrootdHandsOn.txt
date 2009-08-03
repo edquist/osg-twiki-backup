@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1249305587" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1249313188" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="SiteAdminsWorkshopTutorialsAug09"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -14,6 +14,7 @@ The following document is a hands on tutorial on !BeStMan-gateway and Xrootd ins
 The following requirements should be met In order to install !BeStMan-gateway and Xrootd:
    1. You will need at least two nodes. You will installed FUSE, !XrootdFS, !BeStMan, !GridFTP-Xrootd and Xrootd redirector on one node (node A)  and !Xrootd data server on another node (node B). 
    1. At least one node should have a host certificate.
+   1. The nodes are not behind firewall. 
    1. You have installed FUSE on one of the node.  FUSE is a kernel module that intercepts and services user requests to the XrootdFS. FUSE can be installed via “yum install” or rpms. You will need three packages:
     * fuse
     * fuse-libs
@@ -31,8 +32,8 @@ cd /opt
 wget http://physics.bu.edu/pacman/sample_cache/tarballs/pacman-3.28.tar.gz
 tar xvfz pacman-3.28.tar.gz
 </pre>  
-
----++ !XrootdFS installation
+---++ BeStman for Xrootd installation
+---+++ !XrootdFS installation and configuration
 XrootdFS is a Posix filesystem  that allows !GridFTP, !BeStMan and other grid applications to work with Xrootd storage system. !XrootdFS works on top of !FUSE. !XrootdFS can be installed from %CACHE% cache. The installation described here is done as root even though services does not  run as root. On node A do the following
 <pre class="screen"> 
 cd /opt
@@ -67,10 +68,145 @@ $VDT_LOCATION/vdt/setup/configure_xrootdfs \
 </pre>
  
 Where _$VDT_LOCATION_  is a directory where the package is installed,<br/> 
-"daemon" is the user name of the non-privileged user that runs xrootdfs daemon and  is an owner of <br/>
-node! is a FQDN of Xrootd redirector host <br/> 
-/data/cache is  a !XrootdFS mount point that will be created for you  <br/>
-/data/storage is a storage area on redirector node  <br/> 
+_daemon_ is the user name of the non-privileged user that runs xrootdfs daemon and  is an owner of <br/>
+_nodeA_ is a FQDN of Xrootd redirector host <br/> 
+_/data/cache_ is  a !XrootdFS mount point that will be created for you  <br/>
+_/data/storage_ is a storage area on redirector node  <br/> 
+
+---+++ !BeStMan installation and configuration 
+ 
+!BeStMan-gateway is a generic SRM v2.2 load balancing frontend for GridFTP servers. It is developed by the Scientific Data Management Group of Lawrence Berkeley National 
+Laboratory. It implements a subset of SRM v2.2 specifications that includes: 
+   * !srmPing() 
+   * !srmGetTransferProtocols() 
+   * !srmLs()  
+   * !srmRm()  
+   * !srmMkdir()  
+   * !srmRmdir() 
+   * !srmPrepareToPut()  
+   * !srmPrepareToGet()  
+   * !srmPutDone()  
+   * !srmReleaseFiles()  
+   * !srmGetSpaceTokens() 
+   * !srmGetSpaceMetaData()  
+Some of the abovementioned specs are just partially implemented. 
+For more information see [[http://wt2.slac.stanford.edu/xrootdfs/bestman-gateway.html BeStMan-gateway Home Page]]
+ 
+!BeStMan can be installed from %CACHE% cache in the same directory where !XrootdFS has been  already installed (see !XrootdFS installation). The installation described here is done as root even though services does not  run as root. We assume that you use gridmap file for authorization, if you wish to use !GUMS please check   [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/BestmanGatewayXrootd][BeStMan-gateway + Xrootd Installation Guide]. 
+
+<pre class="screen">
+cd /opt/osg_bestman
+pacman -get %CACHE%:Bestman 
+ . setup.sh 
+</pre>
+
+To check what services have been installed on your node you can do:
+
+<pre class="screen"> 
+cd &lt;VDT_LOCATION&gt;
+. setup.sh
+ vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+xrootdfs                | init   | enable
+fetch-crl               | cron   | do not enable
+vdt-rotate-logs         | cron   | do not enable
+vdt-update-certs        | cron   | do not enable
+gsiftp                  | inetd  | do not enable
+gratia-gridftp-transfer | cron   | do not enable
+gums-host-cron          | cron   | do not enable
+</pre>
+
+Follow the following instructions, also provided in _$VDT_LOCATION/post-install/README_,  to configure CA package updates:
+
+%INCLUDE{"CaCertificatesUpdates"}%
+
+You will need to configure !BeStMan first in order to enable it as a service. You will need to specify "use-xrootd"  option so BeStMan could be configured in gateway-mode and be able to use Xrootd as DFS. In gateway-mode !BeStMan is not managing your disk but rather relies on !Xrootd to do so. If  would like to use static space token reservation please consult [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/BestmanGatewayXrootd][BeStMan-gateway + Xrootd Installation Guide]. 
+ 
+The example below shows how to configure !BeStMan in gateway-mode, enable !GUMS
+and space token usage: 
+<pre class="screen">
+cd /opt/osg_bestman
+. setup.sh
+$VDT_LOCATION/vdt/setup/configure_bestman --server y \
+ --user  daemon\
+ --cert  /etc/grid-security/bestman_cert/bestmancert.pem \
+ --key   /etc/grid-security/bestman_cert/bestmankey.pem \ 
+ --use-xrootd  \
+</pre> 
+
+Where  _daemon_ of the non-privileged user that runs !BeStMan,</br>  
+_/etc/grid-security/bestman_cert/bestmancert.pem_ to service certificate (the certificate file should belong to the _daemon_)<br/>
+_/etc/grid-security/bestman_cert/bestmankey.pem_ to service certificate private key (the certificate key file should belong to the _daemon_).
+
+%ICON{warning}%  !BeStMan should be configured with host certificate in order to be able to handle requests from LCG-Utils tools. This is mandatory for at least all !BeStMan servers that support ATLAS experiment. Normally the OSG !BeStMan implementation uses a service certificate, not a host certificate. This causes lcg-cp to fail because the certificate name (which looks like http/hostname instead of just hostname) doesn't match the hostname. 
+<br/>
+
+This command will configure !BeStMan-gateway to use default http port - 10080 , and https port 10443 and !GridFTP server on the nodeA.
+---+++ !GridFTP for Xrootd installation and configuration
+Generic !GridFTP server comes with  !BeStMan installation but you will need to install additional package in order for !GridFTP to work with !Xrootd. This package should be installed in the same directory where !BeStMan is installed.  
+
+<pre class="screen">
+cd /opt/osg_bestman
+pacman -get %CACHE%:Xrootd-GridFTP 
+. setup.sh
+</pre>
+
+Now, you have to configure  !GridFTP to work with !Xrootd
+
+<pre class="screen">
+$VDT_LOCATION/vdt/setup/configure_gridftp --use-xrootd \ 
+ --xrootd-host nodeA \ 
+ --xrootd-mount-point /data/cache \ 
+ --xrootd-storage-path /data/storage; 
+</pre>
+
+
+_nodeA_ is a FQDN of the Xrootd redirector host,  <br/>
+_/data/cache_ is a !GridFTP virtual mount point
+_/data/storage_ storage area on redirector node 
+
+---+++ Configuring Gratia transfer probe
+Gratia GridFTP transfer probe is installed simultaneously with BeStMan or standalone GridFTP server. It is not enabled by default.
+To configure Gratia !GridFTP transfer probe do the following:
+<pre class="screen">
+cd  /opt/osg_bestman
+. setup.sh
+$VDT_LOCATION/vdt/setup/configure_gratia  \
+ --probe gridftp-transfer \
+ --report-to  gratia-osg-itb.opensciencegrid.org:8881\
+ --probe-cron --site-name ITB_nodeA;
+</pre>
+
+---++++  Creating osg-user-vo-map
+
+Please read  [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/OsgSupportedVos][this page]] about files that are required to accurately collect grid resource usage and metrics by VO for transfer submitted using grid proxies or where voms proxy information is not available. 
+
+---++++ Using Gridmap based authorization mode
+
+In order to enable generation of gridmap-file and  osg-user-vo-map by using the edg-mkgridmap cron process to get information form VOMS servers do the following:
+<pre class="screen">
+cd /opt/osg_bestmane
+. setup.sh
+vdt-control -enable edg-mkgridmap
+vdt-control -on edg-mkgridmap
+$VDT_LOCATION/edg/sbin/edg-mkgridmap 
+</pre>
+
+---+++ Post installed script
+
+Run vdt-post-install script:
+<pre class="screen"> 
+cd /opt/osg_bestman
+. setup.sh
+vdt-post-install sctript
+Starting...
+Configuring PRIMA... Done.
+Configuring EDG-Make-Gridmap... Done.
+Completed all configuration.
+</pre>
+
+
 
 
 
