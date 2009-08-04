@@ -1,10 +1,123 @@
-%META:TOPICINFO{author="BrianBockelman" date="1238763479" format="1.1" reprev="1.3" version="1.3"}%
+%META:TOPICINFO{author="MichaelThomas" date="1249360713" format="1.1" reprev="1.4" version="1.4"}%
 %META:TOPICPARENT{name="Hadoop"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
 
----+    Prerequisites
+---+    Installation
+
+There used to be two choices for installation method - RPM-based or Pacman-based.  From feedback we have received from site admins, we are moving forward only with the RPM-based installs.  The Pacman install is documented below for posterity.
+
+
+---++   Quick Start
+
+Quickstart for the impatient.  This assumes you already have the *jdk* 1.6.0 RPM installed on all relevant nodes.
+
+ <verbatim>
+rpm -ivh http://newman.ultralight.org/repos/hadoop/4/i386/caltech-hadoop-4-1.noarch.rpm
+yum install gridftp-hdfs
+vi /etc/sysconfig/hadoop # Edit appropriately.
+service hadoop-firstboot start
+vi /etc/grid-security/prima-authz.conf # Add gums hostname
+service xinetd restart
+</verbatim>
+
+---++ Prerequisites and Assumptions
+
+The installation assumes you are already familiar with the [[HadoopInstallation][Hadoop installation instructions]], notably the installation and configuration of the Hadoop FUSE mount.
+
+The Hadoop RPMs require Sun Java jdk 1.6.0 or later. You can download this from http://java.sun.com.
+
+GUMS must be used for grid user mappings.  While a grid-mapfile may be used, the configuration of its use is not currently tested or supported.
+
+While you can run gridftp on the same node as other hadoop services, this is not recommended.  The Gridftp server for hadoop can be very memory-hungry and should run on a dedicated server.
+
+The installation includes the latest CA Certificates package from the OSG as well as the fetch-crl CRL updater.
+
+---++ RPM/YUM Install method
+
+Hadoop and gridftp-hdfs RPMs for RHEL4 and RHEL5 are available from:
+
+<verbatim>
+http://newman.ultralight.org/repos/hadoop/4/x86_64
+http://newman.ultralight.org/repos/hadoop/4/i386
+http://newman.ultralight.org/repos/hadoop/5/x86_64
+http://newman.ultralight.org/repos/hadoop/5/i386
+</verbatim>
+
+While it is possible to download and install the RPMs directly, it is recommended that you install the yum repository configuration and install gridftp-hdfs with yum.  This will ensure that all of the required dependant packages are also installed and configured.  To configure your local installation for the yum repository, you should install the caltech-hadoop package from the relevant package:
+
+RHEL4 (32 and 64-bit):
+
+<verbatim>
+rpm -ivh http://newman.ultralight.org/repos/hadoop/4/x86_64/caltech-hadoop-4-1.noarch.rpm
+</verbatim>
+
+RHEL5 (32 and 64-bit):
+
+<verbatim>
+rpm -ivh http://newman.ultralight.org/repos/hadoop/5/x86_64/caltech-hadoop-5-1.noarch.rpm
+</verbatim>
+
+Remember, in order to use both Hadoop and gridftp-hdfs, you must have the fuse kernel module already installed on your system in order to use the yum installer.
+
+After installing the caltech-hadoop yum configuration package, you can install the gridftp-hdfs server with:
+
+<verbatim>
+yum install gridftp-hdfs
+</verbatim>
+
+Updates can be installed with:
+
+<verbatim>
+yum upgrade gridftp-hdfs
+</verbatim>
+
+---++ Configuration
+
+The installation of gridftp-hdfs and its dependencies creates several directories.  In addition to the Hadoop installation files, you will also find:
+
+| Log files | =/var/log/gridftp-auth.log=, =/var/log/gridftp.log= |
+| xinetd files | =/etc/xinetd.d/gridftp-hdfs= |
+| runtime config files | =/etc/gridftp-hdfs/*= |
+| System binaries | =/usr/bin/gridftp-hdfs*= |
+| System libraries | =/usr/lib64/libglobus_gridftp_server_hdfs_gcc64dbg.so*= |
+| prima auth configuration | =/etc/grid-security/prima-authz.conf= |
+| CA certificates | =/etc/grid-security/certificates/*= |
+
+gridftp-hdfs reads the hadoop configuration file to learn how to talk to Hadoop.  As per the [[HadoopInstallation][Hadoop install instructions]], edit =/etc/sysconfig/hadoop= and run =service hadoop-firstboot start=.  It is *not* necessary (or even recommended) to start any hadoop services with =service hadoop start=.
+
+In =prima-authz.conf= you will need to enter the url for your gums server, as well as the path to your host certificate and key:
+
+<verbatim>
+imsContact https://your.gums.host:8443/gums/services/GUMSAuthorizationServicePort
+...
+serviceCert /etc/grid-security/hostcert.pem
+serviceKey  /etc/grid-security/hostkey.pem
+</verbatim>
+
+The default settings in =/etc/gridftp-hdfs/*.conf= should be ok for most installations.  The file =gridftp-inetd.conf= is used by the xinetd service for starting up the gridftp server.  The file =gridftp.conf= is used by =/usr/bin/gridftp-hdfs-standalone= for starting up the gridftp server in a testing mode.  =gridftp-hdfs-local.conf= contains additional site-specific environment variables that are used by the gridftp-hdfs dsi module in both the xinetd and standalone gridftp server.  Some of the environment variables that can be used in =gridftp-hdfs-local.conf= include:
+
+| GRIDFTP_HDFS_REPLICA_MAP | File containing a list of paths and replica values for setting the default # of replicas for specific file paths |
+| GRIDFTP_BUFFER_COUNT | The number of 1MB memory buffers used to reorder data streams before writing them to Hadoop |
+| GRIDFTP_FILE_BUFFER_COUNT | The number of 1MB file-based buffers used to reorder data streams before writing them to Hadoop |
+| TMPDIR | The temp directory where the file-based buffers are stored.  Defaults to /tmp |
+
+---++ Running gridftp-hdfs
+
+If you were not already running the xinetd service (by default it is not installed on RHEL5), then you will need to start it with the command =service xinetd restart=.  Otherwise, the gridftp-hdfs service should be configured to run automatically as soon as the installation is finished.  If you would like to test the gridftp-hdfs server in a debug standalone mode, you can run the command:
+
+<verbatim>
+/usr/bin/gridftp-hdfs-standalone
+</verbatim>
+
+The standalone server runs on port 5002, handles a single gridftp request, and will log output to stdout/stderr.
+
+---+ Pacman installation
+
+*Beware: The pacman installation method is deprecated!  Do not use for new installs.*
+
+---++  Prerequisites and Assumptions
 
 The !GridFTP server for HDFS is based upon the stock Globus server
 with a new loadable module to interact with Hadoop.
@@ -19,10 +132,6 @@ you do not have it already.
 
 Now, create your install directory; we will refer to this as
 =$VDT_LOCATION= in this documentation.
-
----+    Installation
-
-The installation is relatively automatic.  If your site uses GUMS (see note below if you don't use GUMS),
 
 <verbatim>
 cd $VDT_LOCATION
