@@ -1,0 +1,98 @@
+%META:TOPICINFO{author="BrianBockelman" date="1250290046" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="HadoopSRM"}%
+---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+---+ Pacman Installation
+
+*Beware: The pacman installation method is deprecated!  Do not use for new installs.*
+
+Install the latest BeStMan from the OSG with pacman.
+
+If you are not using GUMS/PRIMA for authentication, first set:
+<verbatim>
+export VDT_NO_PRIMA=1
+</verbatim>
+
+GUMS users don't need to set any special environment variables.  Next, run
+<verbatim>
+pacman -get http://t2.unl.edu/store/cache:Hadoop-Bestman
+</verbatim>
+
+If you are using GUMS, make sure you have set =VDT_GUMS_HOST= to the
+hostname of the GUMS server.  This will install the BeStMan server
+with the Ganglia load-balancing plugin.
+
+---+ Configuration
+
+The BeStMan configuration file is in =$VDT_LOCATION/bestman/conf/bestman.rc=.
+The following configuration options are of interest:
+   
+   $ =supportedProtocolList=: semi-colon separated list of accessible
+      servers, including the protocol, hostname and port for each.
+      For example: =gsiftp://red-gridftp1.unl.edu:5000;gsiftp://dcache-s01.unl.edu:5000=
+   $ =noSudoOnLs=: use =sudo= to perform =ls= (default: True). Enable
+      this option if the SRM daemon's UID can't list a portion of
+      your namespace.
+   $ =staticTokenList=: list of statically-configured space tokens.
+      See the in-file help text for more information.
+   $ =GUMSserviceURL=: URL for GUMS lookups.
+   $ =accessFileSysViaSudo=: use =sudo= to perform POSIX operations
+     in the namespace. Enable this option or the server's =srmMkdir=
+     commands will result in directories owned by root.
+
+Add the following lines to =/etc/sudoers= so that BeStMan can
+manipulate the filesystem namespace:
+
+<verbatim>
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/cp, /bin/ls
+Runas_Alias SRM_USR = ALL, !root
+daemon     ALL=(SRM_USR) NOPASSWD: SRM_CMD
+</verbatim>
+
+On RHEL 5+ systems you need to make sure the following is commented
+out:
+
+<verbatim>
+#Defaults    requiretty
+</verbatim>
+
+---++ Customization
+
+You may want to enable any of the following customizations.
+
+---+++ JMX Monitoring
+
+This allows service administrators to closely monitor memory usage
+and thread activity in a much more Java-centric manner than Ganglia
+monitoring. To enable this, add the following command-line arguments
+to the call to =java= in =$VDT_LOCATION/bestman/sbin/bestman.server=:
+
+<verbatim>
+-Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote=true -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.port=8004
+</verbatim>
+
+Note that this allows anyone with access to port 8004 access to read
+out your JVM internal metrics.
+
+---+++ Ganglia-Based Selection of GridFTP Servers
+
+By default, the SRM server will select a GridFTP server by cycling
+through a static-list (round-robin). Nebraska has developed a
+protocol plugin for BeStMan that randomly selects a server from the
+list with a probability distribution function built from the load
+and memory usage as reported by Ganglia. To enable this, add the
+following line to =$VDT_LOCATION/bestman/conf/bestman.rc=:
+
+<verbatim>
+protocolSelectionPolicy=class=edu.unl.rcf.BestmanGridftpSelector.BestmanGridftp&jarFile=UNLGangliaBestman.jar&name=gsiftp
+</verbatim>
+
+Then, add the following command-line arguments to the call to =java=
+in =$VDT_LOCATION/bestman/sbin/bestman.server= after the
+=${MAXHEAP}= parameter:
+
+<verbatim>
+-Dedu.unl.rcf.BestmanGridftpSelector.host=localhost -Dedu.unl.rcf.BestmanGridftpSelector.port=8649
+</verbatim>
+
+-- Main.WillMaier - 19 Mar 2009
