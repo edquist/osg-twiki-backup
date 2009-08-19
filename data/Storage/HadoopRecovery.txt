@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="GarhanAttebury" date="1250707447" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="GarhanAttebury" date="1250716746" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="Hadoop"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -55,30 +55,40 @@ _Reminder: having more replicas of 'critical' files such as user data greatly re
 
 ---++ Namenode Recovery
 
-The FsImage (=fsimage=) and EditLog (=edits=) are the two critical elements of the namenode. Ideally you will have set up your =fs.checkpoint.dir= to point at both local disk on your namenode as well as another physical disk or network mounted server (NFS for instance). In addition, you should have secondarynamenode specified with =dfs.secondary.http.address= which will receive and store a copy of the these on its local disk. The secondarynamenode will also periodically merge the EditLog and FsImage and return that to the namenode. In the end you should be aware of the following important files:
+The FsImage (=fsimage=) and EditLog (=edits=) are the two critical elements of the namenode. Ideally you will have set up your =fs.checkpoint.dir= to point at both local disk on your namenode as well as another physical disk or network mounted server (NFS for instance). This is where checkpoints will be stored. You should also have set =dfs.name.dir= which is where the namenode will keep the current running FsIimage and EditLog. In addition, you should have a secondarynamenode specified with =dfs.secondary.http.address= which will receive and store a copy of the these on its local disk. The secondarynamenode will also periodically merge the EditLog and FsImage and return that to the namenode. In the end you should be aware of the following important files:
 
 <verbatim>
-namenode: 
-   ./dfs/current/edits *EditLog*
-   ./dfs/current/fsimage *FsImage*
-   ./dfs/current/fstime
-   ./dfs/current/VERSION
-   ./dfs/image/
-   ./dfs/previous.checkpoint/ * the previous copy of ./dfs/current/ *
+namenode: (dfs.name.dir = ${hadoop.tmp.dir}/dfs/name by default)
+   ./dfs/name/current/edits   --- the EditLog
+   ./dfs/name/current/fsimage   --- the FsImage
+   ./dfs/name/current/fstime
+   ./dfs/name/current/VERSION
+   ./dfs/name/image/fsimage
 
-*secondarynamenode:*
-   ./dfs/current/edits *EditLog*
-   ./dfs/current/fsimage *FsImage*
+secondarynamenode:
+   ./dfs/current/edits   --- the EditLog
+   ./dfs/current/fsimage   --- the FsImage
    ./dfs/current/fstime
    ./dfs/current/VERSION
    ./dfs/image/fsimage
-   ./dfs/previous.checkpoint/ * the previous copy of ./dfs/current/ *
+   ./dfs/previous.checkpoint/   --- the previous copy of ./dfs/current/
 </verbatim>
 
-In the event of a namenode failure you have a few options:
-* If the namenode simply crashed, you may be able to recover and simply restart the namenode service. If the FsImage is not corrupt in any way, the namenode will start and after all your datanodes report in your filesystem will be functioning normally.
-* If the FsImage is corrupt, or your namenode's physical hardware is unrecoverable, you will need to start a new namenode with the last good FsImage you have. It may be the case that only the copy on your original namenode's local disk is corrupt, but the copy on the network mounted server is fine. It doesn't hurt anyt
+You will also have these /current/ data structures on the additional locations you specify in =fs.checkpoint.dir=
+ 
 
-http://hadoop.apache.org/common/docs/current/hdfs_user_guide.html#Secondary+NameNode
+In the event of a namenode failure you have a few options:
+
+* If the namenode simply crashed, you may be able to recover and simply restart the namenode service. If the FsImage =dfs.name.dir= is not corrupt in any way, the namenode will start and after all your datanodes report in your filesystem will be functioning normally.
+
+* If the FsImage is corrupt, or your namenode's physical hardware is unrecoverable, you will need to start a new namenode with the last good FsImage you have. It may be the case that only the copy on your original namenode's local disk is corrupt, but the copy on the network mounted server is fine. The appropriate way to recover from the checkpoint copies is to do the following:
+
+   1. Create =dfs.name.dir= on your new namenode (it must be empty)
+   1. Make sure =fs.checkpoint.dir= is pointed at your last known good copy
+   1. Start the namenode with the =-importCheckpoint= option
+
+The namenode will verify that the files in =fs.checkpoint.dir= are consistent and create a new copy of the FsImage and EditLog in =dfs.name.dir.= Your namenode should start functioning again and will exit safemode once the appropriate number of blocks have been reported. *[does -importCheckpoint only do the import, or does it continue to run afterwards???]* The namenode will not alter the files in =fs.checkpoint.dir=. 
+
+For more information on the secondarynamenode functions see: http://hadoop.apache.org/common/docs/current/hdfs_user_guide.html#Secondary+NameNode
 
 -- Main.GarhanAttebury - 19 Aug 2009
