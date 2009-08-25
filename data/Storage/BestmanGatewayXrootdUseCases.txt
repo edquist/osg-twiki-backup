@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="SarahWilliams" date="1251223949" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="SarahWilliams" date="1251229040" format="1.1" version="1.2"}%
 %META:TOPICPARENT{name="BestmanGatewayXrootd"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -23,13 +23,68 @@ In a storage, we're looking for:
    * Doesn’t introduce new stability or reliability issues 
    * Fail-over capability
 ---+++ Site Description
-At IU we have 44 regular data servers, and 3 high performance.  At UC we have 37 regular, 3 high performance.  Regular servers are 4-core, 8GB mem, ~3TB storage with 1 core reserved for the storage service.  High performance nodes are 8-core, 32GB mem, 48TB storage. 
-
 <img src="https://twiki.grid.iu.edu/twiki/pub/ReleaseDocumentation/BestmanGatewayXrootdUseCases/mwt2-network-uc.png"><img  src="https://twiki.grid.iu.edu/twiki/pub/ReleaseDocumentation/BestmanGatewayXrootdUseCases/mwt2-network-iu.png">
 
----+++ Test Setup 1 & 2
----+++ Results
+At IU we have 44 regular data servers, and 3 high performance.  At UC we have 37 regular, 3 high performance.  Regular servers are 4-core, 8GB mem, ~3TB storage with 1 core reserved for the storage service.  High performance nodes are 8-core, 32GB mem, 48TB storage. 
 
+In our setup, the network presents several potential issues:
+   * Latency between the sites is ~5.3 ms
+   * At IU, all nodes have public IP addresses, but the switch implements ACLs to prevent incoming connections based on  a whitelist.
+   * At UC, the worker nodes are on a private network with NAT access to the outside. The storage nodes are dual-homed with public and private IPs
+
+<img src="https://twiki.grid.iu.edu/twiki/pub/ReleaseDocumentation/BestmanGatewayXrootdUseCases/mwt2-network-uc-obs.png">
+<img src="https://twiki.grid.iu.edu/twiki/pub/ReleaseDocumentation/BestmanGatewayXrootdUseCases/mwt2-network-iu-obs.png">
+
+---+++ Test Setup 1 & 2
+In testing, our goal was to answer these questions:
+   * Can a private-ip worker node read & write to a public-only dataserver? a public-only redirector? 
+   * Does a dual-homed public/private ip dataserver handle requests from public and private ips correctly? Does a public/private ip redirector? 
+   * What is read & write speed compared to dCache with dccp? 
+      * When connecting to a high-performance storage node? To a combination worker/storage node? 
+      * When connecting between sites with xrdcp vs within the site with dccp
+
+We will be benchmarking, so this is designed to be a prototype of a complete cross-site system.  The number of dataservers is kept low in the initial installation, to enable testing of individual read and write speeds. Later tests will add more to measure total throughput.
+
+For the Dataservers, we want at least 1 each of a c-node and s-node,  1 each of a node with public/private and public-only ips, and one each of a node at IU and UC.
+
+For the Redirector, we want to test once with a public-only node, and once with a public/private node.
+
+*Setup 1*: Public redirector
+| *Role* | *Hostname* | *Location* | *Network* | *Speed* |
+| Redirector | iut2-s1 | IU | Public | 10G |
+| Data Server | iut2-s3 | IU | Public | 10G |
+| | iut2-c034 | IU | Public | 1G |
+| | uct2-s3 | UC | Public & Private | 10G |
+| | uct2-c034 | UC | Public & Private | 1G |
+| Worker node | iut2-c042 | IU | Public | 1G |
+| | uct2-c035 | UC | Private | 1G | 
+
+*Setup 2*: Public & Private redirector
+| *Role* | *Hostname* | *Location* | *Network* | *Speed* |
+| Redirector | uct2-s1 | UC | Public & Private | 10G |
+| Data Server | iut2-s3 | IU | Public | 10G |
+| | iut2-c034 | IU | Public | 1G |
+| | uct2-s3 | UC | Public & Private | 10G |
+| | uct2-c034 | UC | Public & Private | 1G |
+| Worker node | iut2-c042 | IU | Public | 1G |
+| | uct2-c035 | UC | Private | 1G | 
+
+---+++ Results
+   *  The private-ip worker nodes were able to read and write in both tests with no adjustment
+   *  The public/private data servers and redirector answer requests on the correct interfaces.
+   * For data servers behind the switch ACLs, xrd must be configured to listen on a static port, and that port allowed through for & clients.   Because the cmsd cannot be configured for a static port, all ports must be allowed from the redirector.
+   * Compared Xrootd with xrdcp to dCache with dccp
+      * Read speed doubled
+      * Write speed was doubled for large files.  In Xrootd there is a 5 second delay in creating files, which hurt performance on files <300MB.   The speed stayed within an acceptable range.
+   * The difference in speed between  the worker/storage and high-performance nodes was not as high as expected.  The high-performance nodes may need further tuning
+   * WAN speed was very bad on first test.   The client machine is running kernel =2.6.9-78.0.17=, which requires manual tuning to good WAN performance. I added these parameters to =/etc/sysctl.conf= and ran =sysctl -p /etc/sysctl.conf=:<pre class="screen">net.ipv4.tcp_rmem = 4096 87380 20000000
+net.ipv4.tcp_wmem = 4096 87380 20000000
+net.core.rmem_max = 20000000
+net.core.wmem_max = 20000000</pre> 
+ 
+| *Direction* | *dCache* | *Xrootd WAN with untuned client* | *with tuned client* |
+| *Read* | 32MB/s | 30MB/s | 73MB/s |
+| *Write* | 20MB/s | 20MB/s | 33MB/s |
 
 %STOPINCLUDE%
 %BR%
