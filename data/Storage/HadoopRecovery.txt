@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="GarhanAttebury" date="1250716746" format="1.1" reprev="1.3" version="1.3"}%
+%META:TOPICINFO{author="MichaelThomas" date="1252101611" format="1.1" version="1.4"}%
 %META:TOPICPARENT{name="Hadoop"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -43,6 +43,27 @@ In the first case, all possible sources of the second block are gone and the nam
 2. ...</verbatim>
 
 In the second case you may see a single replica listed for the block where you know there should be more. Under normal operation, this block would eventually (within a few minutes) be replicated back to the replication level of 3. In very rare cases the replication may never happen. This has occurred at Nebraska a few times when a datanode is 'alive' but unable to send the block due to hard drive errors (especially in the cases where the ext3 journal drops and the host enters a rather unpredictable state). This also happens with stuck / under replicated blocks (see Fixing Stuck and Under Replicated Files in HadoopOperations). You should first try to recover the host with the single block listed. If that is possible, the namenode will replicate as needed and the corruption will be gone. If you are unable to recover that host, you can again try greping through the namenode logs (or datanode logs in desparation) to find another replica of that block and recover that host instead. If you find another host with a good copy of the block and bring it up, make sure to disable/decommission the 'stuck' one until you can fix that host as well.
+
+---++ Recovering a working drive
+
+One special case scenerio is when a datanode that contains multiple data disks becomes unbootable, but one or more of the disks are still good.  In this situation, it is possible to remount the working drives on another datanode in order to recover the blocks.  If you have space on the second datanode, you can simply attach the disk to the second datanode then copy the contents of the /data1/hadoop/data/current directory (omitting the VERSION file) from the working disk into the equivalent directory on the second datanode.
+
+If you don't have enough space on the second datanode, then you can temporarily attach the disk to the second datanode and decommission the second datanode to ensure the blocks are all copied elsewhere in the cluster.  The step by step procedure for doing this is:
+
+   1. Shut down the datanode process with =service hadoop stop=
+   1. Attach the disk to the working datanode using a spare SATA port or convenient SATA -> USB converter device
+   1. Mount the disk in a temporary location, such as =/mnt/tmp=
+   1. Copy the =VERSION= file from another datanode partition, such as =/data1/hadoop/data/current/VERSION= and overwrite the one on the temporarily mounted datanode partition at =/mnt/tmp/hadoop/data/current/VERSION=.  This is necessary because each datanode service tags the directory as its own by creating this VERSION file.  By overwriting the VERSION file we can trick the datanode into thinking that this directory belongs to it.
+   1. Update =/etc/sysconfig/hadoop= and add the temporary directory to the list of datanode partitions in HADOOP_DATA
+   1. Run =service hadoop-firstboot start= to regenerate the hadoop configuration files in =/etc/hadoop=
+   1. Start the datanode process again with =service hadoop start=
+   1. Decommission the datanode according to the procedure in https://twiki.grid.iu.edu/bin/view/Storage/HadoopOperations#Decommissioning_Data_Nodes
+   1. After the decommission process has finished, stop the hadoop service with =service hadoop stop=
+   1. Remove the temporary directory from =/etc/sysconfig/hadoop= and re-run =service hadoop-firstboot stop=
+   1. De-decommission the datanode by removing its entry from =hosts_exclude= and running =hadoop dfsadmin -refreshNodes=
+   1. Detach the disk from the datanode and restart the datanode service with =service hadoop start=
+
+An important point here is that the =VERSION= file contains a unique id for the datanode that created this directory.  You want to make sure that the =VERSION= file on a working datanode does not get removed, and the =VERSION= file on a working disk is updated before adding it to a new physical datanode host.
 
 ---++ Unrecoverable files
 If you are unable to recover at least one datanode containing the missing/corrupt blocks the file is lost as there is no way to retrieve the full file anymore. You can use the =-move= parameter to fsck to move the remaining parts of a file to /lost+found/. *[Not 100% sure, but I believe the missing sections will be zeros leaving the filesize correct]*. 
