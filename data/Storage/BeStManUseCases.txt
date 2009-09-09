@@ -1,0 +1,285 @@
+%META:TOPICINFO{author="TanyaLevshina" date="1252523807" format="1.1" reprev="1.1" version="1.1"}%
+---+!! *<noop>BeStMan Configuration Use Cases (!BeStManUseCases)*
+
+%TOC%
+
+%STARTINCLUDE%
+
+*Purpose*: The purpose of this document is to provide additional information about possible configuration use cases for  [[http://sdm.lbl.gov/bestman][BeStMan]].
+
+---++ Introduction
+!BeStMan could be installed from VDT or directly downloaded from  [[http://sdm.lbl.gov/bestman][here]]. The detailed !BeStMan configuration Guide doesn't not cover all the possible cases, so it seems to be reasonable to provide additional information for site administrators that are planning to install, configure and use !BeStMan as a OSG SE.
+
+In this document we assume that you have already installed !BeStMan and are in a process of configuring it.
+
+|*BeStMan Flavor*| *Type of Storage*|*Space Management*|*Sudoers enabled*|*Configuration*|*LBNL Client*|*Fermi Client*|*LCG Utils*|
+| fullmode| Volatile storage| !BeStMan managed cache| no| Could be configured by [[BeStManUseCases#BeStMan_fullmode_with_volatile_m][vdt configure_bestman]] script |srm-copy works [[BeStManUseCases#srm_copy_example_1][example #1]]|srmcp works [[BeStManUseCases#srmcp_example_1][example #1]]  [[BeStManUseCases#SRM_Fermi_Client_Problems][with some issues]]|lcg-cp fails [[BeStManUseCases#LCG_Utils_Problems][with this error]]|
+| | Volatile and permanent storage| !BeStMan managed cache and user managed cached| yes|Could be configured by [[BeStManUseCases#BeStMan_fullmode_with_volatile_m][vdt configure_bestman]]  |srm-copy works  [[BeStManUseCases#srm_copy_example_1][example #1]] and  [[BeStManUseCases#srm_copy_example_2][example #2]]|srmcp works  [[BeStManUseCases#SRM_Fermi_Client_Problems][with some issues]]|lcg-cp works in  user's controlled cache (without space token)[[BeStManUseCases#lcg_cp_example_1][example #1]] |
+||Volatile and permanent storage|!BeStMan managed volatile and permanent caches|no|Have to be configured using  [[BeStManUseCases#Configuring_volatile_and_permane][native configuration script]]| srm-copy without space token always writes to volatile cache even when -retentionpolicy custodial is specified [[BeStManUseCases#srm_copy_example_3][example #3]. srm-copy with space token  [[BeStManUseCases#srm_copy_example_4][example #4]writes to custodial place if reserved space token was allocated for the custodial space| srmcp works the same way as srm-copy| lcg-cp without space token[[BeStManUseCases#lcg_cp_example_2][example #2]] and with "custodial" space token writes into custodial space [[BeStManUseCases#lcg_cp_example_3][example #3]]  |
+
+---++ VDT BeStMan Configuration Script
+
+The configuration script provided from VDT allows to setup limited subset of !BeStMan parameters.
+
+<pre class='screen'>
+# vdt/setup/configure_bestman --help
+Usage: vdt/setup/configure_bestman --vdt-install &lt;vdt install root&gt;
+        --server &lt;y,n&gt;
+        --user &lt;bestman user&gt;
+        --cert &lt;bestman service cert&gt;
+        --key  &lt;bestman service key&gt;
+        --http-port &lt;public port number&gt;
+        --https-port &lt;secure port number&gt;
+        --globus-tcp-port-range &lt;low_port,high_port&gt;
+        --volatile-file-lifetime &lt;lifetime in seconds&gt;
+        --cache-size &lt;Cache size in MB&gt;
+        --gums-host &lt;GUMS hostname&gt;
+        --gums-port &lt;GUMS port number&gt;
+        --gums-url &lt;GUMS URL&gt;
+        --gums-dn &lt;Client DN for GUMS interface&gt;
+        --enable-gateway
+        --use-xrootd
+        --with-tokens-list &lt;token-list&gt;
+        --with-transfer-servers &lt;GridFTP server list&gt;
+        --with-allowed-paths &lt;List of accessible paths&gt;
+        --with-blocked-paths &lt;List of non-accessible paths&gt;
+</pre>
+
+---+++ !BeStMan fullmode with volatile managed cache 
+
+!BeStMan fullmode with volatile managed cache could be configured with the following command:
+<pre class="screen">
+cd &lt;$VDT_LOCATION&gt;
+. setup.sh
+ vdt/setup/configure_bestman  --user daemon --cert &lt;bestmancert.pem&gt; --key  &lt;bestmankey.pem&gt; --server y  -- volatile-file-lifetime &lt;lifetime in seconds&gt;
+</pre>
+
+If volatile-file-lifetime is not set the lifetime of the file is set for 3 minutes, after that time the file is not accessible.
+
+!BeStMan fullmode could be used as in a gateway mode for user managed storage area.  If instead of SFN for manage cache you specify any directory that user has right to write (e.g. /tmp) !BeStMan will allow filed to be copied in a specified location. If sudoers is modified accordingly !BeStMan allows user to remove file, create and remove directory in the user managed area. User will not be able to  write to this area with dynamic space token. !Bestman could limit the access of user managed cache if you specified 
+<pre class="screen">
+  --with-allowed-paths &lt;List of accessible paths&gt;
+#or
+  --with-blocked-paths &lt;List of non-accessible paths&gt;
+</pre>
+
+---+++ Configuring volatile and permanent managed caches with !BeStMan native script
+
+VDT doesn't provide enough option in configure_bestman script to allow you to configure !BeStMan with volatile and permanent managed cache. In order to do so you will need to run native configuration script with the following parameters:
+<pre class="screen">
+cd &lt;VDT_LOCATION&gt;
+cd bestman/setup
+ ./configure  --with-java-home=&lt;JAVA_HOME&gt; \
+       --with-srm-home=$VDT_LOCATION/bestman \
+       --with-srm-owner=daemon \
+       --with-cacert-path=$VDT_LOCATION/globus/TRUSTED_CA \
+       --with-certfile-path=&lt;bestmancert.pem&gt; \
+       --with-keyfile-path=&lt;bestmankey.pem&gt; \
+       --with-eventlog-path=$VDT_LOCATION/vdt-app-data/bestman/logs \
+       --with-cachelog-path=$VDT_LOCATION/bestman/logs \
+       --with-http-port=10080 --with-https-port=10443  
+       --enable-gums --with-gums-url=https://&lt;GUMS_HOST&gt;:&lt;GUMS_PORT&gt;/gums/services/GUMSAuthorizationServicePort \
+       --enable-full-mode  --with-replica-storage-path=$VDT_LOCATION/bestman/cache  --with-replica-storage-size=&lt;SIZE&gt; \
+       --with-custodial-storage-path=&lt;CACHE_NAME&gt;  --with-custodial-storage-size=&lt;SIZ&gt;
+</pre>
+
+---++ SRM LBNL Client Commands
+---+++ srm-copy example #1 
+
+Writing file to volatile managed  cache:
+<pre class="screen">
+ srm-copy file:////tmp/test srm://fg0x1.fnal.gov:10443/srm/v2/server\?SFN=/srmcache/~/test_dir_1/test1
+</pre>
+
+---+++ srm-copy example #2
+
+Writing file to permanent user managed cache:
+<pre class="screen">
+ srm-copy file:////tmp/test srm://fg0x1.fnal.gov:10443/srm/v2/server\?SFN=/tmp/test1
+</pre>
+
+---+++ srm-copy example #3
+
+Writing file with retention policy option "custodial" still results in copying file into volatile cache:
+<pre class="screen">
+ srm-copy   file:////tmp/test srm://fg0x1.fnal.gov:10443/srm/v2/server\?SFN=/srmcache/~/test_dir_1/test20  -retention_policy=custodial
+srm-copy   2.2.1.2.i7.p3  Fri Jul 10 15:56:18 PDT 2009
+SRM-Clients and BeStMan Copyright(c) 2007-2009,
+Lawrence Berkeley National Laboratory. All rights reserved.
+Support at SRM@LBL.GOV and documents at http://datagrid.lbl.gov/bestman
+ 
+SRM-CLIENT: Wed Sep 09 14:01:22 CDT 2009 Connecting to httpg://fg0x1.fnal.gov:10443/srm/v2/server
+
+SRM-CLIENT: Wed Sep 09 14:01:23 CDT 2009 Calling SrmPrepareToPutRequest now ...
+request.token=fnalgrid:30_PUT_3015184577
+status=SRM_REQUEST_INPROGRESS
+explanation=null
+SRM-CLIENT: Next status call in 10 seconds.
+SRM-CLIENT: Wed Sep 09 14:01:35 CDT 2009 Calling Status at Wed Sep 09 14:01:35 CDT 2009
+SRM-CLIENT: Result Status from SRM (srmStatusOfPutRequest)=SRM_SUCCESS
+
+SRM-CLIENT: RemainingPinTime=289
+SRM-CLIENT: received TURL=gsiftp://fg0x1.fnal.gov//usr/local/osg-bestman-fullmode/vdt-app-data/bestman/cache/fnalgrid/V.0.0-276258463/test20
+
+SRM-CLIENT: Wed Sep 09 14:01:35 CDT 2009 start file transfer
+SRM-CLIENT:Source=file:////tmp/test
+SRM-CLIENT:Target=gsiftp://fg0x1.fnal.gov//usr/local/osg-bestman-fullmode/vdt-app-data/bestman/cache/fnalgrid/V.0.0-276258463/test20
+
+SRM-CLIENT: Wed Sep 09 14:01:37 CDT 2009 end file transfer for file:////tmp/test
+
+SRM-CLIENT: Wed Sep 09 14:01:37 CDT 2009 Calling putDone for srm://fg0x1.fnal.gov:10443/srm/v2/server?SFN=/srmcache/~/test_dir_1/test20
+Result.status=SRM_SUCCESS
+Result.Explanation=null
+
+SRM-CLIENT: Request completed with success
+
+SRM-CLIENT: Printing text report now ...
+
+SRM-CLIENT*REQUESTTYPE=put
+SRM-CLIENT*TOTALFILES=1
+SRM-CLIENT*TOTAL_SUCCESS=1
+SRM-CLIENT*TOTAL_FAILED=0
+SRM-CLIENT*REQUEST_TOKEN=fnalgrid:30_PUT_3015184577
+SRM-CLIENT*REQUEST_STATUS=SRM_SUCCESS
+SRM-CLIENT*SOURCEURL[0]=file:////tmp/test
+SRM-CLIENT*TARGETURL[0]=srm://fg0x1.fnal.gov:10443/srm/v2/server?SFN=/srmcache/~/test_dir_1/test20
+SRM-CLIENT*TRANSFERURL[0]=gsiftp://fg0x1.fnal.gov//usr/local/osg-bestman-fullmode/vdt-app-data/bestman/cache/fnalgrid/V.0.0-276258463/test20
+SRM-CLIENT*ACTUALSIZE[0]=0
+SRM-CLIENT*FILE_STATUS[0]=SRM_SUCCESS
+SRM-CLIENT*EXPLANATION[0]=SRM-CLIENT: PutDone is called successfully
+</pre>
+
+---+++ srm-copy example #4
+
+If user reserves space toke in permanent managed cache, he can then write the file into that cache by specifying token id:
+<pre class="screen">
+srm-sp-reserve srm://fg0x1.fnal.gov:10443/srm/v2/server\?SFN=/srmcache/~ -size 1000000 -gsize 1000000 -lifetime 10000000  -userdesc custodial_space_2 -retentionpolicy custodial
+srm-sp-reserve   2.2.1.2.i7.p3  Fri Jul 10 15:56:18 PDT 2009
+SRM-Clients and BeStMan Copyright(c) 2007-2009,
+Lawrence Berkeley National Laboratory. All rights reserved.
+Support at SRM@LBL.GOV and documents at http://datagrid.lbl.gov/bestman
+ 
+
+SRM-CLIENT: Exception from client=Unable to locate a login configuration
+SRM-CLIENT: Connecting to serviceurl httpg://fg0x1.fnal.gov:10443/srm/v2/server
+SRM-CLIENT: Wed Sep 09 14:05:03 CDT 2009 Calling SrmReserveSpace
+
+SRM-CLIENT: .......................
+        Status Code=SRM_SUCCESS
+        SpaceToken=P.9
+        TotalReservedSpaceSize=1000000
+        Guaranteed Space Size=1000000
+        Lifetime=-1
+
+Printing text report now...
+
+SRM-CLIENT*REQUEST_STATUS=SRM_SUCCESS
+SRM-CLIENT*REQUEST-TOKEN=null
+SRM-CLIENT*SPACE-TOKEN=P.9
+SRM-CLIENT*EXPLANATION=null
+SRM-CLIENT*TOTALRESERVEDSPACESIZE=1000000
+SRM-CLIENT*GUARANTEEDSPACESIZE=1000000
+SRM-CLIENT*LIFETIME=-1
+
+
+#and 
+
+srm-copy   file:////tmp/test srm://fg0x1.fnal.gov:10443/srm/v2/server\?SFN=/srmcache/~/test_dir_1/test21  -space_token=P.9
+srm-copy   2.2.1.2.i7.p3  Fri Jul 10 15:56:18 PDT 2009
+SRM-Clients and BeStMan Copyright(c) 2007-2009,
+Lawrence Berkeley National Laboratory. All rights reserved.
+Support at SRM@LBL.GOV and documents at http://datagrid.lbl.gov/bestman
+ 
+SRM-CLIENT: Wed Sep 09 14:05:48 CDT 2009 Connecting to httpg://fg0x1.fnal.gov:10443/srm/v2/server
+
+SRM-CLIENT: Wed Sep 09 14:05:49 CDT 2009 Calling SrmPrepareToPutRequest now ...
+request.token=fnalgrid:31_PUT_3015184577
+status=SRM_REQUEST_INPROGRESS
+explanation=null
+SRM-CLIENT: Next status call in 10 seconds.
+SRM-CLIENT: Wed Sep 09 14:06:00 CDT 2009 Calling Status at Wed Sep 09 14:06:00 CDT 2009
+SRM-CLIENT: Result Status from SRM (srmStatusOfPutRequest)=SRM_SUCCESS
+
+SRM-CLIENT: RemainingPinTime=289
+SRM-CLIENT: received TURL=gsiftp://fg0x1.fnal.gov//cache/fnalgrid/P.9-656461282/test21
+
+SRM-CLIENT: Wed Sep 09 14:06:01 CDT 2009 start file transfer
+SRM-CLIENT:Source=file:////tmp/test
+SRM-CLIENT:Target=gsiftp://fg0x1.fnal.gov//cache/fnalgrid/P.9-656461282/test21
+
+SRM-CLIENT: Wed Sep 09 14:06:04 CDT 2009 end file transfer for file:////tmp/test
+
+SRM-CLIENT: Wed Sep 09 14:06:04 CDT 2009 Calling putDone for srm://fg0x1.fnal.gov:10443/srm/v2/server?SFN=/srmcache/~/test_dir_1/test21
+Result.status=SRM_SUCCESS
+Result.Explanation=null
+
+SRM-CLIENT: Request completed with success
+
+SRM-CLIENT: Printing text report now ...
+
+SRM-CLIENT*REQUESTTYPE=put
+SRM-CLIENT*TOTALFILES=1
+SRM-CLIENT*TOTAL_SUCCESS=1
+SRM-CLIENT*TOTAL_FAILED=0
+SRM-CLIENT*REQUEST_TOKEN=fnalgrid:31_PUT_3015184577
+SRM-CLIENT*REQUEST_STATUS=SRM_SUCCESS
+SRM-CLIENT*SOURCEURL[0]=file:////tmp/test
+SRM-CLIENT*TARGETURL[0]=srm://fg0x1.fnal.gov:10443/srm/v2/server?SFN=/srmcache/~/test_dir_1/test21
+SRM-CLIENT*TRANSFERURL[0]=gsiftp://fg0x1.fnal.gov//cache/fnalgrid/P.9-656461282/test21
+SRM-CLIENT*ACTUALSIZE[0]=0
+SRM-CLIENT*FILE_STATUS[0]=SRM_SUCCESS
+SRM-CLIENT*EXPLANATION[0]=SRM-CLIENT: PutDone is called successfully
+
+</pre>
+
+
+---++ SRM Fermi Client Commands
+---+++ srmcp example #1 
+<pre class="screen">
+srmcp -2  -send_cksm=false  file:////tmp/test srm://fg0x1.fnal.gov:10443/srm/v2/server?SFN=/srmcache/~/test_dir_1/test2
+</pre>
+
+---++ LCG_Utils Client Commands
+---+++ lcg-cp example #1 
+
+Copying file into permanent user controled space:
+
+<pre class="screen">
+ lcg-cp  -v --nobdii -D  srmv2 file:////tmp/test srm://fg0x1.fnal.gov:10443/srm/v2/server\?SFN=/tmp/test
+</pre>
+
+---+++ lcg-cp example #2
+Copying file into permanent managed cache
+<pre class="screen">
+ lcg-cp  -v --nobdii -D  srmv2 file:////tmp/test srm://fg0x1.fnal.gov:10443/srm/v2/server\?SFN=/srmcache/~/test_dir_1/test3
+</pre>
+
+---+++ lcg-cp example #3
+Copying file into permanent managed cache using space token description:
+
+<pre class="screen">
+ lcg-cp  -v --nobdii -D  srmv2 file:////tmp/test srm://fg0x1.fnal.gov:10443/srm/v2/server\?SFN=/srmcache/~/test_dir_1/test4 -S custodial_space_2
+</pre>
+---++ SRM Fermi Client Problems
+
+   1. srmcp  setup to verify  checksum by default, so attempt to use it with BeStMan produces the following error:
+<pre class="screen">
+>srmcp -2 file:////tmp/test srm://fg0x1.fnal.gov:10443/srm/v2/server?SFN=/srmcache/~/test_dir_1/test2
+GridftpClient: Was not able to send checksum value:org.globus.ftp.exception.ServerException: Server refused performing the request. Custom message:  (error code 1) [Nested exception message:  Custom message: Unexpected reply: 500 Invalid command.] [Nested exception is org.globus.ftp.exception.UnexpectedReplyCodeException:  Custom message: Unexpected reply: 500 Invalid command.]
+
+>echo $?
+0
+</pre>
+
+The file is copied successfully despite of the error. You should specify -send_cksm=false in order to avoid this error.
+ 
+---++ LCG Utils Problems
+
+    1. lcg-cp works only with permanent storage, so when you try to execute lcg-cp command with volatile storage it produces the following error:
+<pre class="screen">
+>lcg-cp  --nobdii  -U srmv2 file:////tmp/test srm://fg0x1.fnal.gov:10443/srm/v2/server\?SFN=/srmcache/~//test_dir_1/test4
+srm://fg0x1.fnal.gov:10443/srm/v2/server?SFN=/srmcache/~//test_dir_1/test4: Invalid argument
+lcg_cp: Invalid argument
+</pre>
+
+-- Main.TanyaLevshina - 09 Sep 2009
