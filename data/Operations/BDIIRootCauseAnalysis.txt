@@ -1,6 +1,6 @@
-%META:TOPICINFO{author="RobQ" date="1252679497" format="1.1" version="1.11"}%
+%META:TOPICINFO{author="ArvindGopu" date="1252952097" format="1.1" reprev="1.12" version="1.12"}%
 %META:TOPICPARENT{name="WebHome"}%
----+Root Cause Analysis of BDII Update on July 8th, 2009
+---+Root Cause Analysis of WLCG Top level BDII outage following GOC BDII Update on July 8th, 2009
 
 %TOC%
 
@@ -8,7 +8,7 @@
 
 On July 8th, the GOC updated the IP address on the Bloomington BDII server to facilitate an upcoming physical move of the IU machine room. The IP switch went smoothly and service was restored on the new IP in less than 10 minutes. During the process DNS round-robining was used to steer traffic to the Indianapolis BDII service. After the end of the maintenance window CMS reported OSG BDII information not getting published to the top level BDII at CERN. Non US users were unable to submit CMS jobs. 
 
-After investigation the GOC was notified by CMS that the BDII at CERN was trying to contact the old BDII IP and when not finding the address dropping the OSG BDII information. This was due to the DNS change not being propagated. The GOC published Time to Live was 4 hours. It is still unknown if there are additional caching of DNS entries at CERN.
+After investigation the GOC was notified by CMS that the BDII at CERN was trying to contact the old BDII IP and when not finding the address dropping the OSG BDII information. This was due to the DNS change not being propagated. The Time to Live (TTL) set for IU DNS responses was 4 hours. It is still unknown if there are additional caching of DNS entries at CERN.
 
 ---++ Time Table
 
@@ -43,6 +43,10 @@ The GOC tested that resources were publishing to both bdii instances and that a 
 
 Testing should have been done by removing one instance from DNS RR and watching the affects on outside systems. 
 
+---++ Other Notes
+
+Burt mentioned on the July 8 Ops call that we did function within the SLA for the BDII service. However he'd like to make sure the Change Management and Testing are refined to make sure a similar situation does not occur in the future.
+
 ---++ Fix
 
 The fix at the GOC required a separate ethernet card on the BDII machine to be brought up and listen on the old IP address. 
@@ -64,14 +68,45 @@ Suggested Future Best Practices with BDII Maintenace
    2 Email Notification and RSS Post July 6th [[http://osggoc.blogspot.com/2009/07/july-8-maintenance-on-myosg-and.html][Link]]
    3 Email Notification and RSS Post of Completion July 8th [[http://osggoc.blogspot.com/2009/07/completed-july-8-maintenance-on-myosg.html][Link]]
 
----++ Testing on Sept 11, 2009
+---++ Testing on Sept 11, 2009 and Sep 14th 2009
 
-The GOC set up ITB-BDII with the exact same RR scheme as the production BDII. This was to test the new TTL settings and determine how long it took the CERN BDII to see a change in the RR to a single source. The BDII that was communicating with the PPS was removed from the RR and the network. We saw no outage at all. A full write up will be available on Monday.
+The GOC set up ITB-BDII with the exact same RR scheme as the production BDII. This was to test the new TTL settings, and determine how long it took the CERN BDII to see a change in the RR to a single source. The BDII that was communicating with the PPS was removed from the RR and the network. We saw no outage at all. However, the TTL for the ITB BDII hostname was not set to a short value that was applied on the production BDII hostname. 
 
----++ Other Notes
+The above test was repeated on Sep 14th, 2009. 
 
-Burt mentioned on the July 8 Ops call that we did function within the SLA for the BDII service. However he'd like to make sure the Change Management and Testing are refined to make sure a similar situation does not occur in the future.
+*SUMMARY OF TEST:* We saw exactly the expected behavior is; the PPS BDII was following DNS changes as well as BDII up/down and BDII-information-provided changes on the OSG side within a time period of ~10 minutes. GOC considers this test conclusive, and can confirm that the production BDII has the exact same setup as the one used in this ITB/PPS testing.
 
+*WHAT TO EXPECT:* Known maintenance can be planned to the point where there is only a short outage of about 10 minutes.
+
+Emergency maintenance will be harder to deal with, but GOC staff will remain vigilant, and will be able to start alternative BDII servers on virtual machines at either campus (IUB or IUPUI) as long as the network itself is not down.
+
+---+++ Testing details
+   1 11 AM EDT -- IU DNS set TTL=300 seconds (5 minutes) for is-itb.grid.iu.edu
+   1 1 PM EDT -- IU DNS turned off RR on is-itb, and pointed it to only is-itb1
+      * We turned off BDIIs on is-itb2 to be sure some client was not connecting to it even after DNS change
+   1 1 PM EDT to 1:30 PM EDT -- Arvind ran ldapsearch-based tests to see if the PPS (ITB in WLCG terminology) BDII dropped OSG-ITB resource_groups -- this was the behavior noticed on July 8th with the production top level WLCG BDII.
+      * The PPS BDII is supposed to update (according to Laurence Fields, BDII developer) every 10 minutes by pulling OSG-ITB data from is-itb:2180
+      * Command run by Arvind:
+ <pre> while true;
+   do
+     date ;
+     ldapsearch -LLL -x -h pps-bdii.cern.ch -p 2170 -b o=grid '(&(objectClass=GlueSite)(GlueSiteDescription=OSG Site))' GlueSiteName | grep Name ;
+     sleep 30;
+  done >> ~/2009-09-14-testing-PPS-bdii.txt ## I did this on is-itb1.grid.iu.edu </pre>
+      * *EXPECTED:* No ITB resource_groups available on is-itb1 (the available interop BDII) should be dropped by the PPS BDII, assuming the PPS BDII picks up the DNS change, and only contacts is-itb1. Potentially one or more ITB RGs drop off for 5-10 minutes while the PPS BDII got the DNS update, and then updated its contents.
+      * *WORST CASE scenario:* All ITB RGs drop off for 5-10 minutes because the PPS BDII did not pick up the DNS change, and continues to query is-itb2
+      * *OUTCOME:* No ITB resource_groups available on is-itb1 (the available interop BDII) were dropped by the PPS BDII !!
+   1 1:25-1:40 PM EDT -- Some resource_groups were intentionally removed from the ITB WLCG_Interop BDII
+      * *EXPECTED:* Within a short period of time (~10 minutes), the number of resource_groups on the PPS BDII should drop to a smaller number
+      * *OUTCOME:* This took about 10-12 minutes to propagate to the PPS BDII -- i.e the number of resource_groups dropped to a smaller number after a 10-15 minute interval from the time they were deleted (intentionally)
+   1 1:40-1:55 PM EDT -- ITB WLCG_Interop BDII was shut down on is-itb1 (the available server per DNS setting in step 1)
+      * *EXPECTED:* Within a short period of time (~10 minutes), all resource groups should drop off from the PPS BDII
+      * *OUTCOME:* Resource groups dropped off in about 10-12 minutes from the PPS BDII
+   1 1:55 PM - 2:10 PM EDT -- ITB WLCG_Interop BDII was brought back up on is-itb1 (the available server per DNS setting in step 1)
+      * *EXPECTED:* Within a short period of time (~10 minutes), all resource groups should come back on the PPS BDII
+      * *OUTCOME:* Resource groups started appearing 4-5 minutes after 1:55 PM; all RGs available on is-itb1 (re) showed up within about 10-12 minutes on the PPS BDII
+   1 3 PM EDT -- IU DNS will add is-itb2 back into round-robin for is-itb
+      * WLCG interop BDII will be resumed on is-itb2; 
 
 
 -- Main.RobQ - 09 Jul 2009
