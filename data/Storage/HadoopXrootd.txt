@@ -1,0 +1,117 @@
+%META:TOPICINFO{author="BrianBockelman" date="1255538500" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Hadoop"}%
+---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+*Note:* This page covers packaging in quite a bit of detail; I assume the first half of the document will basically be replaced with an RPM soon.
+
+---+ Getting the sources
+Retrieve the latest Xrootd tarball from:
+<verbatim>
+curl http://xrootd.slac.stanford.edu/download/20090623-1817/xrootd-20090623-1817.src.tgz | tar zx
+</verbatim>
+
+Alternately, you can download the tarball from http://xrootd.slac.stanford.edu/download if that's not the latest.
+
+Next, cd to =src= and check out the following code:
+
+<verbatim>
+svn co svn://t2.unl.edu/brian/XrdHdfs
+</verbatim>
+
+Finally, download the attached patch to the top-level directory.
+
+---+ Building
+You will need to have the following:
+   * Recent OpenSSL (CentOS 5 version appears sufficient)
+   * hadoop-fuse-devel
+   * Standard build tools
+
+Here's the build process:
+
+   1 Copy over broken bootstrap issue: =cp src/Makefile_include.in src/Makefile_include=
+   1 Bootstrap with autotools: =./bootstrap.sh=
+   1 Configure: =./configure --prefix=/usr --enable-gsi=
+   1 Make: =make=
+   1 Install: =make install=
+
+---+ Config file
+
+Write the following into xrootd.cfg:
+<verbatim>
+xrd.port any
+xrd.port 1094 if xrootd.unl.edu
+
+xrootd.fslib libXrdOfs.so
+ofs.osslib libXrdHdfs.so
+ofs.authorize 1
+
+oss.localroot /mnt/hadoop
+all.export /hello_world forcero
+all.export /user
+ofs.trace all
+xrd.trace all
+
+all.role server
+all.role manager if xrootd.unl.edu
+
+all.manager xrootd.unl.edu:1213
+
+cms.allow host *
+
+xrootd.seclib libXrdSec.so
+
+sec.protocol gsi -certdir:/etc/grid-security/certificates -cert:xrdcert.pem -key:xrdkey.pem -crl:3
+
+acc.authdb Authfile
+acc.audit deny grant
+</verbatim>
+Adjust the hardcoded paths for the libraries
+
+For now, write the following into Authfile:
+<verbatim>
+u * /store lr
+</verbatim>
+This allows anyone to read from /store.
+
+---+ Set up environment
+
+Add the following directories to your environment (assuming the top level of your install is =$XROOTD_TOP=):
+
+<verbatim>
+export PATH=$XROOTD_TOP/bin/*linux*:$PATH
+export LD_LIBRARY_PATH=$XROOTD_TOP/lib/*linux*:$LD_LIBRARY_PATH
+</verbatim>
+
+Set up the HDFS classpath:
+<verbatim>
+. /etc/hadoop/hadoop-env.sh
+export CLASSPATH=$HADOOP_CLASSPATH
+</verbatim>
+
+---+ Start the servers:
+First, make sure that HDFS is mounted at /mnt/hadoop.  Then,
+
+<verbatim>
+xrootd -c xrootd.cfg
+cmsd -c xrootd.cfg
+</verbatim>
+
+Now, test the clients:
+
+<verbatim>
+xrdcp root://xrootd.unl.edu//some/path/in/your/HDFS
+</verbatim>
+
+Note that you give a path in your HDFS, but you use xrootd.unl.edu as the server.  This is because xrootd will form a global network of servers.
+
+---+ TODO:
+
+   * (S)RPM package / auto-generated xrootd.cfg
+   * LFN-to-PFN translation for each site based on the CMS TFC
+   * Better authorization.  Currently, your username in the Authfile is HASH.0 where HASH is the output of <verbatim>openssl x509 -noout -hash -in ~/.globus/usercert.pem</verbatim>.  This is really weird - it should integrate with PRIMA.
+      * Have the authfile method complemented by native HDFS permissions.
+
+-- Main.BrianBockelman - 14 Oct 2009
+
+%META:FILEATTACHMENT{name="xrootd_make.diff" attachment="xrootd_make.diff" attr="" comment="" date="1255538500" path="xrootd_make.diff" size="801" stream="xrootd_make.diff" tmpFilename="/usr/tmp/CGItemp10439" user="BrianBockelman" version="2"}%
