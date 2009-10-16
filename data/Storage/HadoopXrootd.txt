@@ -1,45 +1,56 @@
-%META:TOPICINFO{author="MichaelThomas" date="1255650180" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="MichaelThomas" date="1255735926" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="Hadoop"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
-*Note:* This page covers packaging in quite a bit of detail; I assume the first half of the document will basically be replaced with an RPM soon.
+---+ Installation
 
----+ Getting the sources
-Retrieve the latest Xrootd tarball from:
-<verbatim>
-curl http://xrootd.slac.stanford.edu/download/20090623-1817/xrootd-20090623-1817.src.tgz | tar zx
+---++ Quick Start
+
+Quickstart for the impatient.  This assumes you already have [[HadoopInstallation][Hadoop and FUSE]] installed on the Xrootd server.
+
+ <verbatim>
+rpm -ivh http://newman.ultralight.org/repos/hadoop/4/x86_64/caltech-hadoop-4-1.noarch.rpm
+yum install xrootd
+cp /etc/xrootd/xrootd_sample.cfg /etc/xrootd/xrootd.cfg # ...and edit appropriately (see below)
+vi /etc/xrootd/Authfile # Edit appropriately (see below)
+service xrootd start
 </verbatim>
 
-Alternately, you can download the tarball from http://xrootd.slac.stanford.edu/download if that's not the latest.
+---++ Prerequisites
 
-Next, cd to =src= and check out the following code:
+The Xrootd server has the following prerequisites:
+
+   1 You must also have already [[HadoopInstallation][installed and mounted]] Hadoop using FUSE.
+
+Xrootd is preconfigured to look for the host certificate and key in =/etc/grid-security/xrd/xrd*.pem=.
+These files must exist and be readable by the xrootd user.  Using certificates in a different directory or with different names will require modifying =/etc/xrootd/xrootd.cfg=.  Make sure =/etc/grid-security/xrd/xrdcert.pem= exists with mode 644, and =/etc/grid-security/xrd/xrdkey.pem= exists with mode 400 (not 600!)
+
+The installation includes the latest CA Certificates package from the OSG as well as the fetch-crl CRL updater.
+
+It is highly recommended that you make sure your CRLs in =/etc/grid-security/certificates= exist and are up to date by running fetch-crl manually before starting xrootd the first time.  Otherwise xrootd will attempt to download CRLs itself when it starts up.
+
+The rpm/yum installation will create a 'xrootd' system account and group (uid,gid < 500) on the host system for running the xrootd process. If you would like to control the uid/gid that is used, then you should create the 'xrootd'' user and group manually before installing the rpms.
+
+---++ YUM Installation
+
+Remember, in order to use xrootd, you must have the [[HadoopInstallation][Hadoop and the FUSE kernel module]] already installed on your system in order to use the yum installer.
+
+To configure your local installation for the yum repository, [[HadoopInstallation#Yum_install][follow the advice here]] to install the correct =caltech-hadoop= package for your site.
+
+After installing the caltech-hadoop yum configuration package, you can install the xrootd server with:
 
 <verbatim>
-svn co svn://t2.unl.edu/brian/XrdHdfs
+yum install xrootd
 </verbatim>
 
-Finally, download the attached patch (see bottom of page) to the top-level xrootd directory and apply it:
+Updates can be installed with:
 
 <verbatim>
-patch -p0 < xrootd_make.diff
+yum upgrade xrootd
 </verbatim>
 
----+ Building
-You will need to have the following:
-   * Recent !OpenSSL (!CentOS 5 version appears sufficient)
-   * hadoop-fuse-devel
-   * Standard build tools, including automake/autoconf/aclocal/libtool
-
-Here's the build process:
-
-   1 Copy over broken bootstrap issue: =cp src/Makefile_include.in src/Makefile_include=
-   1 Bootstrap with autotools: =./bootstrap.sh=
-   1 Configure: =./configure --prefix=/usr --enable-gsi=
-   1 Make: =make=
-   1 Install: =make install=
-
----+ Config file
+---+ Configuration (NEEDSWORK)
 
 Write the following into xrootd.cfg:
 
@@ -74,7 +85,6 @@ acc.audit deny grant
 all.adminpath /var/run/xrootd
 </verbatim>
 
-Adjust the hardcoded paths for the libraries
 
 For now, write the following into Authfile:
 <verbatim>
@@ -82,28 +92,23 @@ u * /store lr
 </verbatim>
 This allows anyone to read from /store.
 
----+ Set up environment
 
-Add the following directories to your environment (assuming the top level of your install is =$XROOTD_TOP=):
+---++ Running Xrootd
 
-<verbatim>
-export PATH=$XROOTD_TOP/bin/*linux*:$PATH
-export LD_LIBRARY_PATH=$XROOTD_TOP/lib/*linux*:$LD_LIBRARY_PATH
-</verbatim>
-
-Set up the HDFS classpath:
-<verbatim>
-. /etc/hadoop/hadoop-env.sh
-export CLASSPATH=$HADOOP_CLASSPATH
-</verbatim>
-
----+ Start the servers:
-First, make sure that HDFS is mounted at /mnt/hadoop.  Then,
+Start the xrootd and cmsd servers with one command
 
 <verbatim>
-xrootd -c xrootd.cfg
-cmsd -c xrootd.cfg
+service xrootd start
 </verbatim>
+
+To start xrootd automatically at boot time:
+
+<verbatim>
+chkconfig xrootd on
+</verbatim>
+
+---++ Validation and debugging (NEEDSWORK)
+
 
 Now, test the clients:
 
@@ -113,43 +118,18 @@ xrdcp root://xrootd.unl.edu//some/path/in/your/HDFS
 
 Note that you give a path in your HDFS, but you use xrootd.unl.edu as the server.  This is because xrootd will form a global network of servers.
 
----+ TODO:
-
-   * (S)RPM package / auto-generated xrootd.cfg
-   * LFN-to-PFN translation for each site based on the CMS TFC
-   * Better authorization.  Currently, your username in the Authfile is HASH.0 where HASH is the output of <verbatim>openssl x509 -noout -hash -in ~/.globus/usercert.pem</verbatim>.  This is really weird - it should integrate with PRIMA.
-      * Have the authfile method complemented by native HDFS permissions.
-
----+ RPM Install
-
-Scratch notes for the rpm-based installation:
-
-Make sure =/etc/grid-security/xrd/xrdcert.pem= exists with mode 644, and =/etc/grid-security/xrd/xrdkey.pem= exists with mode 400 (not 600!).  Both files must be owned by the xrootd user.
-
-Configure the hadoop yum repository as with any other hadoop package.
-
-<verbatim>
-yum install xrootd
-</verbatim>
-
-It is highly recommended that you make sure your CRLs in =/etc/grid-security/certificates= exist and are up to date by running fetch-crl manually.  Otherwise xrootd will attempt to download CRLs before starting itself.
-
-Modify =/etc/xrootd/xrootd_sample.cfg= and copy to =/etc/xrootd/xrootd.cfg=
-
-Start xrootd with:
-<verbatim>
-chkconfig xrootd on
-service xrootd start
-</verbatim>
-
-Logs are written to =/var/log/xrootd/xrootd.log= and =cmsd.log=
-
 If xrootd won't start, try invoking xrootd manually with the '-d' flag at the end of the command:
 
 <verbatim>
-runuser -s /bin/bash - xrootd -c "xrootd -c /etc/xrootd/xrootd.cfg -d"
+runuser -s /bin/bash - xrootd -c "/usr/bin/xrootd.sh -d"
 runuser -s /bin/bash - xrootd -c "cmsd -c /etc/xrootd/xrootd.cfg -d"
 </verbatim>
+
+---+ TODO:
+
+   * LFN-to-PFN translation for each site based on the CMS TFC
+   * Better authorization.  Currently, your username in the Authfile is HASH.0 where HASH is the output of <verbatim>openssl x509 -noout -hash -in ~/.globus/usercert.pem</verbatim>.  This is really weird - it should integrate with PRIMA.
+      * Have the authfile method complemented by native HDFS permissions.
 
 -- Main.BrianBockelman - 14 Oct 2009
 
