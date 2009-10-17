@@ -1,0 +1,145 @@
+%META:TOPICINFO{author="MichaelThomas" date="1255739133" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Hadoop"}%
+---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+---+ Installation
+
+Hadoop's HDFS filesystem provides a mostly POSIX compliant interface using FUSE.  When HDFS is mounted using FUSE, the files can be accessed using standard filesystem tools like ls, cp, and such.  Apache can make use of this fuse mount to export the HDFS files through the more common http protocol.
+
+---++ Prerequisites
+
+This guide assumes you have already installed [[HadoopInstallation][Hadoop and configured the FUSE mount]] on the web server machine.  You do not need to run any of the hadoop services on the web server, but you do need to have the fuse mount available.
+
+---++ Basic Configuration
+
+Create a new file called =/etc/httpd/conf.d/hadoop.conf= with the following contents:
+
+<verbatim>
+Alias /hadoop/ /mnt/hadoop/
+Alias /hadoop /mnt/hadoop/
+
+<Directory /mnt/hadoop/>
+        Options Indexes
+        IndexIgnore favicon.ico
+        IndexOptions FancyIndexing
+        AllowOverride None
+        Order allow,deny
+        Allow from all
+</Directory>
+</verbatim>
+
+You can customize the Allow/Deny rules as appropriate for your site's policies.  A stricter access control system based on user x509 certificates is described below.
+
+---++ SSL support
+
+Described here is just one way to enable authenticated access to the HDFS files.  This is probably the most complicated way to configure user authentication, but it allows you to control access based on a user's VO membership.
+
+First you will need to install and configure the gums-client package on the web server.  You can install the gums client with =yum install gums-client=.  Configuration is described in the [[HadoopGratia#Configuration][Hadoop Gratia configuration section]].
+
+Add the SSL options at the end of the =<Directory>= section in =/etc/httpd/conf.d/hadoop.conf= above:
+
+<verbatim>
+Alias /hadoop/ /mnt/hadoop/
+Alias /hadoop /mnt/hadoop/
+
+<Directory /mnt/hadoop/>
+        Options Indexes
+        IndexIgnore favicon.ico
+        IndexOptions FancyIndexing
+        AllowOverride None
+        Order allow,deny
+        Allow from all
+
+        # Options below here are needed for SSL authentication
+        SSLOptions +StdEnvVars +StrictRequire +FakeBasicAuth
+        AuthType Basic
+        AuthName "Restricted Files"
+        AuthBasicProvider file
+        # Don't forget that all users must have the fake password 'password'
+        AuthUserFile /etc/httpd/cms.passwd
+        Require valid-user
+
+        SSLRequire (    %{SSL_CIPHER} !~ m/^(EXP|NULL)/ \
+            and %{SSL_CLIENT_VERIFY} eq "SUCCESS" \
+            and %{SSL_CLIENT_V_REMAIN} >= 0 )
+</Directory>
+</verbatim>
+
+Update =/etc/httpd/conf.d/ssl.conf= to enable SSL client authentication.  An entire =ssl.conf= file is quoted below, but the important pieces are =SSLVerifyClient= and =SSLVerifyDepth=.  The =RewriteRule= is a convenient way to protect against users who accidentally type =http= into their browser window instead of =https=.
+
+<verbatim>
+LoadModule ssl_module modules/mod_ssl.so
+Listen 443
+
+RewriteEngine On
+RewriteCond %{HTTPS} off
+RewriteRule (.*) https://%{HTTP_HOST}%{REQUEST_URI}
+
+AddType application/x-x509-ca-cert .crt
+AddType application/x-pkcs7-crl    .crl
+
+SSLPassPhraseDialog  builtin
+SSLSessionCache         shmcb:/var/cache/mod_ssl/scache(512000)
+SSLSessionCacheTimeout  300
+SSLMutex default
+SSLRandomSeed startup file:/dev/urandom  256
+SSLRandomSeed connect builtin
+SSLCryptoDevice builtin
+
+<VirtualHost _default_:443>
+#ErrorLog logs/ssl_error_log
+ErrorLog syslog:local1
+TransferLog logs/ssl_access_log
+LogLevel warn
+
+SSLEngine on
+SSLProtocol all -SSLv2
+SSLCipherSuite ALL:!ADH:!EXPORT:!SSLv2:RC4+RSA:+HIGH:+MEDIUM:+LOW
+SSLCertificateFile /etc/grid-security/hostcert.pem
+SSLCertificateKeyFile /etc/grid-security/hostkey.pem
+SSLCACertificatePath /etc/grid-security/certificates/
+SSLCARevocationPath /etc/grid-security/certificates/
+SSLVerifyClient require
+SSLVerifyDepth 10
+
+SetEnvIf User-Agent ".*MSIE.*" \
+         nokeepalive ssl-unclean-shutdown \
+         downgrade-1.0 force-response-1.0
+
+CustomLog logs/ssl_request_log \
+          "%t %h %{SSL_PROTOCOL}x %{SSL_CIPHER}x %{SSL_CLIENT_S_DN}x %{SSL_CLIENT_S_DN_Email}x \"%r\" %b"
+</VirtualHost>
+
+</verbatim>
+
+Create a script called 'populateUsers.sh' with the following contents.  You will have to customize the script with your host DN, and update the grep statement to filter only the users that you want to authorize.  In this example, only users from the uscms pool accounts are allowed access.
+
+<verbatim>
+#!/bin/sh
+
+source /etc/profile.d/java.sh
+
+tempPasswdFile=`mktemp`
+passwdFile=/etc/httpd/cms.passwd
+cmsmapfile=/etc/grid-security/cms-grid-mapfile
+
+gums --host generateGridMapfile "/DC=org/DC=doegrids/OU=Services/CN=cithep252.ultralight.org" | grep uscms  > ${cmsmapfile}
+userlist=`cat ${cmsmapfile} | sed -e '/^#/d' -e 's/^"//' -e 's/" .*//'`
+
+# Loop over lines in the output, not space-separated fields
+export IFS=$'\n'
+
+for user in ${userlist} ; do
+    htpasswd -b ${tempPasswdFile} "${user}" password
+done
+
+cp ${tempPasswdFile} ${passwdFile}
+rm ${tempPasswdFile}
+chmod 640 ${passwdFile}
+chown apache. ${passwdFile}
+</verbatim>
+
+The script should be run from a cron job at least once per day.
+
+-- Main.MichaelThomas - 16 Oct 2009
