@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MichaelThomas" date="1255735926" format="1.1" reprev="1.8" version="1.8"}%
+%META:TOPICINFO{author="BrianBockelman" date="1255745294" format="1.1" version="1.9"}%
 %META:TOPICPARENT{name="Hadoop"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -16,6 +16,28 @@ cp /etc/xrootd/xrootd_sample.cfg /etc/xrootd/xrootd.cfg # ...and edit appropriat
 vi /etc/xrootd/Authfile # Edit appropriately (see below)
 service xrootd start
 </verbatim>
+
+---++ Xrootd/HDFS architecture explanation
+
+Xrootd is a very flexible distributed storage system.  The Xrootd/HDFS integration is designed to allow you to safely export your HDFS system to the wide / metro area network and to allow several sites to share a single, unified namespace.  Currently (and by design), this integration is read-only.  This allows users to collaborate, but provides encouragement to not bypass the "normal" data placement mechanisms.
+
+We currently use two Xrootd daemons: "xrootd" and "cmsd".  The xrootd daemon is the workhorse of the system and provides the data access.  Its job is to read data from disk (with the HDFS module enabled, read data from HDFS) and to export it to the client.  The cmsd is the "Cluster Management System" daemon; these work with the xrootd and each other to determine daemon liveness, file status, and work to create the distributed system.  Each node in Xrootd runs both cmsd and xrootd.
+
+In each distributed Xrootd system, there are at least two "special" roles.  There must be one "manager" cmsd which is in charge of determining overall system status. each manager can manage 64 other nodes; managers can manage other managers to form a tree, or can be peers to form a more resilient system.  If you are familiar with P2P systems, these are similar to "supernodes".  The second role is the "redirector", a special xrootd instance that is on the same host as the manager cmsd.  Clients initiate contact with a redirector instance; this instance does not actually move data, but further instructs the client where to find its desired data.
+
+Here's the approximate way the data location goes:
+1) Client contacts the redirector xrootd, asking for file X.
+2) Redirector Xrootd asks manager cmsd to find the best copy of file X.
+3) Manager cmsd queries all managed cmsd instances to find a copy of X.
+4) Each cmsd queries the attached xrootd for file X.
+5) If the file is found, this information travels from the datanode xrootd, to the cmsd, then to the manager xrootd
+6) The manager determines the best xrootd to serve data (also taking into consideration server load, for example).
+7) The redirector xrootd instructs the client where to find file X.
+8) The client connects to the optimal data server and starts the session.
+
+The whole process can be done in the order of milliseconds; mostly, it depends on network latencies and the speed of the underlying file systems.
+
+Of course, there are many more details to this; better descriptions of the algorithms for finding data are at http://xrootd.slac.stanford.edu/.
 
 ---++ Prerequisites
 
@@ -51,6 +73,8 @@ yum upgrade xrootd
 </verbatim>
 
 ---+ Configuration (NEEDSWORK)
+
+A sample configuration can be found in
 
 Write the following into xrootd.cfg:
 
