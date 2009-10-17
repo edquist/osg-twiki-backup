@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianBockelman" date="1255745294" format="1.1" version="1.9"}%
+%META:TOPICINFO{author="BrianBockelman" date="1255755261" format="1.1" version="1.10"}%
 %META:TOPICPARENT{name="Hadoop"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -58,6 +58,8 @@ The rpm/yum installation will create a 'xrootd' system account and group (uid,gi
 
 Remember, in order to use xrootd, you must have the [[HadoopInstallation][Hadoop and the FUSE kernel module]] already installed on your system in order to use the yum installer.
 
+Currently, there is a bug which requires FUSE to be mounted on the xrootd node.  This will go away in the future, but FUSE is only used for "stat" calls, not data movement.
+
 To configure your local installation for the yum repository, [[HadoopInstallation#Yum_install][follow the advice here]] to install the correct =caltech-hadoop= package for your site.
 
 After installing the caltech-hadoop yum configuration package, you can install the xrootd server with:
@@ -72,50 +74,79 @@ Updates can be installed with:
 yum upgrade xrootd
 </verbatim>
 
----+ Configuration (NEEDSWORK)
+---+ Configuration
 
-A sample configuration can be found in
+---++ File locations
 
-Write the following into xrootd.cfg:
+As much as possible, we attempt to use standard binary, library, and file locations in the RPM packaging.
+
+| Location | Needs editing? | Description |
+| /etc/xrootd/xrootd.cfg | Yes | The master configuration file for rooted and cmsd |
+| /etc/xrootd/Authfile | Yes | The site's authorization file |
+| /etc/grid-security/grid-mapfile | Maybe | DN-to-unix username mapping |
+| /etc/grid-security/xrd/xrdcert.pem | Yes | Certificate file, PEM formatted |
+| /etc/grid-security/xrd/xrdkey.pem | Yes | Certificate keyfile, PEM formatted |
+| /var/run/xrootd | No | Inter-process communication sockets and PID files |
+| /var/log/xrootd | No | Log files |
+| /mnt/hadoop | No | Mount point of HDFS on this node; we assume this location is used in the sample configs. |
+
+---++ Xrootd.cfg
+
+This sample configuration file is shipped with the RPM.  It is configured using the file locations listed above.
+
+This configuration file, if used, will have your server join the global cluster centered at xrootd.unl.edu.  In the future, we will provide sample configs for larger sites that may want to have their own manager as a peer to the UNL one.
 
 <verbatim>
+# Port specifications; only the redirector needs to use a well-known port
+# "any" will cause rooted to bind to any available port.  Change as needed for firewalls.
 xrd.port any
 xrd.port 1094 if xrootd.unl.edu
 
-xrootd.fslib /usr/lib/libXrdOfs.so
-ofs.osslib /usr/lib/libXrdHdfs.so
-ofs.authorize 1
+# The roles this server will play.
+all.role server
+all.role manager if xrootd.unl.edu
+# The known managers
+all.manager xrootd.unl.edu:1213
+#all.manager xrootd.ultralight.edu:1213
 
+# Explicitly limit the exports to a few paths.
+# This will override any settings in the authfile
+all.export /
+
+# Hosts allowed to use this xrootd cluster
+cms.allow host *
+
+# Keep this as a work-around for an xrootd bug
 oss.localroot /mnt/hadoop
-all.export /hello_world forcero
-all.export /user
+
+### Standard directives
+# Simple sites probably don't need to touch these.
+# Logging verbosity
 ofs.trace all
 xrd.trace all
 
-all.role server
-all.role manager if xrootd.unl.edu
-
-all.manager xrootd.unl.edu:1213
-
-cms.allow host *
-
-xrootd.seclib /usr/lib/libXrdSec.so
-
-sec.protocol /usr/lib gsi -certdir:/etc/grid-security/certificates -cert:/etc/grid-security/xrd/xrdcert.pem -key:/etc/grid-security/xrd/xrdkey.pem -crl:3
-
-acc.authdb Authfile
+# Turn on authorization
+ofs.authorize 1
+acc.authdb /etc/xrootd/Authfile
 acc.audit deny grant
 
+# Security configuration
+sec.protocol /usr/lib gsi -certdir:/etc/grid-security/certificates -cert:/etc/grid-security/xrd/xrdcert.pem -key:/etc/grid-security/xrd/xrdkey.pem -crl:3
+
+xrootd.seclib /usr/lib/libXrdSec.so
+xrootd.fslib /usr/lib/libXrdOfs.so
+ofs.osslib /usr/lib/libXrdHdfs.so
 all.adminpath /var/run/xrootd
 </verbatim>
-
 
 For now, write the following into Authfile:
 <verbatim>
 u * /store lr
 </verbatim>
-This allows anyone to read from /store.
-
+This allows anyone to read from /store.  You can add specific directives for usernames from the grid-mapfile.  If you would like uscms0313 to have access to /foo, add:
+<verbatim>
+u uscms0313 /store/foo lr
+</verbatim>
 
 ---++ Running Xrootd
 
@@ -131,8 +162,7 @@ To start xrootd automatically at boot time:
 chkconfig xrootd on
 </verbatim>
 
----++ Validation and debugging (NEEDSWORK)
-
+---++ Validation and Debugging
 
 Now, test the clients:
 
@@ -151,9 +181,9 @@ runuser -s /bin/bash - xrootd -c "cmsd -c /etc/xrootd/xrootd.cfg -d"
 
 ---+ TODO:
 
-   * LFN-to-PFN translation for each site based on the CMS TFC
+   * LFN-to-PFN translation for each site based on the CMS TFC.  Some work has been started, but help would be greatly appreciated.
    * Better authorization.  Currently, your username in the Authfile is HASH.0 where HASH is the output of <verbatim>openssl x509 -noout -hash -in ~/.globus/usercert.pem</verbatim>.  This is really weird - it should integrate with PRIMA.
-      * Have the authfile method complemented by native HDFS permissions.
+   * Have the authfile method complemented by native HDFS permissions.
 
 -- Main.BrianBockelman - 14 Oct 2009
 
