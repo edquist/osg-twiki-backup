@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RobGardner" date="1256377819" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1256389685" format="1.1" reprev="1.5" version="1.5"}%
 %META:TOPICPARENT{name="GridColombiaWorkshop2009"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -9,52 +9,66 @@
    * NFS directories are mounted on =/nfs= and linked to the required destination to make the configuration more explicit
 
 ---++ Directories exported
-   * =/home= - Home directories for grid users (osg, osgedu, usatlas1, ...), condor user and any local user
-   * =/condor= - Condor installation directories. It may have a subdirectory for each Condor version installed
+   * =home= - Home directories for grid users (osg, osgedu, usatlas1, ...), condor user and any local user
+   * =condor= - Condor installation directories. It may have a subdirectory for each Condor version installed. This will allow for an easy upgrade procedure for Condor. See ClusterCondorInstall for more information. 
+   * =osg= - Directories used by OSG, e.g. =OSG_GRID=, =OSG_APP= and =OSG_DATA=. Their functions is explained in the OSG documentation, e.g. in the [[Integration.LocalStorageRequirements][local storage requirements document]]
+   * =certificates= - CA certificate directory, shared across the cluster, updated by the CE
 
 ---++ Configuration of the NFS server
-   * gs1-nfs is setup to export its directories under /exports
-      * exported separately because some will be ro on worker nodes
-      * =vi /etc/exports=
-      * Configuring NFS:<pre>
-vi /etc/exports # exported to the subnet async,no_root_squash,rw
+The NFS server is called =tg1-nfs=. 
+   * all the exported directories are grouped in =/exports= for clarity
+   * directories are exported separately to allow to mount some as read only on some nodes (e.g. Condor on the worker nodes)
+   * directories are exported on the local network () =async= (UDP more light) =no_root_squash= ()
+The configuration is in =/etc/exports=. NFS has to be restarted after changes (=/etc/init.d/nfs restart=).
+To enable NFS and have it starting at boot use:
+<pre>
 chkconfig --level 3 nfs on
 chkconfig --level 5 nfs on
 /etc/init.d/nfs start
 </pre>
-      * local mount tested
-      * on =tg1-nfs= the directories are linked, not mouned
-   * on another machine (=tg1-ce=, some tests on the worker node) configure the import    
-      * edit =/etc/fstab=
-      * prepare =fstab._addon.tg1= to replicate on other machines (appending it to /etc/fstab)
-      * create directories and links
-      * disable iptables (this can be revisited later by opening up ports used by needed services)
-      * prepare a script to automate part of the process (part of make-dirs.gs1) =make-dirs.tg1=: Create directories and links used for NFS configuration, disable iptables<pre>
-# cat gs1-files/make-dirs.gs1 
-mkdir ~/.ssh
-cp gs1-files/authorized_keys.gs1-host ~/.ssh/authorized_keys
+Here an example of =/etc/exports=:
+<pre>
+ # exported to the subnet async,no_root_squash,rw
+[copy from gs1-nfs]
+</pre>
+
+To test if NFS is working locally:
+<pre>
+mkdir /tmp/test
+mount -t nfs tg1-nfs:/exports/condor /tmp/test
+touch /exports/condor/testfile
+ls -l /tmp/test/
+# cleanup
+umount /tmp/test
+rmdir /tmp/test
+</pre>
+
+On the NFS server (=tg1-nfs=) the exported directories are linked to their destination (soft link when possible, bind mount if required - e.g to mask the link like for Pacman installations)
+
+---++ Clients configuration
+Almost all other hosts import some directory from the NFS server. This is controlled editing =/etc/fstab= adding lines like:
+<pre>
+[ add last lines from tg1-ce /etc/fstab (or fstab._addon.gs1) ]
+</pre>
+A trick to speedup the configuration could be to prepare a file =fstab._addon.tg1= that can be appended to the fstab of all NFS clients. Some host can then be customized (e.g. worker nodes import the condor directory as read-only)
+
+As seen in the file above all directories are NFS-mounted in =/nfs=, for clarity. Mount points are created. All directories are then linked (or bind-mounted) to their final path.
+A script like the following can automate the process and be executed on all clients:
+<pre>
 mkdir /nfs
 mkdir /nfs/condor
-mkdir /scratch
-mkdir /scratch/condor
 mkdir /nfs/home
-mkdir /nfs/certificates
 mkdir /nfs/osg
-chkconfig --list iptables
-chkconfig iptables off
+mkdir /nfs/certificates
 ls /opt/
+ln -s /nfs/condor/condor /opt/condor
 mv /home /home.orig
 ln -s /nfs/home /home
-ln -s /nfs/condor/condor /opt/condor
 mkdir /share
 ln -s /nfs/osg /share/osg
 mkdir /etc/grid-security
 ln -s /nfs/certificates /etc/grid-security/certificates
-history > history.${HOSTNAME}
 </pre>
-   * propagate the changes to the rest of the cluster (pushing the script and running it)
-   * Customization NFS options
-      *  For worker nodes, use =ro=
 
 %BR%
 %COMPLETE1% %BR%
