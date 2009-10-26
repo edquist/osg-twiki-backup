@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TedHesselroth" date="1256235744" format="1.1" reprev="1.11" version="1.11"}%
+%META:TOPICINFO{author="TedHesselroth" date="1256572601" format="1.1" reprev="1.12" version="1.12"}%
 %META:TOPICPARENT{name="OpportunisticStorage"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 
@@ -8,33 +8,77 @@ The use of storage in the OSG by the [[http://www.scec.org][Southern California 
 
 ---+++++ The Use Case
 
-Southern California Earthquake Center (SCEC) : SCEC’s goal is to understand the physics of the Southern California fault system and develop a model of key aspects of earthquake behavior. One element of SCEC is the CyberSHAke project , which generates probabilistic seismic hazard assessments (PSHA). These are effectively sets of simulated seismograms for the response of a point on the earth to a very large set (~600,000) of potential ruptures (earthquakes). For each seismogram, a peak ground motion can be calculated. This can then be used to gener-ate a probabilistic peak ground motion over the set of potential ruptures.
+Southern California Earthquake Center (SCEC) : SCEC’s goal is to understand the physics of the Southern California fault system and develop a model of key aspects of earthquake behavior. One element of SCEC is the <nop>CyberSHAke project , which generates probabilistic seismic hazard assessments (PSHA). These are effectively sets of simulated seismograms for the response of a point on the earth to a very large set (~600,000) of potential ruptures (earthquakes). For each seismogram, a peak ground motion can be calculated. This can then be used to gener-ate a probabilistic peak ground motion over the set of potential ruptures.
 
-A reciprocity-based approach is used for this work. This approach has three steps. 
-   * 1. Run for-ward wave propagation simulations for a given volume.
-   * 2. Extract strain green tensor data for the ruptures that affect a given site.
-   * 3. Generate synthetic seismograms for ruptures that affect the given site.
+A reciprocity-based approach is used for this work. This approach has the following steps. 
+    * 0. Generate 660,000 earthquake descriptions (at USC).
+    For each site:
+    * 1. Run forward wave propagation simulations for a given volume.
+    * 2. Extract strain green tensor data for the ruptures that affect a given site.
+    * 3. Generate synthetic seismograms for ruptures that affect the given site. 
+    * 4. Generate shaking intensity measures from the synthetic seismograms.
 
-Step 1 is done at USC once. Steps 2 and 3 are done for each site of interest, and are represented as workflows. The workflow for step 2 is 10-15 nodes, with two nodes running 400-cores MPI tasks. The workflow for step 3 is ~800,000 single processors tasks.
-Both are currently run on TeraGrid. We will run the first on TeraGrid, and run the second on OSG. Using both CIs should allow more science to be done in the same amount of time with the same amount of human effort. This is the most simple use of both CIs; it does not require new technologies, but does require that CIs actually work together, and this application will be used to ensure that they do work together for an actual user. Specifically, we will port the working code from the SCEC production system to a test system on just the TG, port the step 3 workflow to the OSG, stage the initial large data set to OSG (generated in step 1, does not change from one PHSA curve to another), stage the smaller data that the step 2 workflow produces to OSG (uniquely for each PHSA curve), and determine how to move the overall output from step 3 on OSG into a test database (standing in for the SCEC production database). Other issues that will be solved include authentication, authorization, and accounting.
+Step 0 is performed once, before any runs, and the data is pre-staged to each to Storage Element. Steps 2 and 3 are done at each OSG site, and are represented as workflows. Steps 1-4 can all be performed at the same OSG site, or they can be split up, with step 1 being performed on 1 site and 2-4 somewhere else.
 
 Maechling, P., Gupta, V., Gupta, N., Field, E. H., Okaya, D., Jordan, T. H., “Grid Computing in the SCEC Com-munity Modeling Environment”, Seismological Research Letters, v. 76, pp. 581-587, 2005. 
 
 ---+++++ Summary
 The SCEC use case is summarized by
 
-   * 800,000 files (~1 Terabyte of data) from step uploaded to SE once, then read by jobs
-   * Smaller number of files from step 2, uploaded to SE, transient
-   * 800,000 jobs on CE, equals one run
-   * Data is read in job context by posix IO
-      * Size per read:
-      * Read proximities (i.e., are subsequent reads "near" each other such that caching will be effective):
-   * After run, deletion of transient files
+   * 660,000 files (~1 Terabyte of data) from step 0 uploaded to each SE once, then read by jobs
+   * Step 1 is run on an associated Compute Element, or the products from step 1 run on another site are uploaded, transient
+   * 830,000 jobs on CE, equals one run
+   * Data is read in job context by posix IO (size per read varies depending on the job)
+   * After run, deletion of transient files (not part of the workflow, but will be included in the future)
    * After run, upload from SE to SCEC test database
-   * After project, deletion of 800,000 files from SE
-   
+   * After project, deletion of 660,000 files from SE
 
-The files are in 20 tarred packages. Data placement is done by uploading a tar file to the SE, then unpacking it into the SE by a job running on the computing element. Then consensus from experts is that 700,000 files will not present a problem to Storage Elements, though it is estimated that in a Hadoop installation it will result in an additional memory consumption of 700 MB in the Namenode. We also conclude that dCache would not reliably support posix IO without significant changes to the SCEC codebase; therefore we will not pursue participation by dCache sites for this project.
+---++++++ Questions and Answers
+
+__Are there too many files for use of a Storage Element?__
+
+The files are in 20 tarred packages. Data placement is done by uploading a tar file to the SE, then unpacking it into the SE by a job running on the computing element. Then consensus from experts is that 660,000 files will not present a problem to Storage Elements, though it is estimated that in a Hadoop installation it will result in an additional memory consumption of 700 MB in the Namenode. We also conclude that dCache would not reliably support posix IO without significant changes to the SCEC codebase; therefore we will not pursue participation by dCache sites for this project.
+
+Thanks to Scott Callaghan for providing the following info.
+
+__How does the number of jobs relate to the number of files?__
+
+Each run requires a subset of the 660,000 files, usually about 410,000.  Two jobs are run for each file, steps 3 and 4.  Step 2 contains about 7,000 jobs, so it all adds up to somewhere around 830,000.
+
+__How long does a job take to run?__
+
+The longest jobs are part of step 1 - they are 400-core MPI jobs which take about 16 hours.  The shortest jobs are step 4 - they take about 0.1 sec.  To help us handle the short-running jobs, we use Pegasus to bundle them into groups so that Condor sees fewer longer-running jobs.  The shortest jobs Condor sees are about a minute.
+
+__What is the number and size of the files from step 2?__
+
+Step 2 generates about 7,000 files.  They average 100 MB each.
+Step 3 generates about 410,000 files, each 24 KB.
+Step 4 generates about 410,000 files, each 216 bytes.
+
+__Would there be more than one run?__
+
+Yes.  This spring SCEC conducted about 220 runs.
+
+__Would the files from step 2 be deleted after each run?__
+
+They could be. There is not at present an automated process to do this.
+
+__What is the size and number of the products to be uploaded from the SE to the SCEC database?__
+
+The output files from steps 3 and 4 are zipped into 160 files, which are then staged out to SCEC.  The files total about 10 GB.
+
+__Are they moved as whole files?__
+
+Currently each zip file is moved individually, using <nop>GridFTP.
+
+__What is the duration of the project, from the point of view of the SEs?__
+
+The 220 runs done this spring took about 2 months.
+
+__Would there be another project following it?__
+
+SCEC plans to perform more <nop>CyberShake runs with different sites of interest and with alternative velocity models and earthquake descriptions.  Likely, there would be periods of production runs followed by periods of relative downtime while we evaluate results and plan the next set of runs.  If the SEs needed to reclaim space, it could be possible to delete the 660,000 input files from step 0.
+
 
 ---+++++ Initial Participating Sites
 
@@ -44,7 +88,7 @@ These sites have agreed to support SCEC
    * Caltech
    * University of Oklahoma
    * University of Nebraska at Omaha
-   * University of Florida (tentative)
+   * University of Florida
 
 The plan is for Purdue to host the proof-of-concept tests and early production, then expansion to production on all the above sites, followed by expansion to other sites in the OSG. The VO to be used is initially the "engage" VO, though at a later point that may be changed to a "scec" VO. The following table shows the status of the project per-site. The table will be maintained by Ted Hesselroth, but site administrators may edit it themselves if they wish.
 
@@ -92,8 +136,8 @@ The plan is for Purdue to host the proof-of-concept tests and early production, 
 | [[http://tiny.cc/5zqNy][Purdue]] |  | | | | | | |
 | [[http://tiny.cc/W1A6i][Caltech]] | cit-se2.ultralight.org | <p>%ICON{led-box-green}% </p> | <p>%ICON{led-box-green}% </p> | <p>%ICON{led-box-green}% </p> | | | <p>%ICON{led-box-green}% </p> |
 | [[http://tiny.cc/Yzglz][U of Oklahoma]] |  | | | | | | |
-| [[http://tiny.cc/E7s5m][U of Nebraska-Omaha]] | ff-srm.unl.edu | <p>%ICON{led-box-green}% </p> | <p>%ICON{led-box-green}% </p> | <p>%ICON{led-box-green}% </p> | | |<p>%ICON{led-box-green}% </p> |
-| [[http://tiny.cc/hgqaq][U of Florida]] | srmb.ihepa.ufl.edu | | | | | | |
+| [[http://tiny.cc/E7s5m][U of Nebraska-Omaha]] | ff-srm.unl.edu | <p>%ICON{led-box-green}% </p> | <p>%ICON{led-box-green}% </p> | <p>%ICON{led-box-green}% </p> |<p>%ICON{led-box-green}% </p> | |<p>%ICON{led-box-green}% </p> |
+| [[http://tiny.cc/hgqaq][U of Florida]] | srmb.ihepa.ufl.edu |<p>%ICON{led-box-green}% </p> | |<p>%ICON{led-box-green}% </p>|  | | |
 
 ---+++++ Notes on BDII Checklist Table
 
