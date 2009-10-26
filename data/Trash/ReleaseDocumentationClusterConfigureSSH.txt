@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RobGardner" date="1256559526" format="1.1" version="1.10"}%
+%META:TOPICINFO{author="CharlesWaldman" date="1256571466" format="1.1" reprev="1.11" version="1.11"}%
 %META:TOPICPARENT{name="GridColombiaWorkshop2009"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -9,7 +9,7 @@
       * SSH for the root user on the management node to access each of the other nodes on the cluster
       * SSH for the root user works without complaint between all head nodes on the cluster
       * SSH for the root user works without complaint between the head nodes and compute nodes on the cluster                                                                         
-
+   * We use host-based ssh for root logins and pubkey-based ssh for user logins.  Either or both of these can be enabled separately depending on the desired site policy. 
 
 *NOTE - DISCLAIMER*:
    * The configuration described here is suggestive of what could be done for a test cluster and depicts one approach to handling access by root and user accounts.  Many universities or laboratories will have specific policies in place as to which types of access is permitted with varying degrees of restrictiveness depending on the desired security level. 
@@ -40,37 +40,77 @@ IgnoreRhosts no
 </pre>
 
 
----++ Distributing valid host keys in the cluster 
-All hosts must have a valid host key for all the other hosts in the cluster.
+---++ Host-based access for root:
+ 
+For host-based authentication, all hosts must have a valid host key for all the other hosts in the cluster.
+The =ssh-keyscan= utility can be used to construct the
+=ssh_known_hosts' file=, but you need to provide a list
+of hostnames.
 
-   * Find all hosts from the file ssh_hosts which have new or different keys from those in the sorted file ssh_known_hosts:<pre>ssh-keyscan -t rsa,dsa -f ssh_hosts | \
-            sort -u - ssh_known_hosts | diff ssh_known_hosts</pre>
-   * The permissions on =$HOME/.ssh/authorized_keys= must be correct.
+Here's a way you can use =/etc/hosts= to generate this list:
+
+<code>
+ ssh-keyscan -t rsa,dsa `grep -v \# /etc/hosts` > ssh_known_hosts
+</code>
+
+This just removes comment lines from the /etc/hosts file, which
+confuse =ssh-keyscan=.  Any hosts in /etc/hosts which are not found
+will result in an error message, but this will go to stderr not 
+stdout so anything written to the output file ssh_known_hosts is OK.  
+Then you copy this file to =/etc/ssh/ssh_known_hosts=
+
+If the hosts have a regular naming scheme, you can use a for-loop
+instead of the /etc/hosts file:
+
+eg. if they are <codehost01,host02,....host08<code>:
+
+<code>
+ for x in {1..8} ; do
+    hostname=$(printf host%02d $x)
+    ssh-keyscan -t dsa,rsa $hostname
+ done
+</code>
+
+If there are some hosts that got missed, or new hosts added, you can do:
+<code>
+ ssh-keyscan -t rsa,dsa <i>HOSTNAME</i>
+</code>
+
+for the new host or hosts, and append that to the =ssh_known_hosts=
+
+Also note that if you access the host via multiple names - e.g.
+=uct2-c001, uct2-c001.mwt2.org= and =uct2-c001.uchicago.edu=, you
+have to have records in ssh_known_hosts for each of the hostnames.
+In this case, you would do:
+
+<code>
+ ssh-keyscan -t rsa,dsa uct2-c001 uct2-c001.mwt2.org uct2-c001.uchicago.edu
+</code>
+
+If hosts are changed or replaced, or their ssh host key changes,
+the corresponding entry in =/etc/ssh/ssh_known_hosts= must be updated.
 
 
----++ Distributing valid host keys in the cluster (alternative method)
-   * One easy way to accomplish this is to assemble a list of all hosts in the cluster.  Include all aliases for each host as a separate line.  Make sure you are root.  Delete =/root/.ssh/known_hosts=. 
-   * Then =cat= this host list file into the  =make_known_hosts.sh= script to connect to each and pull the SSH key.  <pre>
-#!/bin/sh
-# make_known_hosts.sh
-for host in $*; do
-        expect - &lt;&lt;EOF
-spawn ssh $host hostname
-expect yes/no
-send -- "yes\r"
-expect yes
-expect $host
-exit
-EOF
-done
-</pre> 
-   * This will append all the keys to =/root/.ssh/known_hosts=. 
-   * Copy this file into =/etc/ssh/ssh_known_hosts= on each host in the cluster using scp from the management node.
-   * Create a list of head nodes for which you want to enable host-based access.  
-   * Copy it into =/etc/ssh/shosts.equiv= on each host in the cluster.  
-   * Also copy it into =/root/.shosts= on each host in the cluster.  This enables root login explicitly from these hosts. 
+Copy this file into =/etc/ssh/ssh_known_hosts= on each host in the cluster
+
+You also need to list the hosts in =/root/.shosts=, without the keys.  You can construct
+this file by hand, or from the =/etc/hosts= file, or from the =ssh_known_hosts= file we
+just created:
+
+<code>
+cut -d' ' -f1 < /etc/ssh/ssh_known_hosts|sort -u | grep -v , | > /root/.shosts
+</code>
+This =/root/.shosts= file must be present on all target machines.
    
 Now all root logins should work across the cluster from the head nodes.
+
+
+---++ Pubkey-based access for non-root users
+
+Simply add the user's ssh pubkey into =$HOME/.ssh/authorized_keys=
+This file must not be group- or world- readable (mode 600) and the directory
+=$HOME/.ssh= must be mode 700 (drwx------)
+
 
 ---++ Authentication for users
 The following is an easy way to add ssh key authentication for a (non root) user on all nodes that share the same home directory exported by =gc1-nfs=.
@@ -78,7 +118,7 @@ The following is an easy way to add ssh key authentication for a (non root) user
    * Login to your user account on the user interface machine (*gc1-ui*):
    * In the home directory of your account, do: <pre>cd ~/.ssh/
 ssh-keygen -t dsa
-# respond enter to all questions (defaults and enter a passphrase)
+# respond enter to all questions (defaults and make sure to enter a passphrase)
 # this will generate id_dsa and id_dsa.pub files 
 cat id_dsa.pub >> authorized_keys
 chmod go-rwx authorized_keys           </pre>
