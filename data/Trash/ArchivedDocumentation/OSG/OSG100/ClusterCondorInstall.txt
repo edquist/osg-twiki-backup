@@ -1,112 +1,99 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1256719329" format="1.1" version="1.11"}%
+%META:TOPICINFO{author="RobGardner" date="1256731857" format="1.1" reprev="1.12" version="1.12"}%
 %META:TOPICPARENT{name="GridColombiaWorkshop2009"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
 ---++ Introduction
 
-We will use the latest stable release of Condor, 7.2.4 released June 25, 2009.  Our approach will be to install the Condor binaries in =/opt/condor= on the management node of the cluster (*gc1-ce*) and export them over NFS to the compute nodes.  The share directory will include:
-   * the Condor installation
-   * the main =condor_config= file
-   * a specific =condor_config= file for each host in the cluster also called local condor config file.  These files appear as =condor_config.${HOST}= (note: =${HOST}= is being used as a placeholder for actual hostnames, e.g for =gc1-c001=, this would be =condor_config.gc1-c001=).  Keeping them on the management node makes it very easy to make cluster-wide configuration changes easily.
-
-The condor home directory will contain a link to the =condor_config= file residing in the default location, =/opt/condor/etc/=. 
-
-Each host will have a local Condor scratch directory, =/scratch/condor=, where Condor will store its log files and create spool directories for the jobs. 
-
-The only host that requires write access to the exported =/nfs/condor= area is the host used to install Condor (i.e. =gc1-ce=) so that configuration changes can be made.  All other hosts should mount the directory as read-only.
+We will use the latest stable release of Condor 7.2.4, released June 25, 2009.  Our approach will be to install Condor in  =/opt/condor= on the management node (*gc1-ce*) and share it with the other nodes in the cluster.  We will also prepare the host-specific configuration files for all nodes participating in the Condor pool and store them in a standard location =/opt/condor/etc=.  This will make it easy to make cluster-wide configuration changes.
 
 Some useful links:
    * Condor download: http://www.cs.wisc.edu/condor/downloads-v2/download.pl
    * Installation manual: http://www.cs.wisc.edu/condor/manual/v7.2/3_2Installation.html
 
----++ Directory structure
-This Condor installation was structured to facilitate upgrades with minimal effort.  The Condor installation directory on each host is =/opt/condor=. This is a link to the NFS exported =/nfs/condor/condor= that is a link to the real Condor installation directory including the version number in the name (e.g. =/nfs/condor/condor-2.7.4=).
+%BR%
+*A note about the directory structure:*
+This Condor installation was structured to facilitate upgrades to Condor with minimal effort.  The Condor release directory on each host is =/opt/condor= which is a soft link to the NFS exported =/nfs/condor/condor= which in turn is a link to the actual Condor installation directory which includes the version number: =/nfs/condor/condor-2.7.4=.  The motivation for this choice will hopefully become clear in the Upgrades section below.
 
-The reason of this will be clear in the Upgrades section below
 
+---++ Management node installation
 
----++ Head node installation
+Install Condor on the machine that will be the central manager.  In this tutorial use *gc1-ce*, the same host as the OSG compute element.  
 
-Condor is first installed on the host which will be the master.  In this tutorial it will be *gc1-ce*, the same host as the OSG compute element.  
-
-In the following lines some lines start with =#=. These lines are comments, explaining what you should do or see. Feel free to type them if you are copying form the screen. The computer will ignore them.
-
-Here are the steps:
    * Go to the [[http://www.cs.wisc.edu/condor/downloads-v2/download.pl][download page]] and choose the Condor version (e.g. 7.2.4, current production version).
-   * Choose the correct distribution for you platform (the one below condor 7.2.4 for RHEL 5 dynamically linked ):
+   * Choose the correct distribution for your platform (the one below condor 7.2.4 for RHEL 5 dynamically linked ):
       *  =condor-7.2.4-linux-x86-rhel5-dynamic.tar.gz=  (for  x86 OS)
       *  =condor-7.2.4-linux-x86_64-rhel5-dynamic.tar.gz=  (for x86_64 OS)
-   * Provide name and email, agree to the license, ... save the file.
-   * Create local Condor directories <pre>
+   * Save the downloaded file to your home directory.
+   * Create the machine-specific directories that Condor uses: <pre>
 mkdir /scratch
 mkdir /scratch/condor
 </pre>
    * Make sure the *condor* user exists with a shared home directory (=/home/condor=).
-   * Make sure  that =/opt/condor= is a soft link to =/nfs/condor/condor=
-   * Extract in /tmp/condor-src and install it 
-      * extract the tar file:<pre>
+   * Make sure  that =/opt/condor= is a soft link to =/nfs/condor/condor=. 
+   * Create a temporary directory and extract the source from the downloaded file in your home directory<pre>
 mkdir /tmp/condor-src
 cd /tmp/condor-src
 tar xvzf ~/condor-7.2.4-linux-x86-rhel5-dynamic.tar.gz 
 </pre>
-      * prepare the installation directory: <pre>
+
+   * Prepare the target installation directory: <pre>
 mkdir /nfs/condor/condor-7.2.4
 ln -s /nfs/condor/condor-7.2.4 /nfs/condor/condor
 </pre>
-      * check that =/opt/condor= exists and is linked to =/nfs/condor/condor= (was done in the NFS setup)
-      * Install condor in =/opt/condor=, using =/scratch/condor= local dir, and a shared condor home:<pre>
-./condor_install --prefix=/opt/condor --local-dir=/scratch/condor --type=manager
-</pre>   
-   * Condor will place the local configuration file in the local-dir. Here are some configuration changes to achieve the setup described in the introduction with all the local configurations in the shared directory: 
-      * Change =condor_config= to point to the right, moved, local condor configuration (=/opt/condor/etc/condor_config.$(HOSTNAME)=) and set the domain to yourdomain.org:<pre>
-vi /opt/condor/etc/condor_config     
-</pre> 
-      * change the value of these variables (look for them in the file):<pre>
+
+   * Check that =/opt/condor= exists and is linked to =/nfs/condor/condor=
+   * Run the Condor installation script:<pre>
+./condor_install --prefix=/opt/condor --local-dir=/scratch/condor --type=manager</pre>   
+   * The installation script will place the machine-specific configuration file in the the directory specified by =local-dir=.  We want to manage these files in the shared area, so: <pre>
+cp /scratch/condor/condor_config.local /opt/condor/etc/
+cp /opt/condor/etc/condor_config.local /opt/condor/etc/condor_config.gc1-ce
+</pre>
+   * Open the global Condor configuration file =/opt/condor/etc/condor_config= in an editor.
+   * Change the value of these variables:<pre>
 LOCAL_CONFIG_FILE = /opt/condor/etc/condor_config.$(HOSTNAME)
 UID_DOMAIN = yourdomain.org
 FILESYSTEM_DOMAIN = yourdomain.org
 </pre>
-      * make sure that you have (the host name could be with or without domain: =gc1-ce= or =gc1-ce.yourdomain.org=; this should be the result of installing on =gc1-ce=):<pre>
-CONDOR_HOST = gc1-ce
-</pre>
-      * copy the local configuration file to the right location:<pre>
-cp /scratch/condor/condor_config.local /opt/condor/etc/
-cp /opt/condor/etc/condor_config.local /opt/condor/etc/condor_config.gc1-ce
-</pre>
-      * link condor_config to its default location:<pre>
+   * Make sure that you have <pre>CONDOR_HOST = gc1-ce</pre>
+      * Note: =CONDOR_HOST= can be set with or without the domain name: =gc1-ce= or =gc1-ce.yourdomain.org=
+      
+   * Link =condor_config= in the *condor* user's home directory to the location of the global configuration file:<pre>
 ln -s /opt/condor/etc/condor_config ~condor/condor_config
 </pre>
-   * Test start <pre>
+   * Start up the Condor master and check for running processes <pre>
 /opt/condor/sbin/condor_master
-/opt/condor/sbin/condor_master_off
+ps -ef |grep condor
+condor    4404     1  0 06:42 ?        00:00:00 /opt/condor/sbin/condor_master
+condor    4405  4404  0 06:42 ?        00:00:00 condor_collector -f
+condor    4406  4404  1 06:43 ?        00:00:00 condor_negotiator -f
+root      4410  4348  0 06:43 pts/2    00:00:00 grep condor
 </pre>
-   * Configure the cluster installation (local setups for all the hosts). This setup facilitates central management. All hosts have to have their own condor_config.${HOST} but all worker nodes are configured the same way, so their files are a link to a generic worker node configuration (=condor_config.tg1-cXX=): <pre>
+   * To shutdown <pre>/opt/condor/sbin/condor_off -master
+</pre>
+
+   * Now create configuration files for each of the hosts for editing.   All hosts must have a corresponding condor_config.${HOST} file.  In addition all compute nodes must be configured the same way, so we create links to a single compute node configuration file (=condor_config.gc1-cXX=): <pre>
 cd /opt/condor/etc/
 cp condor_config.gc1-ce condor_config.gc1-cXXX
 ln -s condor_config.gc1-cXXX condor_config.gc1-c001
 ln -s condor_config.gc1-cXXX condor_config.gc1-c002
 ln -s condor_config.gc1-cXXX condor_config.gc1-c003
-cp condor_config.gc1-ce condor_config.gc1-cli
+cp condor_config.gc1-ce condor_config.gc1-ui
 </pre>
-   * Edit the client to enable master and schedd (=DAEMON_LIST = MASTER, SCHEDD=):<pre>
-vi condor_config.gc1-cli
+   * For the user interface machine, where one submits jobs, edit =condor_config.gc1-ui= and enable the master and schedd processes by setting =DAEMON_LIST = MASTER, SCHEDD=.
 </pre>
-   * Edit the client to enable master and schedd (=DAEMON_LIST = MASTER, STARTD=):<pre>
-vi condor_config.gc1-cXXX
-</pre>
-   * remove the unused local config:<pre>
+   * For compute nodes, which run jobs, edit =condor_config.gc1-cXXX= and enable master and startd processes by setting =DAEMON_LIST = MASTER, STARTD=.
+   * Remove the unused configuration file in the =/scratch/condor/= directory:<pre>
 ls /scratch/condor/
 cd /scratch/condor/
 rm condor_config.local 
 </pre>
-   * Enable automatic startup at boot:<pre>
-vi /opt/condor/etc/examples/condor.boot         # to set the correct path of condor_master, /opt/condor/sbin/condor_master
+   * Enable automatic startup at boot by setting the correct path of the =condor_master= executable (=/opt/condor/sbin/condor_master=) in the boot file =/opt/condor/etc/examples/condor.boot=. Then:<pre>
 cp /opt/condor/etc/examples/condor.boot /etc/init.d/condor
 chkconfig --level 235 condor
 </pre>
 
----++ Configuration of the other nodes
+---++ Setting up the other nodes
 This should be executed on all other nodes where Condor should be running (worker nodes, submit host)
    * Create the local Condor directories in =/scratch/condor= (making sure that =execute= directory has the right permissions =a+rwx +t=) <pre>
 mkdir /scratch
@@ -117,14 +104,14 @@ mkdir /scratch/condor/spool
 chmod a+rwx /scratch/condor/execute
 chmod +t /scratch/condor/execute
 </pre>
-   * At the end you should see: <pre>
+   * At the end you should see something like: <pre>
 ls -l /scratch/condor/
 total 12
 drwxrwxrwt 2 condor root 4096 Oct 15 04:07 execute
 drwxr-xr-x 2 condor root 4096 Oct 15 04:15 log
 drwxr-xr-x 2 condor root 4096 Oct 15 04:02 spool
 </pre>
-   * Automatic startup<pre>
+   * Enable automatic startup:<pre>
 cp /opt/condor/etc/examples/condor.boot /etc/init.d/condor
 chkconfig --level 235 condor
 </pre>
@@ -152,7 +139,7 @@ slot4@uct3-edge5.u LINUX      INTEL  Unclaimed Idle     0.100  2014  0+02:25:01
                Total     4     0       0         4       0          0        0
 </pre>
 
-To test condor you have to create  a submit file (=mytest.submit=) and submit a job
+To test condor you have to create  a submit file (=mytest.submit=) and submit a job.
    * submit file:<pre>
 #  A test Condor submission file - mytest.submit
 executable = /usr/bin/hostname
