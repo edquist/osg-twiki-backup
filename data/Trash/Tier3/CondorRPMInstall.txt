@@ -1,0 +1,166 @@
+%META:TOPICINFO{author="MarcoMambelli" date="1258485651" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Tier3DocDev"}%
+---++ Installing Condor
+
+%TOC{depth="3"}%
+
+---++ Introduction
+
+---++ Changes to iptables
+
+Edit the */etc/sysconfig/iptables* file to add these lines ahead of the reject line
+
+<pre>#  Condor additions -A RH-Firewall-1-INPUT  -s 128.105.245.0/16 -m state --state ESTABLISHED,NEW -p tcp -m tcp --dport 9000:10000 -j ACCEPT  #  
+Condor additions -A RH-Firewall-1-INPUT  -s 128.105.245.0/16 -m state --state ESTABLISHED,NEW -p udp -m udp --dport 9000:10000 -j ACCEPT  #  </pre>
+
+---++ 
+ <verbatim>mkdir /export/home/shared
+cd /export/home/shared
+wget http://newbio.cs.wisc.edu/zkm/condor-7.4.8-linux-x86-rel5-dymamic-1.x86_64.rpm
+cd /root/
+rpm -i --test /export/home/shared/condor-7.4.0-linux-x86_64-....
+rpm -i /export/home/share/condor-7.4.0 ....
+cd /opt/condor-7.4.0/etc/examples
+#edit condor.init</verbatim>
+
+look for "error program not found"
+
+<font face="#mce_temp_font#"> /usr/sbin/$prog --&gt; goes to /opt/condor/sbin/$prog</font>
+<verbatim>cp /opt/condor-7.4.0/condor.sh /etc/sysconfig/condor
+#edit condor
+ CONDOR_CONFIG="/export/share/condor-etc/condor_config"
+cd ../../ 
+
+cp etc/examples/condor.init /etc/init.d/condor
+/sbin/chkconfig --level 235 condor on
+/sbin/chkconfig --list condor
+chmod 755 /etc/init.d/condor
+mkdir /var/run/condor
+chown condor:condor /var/run/condor
+cd etc/
+# edit condor_config
+  RELEASE_DIR = /opt/condor
+  LOCAL_DIR = /local/condor
+  LOCAL_CONFIG_FILE = /export/share/condor-etc/condor_config.$(HOSTNAME).local
+  CONDOR_ADMIN = <admin email>
+  UID_DOMAIN = cs.wisc.edu
+  FILESYSTEM_DOMAIN = $(UID_DOMAIN)
+  ALLOW_WRITE = *.$(UID_DOMAIN)
+  at the end of the file add
+  SEC_DAEMON_AUTHENTICATION = required
+  SEC_DAEMON_AUTHENTICATION_METHODS = password #change this to different method
+  SEC_CLIENT_AUTHENTICATION_METHODS = password,fs,gsi,kerberos
+  SEC_PASSWORD_FILE = /local/condor/condor_credential 
+  ALLOW_DAEMON = condor_pool@* 
+
+cd ../local.glow-223 (condor manager)
+# edit condor_config.local
+  CONDOR_HOST = glow-c223.es.wisc.edu 
+  #LOCAL_DIR
+  #CONDOR_ADMIN
+  DAEMON_LIST= COLLECTOR, MASTER, NEGOTIATOR (for condor master)
+cp condor_config.local /export/share/condor-etc/condor_config.glow-c223.local 
+cp /etc/sysconfig/condor /opt/condor/condor.sh 
+
+#checking
+source /opt/condor/condor.sh
+echo $CONDOR_CONFIG  should be /export/share/condor-etc/condor_config
+condor_config_val RELEASE_DIR  should be /opt/condor
+condor_config_val LOCAL_DIR   should be /local/condor
+#set up local space
+mkdir /local/condor
+chown condor:condor /local/condor
+cd /opt/condor/local.glow-c223/
+mv execute/ log/ spool/ /local/condor/
+#set password
+condor_store_cred -c add  (enter password) 
+
+#start condor
+/etc/init.d/condor start   (should say ok)
+#check
+condor_config_val log   (should be /local/condor/log)
+cd /local/condor/log
+#check Master log
+condor_status -negotiator
+ 
+ </verbatim> 
+
+
+Instructions - transcript v2:
+
+<verbatim>
+#rpm -i condor.rpm
+# make sure that there is a repository configuration file /etc/yum.repos.d/condor.repo
+
+yum install condor
+
+ln -s /opt/condor-7.4.0 /opt/condor
+
+## set up init.d so condor starts automatically
+
+vi /opt/condor/condor.sh
++ fix CONDOR_CONFIG to /export/share/condor-etc
++ fix path to /opt/condor/bin /opt/condor/sbin 
+cp /opt/condor/condor.sh /etc/sysconfig/condor
+
+chmod 755 /opt/condor/etc/examples/condor.init
+vi /opt/condor/etc/examples/condor.init
++ change /usr/sbin/$prog to /opt/condor/sbin/$prog
+cp /opt/condor/etc/examples/condor.init /etc/init.d/condor
+chkconfig --level 235 condor on
+
+mkdir /var/run/condor
+chown condor:condor /var/run/condor
+
+
+## central manager only:
+RELEASE_DIR = /opt/condor
+LOCAL_DIR = /local/condor
+LOCAL_CONFIG_FILE = /export/share/condor-etc/condor_config.$(HOSTNAME).local
+#CONDOR_ADMIN =
+#UID_DOMAIN = cs.wisc.edu
+#FILE_SYSTEM_DOMAIN = $(UID_DOMAIN)
+COLLECTOR_NAME =
+ALLOW_WRITE = *.$(UID_DOMAIN)
+
+# search for LOWPORT and add
+IN_HIGHPORT = 9999
+IN_LOWPORT = 9000
+
+
+at end of file:
+SEC_DAEMON_AUTHENTICATION = Required
+SEC_DAEMON_AUTHENTICATION_METHODS = PASSWORD
+SEC_CLIENT_AUTHENTICATION_METHODS = PASSWORD,FS,GSI,KERBEROS
+SEC_PASSWORD_FILE=/local/condor/condor_credential
+ALLOW_DAEMON=condor_pool@*
+
+## On all condor nodes
+vi /opt/condor/local.*/condor_config.local
+#CONDOR_HOST
+#RELEASE_DIR
+#CONDOR_ADMIN
+DAEMON_LIST
+
+cp /opt/condor/local.*/condor_config.local /export/share/condor-etc/condor_config.&lt;name>.local
+#this will not work on hosts not owning the NFS shared directory (root squash)
+#from the NFS master
+scp &lt;name>:'/opt/condor/local.*/condor_config.local' /export/share/condor-etc/condor_config.&lt;name>.local
+#E.g. scp glow-c226:'/opt/condor/local.*/condor_config.local' /export/share/condor-etc/condor_config.glow-c226.local
+
+## set up condor's local space
+mkdir /local/condor
+chown condor:condor /local/condor
+cd /opt/condor/local.&lt;name>/
+mv execute log spool /local/condor
+
+## set up password authentication
+source /opt/condor/condor.sh
+condor_store_cred -c add
+
+## iptables may interfere with condor:
+# set
+
+
+
+-- Main.MarcoMambelli - 17 Nov 2009
