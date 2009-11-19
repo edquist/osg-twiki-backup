@@ -1,7 +1,527 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1258588538" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1258669818" format="1.1" version="1.2"}%
 %META:TOPICPARENT{name="WebHome"}%
 
+---+!! *<nop>%SPACEOUT{Bestman-Gateway Installation Guide}%*
+%TOC%
 
+---++Introduction
+BeStMan-Gateway/Xrootd implements SRM v2.2 for generic posix file systems and provides storage that spans on multiple file systems. The more detailed information about !Bestman-Gateway could be found [[BestmanGateway][here]].
+This document is written for system administrators who are planning to use storage that is installed on top of !Xrootd distributed file system. The goal of this document is to give enough information for system administrators to do initial simple configuration of the storage as well as provide references to the documents that may help to accomplish more sophisticated configuration.
+
+The installation of !Xrootd is described in [[XrootdInstall][that document]].
+---++++++!!Applicable Versions
+This document applies to an install of 
+%RED%
+*osg-version 1.2.3* 
+%ENDCOLOR%
+(or higher) and 
+%RED%
+*vdt-version  2.0.0*
+%ENDCOLOR%
+(or higher).
+
+---++++++!!Engineering Considerations
+!BeStMan-Gateway/Xrootd storage could be installed on one node and the installation  consists of the components listed below.  All the required components but FUSE can be installed from %CACHE%: 
+   * !BeStMan-Gateway is an implementation of SRM v2.2 for essential interfaces to disk based storage systems - [[http://datagrid.lbl.gov/bestman][BeStMan Home Page]] 
+   * !XrootdFS -  is a Posix filesystem for an Xrootd storage cluster ([[http://wt2.slac.stanford.edu/xrootdfs/xrootdfs.html XrootdFS Home Page]] ), is required for !BeStMan to work with  Xrootd  
+      *  !XrootdFS requires installation of FUSE -   [[http://fuse.sourceforge.net File System in User Space]]. 
+   * !GridFTP-Xrootd server  provides a high-performance, secure, reliable data transfer [[http://www.globus.org/toolkit/docs/3.2/gridftp][GridFTP documentation]]. It is recommended that multiple !GridFTP-Xrootd instances on different servers if:
+      * You are serving the VOs that use storage heavily (CMS, ATLAS, CDF, and D0) and have more than 250 cores
+      * Your site will be managing more than 50 TB of disk space
+      * You r site have more than 1Gbps bandwidth, then you should plan on at least one !GridFTP server per 4Gbps of available bandwidth (assuming you have 10Gbps interfaces on the server) if you want to maximize throughput. 
+   * optional package
+      * Gratia gridftp transfer probe - cron job that reports all the file transfers to [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GratiaSiteCollector Gratia collector]]
+      *  [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS][GUMS server]] - authentication and authorization service
+
+     <img src="%ATTACHURLPATH%/bestman_gateway_xrootd_arch.jpeg" alt="bestman_gateway_xrootd_arch.jpeg" width='384' height='288' />
+
+
+
+---++Checklist
+   1. !FUSE is a kernel module that intercepts and services user requests to the !XrootdFS.  It should be installed before you start !Bestman-Gateway/Xrootd installation. !FUSE can be installed via “yum install” or rpms. You will need three packages: 
+      * fuse
+      * fuse-libs
+      * kernel-module-fuse
+
+or you can download it  from   
+http://sourceforge.net/project/showfiles.php?group_id=121684&package_id=132802 and build according to instructions  provided at http://fuse.sourceforge.net.   
+ 
+You will need to have root access to install it. 
+It is essential that FUSE version ( &gt; 2.7.3) and flavor match your kernel. Contact your sys admin if you have any questions.
+
+   1. [[ReleaseDocumentation/PacmanInstall][pacman]] version >= %PACMAN_VERSION% is required
+   1. The server must have a fully qualified domain name and a valid [[ReleaseDocumentation/GetGridCertificates][grid host certificate]] installed in =/etc/grid-security/=
+   1. !BeStMan server needs to have a valid host certificate installed in =/etc/grid-security/bestmancert=. The certificate should be own by a user that is running !BeStMan server. The right permission (600) should be set on those files. %ICON{warning}%  !BeStMan should be configured with host certificate in order to be able to handle requests from !LCG-Utils tools. This is mandatory for at least all !BeStMan servers that support ATLAS experiment. Normally the OSG !BeStMan implementation uses a service certificate, not a host certificate. This causes lcg-cp to fail because the certificate name (which looks like http/hostname instead of just hostname) doesn't match the hostname. 
+   1. The firewall must allow incoming connections to the !GridFTP port (default 2811). Outgoing connections must be allowed from high ports ( typically in range 32769-65535 ). We recommend to consult the [[ReleaseDocumentation/ComputeElementFirewalls][Firewall Guide]] if you install the !GridFTP server for the first time.
+   1. A working GUMS server or a gridmap-file are needed for authorization using grid certificates.
+
+---++Installation Procedure
+Login as root and check if pacman version >=%PACMAN_VERSION% is installed:
+<pre class="screen">
+su root
+pacman -version
+</pre>
+Next create and change to an installation directory. This directory will later be used to get the !BeStMan package  from the %CACHE% cache.
+<pre class="screen">
+mkdir -p /opt/%OSG_VERSION%-bestman-xrootd/
+cd /opt/osg%OSG_VERSION%-bestman-xrootd/
+</pre>
+You will first install !XrootdFS package
+<pre class="screen">
+pacman -get ITB:XrootdFS 
+</pre>
+Pacman will ask whether you want to trust the cache (=yall=) and whether you want to accept the license (=y=).
+After you have installed !XrootdFS you should execute pacman to get the !BeStMan package from the %CACHE% cache. 
+<pre class="screen">
+pacman -get %CACHE%:Bestman
+</pre>
+
+The install procedure will print out a warning:
+<verbatim>
+========== IMPORTANT ==========
+Most of the software installed by the VDT *will not work* until you install
+certificates.  To complete your CA certificate installation, see the notes
+in the post-install/README file.
+</verbatim>
+
+Before proceed with CA certificates installation you will have to install !Xrootd-GridFTP cache that contains libraries that are necessary for  !GridFTP to work directly with underlying !Xrootd DF.
+<pre class="screen">
+pacman -get %CACHE%:Xrootd-GridFTP
+</pre>
+
+
+Now you may proceed to CA certificates setup. Keep in  mind the information provided in the README is out of date. Please setup the CA certificates in the following way instead:
+<pre class="screen">
+source setup.sh
+$VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local -url osg
+</pre>
+This command will download certificates distributed by the OSG to =$VDT_LOCATION/globus/share/certificates= and create a symlink from =$VDT_LOCATION/globus/TRUSTED_CA= to that location. [[VDTCAManage][Other options]] are also available.
+
+To reflect the changes update the environment and run the post installation script:
+<pre class="screen">
+source setup.sh
+vdt-post-install
+</pre>
+
+You can verify that the version installed is the version you expected by executing =vdt-version=. To see all services available use =vdt-control -list=
+<pre class="screen">
+vdt-version
+vdt-control --list
+</pre>
+
+This completes the installation of the !BeStMan server. Move to the next step to configure the !BeStMan, !XrootdFS and !GridFTP servers. You may also chose to configure Gratia transfer probe at this time.
+
+---++ Service Configuration
+The !BeStMan, !XrootdFS and !GridFTP servers and Gratia transfer probe are configured by the =configure-osg= script located in =$VDT_LOCATION/osg/bin/configure-osg= based on the =$VDT_LOCATION/osg/etc/config.ini= configuration file.
+
+The =$VDT_LOCATION/osg/etc/= directory contains two template files =config.ini=. You will have to  edit the =$VDT_LOCATION/osg/etc/config.ini= file following instructions that precede each entry.  Here is the list of entries that need to be changed:
+
+<pre class="screen">
+[Bestman]
+enabled = %(enable)s
+user = daemon
+mode = xrootd
+transfer_servers = gsiftp://&lt;your  host fqn&gt;
+certificate_file = /etc/grid-security/bestman/bestmancert.pem
+key_file =  /etc/grid-security/bestman/bestmankey.pem
+http_port = 10080
+https_port = 10443
+token_list = DATADISK[desc:SITEDATADISK][20] [usedBytesCommand:/usr/bin/du -s -b /data]
+allowed_paths = /data
+
+[Gridftp]
+enabled = %(enable)s
+mode = xrootd
+redirector = &lt;xrootd_redirector_fqn&gt;
+mount_point = &lt;virtual mount point&gt;
+redirector_storage_path = &lt;storage area on redirector node&gt; 
+
+[XrootdFS]
+enabled = %(enable)s
+user = daemon
+redirector_host = &lt;xrootd_redirector_fqn&gt;
+mount_point =  &lt;virtual mount point&gt;
+redirector_storage_path = &lt;storage area on redirector node&gt; 
+
+[Gratia]
+enabled = %(enable)s
+sitename = &lt;your registered site name&gt;
+probes = %(itb-gridftp-gratia)s
+</pre>
+
+You will need to define static space tokens (token-list) ONLY if you want to use pre-defined, static space tokens. In this case, you need to provide a list of space token name, description and size of space allocated for each token. You may also provide the command  (followed usedBytesCommand) that will be run by !BeStMan-gateway to obtain used space info of the corresponding space token. Keep in mind that in gateway-mode, !BeStMan is not managing your space. 
+
+The =Misc Services= section defines what method of authorization should be used. If your site uses a %RED%gridmap-file%ENDCOLOR% for authorization, please make following changes:
+<pre class="screen">
+[Misc Services]
+use_cert_updater = %(enable)s
+authorization_method = gridmap
+</pre>
+
+In case your site supports %RED%GUMS%ENDCOLOR%, the fully qualified domain name of the GUMS server must be specified:
+
+<pre class="screen">
+[Misc Services]
+use_cert_updater = %(enable)s
+gums_host = &lt;your gums server fqn&gt;
+authorization_method = prima
+</pre>
+
+You can verify that your configuration is valid by executing =configure-osg -v=. Finally execute =configure-osg -c= to configure the !BeStMan installation.
+<pre class="screen">
+configure-osg -v
+configure-osg -c
+</pre>
+
+Hopefully all steps completed successfully and =vdt-control -list= shows the list of available services:
+<pre class="screen">
+#vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+xrootdfs                | init   | enable
+fetch-crl               | cron   | enable
+vdt-rotate-logs         | cron   | enable
+vdt-update-certs        | cron   | enable
+gsiftp                  | inetd  | enable
+gratia-gridftp-transfer | cron   | enable
+gums-host-cron          | cron   | enable
+edg-mkgridmap           | cron   | do not enable
+bestman                 | init   | enable
+
+</pre>
+
+Now, you should make modification in =/etc/sudoers= file namely add the following lines to this file: 
+<pre class="screen">
+# Comment out this line, if it is in your /etc/sudoers file (RHEL5+)
+#Defaults    requiretty
+
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls, /bin/cp 
+Runas_Alias SRM_USR = ALL, !root 
+<user_name> ALL=(SRM_USR) NOPASSWD: SRM_CMD 
+</pre>
+Please keep in mind that this is just an example, you can choose more  be more restrictive policy for your site.
+!BeStMan server will not be able to run if this step is missed.
+
+
+To configure the port range used by the server to transfer files, add following lines to =$VDT_LOCATION/vdt/etc/vdt-local-setup.sh=:
+
+<pre class="screen">
+  export GLOBUS_TCP_PORT_RANGE=32000,64000
+  export GLOBUS_TCP_SOURCE_RANGE=32000,64000
+</pre>
+
+and also to =$VDT_LOCATION/vdt/etc/vdt-local-setup.csh=:
+
+<pre class="screen">
+  setenv GLOBUS_TCP_PORT_RANGE 32000,64000
+  setenv GLOBUS_TCP_SOURCE_RANGE 32000,64000
+</pre>
+
+ If you want to use the grid-map-file for user authentication and authorization ignore the rest of this section. Copy two files from $VDT_LOCATION/post-install to in /etc/grid-security:
+<pre class="screen">
+cp $VDT_LOCATION/post-install/prima-authz.conf /etc/grid-security 
+cp $VDT_LOCATION/post-install/gsi-authz.conf /etc/grid-security 
+</pre>
+---++ Service Startup/Shutdown
+To start type:
+<pre class="screen">
+vdt-control --on
+</pre>
+and to stop:
+<pre class="screen">
+vdt-control --off
+</pre>
+
+---++ Validation of Service Operation
+
+To check if !BeStMan is installed and operational you need to [[https://twiki.grid.iu.edu/bin/view/SiteCoordination/GridClientTutorial][install client software]], obtain voms proxy certificate and then run the srm-ping to verify the !BeStMan server is up and running:
+<pre class="screen">
+srm-ping  srm://<your bestman host fqn>:10443/srm/v2/server
+</pre>
+ 
+To verify that you can transfer files do srm-copy:
+
+<pre class="screen">
+[tlevshin@gw014k0 ~]$  srm-copy file:////tmp/test srm://fgt0x5.fnal.gov:10443//srm/v2/server\?SFN=/data/xrootdfs/public/test_1
+srm-copy   2.2.1.3.2   Thu Oct 15 13:55:22 PDT 2009
+SRM-Clients and BeStMan Copyright(c) 2007-2009,
+Lawrence Berkeley National Laboratory. All rights reserved.
+Support at SRM@LBL.GOV and documents at http://datagrid.lbl.gov/bestman
+ 
+SRM-CLIENT: Thu Nov 19 16:28:16 CST 2009 Connecting to httpg://fgt0x5.fnal.gov:10443/srm/v2/server
+
+SRM-CLIENT: Thu Nov 19 16:28:17 CST 2009 Calling SrmPrepareToPutRequest now ...
+request.token=put:0
+Request.status=SRM_SUCCESS
+explanation=null
+SRM-CLIENT: received TURL=gsiftp://fgt0x5.fnal.gov//data/xrootdfs/public/test_1
+
+SRM-CLIENT: Thu Nov 19 16:28:19 CST 2009 start file transfer
+SRM-CLIENT:Source=file:////tmp/test
+SRM-CLIENT:Target=gsiftp://fgt0x5.fnal.gov//data/xrootdfs/public/test_1
+
+SRM-CLIENT: Thu Nov 19 16:28:27 CST 2009 end file transfer for file:////tmp/test
+
+SRM-CLIENT: Thu Nov 19 16:28:27 CST 2009 Calling putDone for srm://fgt0x5.fnal.gov:10443/srm/v2/server?SFN=/data/xrootdfs/public/test_1
+Result.status=SRM_SUCCESS
+Result.Explanation=null
+
+SRM-CLIENT: Request completed with success
+
+SRM-CLIENT: Printing text report now ...
+
+SRM-CLIENT*REQUESTTYPE=put
+SRM-CLIENT*TOTALFILES=1
+SRM-CLIENT*TOTAL_SUCCESS=1
+SRM-CLIENT*TOTAL_FAILED=0
+SRM-CLIENT*REQUEST_TOKEN=put:0
+SRM-CLIENT*REQUEST_STATUS=SRM_SUCCESS
+SRM-CLIENT*SOURCEURL[0]=file:////tmp/test
+SRM-CLIENT*TARGETURL[0]=srm://fgt0x5.fnal.gov:10443/srm/v2/server?SFN=/data/xrootdfs/public/test_1
+SRM-CLIENT*TRANSFERURL[0]=gsiftp://fgt0x5.fnal.gov//data/xrootdfs/public/test_1
+SRM-CLIENT*ACTUALSIZE[0]=0
+SRM-CLIENT*FILE_STATUS[0]=SRM_SUCCESS
+SRM-CLIENT*EXPLANATION[0]=SRM-CLIENT: PutDone is called successfully
+
+</pre>
+
+Verify that the [[ReleaseDocumentation/GratiaTransferProbe#Sanity_Check][gratia probe is working]].
+
+
+
+---++Debugging Information
+---++++++!!Basic Tests:
+
+srm-ping command:
+<pre class="screen">
+[tlevshin@gw014k0 ~]$  srm-ping srm://fgt0x5.fnal.gov:10443//srm/v2/server
+srm-ping   2.2.1.3.2   Thu Oct 15 13:55:22 PDT 2009
+SRM-Clients and BeStMan Copyright(c) 2007-2009,
+Lawrence Berkeley National Laboratory. All rights reserved.
+Support at SRM@LBL.GOV and documents at http://datagrid.lbl.gov/bestman
+ 
+SRM-CLIENT: Connecting to serviceurl httpg://fgt0x5.fnal.gov:10443/srm/v2/server
+
+SRM-PING: Thu Nov 19 16:19:29 CST 2009  Calling SrmPing Request...
+versionInfo=v2.2
+
+Extra information (Key=Value)
+backend_type=BeStMan
+backend_version=2.2.1.2.i7
+backend_build_date=2009-07-10T20:54:16.000Z 
+gsiftpTxfServers[0]=gsiftp://fgt0x5.fnal.gov
+GatewayMode=Enabled
+clientDN=/DC=org/DC=doegrids/OU=People/CN=Tanya Levshina 508821
+gumsIDMapped=fnalgrid
+staticToken(0)=ATLASDATADISK desc=ATLASDATADISK size=42949672960000
+staticToken(1)=ATLASPRODDISK desc=ATLASPRODDISK size=32212254720000
+
+</pre>
+
+srm-copy command:
+<pre class="screen">
+[tlevshin@gw014k0 ~]$  srm-copy file:////tmp/test srm://fg0x5.fnal.gov:10443/srm/v2/server\?SFN=/data/test_1000
+..... 
+SRM-CLIENT: Tue Nov 17 16:43:49 CST 2009 Connecting to httpg://fg0x5.fnal.gov:10443/srm/v2/server
+
+SRM-CLIENT: Tue Nov 17 16:43:50 CST 2009 Calling SrmPrepareToPutRequest now ...
+request.token=fnalgrid:0_PUT_3074101460
+Request.status=SRM_REQUEST_INPROGRESS
+explanation=null
+SRM-CLIENT: Next status call in 10 seconds.
+SRM-CLIENT: Tue Nov 17 16:44:01 CST 2009 Calling Status at Tue Nov 17 16:44:01 CST 2009
+SRM-CLIENT: Result Status from SRM (srmStatusOfPutRequest)=SRM_SUCCESS
+
+SRM-CLIENT: RemainingPinTime=289
+SRM-CLIENT: received TURL=gsiftp://fg0x5.fnal.gov//data/test_1000
+
+SRM-CLIENT: Tue Nov 17 16:44:02 CST 2009 start file transfer
+SRM-CLIENT:Source=file:////tmp/test
+SRM-CLIENT:Target=gsiftp://fg0x5.fnal.gov//data/test_1000
+
+SRM-CLIENT: Tue Nov 17 16:44:05 CST 2009 end file transfer for file:////tmp/test
+
+SRM-CLIENT: Tue Nov 17 16:44:05 CST 2009 Calling putDone for srm://fg0x5.fnal.gov:10443/srm/v2/server?SFN=/cache/test_1000
+Result.status=SRM_SUCCESS
+Result.Explanation=null
+
+SRM-CLIENT: Request completed with success
+
+SRM-CLIENT: Printing text report now ...
+
+SRM-CLIENT*REQUESTTYPE=put
+SRM-CLIENT*TOTALFILES=1
+SRM-CLIENT*TOTAL_SUCCESS=1
+SRM-CLIENT*TOTAL_FAILED=0
+SRM-CLIENT*REQUEST_TOKEN=fnalgrid:0_PUT_3074101460
+SRM-CLIENT*REQUEST_STATUS=SRM_SUCCESS
+SRM-CLIENT*SOURCEURL[0]=file:////tmp/test
+SRM-CLIENT*TARGETURL[0]=srm://fg0x5.fnal.gov:10443/srm/v2/server?SFN=/data/test_1000
+SRM-CLIENT*TRANSFERURL[0]=gsiftp://fg0x5.fnal.gov//data/test_1000
+SRM-CLIENT*ACTUALSIZE[0]=0
+SRM-CLIENT*FILE_STATUS[0]=SRM_SUCCESS
+SRM-CLIENT*EXPLANATION[0]=SRM-CLIENT: PutDone is called successfully
+</pre>
+
+---++++++!!File Locations
+!BeStMan
+   * Configuration file:
+      * $VDT_LOCATIONbestman/conf/bestman.rc
+   * Log Files
+      * $VDT_LOCATION/vdt-app-data/bestman/logs/event.srm.log
+
+!GridFTP
+   * Configuration file:
+      * $VDT_LOCATION/vdt/services/vdt-run-gsiftp.sh.env  
+   * Log Files
+      * $VDT_LOCATION/globus/var/log/gridftp.log
+      * $VDT_LOCATION/globus/var/log/gridftp-auth.log 
+
+!Gratia Transfer Probe
+   * Configuration file:
+      * $VDT_LOCATION/gratia/probe/gridftp-transfer/ProbeConfig	 
+   * Log Files
+      * $VDT_LOCATION/gratia/var/logs 
+
+---++++++!!Debugging Procedure
+   * Look at the [[#Checklist][Checklist]] and make sure you really checked those items.
+
+---++++++!!Caveates/Known Issues
+---++++++!!Screendump of Install
+<pre class="screen">
+
+[root@fg0x5 itb_bestman]#. pacman-3.28/setup.sh
+[root@fg0x5 itb_bestman]# mkdir bestman-xrootd
+[root@fg0x5 itb_bestman]#cd bestman-xrootd
+pacman -get %CACHE%:XrootdFS 
+Do you want to add [http://software.grid.iu.edu/itb/] to [trusted.caches]? (y/n/yall): yall
+Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check... 
+
+All prerequisite checks are satisfied.
+
+[root@fgt0x5 bestman-xrootd]# pacman -get ITB:Bestman
+                                                                                 
+
+
+========== IMPORTANT ==========
+Most of the software installed by the VDT *will not work* until you install
+certificates.  To complete your CA certificate installation, see the notes
+in the post-install/README file.
+[root@fgt0x5 bestman-xrootd]# pacman -get ITB:Xrootd-GridFTP                     
+[root@fgt0x5 bestman-xrootd]# . setup.sh
+[root@fgt0x5 bestman-xrootd]# $VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local -url osg
+Setting CA Certificates for VDT installation at '/usr/local/bestman-xrootd'
+
+Setup completed successfully.
+
+[root@fgt0x5 bestman-xrootd]# . setup.sh
+[root@fgt0x5 bestman-xrootd]# vdt-post-install
+Starting...
+Configuring PRIMA... Done.
+Configuring EDG-Make-Gridmap... Done.
+Completed all configuration.
+[root@fgt0x5 bestman-xrootd]# configure-osg -v
+Using /usr/local/bestman-xrootd/osg/etc/config.ini for configuration information
+Configuration verified successfully
+[root@fgt0x5 bestman-xrootd]# configure-osg -c
+Using /usr/local/bestman-xrootd/osg/etc/config.ini for configuration information
+running 'vdt-register-service --name vdt-rotate-logs --enable'... ok
+running 'vdt-register-service --name gsiftp --enable'... ok
+running 'vdt-register-service --name fetch-crl --enable'... ok
+Running /usr/local/bestman-xrootd/fetch-crl/share/doc/fetch-crl-2.6.6/fetch-crl.cron, this process make take some time to fetch all the crl updates
+running 'vdt-register-service --name vdt-update-certs --enable'... ok
+running 'vdt-register-service --name gums-host-cron --enable'... ok
+running 'vdt-register-service --name edg-mkgridmap --disable'... ok
+Running /usr/local/bestman-xrootd/gums/scripts/gums-host-cron, this process make take some time to query vo and gums servers
+running 'vdt-register-service --name bestman --enable'... ok
+running 'vdt-register-service --name xrootdfs --enable'... ok
+Configure-osg completed successfully
+[root@fgt0x5 bestman-xrootd]#  vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+xrootdfs                | init   | enable
+fetch-crl               | cron   | enable
+vdt-rotate-logs         | cron   | enable
+vdt-update-certs        | cron   | enable
+gsiftp                  | inetd  | enable
+gratia-gridftp-transfer | cron   | enable
+gums-host-cron          | cron   | enable
+edg-mkgridmap           | cron   | do not enable
+bestman                 | init   | enable
+
+
+[root@fg0x5 itb_bestman]# vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+fetch-crl               | cron   | do not enable
+vdt-rotate-logs         | cron   | do not enable
+vdt-update-certs        | cron   | do not enable
+gsiftp                  | inetd  | do not enable
+gratia-gridftp-transfer | cron   | do not enable
+gums-host-cron          | cron   | do not enable
+edg-mkgridmap           | cron   | do not enable
+
+
+
+[root@osp4 osg-1.2.3-gsiftp]# cd osg/etc
+[root@osp4 etc]# rm config.ini[root@fg0x5 itb_bestman]# vdt-version
+
+You have installed a subset of VDT version 2.0.99p11:
+
+Software                                                 Status              
+--------                                                 ------              
+Berkeley Storage Manager (BeStMan) 2.2.1.2.i7.p3         OK                  
+vdt-ca-manage 1.0                                        OK                  
+vdt-update-certs 2.5                                     OK                  
+CA Certificates 1.10 (includes IGTF 1.32 CAs)            -                   
+EDG Make Gridmap 3.0.0                                   OK                  
+Fetch CRL 2.6.6                                          OK                  
+GPT 3.2-4.0.8p1                                          OK                  
+Gratia GridFTP Probe 1.04.4d-1                           OK                  
+Grid User Management System (GUMS) Client 1.3.17         OK                  
+Java 5 SDK 1.5.0_21                                      OK                  
+Java 6 SDK 1.6.0_16                                      OK                  
+Logrotate 3.7                                            OK                  
+PRIMA Authorization Module 0.8.4                         OK                  
+pyOpenSSL module 0.9                                     OK                  
+VOMS Client 1.8.8-2p1                                    OK                  
+Wget 1.11.4                                              OK                  
+
+
+Status legend:
+OK: Software is up to date with the latest release in VDT version 2.0.99
+- : Not enough information to determine if updates are available.
+See man page for more information.
+[root@fg0x5 itb_bestman]# configure-osg -c
+
+Using /usr/local/itb_bestman/osg/etc/config.ini for configuration information
+running 'vdt-register-service --name gsiftp --enable'... ok
+running 'vdt-register-service --name bestman --enable'... ok
+running 'vdt-register-service --name vdt-rotate-logs --enable'... ok
+running 'vdt-register-service --name fetch-crl --enable'... ok
+Running /usr/local/itb_bestman/fetch-crl/share/doc/fetch-crl-2.6.6/fetch-crl.cron, this process make take some time to fetch all the crl updates
+fetch-crl[19751]: 20091117T162821-0600 Could not download any CRL from /usr/local/itb_bestman/globus/TRUSTED_CA//da75f6a8.crl_url:
+fetch-crl[19751]: 20091117T162821-0600 download failed from 'http://ca.garudaindia.in/crl/cacrl.pem'
+fetch-crl[19751]: 20091117T162821-0600 download for http://ca.garudaindia.in/crl/cacrl.pem is not valid and none of the URLs in '/usr/local/itb_bestman/globus/TRUSTED_CA//da75f6a8.crl_url' is operational
+running 'vdt-register-service --name vdt-update-certs --enable'... ok
+running 'vdt-register-service --name gums-host-cron --enable'... ok
+running 'vdt-register-service --name edg-mkgridmap --disable'... ok
+Running /usr/local/itb_bestman/gums/scripts/gums-host-cron, this process make take some time to query vo and gums servers
+Configure-osg completed successfully
+
+
+
+</pre>
+
+
+---++Comments
+%COMMENT{type="tableappend"}%
+
+%STOPINCLUDE%
+%BR%
+%COMPLETE2% %BR%
+%RESPONSIBLE%  %BR%
+%REVIEW% %BR%
 
 
 -- Main.TanyaLevshina - 18 Nov 2009
