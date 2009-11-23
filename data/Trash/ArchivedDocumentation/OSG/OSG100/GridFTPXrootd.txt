@@ -1,79 +1,176 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1258996893" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1259009201" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "Gridftp-Xrootd Installation" }%*
 %TOC%
 
----++ Introduction
-You may want to install !GridFtp-Xrootd (generic !GridFtp with !Xrootd pre-load libraries)
+---++Introduction
+
+The !GridFTP-Xrootd  (generic !GridFtp with !Xrootd pre-load libraries) package contains components necessary to set up a !GridFTP server as an additional server for !BeStMan-gateway/Xrootd installation or just on top of !Xrootd  servicem as well as all the  tools necessary file transfer accounting.
+A stand-alone   !GridFTP-Xrootd  server might be useful in the following goals:
+   * To provide a  simple front-end to a !Xrootd service allowing access over WAN 
+   * To achieve a better load balancing by providing multiple !GridFTP server under !BeStMan-gateway/Xrootd i
 
 
----++ Pacman Installation
-You will need to install the Pacman package v3.28 or higher to install Bestman-gateway from OSG v1.2. This work is done by root account. You will need to perform the following steps:
-   * create a directory for Pacman . OSG recommends putting pacman in a separate directory from the software that you fetch from OSG.  
-   * fetch the Pacman software 
-   * unpack Pacman software 
-   * setup pacman home
-   
+---++++++!!Applicable Versions
+This document applies to an install of 
+%RED%
+*osg-version 1.2.4* 
+%ENDCOLOR%
+(or higher) and 
+%RED%
+*vdt-version  2.0.0*
+%ENDCOLOR%
+(or higher).
+
+
+---++++++!!Engineering Considerations
+!GridFTP-Xrootd server  provides a high-performance, secure, reliable data transfer [[http://www.globus.org/toolkit/docs/3.2/gridftp][GridFTP documentation]]. It is recommended that multiple !GridFTP-Xrootd instances on different servers if:
+   * You are using !BeStMan-gateway/Xrootd that is serving the VOs that use storage heavily (CMS, ATLAS, CDF, and D0) and have more than 250 cores
+   * Your storage will be managing more than 50 TB of disk space
+   * If you are planning to have a Storage Element with !BeStMan- gateway/Xrootd and have more than 1Gbps bandwidth, then you should plan on at least one !GridFTP-Xrootd server per 4Gbps of available bandwidth (assuming you have 10Gbps interfaces on the
+server) if you want to maximize throughput. 
+
+Gratia !GridFTP transfer probe is an optional package that is implemented as a cron job that reports all the file transfers to [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GratiaSiteCollector Gratia collector]]
+
+[[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS][GUMS server]] - authorization service
+
+---++Checklist
+   1. [[PacmanInstall][pacman]] version >=%PACMAN_VERSION% is required
+   1. The server must have a fully qualified domain name and a valid [[GetGridCertificates][grid host certificate]] installed in =/etc/grid-security/=
+   1. The firewall must allow incoming connections to the gsiftp port (default 2811). Outgoing connections must be allowed from high ports ( typically in range 32769-65535 ). We recommend to consult the [[ComputeElementFirewalls][Firewall Guide]] if you install the !GridFTP server for the first time.
+   1. A working GUMS server or a gridmap-file are needed for authorization using grid certificates.
+
+
+---++Installation Procedure
+Login as root and set up  pacman, make sure that >=%PACMAN_VERSION% is installed:
+
 <pre class="screen">
- mkdir /opt/pacman
- cd /opt/pacman
- wget http://physics.bu.edu/pacman/sample_cache/tarballs/pacman-3.28.tar.gz
- tar --no-same-owner -xzvf pacman-3.28.tar.gz
- cd pacman-3.28
- . setup.sh
+su root
+. &lt;PACMAN_LOCATION&gt;/setup.sh
+pacman -version
 </pre>
 
-
----++ Installing !GridFtp-Xrootd
-
-The installation described here is done as root. Select the node where you want to install !GridFtp-Xrootd  and execute the following steps:
-   * setup pacman 
-   * create directory for !GridFtp-Xrootd software
-   * download software from OSG cache
-   * setup trusted certificates
-   * enable log rotation, CRL and trusted certificates update  
-
+Next create and change to an installation directory. This directory will later be used to get the !GridFTP-Xrootd package  from the %CACHE% cache.
 <pre class="screen">
-mkdir /opt/osg-v1.2
-cd /opt/osg-v1.2
-. ../pacman/pacman-3.28/setup.sh
-pacman -get http://software.grid.iu.edu/osg-1.2:Xrootd-GridFTP
-setup.sh
-$VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local --url osg
-vdt-control --enable fetch-crl vdt-rotate-logs vdt-update-certs
+mkdir -p /opt/%OSG_VERSION%-gridftp-xrootd/
+cd /opt/osg%OSG_VERSION%-gridftp-xrootd/
 </pre>
 
----++ Configure !GridFtp-Xrootd
-To configure !GridFtp-Xrootd you will have to do the following steps:
-   * change directory to !GridFtp-Xrootd  software installation
-   * setup vdt home area
-   * run configuration script (you will need to specify the !GridFtp-Xrootd virtual mount point and storage area on redirector node) 
-   * set !GridFtp port range
-
+You will need to install !GridFTP-Xrootd package from the %CACHE% cache. 
+Pacman will ask whether you want to trust the cache (=yall=) and whether you want to accept the license (=y=).
+ 
 <pre class="screen">
-cd /opt/osg-v1.2
+pacman -get %CACHE%:Xrootd-GridFTP
+</pre>
+
+The install procedure will print out a warning:
+<verbatim>
+========== IMPORTANT ==========
+Most of the software installed by the VDT *will not work* until you install
+certificates.  To complete your CA certificate installation, see the notes
+in the post-install/README file.
+</verbatim>
+
+Before proceed with CA certificates installation you may want to install to install Gratia transfer probes:
+<pre class="screen">
+pacman -get %CACHE%:Gratia-GridFTP
 . setup.sh
-$VDT_LOCATION/vdt/setup/configure_gridftp --use-xrootd --xrootd-host &lt;redirector_fqn&gt; --xrootd-mount-point /local/xrootd/data --xrootd-storage-path /local/xrootd/data 
 </pre>
 
-If you are dealing with firewall the gridftp port range should be properly set. In order to do so you will have to modify vdt-local-setup.sh.
+
+Now you may proceed to CA certificates setup. Keep in  mind the information provided in the README is out of date. Please setup the CA certificates in the following way instead:
+<pre class="screen">
+source setup.sh
+$VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local -url osg
+</pre>
+This command will download certificates distributed by the OSG to =$VDT_LOCATION/globus/share/certificates= and create a symlink from =$VDT_LOCATION/globus/TRUSTED_CA= to that location. [[VDTCAManage][Other options]] are also available.
+
+To reflect the changes update the environment and run the post installation script:
+<pre class="screen">
+source setup.sh
+vdt-post-install
+</pre>
+
+
+You can verify that the version installed is the version you expected by executing =vdt-version=. To see all services available use =vdt-control -list=
+<pre class="screen">
+vdt-version
+vdt-control --list
+</pre>
+
+This completes the installation of the !GridFTP-Xrootd server. Move to the next step to configure  !GridFTP-Xrootd server and Gratia transfer probe at this time.
+
+---++ Service Configuration
+The  !GridFTP-Xrootd server and Gratia transfer probe are configured by the =configure-osg= script located in =$VDT_LOCATION/osg/bin/configure-osg= based on the =$VDT_LOCATION/osg/etc/config.ini= configuration file.
+
+The =$VDT_LOCATION/osg/etc/= directory contains two template files =config.ini=. You will have to  edit the =$VDT_LOCATION/osg/etc/config.ini= file following instructions that precede each entry.  Here is the list of entries that need to be changed:
 
 <pre class="screen">
-#edit $VDT_LOCATION/vdt/etc/vdt-local-setup.sh 
-GLOBUS_TCP_SOURCE_RANGE=<low_port,high_port>
-GLOBUS_TCP_PORT_RANGE=<low_port,high_port>
-export GLOBUS_TCP_SOURCE_RANGE
-export GLOBUS_TCP_PORT_RANGE
+
+[Gridftp]
+enabled = %(enable)s
+mode = xrootd
+redirector = &lt;xrootd_redirector_fqn&gt;
+mount_point = &lt;virtual mount point&gt;
+redirector_storage_path = &lt;storage area on redirector node&gt; 
+
+
+[Gratia]
+enabled = %(enable)s
+sitename = &lt;your registered site name&gt;
+probes = %(itb-gridftp-gratia)s
 </pre>
 
-Where low_port,high_port - controls all outbound globus connections for !GgridFtp (e.g GLOBUS_TCP_SOURCE_RANGE=40000,49150) 
-
-Enable !GridFtp-Xrootd
+The =Misc Services= section defines what method of authorization should be used. If your site uses a %RED%gridmap-file%ENDCOLOR% for authorization, please make following changes:
 <pre class="screen">
-vdt-control --enable gsiftp
+[Misc Services]
+use_cert_updater = %(enable)s
+authorization_method = gridmap
+</pre>
+
+In case your site supports %RED%GUMS%ENDCOLOR%, the fully qualified domain name of the GUMS server must be specified:
+
+<pre class="screen">
+[Misc Services]
+use_cert_updater = %(enable)s
+gums_host = &lt;your gums server fqn&gt;
+authorization_method = prima
+</pre>
+
+You can verify that your configuration is valid by executing =configure-osg -v=. Finally execute =configure-osg -c= to configure the !BeStMan installation.
+<pre class="screen">
+configure-osg -v
+configure-osg -c
+</pre>
+
+Hopefully all steps completed successfully and =vdt-control -list= shows the list of available services:
+<pre class="screen">
+#vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+fetch-crl               | cron   | enable
+vdt-rotate-logs         | cron   | enable
+vdt-update-certs        | cron   | enable
+gsiftp                  | inetd  | enable
+gratia-gridftp-transfer | cron   | enable
+gums-host-cron          | cron   | enable
+edg-mkgridmap           | cron   | do not enable
+</pre>
+
+To configure the port range used by the server to transfer files, add following lines to =$VDT_LOCATION/vdt/etc/vdt-local-setup.sh=:
+
+<pre class="screen">
+  export GLOBUS_TCP_PORT_RANGE=32000,64000
+  export GLOBUS_TCP_SOURCE_RANGE=32000,64000
 </pre>
 
 
+
+ If you want to use the grid-map-file for user authentication and authorization ignore the rest of this section. Copy two files from $VDT_LOCATION/post-install to in /etc/grid-security:
+<pre class="screen">
+cp $VDT_LOCATION/post-install/prima-authz.conf /etc/grid-security 
+cp $VDT_LOCATION/post-install/gsi-authz.conf /etc/grid-security 
+</pre>
 
 ---++ Start/Stop !GridFtp-Xrootd
 
@@ -95,7 +192,8 @@ cd /opt/osg-v1.2
 vdt-control -on
 </pre>
 
----++ Testing !GridFtp  of the cluster
+
+---++ Validation of Service Operation
 
 Login on the node where you have installed have your certificate installed and access to http://software.grid.iu.edu/osg-1.2:client.
 
@@ -111,6 +209,104 @@ echo “This is a test” >/tmp/test
 globus-url-copy -dbg file:///tmp/test gsiftp://<GridFtp_host>/local/xrootd/data/test
 </pre>
 
+Verify that the [[ReleaseDocumentation/GratiaTransferProbe#Sanity_Check][gratia probe is working]].
+
+---++++++!!File Locations
+!GridFTP
+   * Configuration file:
+      * $VDT_LOCATION/vdt/services/vdt-run-gsiftp.sh.env  
+   * Log Files
+      * $VDT_LOCATION/globus/var/log/gridftp.log
+      * $VDT_LOCATION/globus/var/log/gridftp-auth.log 
+
+!Gratia Transfer Probe
+   * Configuration file:
+      * $VDT_LOCATION/gratia/probe/gridftp-transfer/ProbeConfig	 
+   * Log Files
+      * $VDT_LOCATION/gratia/var/logs 
+
+
+---++++++!!Debugging Procedure
+   * Look at the [[#Checklist][Checklist]] and make sure you really checked those items.
+
+---++++++!!Caveates/Known Issues
+---++++++!!Screendump of Install
+<pre class="screen">
+#cd /usr/local/pacman-3.28
+#. setup.sh
+#cd /usr/local
+#mkdir osg-gridftp-xrootd
+#cd osg-gridftp-xrootd
+# pacman -get http://software.grid.iu.edu/osg-1.2:Xrootd-GridFTP
+Do you want to add [http://software.grid.iu.edu/osg-1.2] to [trusted.caches]? (y/n/yall): yall
+Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check... 
+
+All prerequisite checks are satisfied.
+                                                                          
+
+
+========== IMPORTANT ==========
+Most of the software installed by the VDT *will not work* until you install
+certificates.  To complete your CA certificate installation, see the notes
+in the post-install/README file.
+
+# . setup.sh                         
+#  pacman -get http://software.grid.iu.edu/osg-1.2:Gratia-GridFTP
+#  . setup.sh
+#  $VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local -url osg
+Setting CA Certificates for VDT installation at '/usr/local/osg-gridftp-xrootd'
+
+Setup completed successfully.
+
+# . setup.sh
+# vdt-post-install 
+Starting...
+Configuring PRIMA... Done.
+Configuring EDG-Make-Gridmap... Done.
+Completed all configuration.
+
+#  cp $VDT_LOCATION/post-install/prima-authz.conf /etc/grid-security 
+#  cp $VDT_LOCATION/post-install/gsi-authz.conf /etc/grid-security 
+ 
+# vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+fetch-crl               | cron   | do not enable
+vdt-rotate-logs         | cron   | do not enable
+vdt-update-certs        | cron   | do not enable
+gsiftp                  | inetd  | enable
+gratia-gridftp-transfer | cron   | do not enable
+gums-host-cron          | cron   | do not enable
+edg-mkgridmap           | cron   | do not enable
+
+# vi osg/etc/config.ini 
+
+# configure-osg -v
+# configure-osg -c
+Using /usr/local/osg-gridftp-xrootd/osg/etc/config.ini for configuration information
+running 'vdt-register-service --name gsiftp --enable'... ok
+running 'vdt-register-service --name vdt-rotate-logs --enable'... ok
+running 'vdt-register-service --name fetch-crl --enable'... ok
+Running /usr/local/osg-gridftp-xrootd/fetch-crl/share/doc/fetch-crl-2.6.6/fetch-crl.cron, this process make take some time to fetch all the crl updates
+running 'vdt-register-service --name vdt-update-certs --enable'... ok
+running 'vdt-register-service --name gums-host-cron --enable'... ok
+running 'vdt-register-service --name edg-mkgridmap --disable'... ok
+Running /usr/local/osg-gridftp-xrootd/gums/scripts/gums-host-cron, this process make take some time to query vo and gums servers
+Configure-osg completed successfully
+
+# vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+fetch-crl               | cron   | enable
+vdt-rotate-logs         | cron   | enable
+vdt-update-certs        | cron   | enable
+gsiftp                  | inetd  | enable
+gratia-gridftp-transfer | cron   | enable
+gums-host-cron          | cron   | enable
+edg-mkgridmap           | cron   | do not enable
+
+# vdt-control -on
+</pre>
 
 %BR%
 %COMPLETE1% %BR%
