@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1258570497" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1259050741" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="Tier3DocDev"}%
 ---++ Installing Condor using the RPM distribution
 %TOC{depth="3"}%
@@ -6,8 +6,14 @@
 ---++ Introduction
 We will use the latest stable release of Condor 7.4.0, released Nov 09, 2009.  
 
-This installation uses the Condor RPM distribution. It can be downloaded form the Condor site or ma
-Our approach will be to install Condor in  =/opt/condor= on the management node (*gc1-ce*) and share it with the other nodes in the cluster.  We will also prepare the host-specific configuration files for all nodes participating in the Condor pool and store them in a standard location =/opt/condor/etc=.  This will make it easy to make cluster-wide configuration changes.
+This installation uses the Condor RPM distribution. It can be downloaded form the Condor site or installed using a RPM or yum repository.
+US-ATLAS setup a temporary yum repository that can be used for this installation.
+
+Certain operations, like the RPM installation and some system configuration, has to be repeated on each node.
+Some steps like the configuration of _condor_config_ are performed only once, e.g. on the head node =osg-ce=, others like the customization of the local condor configuration file is different for each node.
+
+Sharing at least the directory hosting the configuration files allows to simplify a bit the configuration by making it easy to make cluster-wide configuration changes.
+Anyway this installation is possible also having no shared directories if the customized _condor_config_ file is replicated on all nodes.
 
 Some useful links:
    * Condor download: http://www.cs.wisc.edu/condor/downloads-v2/download.pl
@@ -15,16 +21,166 @@ Some useful links:
 
 %BR%
 *A note about the directory structure:*
-This Condor installation was structured to facilitate upgrades to Condor with minimal effort.  The Condor release directory on each host is =/opt/condor= which is a soft link to the NFS exported =/nfs/condor/condor= which in turn is a link to the actual Condor installation directory which includes the version number: =/nfs/condor/condor-7.4.0=.  The motivation for this choice will hopefully become clear in the [[#Upgrades][Upgrades]] section below.
+This Condor installation was structured to facilitate upgrades to Condor with minimal effort.  The Condor release directory on each host is =/opt/condor= which is a soft link to the actual Condor installation directory: =/nfs/condor/condor-7.4.0=, which includes the version number and is created during the RPM installation.  The motivation for this choice will hopefully become clear in the [[#Upgrades][Upgrades]] section below.
+
+
+---++ Preparing the yum install
+Create the file =/etc/yum.repos.d/condor.repo= with the following content.
+<verbatim>
+[condor]
+name=Condor Repository for RHEL/CentOS/SL $releasever $basearch
+failovermethod=priority
+baseurl=http://dukpc23.fnal.gov/~benjamin/condor/v7.4.0/RHEL/5/
+enabled=1
+gpgcheck=0
+</verbatim>
+
+---++ Condor Installation and Configuration
+*On each node* Install Condor from the repository (answer y to question)
+<verbatim>
+yum install condor
+ln -s /opt/condor-7.4.0 /opt/condor
+</verbatim>
+
+---+++Fix some files
+*Only on one node, e.g. gc1-ce* Edit =/opt/condor/etc/condor_config= and copy to correct area.  Using a shared configuration directory, this has to be done for one node only, e.g. the *batch head node* =gc1-ce=.   No need to repeat this for the *worker nodes* in the batch queue.
+   * Edit =condor_config= and replace the following attributes. <verbatim>
+RELEASE_DIR = /opt/condor
+LOCAL_DIR = /scratch/condor
+LOCAL_CONFIG_FILE = /nfs/condor/condor-etc/condor_config.$(HOSTNAME).local
+CONDOR_ADMIN = root@$(FULL_HOSTNAME)
+# The following should be your T3 domain
+UID_DOMAIN = yourdomain.org
+FILESYSTEM_DOMAIN = $(UID_DOMAIN)
+ALLOW_WRITE = *.$(UID_DOMAIN)</verbatim>
+   * at the end of the file add<verbatim>
+IN_HIGHPORT = 9999
+IN_LOWPORT = 9000
+# The following should be the full name of the head node
+CONDOR_HOST = gc1-ce.yourdomain.org    
+SEC_DAEMON_AUTHENTICATION = required
+SEC_DAEMON_AUTHENTICATION_METHODS = password 
+SEC_CLIENT_AUTHENTICATION_METHODS = password,fs,gsi,kerberos
+SEC_PASSWORD_FILE = /local/condor/condor_credential 
+ALLOW_DAEMON = condor_pool@* </verbatim>
+   * Now copy to the proper area. (This file is shared by all nodes).  If the node is not also the NFS server, you will have to use scp instead of cp because of root squashing. <verbatim>
+scp /opt/condor/etc/condor_config  gc1-nfs:/nfs/condor/condor-etc/condor_config </verbatim>
+
+*This is different for each node* Edit =/opt/condor/local.&lt;hostname>/condor_config.local= and put in proper place. The editing of this file depends on the type of node. Choose the appropriate one from below.
+   * For *Batch Head Node*, e.g. =gc1-ce=: 
+      * comment out the following lines<verbatim>
+#CONDOR_HOST
+#RELEASE_DIR
+#LOCAL_DIR
+#CONDOR_ADMIN
+</verbatim>
+      * edit the following attribute<verbatim>
+DAEMON_LIST= COLLECTOR, MASTER, NEGOTIATOR
+</verbatim>
+   * For *Worker Nodes* of the batch queue, like =gc1-cXXX=:
+      * comment out the following lines<verbatim>
+#CONDOR_HOST
+#RELEASE_DIR
+#LOCAL_DIR
+#CONDOR_ADMIN
+</verbatim>
+      * edit the following attribute<verbatim>
+DAEMON_LIST=MASTER,STARTD</verbatim>
+   * For *Interactive Nodes*, like =gc1-ui=:
+      * comment out the following lines<verbatim>
+#CONDOR_HOST
+#RELEASE_DIR
+#LOCAL_DIR
+#CONDOR_ADMIN
+</verbatim>
+      * edit the following attribute<verbatim>
+DAEMON_LIST= MASTER, SCHEDD
+</verbatim>
+   * For all of them. Copy =/opt/condor/local.&lt;hostname>/condor_config.local= to the proper area. If the node is not also the NFS server, you will have to use scp instead of cp <verbatim>
+scp  /opt/condor/local.<hostname>/condor_config.local  gc1-nfs:/nfs/condor/condor-etc/condor_config.<hostname>.local
+</verbatim>
+
+*On all nodes* Edit =/opt/condor/condor.sh= and copy it to correct area.  This is for all batch and interactive nodes.
+   * =/opt/condor/condor.sh= should look like:<verbatim>
+CONDOR_CONFIG="/nfs/condor/condor-etc/condor_config"
+export CONDOR_CONFIG
+PATH="/opt/condor/bin:/opt/condor/sbin:$PATH"
+export PATH
+</verbatim>
+   * Now copy to the proper area <verbatim>
+cp /opt/condor/condor.sh /etc/sysconfig/condor
+</verbatim>
+Optionally =condor.sh= can also be copied to =/etc/profile.d/condor.sh= of the interactive nodes, to have it execute on login and have Condor commands in the default environment for all the users.
+
+*For all nodes* Edit /opt/condor/etc/examples/condor.init and copy to the correct area.  All nodes.
+   * change =/usr/sbin/$prog= to =/opt/condor/sbin/$prog= in the file (search for it)       
+   * copy to correct area<verbatim>
+cp /opt/condor/etc/examples/condor.init /etc/init.d/condor
+chmod a+x /etc/init.d/condor
+chkconfig --level 235 condor on
+</verbatim>
+
+Create local directories:<verbatim>
+mkdir /var/run/condor
+chown condor:condor /var/run/condor
+mkdir /scratch/condor
+chown condor:condor /scratch/condor
+cd /opt/condor/local.<hostname>/
+mv execute log spool /scratch/condor/
+</verbatim>
+set password <verbatim>
+source /etc/sysconfig/condor
+condor_store_cred -c add </verbatim> (enter password. The password should be same on all nodes of the T3 cluster.) 
 
 ---++ Changes to iptables
+Edit the */etc/sysconfig/iptables* file to add these lines ahead of the REJECT line and the COMMIT statement<verbatim>
+-A RH-Firewall-1-INPUT  -s <network_address> -m state --state ESTABLISHED,NEW -p tcp -m tcp --dport 9000:10000 -j ACCEPT  
+-A RH-Firewall-1-INPUT  -s <network_address> -m state --state ESTABLISHED,NEW -p udp -m udp --dport 9000:10000 -j ACCEPT </verbatim>
+where the network_address is the address of the intranet of the T3 cluster, e.g. 192.168.192.0/18 (Same as the extranet if your T3 does not have a separate intranet, e.g. 146.139.33.0/16 for Argonne).
 
-Edit the */etc/sysconfig/iptables* file to add these lines ahead of the reject line
+Restart the firewall:<verbatim>
+/etc/init.d/iptables restart
+</verbatim>
 
-<pre>#  Condor additions -A RH-Firewall-1-INPUT  -s 128.105.245.0/16 -m state --state ESTABLISHED,NEW -p tcp -m tcp --dport 9000:10000 -j ACCEPT  #  
-Condor additions -A RH-Firewall-1-INPUT  -s 128.105.245.0/16 -m state --state ESTABLISHED,NEW -p udp -m udp --dport 9000:10000 -j ACCEPT  #  </pre>
+---++ Start and test Condor
+Condor is starting automatically during reboots. You can start it manually typing <verbatim>
+/etc/init.d/condor start </verbatim>  (should say ok)
 
----++ 
+You can check if Condor is running correctly<verbatim>
+condor_config_val log   # (should be /scratch/condor/log)
+cd /scratch/condor/log
+#check master log file
+less MasterLog
+# verify the status of the negotiator
+condor_status -negotiator</verbatim>
+
+More test below.
+
+---++ Upgrades
+As explained in the section about the directory structure, this Condor installation was structured to facilitate upgrades with minimal effort.  The Condor directory on each host is =/opt/condor=. This is a link to the real Condor installation directory that has also the version number in the name (e.g. =/opt/condor/condor-7.4.0=).
+
+Only one version of Condor will be used at the time but linking =/opt/condor= to a new directory, e.g. =/opt/condor-7.3.2= allows to install that version (similarly to what done above), test it and be able to revert back to the previous one if desired simply changing one link (e.g. if the new installation is not working properly). 
+
+---++ Setup
+Executing <pre>source /opt/condor/condor.sh</pre> will add the condor commands to your path and set the =CONDOR_LOCATION= variable.
+If you edited and copied the =condor.sh= and =condor.csh= files in =/etc/profile.d/= as described above, Condor will be in the environment of every user automatically, no need to source any file.
+
+
+---++ Testing the installation
+You can see the resources in your Condor cluster using =condor_status= and submit test jobs with =condor_submit=. 
+Check CondorTest for more.
+
+%BR%
+%COMPLETE2% %BR%
+%RESPONSIBLE% Main.MarcoMambelli - 17 Nov 2009 %BR%
+%REVIEW%
+
+---++ *Comments*
+%COMMENT{type="tableappend"}%
+   * [[%ATTACHURL%/use-processor.pl.txt][use-processor.pl.txt]]: perl script
+
+<!--
+# ---++ Additional notes
  <verbatim>mkdir /export/home/shared
 cd /export/home/shared
 wget http://newbio.cs.wisc.edu/zkm/condor-7.4.8-linux-x86-rel5-dymamic-1.x86_64.rpm
@@ -171,7 +327,4 @@ condor_store_cred -c add
 
 ## iptables may interfere with condor:
 # set
-
-
-
--- Main.MarcoMambelli - 17 Nov 2009
+-->
