@@ -1,104 +1,218 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1258504129" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1259169152" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="WebHome"}%
----+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+---+!! *<nop>%SPACEOUT{ "Xrootd Installation" }%*
 %TOC%
 
 ---++ Introduction
- Xrootd provides POSIX-like access to files and their enclosing directory namespace ( [[http://xrootd.slac.stanford.edu/papers/Scalla-Intro.htm Xrootd Home Page]] ).
+Xrootd is a high performance network storage system widely used in High Energy Physics experiments such as ATLAS and ALICE. The underline Xroot data transfer protocol provides very high efficient access to the ROOT based data files. Xrootd also provides POSIX-like access to files and their enclosing directory namespace ( [[http://xrootd.slac.stanford.edu/papers/Scalla-Intro.htm Xrootd Home Page]] ).
 
----++ Pacman Installation
-Let's suppose that Pacman is installed in =/nfs/osg/app/pacman= as described in the previous section. Setup Pacman to start Xrootd installation:
-<pre>source /nfs/osg/app/pacman/setup.sh 
+---++++++!!Applicable Versions
+This document applies to an install of 
+%RED%
+*osg-version 1.2.4* 
+%ENDCOLOR%
+(or higher) and 
+%RED%
+*vdt-version  2.0.0*
+%ENDCOLOR%
+(or higher).
+
+---++++++!!Engineering Considerations
+In order to have a working Xrootd installation you will need a least 2 nodes. One node will serve as a redirector node, the other nodes will play a role of data servers. One redirector node can support more then 200K data servers. 
+Xrootd is using two storage areas. One storage area (referred in this document as a _storage_path_) could be accessed by clients using xroot protocol. This area contains symbolic links to the data files that are located in the cache storage area (here referred as _storage_cache_ ). It is recommended to use a separate partition for each storage area, but in principal for _storage_path_ a directory can be used as well. In Xrootd production instillation at SLAC an ext3 partition is used for _storage_path_. This storage area requires a significant amount of inodes. However, too many inodes means small block size. For real file, that means a limit of file size (though not clear about sym linked files, which are big in size but are filled with empty holes). At SLAC, the block size is set to 1k (thus put a limit of real file size at ~256GB).
+
+
+---++Checklist
+   1. [[ReleaseDocumentation/PacmanInstall][pacman]] version >=%PACMAN_VERSION% is required
+   1. If firewall is enabled iptables  must modified to allow incoming connections to the xrootd. See instruction how to configure firewall on [[#Firewall_iptables_configuration][redirector]] and [[#Firewall_iptables_configurat_AN1][data server nodes]].
+   1.  All xrootd daemons should run under some user name (not root!), the user account should be created on all the nodes and it should have a login shell.
+
+---++Installation Procedure
+Login as root and set up  pacman, make sure that >=%PACMAN_VERSION% is installed:
+
+
+<pre class="screen">
+su root
+. &lt;PACMAN_LOCATION&gt;/setup.sh
+pacman -version
+</pre>
+
+Create a user (e.g _xrootd_).The user (this user SHOULD have a login shell) !!!!
+<pre class="screen">
+#/usr/sbin/groupadd xrootd 
+#/usr/sbin/useradd --gid xrootd xrootd
+</pre>
+
+Decide what area you would use as a _storage_path_ and _storage_cache_ (e.g /storage/data and /storage/cache).
+
+Next create and change to an installation directory. This directory will later be used to get the !GridFTP-Xrootd package  from the %CACHE% cache.
+<pre class="screen">
+mkdir -p /opt/%OSG_VERSION%-xrootd/
+cd /opt/osg%OSG_VERSION%-xrootd/
 </pre>
 
 
----++ Installing Xrootd
- The installation described here is done as root even though services does not run as root. On each node you will need to install xrootd. In order to do that you will need to perform the following steps:
+You will need to install !Xrootd package from the %CACHE% cache. 
+Pacman will ask whether you want to trust the cache (=yall=) and whether you want to accept the license (=y=).
 
-   * create user "xrootd". The user (this user SHOULD have a login shell) !!!!
-   * setup pacman host dir
-   * create directory for xrootd software
-   * download software from OSG cache
-   * prepare storage area for xrootd: =/storage/data= and /storage/cache
+<pre class="screen">
+pacman -get %CACHE%:Xrootd
+</pre>
+ 
 
-The xrootd user should have been setup by this time otherwise <pre>/usr/sbin/groupadd xrootd ;  /usr/sbin/useradd --gid xrootd xrootd</pre>
-Then:
-<pre>mkdir /opt/osg-v1.2
-cd /opt/osg-v1.2 
-pacman -get http://software.grid.iu.edu/osg-1.2:Xrootd    ## (answer yall)
-source setup.sh 
+Update the environment and run the post installation script:
+<pre class="screen">
+source setup.sh
+vdt-post-install
 </pre>
 
----++ Configure Xrootd Data Server node (for slave nodes)
+
+You can verify that the version installed is the version you expected by executing =vdt-version=. T
+<pre class="screen">
+vdt-version
+</pre>
+
+This completes the installation of the Xrootd. Move to the next step to configure  !Xrootd on redirector and data server nodes. 
+
+---++ Service Configuration
+---+++ Configuring Xrootd on Redirector Node
+The  !Xrootd is configured by the =configure-osg= script located in =$VDT_LOCATION/osg/bin/configure-osg= based on the =$VDT_LOCATION/osg/etc/config.ini= configuration file.
+
+The =$VDT_LOCATION/osg/etc/= directory contains two template files =config.ini=. You will have to  edit the =$VDT_LOCATION/osg/etc/config.ini= file following instructions that precede each entry.  Here is the list of entries that need to be changed:
+
+<pre class="screen">
+;===================================================================
+;                       Xrootd
+;===================================================================
+
+
+[Xrootd]
+enabled = %(enable)s
+user = xrootd
+mode = redirector
+redirector_host = &lt;your_redirector_fqn&gt;
+redirector_storage_path = /storage/data
+redirector_storage_cache = /storage/cache
+token_list = %(default)s
+; This setting gives the size of the storage area allocated to public use in GB,
+; i.e. not allocated to a space token
+public_cache_size = 10
+</pre>
+You can verify that your configuration is valid by executing =configure-osg -v=. Finally execute =configure-osg -c= to configure the !BeStMan installation.
+<pre class="screen">
+cd osg1.2-xrootd
+. setup.sh
+configure-osg -v
+configure-osg -c
+</pre>
+
+
+Hopefully all steps completed successfully and =vdt-control -list= shows the list of available services:
+<pre class="screen">
+#vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+xrootd                  | init   | enable
+</pre>
+
+---+++ Configure Xrootd Data Server node (for slave nodes)
 
 Once you installed Xrootd as described above, on the Data Server nodes (hosts providing the shared disk space) you have to do the following steps:
-   * if you did not already, source the setup of the Xrootd installation and cd into that directory:<pre>
-source /opt/osg-1.2/setup.sh
-cd /opt/osg-1.2
+The  !Xrootd is configured by the =configure-osg= script located in =$VDT_LOCATION/osg/bin/configure-osg= based on the =$VDT_LOCATION/osg/etc/config.ini= configuration file.
+
+The =$VDT_LOCATION/osg/etc/= directory contains two template files =config.ini=. You will have to  edit the =$VDT_LOCATION/osg/etc/config.ini= file following instructions that precede each entry.  Here is the list of entries that need to be changed:
+
+<pre class="screen">
+;===================================================================
+;                       Xrootd
+;===================================================================
+
+
+[Xrootd]
+enabled = %(enable)s
+user = xrootd
+mode = data
+redirector_host = &lt;your_redirector_fqn&gt;
+redirector_storage_path = /storage/data
+redirector_storage_cache = /storage/cache
+token_list = %(default)s
+; This setting gives the size of the storage area allocated to public use in GB,
+; i.e. not allocated to a space token
+public_cache_size = 10
 </pre>
-   * prepare the storage area that will be used for Xrootd data and cache directories (create and mount the partition e.g. =/local/xrootd=)
-   * run the configuration script (you will need to specify the address of the XRD server and the size in GB of your disk partition dedicated to xrootd)
-
-<pre>$VDT_LOCATION/vdt/setup/configure_xrootd --server y --user xrootd --xrdr-host gc1-xrdr.yourdomain.org  --xrdr-storage-path /storage/data --xrdr-storage-cache /storage/cache --public-cache-size 90</pre>
-
----+++ Firewall (iptables) configuration for Xrootd Data Server node
-
-Edit the =/etc/sysconfig/iptables= file to add these lines ahead of the reject line
-<pre># Xrootd connections  (from anywhere) 
--A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2525 -j ACCEPT 
-# </pre>
-
-   * Check the status of iptables<pre>/etc/init.d/iptables status</pre> 
-   * Restart iptables<pre>/etc/init.d/iptables restart </pre> 
-   * Check the status of the iptables to see the changes<pre>/etc/init.d/iptables status</pre>
-
-   * Now edit the file =$VDT_LOCATION/xrootd/etc/xrootd.cfg=. Change "xrd.port any" to *xrd.port 2525*
-
----++ Configure Xrootd Redirector
-Once you installed Xrootd as described above, on the Xrootd Redirector (=gc1-xrdr=, host responding to file requests) you have to do the following steps:
-   * if you did not already, source the setup of the Xrootd installation and cd into that directory:<pre>
-source /opt/osg-1.2/setup.sh
-cd /opt/osg-1.2
+You can verify that your configuration is valid by executing =configure-osg -v=. Finally execute =configure-osg -c= to configure the !BeStMan installation.
+<pre class="screen">
+cd osg1.2-xrootd
+. setup.sh
+configure-osg -v
+configure-osg -c
 </pre>
-   * run configuration script (you will need to specify the size of your disk partition dedicated to xrootd in GB
 
-<pre>$VDT_LOCATION/vdt/setup/configure_xrootd --server y --user xrootd --this-is-xrdr --xrdr-storage-path /storage/data --xrdr-storage-cache /storage/cache --public-cache-size 90 </pre>
 
-Note that the redirector needs a data and cache directories as well. It will not store there real data but will use those directories to recreate a pseudo file system to allow navigation for the clients.
- 
+Hopefully all steps completed successfully and =vdt-control -list= shows the list of available services:
+<pre class="screen">
+#vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+xrootd                  | init   | enable
+</pre>
+---++ Firewall configuration
+
 ---+++ Firewall (iptables) configuration for Xrootd Redirector node
 
 Edit the =/etc/sysconfig/iptables= file to add these lines ahead of the reject line
-<pre># Xrootd connections  (from anywhere) 
+<pre class="screen"># Xrootd connections  (from anywhere) 
 -A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1094 -j ACCEPT 
 -A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1213 -j ACCEPT 
 -A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2094 -j ACCEPT 
 -A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2525 -j ACCEPT 
 # </pre>
 
-   * Check the status of iptables<pre>
+Check the status of iptables<pre class="screen">
 /etc/init.d/iptables status</pre> 
-   * Restart iptables<pre>
+Restart iptables<pre class="screen">
 /etc/init.d/iptables restart</pre> 
-   * Check the status of the iptables to see the changes<pre>
+Check the status of the iptables to see the changes<pre class="screen">
 /etc/init.d/iptables status</pre>
 
----++ Start/Stop xrootd
+---+++ Firewall (iptables) configuration for Xrootd Data Server node
 
-You will need to login to each node where xrootd is running to start/stop xrtood:
+Edit the =/etc/sysconfig/iptables= file to add these lines ahead of the reject line
+<pre class="screen"># Xrootd connections  (from anywhere) 
+-A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2525 -j ACCEPT 
+# </pre>
 
-To start:<pre>cd /opt/osg-v1.2 
-source setup.sh 
-vdt-control -on </pre>
+Check the status of iptables<pre class="screen">/etc/init.d/iptables status</pre> 
+Restart iptables<pre class="screen">/etc/init.d/iptables restart </pre> 
+Check the status of the iptables to see the changes<pre class="screen">/etc/init.d/iptables status</pre>
+Now edit the file =$VDT_LOCATION/xrootd/etc/xrootd.cfg=. Change "_xrd.port any_" to *xrd.port 2525*
 
-To stop:<pre>cd /opt/osg-v1.2 
-source setup.sh 
-vdt-control -off </pre>
+---++ Start/Stop !Xrootd
 
----++ Testing inside of the cluster
+You will need to login to node where  !Xrootd is installed  to start/stop xrtood:
+
+To start:
+
+<pre class="screen">
+cd /opt/osg1.2-xrootd
+. setup.sh
+vdt-control -on
+</pre>
+
+To stop:
+
+<pre class="screen">
+cd /opt/osg1.2-xrootd
+. setup.sh
+vdt-control -on
+</pre>
+
+
+---++ Validation of Service Operation
+
  Login on redirector node as an ordinary user.
 
-<verbatim>cd /opt/osg-v1.2 
+<pre class="screen">cd /opt/osg1.2-xrootd 
 source setup.sh 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$VDT_LOCATION/xrootd/lib 
 export LD_PRELOAD=$VDT_LOCATION/xrootd/lib/libXrdPosixPreload.so 
@@ -106,11 +220,75 @@ echo &ldquo;This is a test&rdquo; &gt;/tmp/test
 cp /tmp/test xroot://gc1-xrdr:1094///xrootd/data/test 
 cp xroot://gc1-xrdr:1094///xrootd/data/test /tmp/test1 
 diff /tmp/test1 /tmp/test 
-</verbatim>
+</pre>
 
 For example:
-<pre>cp /tmp/test xroot://gc1-xrdr.yourdomain.org:1094//xrootd/data/test </pre>
+<pre class="screen">cp /tmp/test xroot://gc1-xrdr.yourdomain.org:1094//xrootd/data/test </pre>
 
+
+---++++++!!File Locations
+!Xrootd on redirector node
+   * Configuration files:
+      * $VDT_LOCATION/xrootd/etc/xrootd.cfg
+      * $VDT_LOCATION/xrootd/etc/xrootd_cnd.cfg
+   * Log Files
+      * $VDT_LOCATION/xrootd/var/logs/xrdlog
+      * $VDT_LOCATION/xrootd/var/log/cmslog
+      * $VDT_LOCATION/xrootd/var/log/xrootd_cnd/xrdog
+
+!Xrootd on data server nodes
+   * Configuration files:
+      * $VDT_LOCATION/rootd/etc/xrootd.cfg
+   * Log Files
+      * $VDT_LOCATION/xrootd/var/logs/xrdlog
+      * $VDT_LOCATION/xrootd/var/log/cmslog
+      * $VDT_LOCATION/xrootd/var/log/cnsd.log
+
+
+---++++++!!Debugging Procedure
+   * Look at the [[#Checklist][Checklist]] and make sure you really checked those items.
+
+---++++++!!Caveates/Known Issues
+---++++++!!Screendump of Install
+
+<pre class="screen">
+#  pacman -get http://software.grid.iu.edu/osg-1.2:Xrootd
+Do you want to add [http://software.grid.iu.edu/osg-1.2] to [trusted.caches]? (y/n/yall): yall
+Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check...
+
+All prerequisite checks are satisfied.
+
+# vdt-post-install
+Starting...
+Nothing needs to be done at this time.
+ vdt-version
+
+You have installed a subset of VDT version 2.0.0p11:
+
+Software                                                 Status              
+--------                                                 ------              
+Xrootd 20090721-0636                                     OK                  
+
+
+Status legend:
+OK: Software is up to date with the latest release in VDT version 2.0.0
+- : Not enough information to determine if updates are available.
+
+# configure-osg -v
+Using /usr/local/osg1.2-xrootd/osg/etc/config.ini for configuration information
+Configuration verified successfully
+]# configure-osg -c
+Using /usr/local/osg1.2-xrootd/osg/etc/config.ini for configuration information
+running 'vdt-register-service --name xrootd --enable'... ok
+Configure-osg completed successfully
+
+#vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+xrootd                  | init   | enable
+
+
+</pre>
 
 %BR%
 %BR%
