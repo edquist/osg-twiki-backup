@@ -1,5 +1,5 @@
-%META:TOPICINFO{author="JohnWeigand" date="1259787306" format="1.1" reprev="1.1" version="1.1"}%
-%META:TOPICPARENT{name="JohnWeigandSandbox"}%
+%META:TOPICINFO{author="JohnWeigand" date="1259875208" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICPARENT{name="JohnWeigand"}%
 ---+ Daily Installs
 
 <!--
@@ -12,71 +12,253 @@
 %STARTINCLUDE%
 
 ---++ Background
-The intent of these processes is to perform a full automated installation of an OSG CE,VOMS and GUMS cache on a regular, generally daily, basis in order to verify the integrity of the installation process and to catch any problems ina timely manner.  It is a combination of shell and expect scripts using a set of environmental variables set in the osg-install.env script for the various responses required during the installation process.  The expect scripts provide the capability of interacting with the various question/answer prompts that occur during the installation process using these variables for the replies.
+The intent of these processes is to perform a full automated installation of an OSG CE,VOMS, GUMS and WN cache install on a regular, generally daily, basis in order to verify the integrity of the installation process and to catch any problems in a timely manner.  It is a combination of shell and expect scripts using a set of environmental variables set in an osg-TYPE.RELEASE (eg. osg-ce.120) named script. The scripts are based on the OSG Installation instructions for the OSG and ITB here:
+   * https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/WebHome
+   * https://twiki.grid.iu.edu/bin/view/Integration/WebHome (note: at this time, 12/3/09, I am not certain there is any ITB release doc anymore)
 
-The scripts are based on the OSG CE Installation instructions found at:  http://osg.ivdgl.org/twiki/bin/view/Documentation/OsgCEInstallGuide as of 8/18/05.
+This process started back in July 2005 (OSG 0.2.0) when the installation process was a of a question/answer nature. This necessitated the use of the [[http://expect.nist.gov/][Expect software tool for automating interactive applications]].
+The Expect scripts provide the capability of interacting with the various question/answer prompts that occur during the installation/configuration process. Effective with OSG 1.0, the question/answer nature of the installation process has been eliminated.  However, there is still a need to use the Expect tool for some of the configuration required after the initial installation.
 
 All these process/programs must be run as root.  There is a verification step in most that will error the process if root is required.
 
-The osg-install.env file sets a number of environmental variables used during the installation process.  The OIV_LOGDIR variable defines a directory where a log of the osg-install.sh execution is kept along with copies of the site_verify output and a file containing the versions of the installed software.
+---++ Minimal machine requirements
+These scripts are currently running on xen nodes with:
+   * 1Gb memory
+   * 10 Gb disk
 
-The script currently supports:
-   * OSG 0.2.1 - scripts are in ./bin and ./CE
-   * 0SG 0.4.0 - scripts are in ./ITB-030/bin and ./ITB030/CE
+If you are using a shared file system for your Unix HOME directories, this package should not be installed there as there will be conflicts.
 
-Note: Some scripts are common to both.  The PATH variable is set such that if a script has changed in the OSG 0.4.0, the PATH variable will force it to be picked up first.  You have to do nothing to effect this.  This is noted so when you are trouble shooting problems you will know where to look first.
+---++ Basic Design
+The basic design assumes you start with a "virgin" machine just as an admin would do if installing any of the OSG services when first getting started.   
+   1 It is designed to be run on a recurring basis (daily or as needed), first restoring the machine to it's original state and then, performing the installation. 
+   1 It will capture the entire installation session (stdin/stdout/stderr) of everything that occurs during the installation process.  This facilitates trouble-shooting when problems do occur.
+   1 It sends an email notification of the success/failure of the installation
+   1 It performs a comparison of the current software being installed (versions) and those from the previous installation and sends an email notification only if changes are detected.
+
+The basic "driver', so to speak, for the process is an environmental script containing variables used during the installation process.  Most of these variables represent the data you would need to know when performing a manual installation/configuration.  The others are for the automated installation itself, i.e, location of logs files, location of certificates, etc.  All of these variable are prefaced with the string "OIV_" so as not to contend (hopefully) with variables used in the OSG services being installed.
+
+The software, while maintained in CVS, does not use conventional tagging to define the OSG/ITB version as most other systems do.  It uses the directory structure and the PATH variable to allow for installing an OSG and ITB/VTB "set".  This is maybe best shown with an example of the current release structure for the CE installation:
+
+For an OSG 1.2 installation, the PATH variable for the installation process is set as
+   * PATH=./osg-installation-validation/OSG-120/CE/bin;YOUR_OTHER STUFF
+
+For an ITB 1.2+ installation, the PATH variable for the installation process is set as
+   * PATH=./osg-installation-validation/ITB-130/CE/bin;./osg-installation-validation/OSG-120/CE/bin;YOUR_OTHER STUFF
+
+This was done so it is easier to detect changes from one release to another as only the processes for the next ITB release are changed in that PATH.  Note, that this procedure was working fairly well when we were actually changing release numbers and caches at the 1.n level.  Since we don't do this anymore, it is a tad more difficult to maintain the installation software.
 
 
-
----++ Caveat
-You DO have to know what you're doing and understand the OSG CE envirnonment to a fair degree in order to set the environmental variables correctly.
-
-
+---++ Caveats
+   1 You *DO* have to know what you're doing and understand the OSG CE/VOMS/GUMS/WN environment to a fair degree in order to set the environmental variables correctly.
+   1 Installation scripts are not available for any Storage Element installations.
+   1 Condor is the only job manager supported.
+   1 For CE installs, the Worker Node is assumed to be on the Compute Element (CE)
+   1 The process will not handle installing multiple services on the same machine with the CE/WN being the exception
+   1 Firewalls are not handled at all
 
 ---++ Disclaimers
-Since this script is intended for validation of the OSG installation, it is NOT intended as a fully automated OSG CE installation.  There are several shortcuts taken to facillitate daily cleanup and setup:
+Since this script is intended for validation of the OSG installation, it is NOT intended as a fully automated OSG CE installation.  There are several shortcuts taken to facilitate daily cleanup and setup, mainly for Compute Element (CE) installations.:
+   1 For CE/WN installs, the user work directories $APP, $DATA, $TMP and $TMP_WN are created as  normal directories (not separate file systems with any minimum space requirements defined) in the OSG installation directory (VDT_LOCATION)  under a directory called OSG.DIRS.
+   1 Condor is the only job manager supported and is setup with only the CE node functional.  It is also installed in the VDT_LOCATION of the CE.
+   1 Ganglia (or any equivalent) is not installed.  So the !MonALISA line in the vdtFarm.conf file is not activated for ganglia.
+   1 If desired, site registration must be performed manually based on the instructions in the OSG CE installation guide.  The site is automatically set to active in the last step of the installation if successful. 
+   1 All certificates must be obtained before starting the installation. They should be stored in a separate directory from this source other than the normal /etc/grid-security location. The /etc/grid-security directory is totally removed during the installation process. They should be protected from accidental deletion by using 'chattr' command to make them immutable.
+      * mkdir YOUR_PATH/certificates
+      * chattr -R +i YOUR_PATH/certificates
 
-   1 The user work directories $APP, $DATA, $TMP and $TMP_WN are created as  normal directories (not seperate file systems with any minimum space requirements defined) in the OSG installation directory (VDT_LOCATION)  under a directory called OSG.DIRS.
+---++ General Installation Information
 
-   1 Condor is the selected job manager and is setup with only the CE node functional.
+---+++ Directory structure
+The directory structure of the installation software (osg-installation-validation) is  RELEASE/SERVICE/bin and etc.
+%TABLE%
+|<pre>ITB-130/bin
+ITB-130/CE/bin
+ITB-130/CE/etc
+ITB-130/WN-CLIENT/bin
+ITB-130/WN-CLIENT/etc
+ITB-130/CE-CLIENT/bin
+ITB-130/CE-CLIENT/etc
+ITB-130/GUMS/bin
+ITB-130/GUMS/etc
+ITB-130/VOMS/bin
+ITB-130/VOMS/etc
+ITB-130/COLLECTOR/bin
+ITB-130/COLLECTOR/etc
+</pre>|<pre>OSG-120/bin
+OSG-120/CE/bin
+OSG-120/CE/etc
+OSG-120/WN-CLIENT/bin
+OSG-120/WN-CLIENT/etc
+OSG-120/CE-CLIENT/bin
+OSG-120/CE-CLIENT/etc
+OSG-120/GUMS/bin
+OSG-120/GUMS/etc
+OSG-120/VOMS/bin
+OSG-120/VOMS/etc
+OSG-120/COLLECTOR/bin
+OSG-120/COLLECTOR/etc
+</pre>|
 
-   1 Ganglia (or any equilvalent) is not installed.  So the MonALISA line in the vdtFarm.conf file is not activated for ganglia.
+---+++ osg-install.sh script
+The main script to perform the installations is _osg-install.sh_ . 
+<pre>
+Usage: osg-install.sh type release install|remove|shutdown  accts!noaccts
 
-   1 Site registration must be performed manually based on the instructions in the OSG CE installation guide.  The site is automatically set to active in the last step of the installation if successfull, but this is for naught if you have not registered the site so GridCat polls it. (If you don't care about GridCat, you do not need to register.)
+      Note 1: You must be in this script's directory in order for it to set
+              the PATH variable correctly.
 
-   1 All certificates must be obtained before starting the installation. They should be stored in a separate directory from this source and the normal /etc/grid-security location. They should be protected from accidental deletion by using 'chattr' command to make them immutable. mkdir YOUR_PATH/certificates
-   * chattr -R +i YOUR_PATH/certificates
+      Note 2: You must be root.
 
-    The install-certificates.sh script will copy them into the appropriate
-    areas during the installation process.
+      type:  ce        - CE node installation
+             voms      - VOMS installation
+             gums      - GUMS installation
+             wn-client - wn-client installation
+             ce-client - ce-client installation
+             collector - Gratia collector installation
 
-Once installed, this process relies on the site_verify.pl process to validate the installation.  The site_verify process does not really test
-everything at this time, but just looks for the existence of some data. The expect script (site-verify.exp) does not do a 100% validation of that output at this time.
+      release: 130
+                   120
+ 
+      install/remove/shutdown 
+         'install'  shutsdown/removes and installs 
+         'remove'   will just wipe everything clean except the logs
+         'shutdown' will turn everything off, but not remove anything
 
-This process, at this time anyway, is more focussed on the automation of the download and it's conformance to the posted instructions.
+      accts|noaccts (only required for a CE installation)
+         'accts'   specifies UNIX accounts will be created/deleted
+         'noaccts' specifies UNIX accounts will NOT be created/deleted
+                   It assumes all necessary accounts already exist.
+                   This is the case were UNIX accounts are administered
+                   centrally or in some such manner.
 
+      This program uses the 'expect' software package to perform the 
+      question and answer parts of the installation process.  
+       - Download site: http://expect.nist.gov/
+       - Latest released used here: expect-5.42.1-1.src.rpm 
+</pre>
 
----++ CVS Repository
-To get the package from CVS and installed in your HOME directory:
-   * export CVSROOT=cvsuser@cdcvs.fnal.gov:/cvs/cd
-   * cd $HOME
-   * cvs co osg-installation-validation
+---+++ cron processes
+There is cron file (one for each service type) that should  be installed to allow you to run this on a regular basis
+<pre>
+./osg-installation-validation/crontabs/
+   ce-cron  (this also contains the wn-client installation)
+   voms-cron
+   gums-cron
+   collector-cron
+</pre>
 
----++ Tarball
-wget http://home.fnal.gov/~weigand/downloads/osg-installation-validation.tgz
+The cron file (if you decide to use it) is the only file that should have to be modified as it must have the full path to the cron-script.sh program.
 
+*IMPORTANT*: These files are reinstalled at the end of each installation process.  So, if you have an existing root cron defined, you should append those entries to this file.  This will insure a clean, consistent environment.  This is one "system" file that is common to all of the installations.  You *must* remember to update this file whenever root's crontab requires updating.  The CE installation has several other system files 'restored" like this and are described in that section.  This root crontab is common to all installations.
 
---- ++ Cron process
-There is cron file that should  be installed to allow you to run this on a regular basis.  The cron file (if you decide to use it) is the only file that should have to be modified as it must have the full path to the cron-script.sh program.
-
-This file (./osg-installation-validatation/crontab/root) will be reinstalled at the end of the installation process.  So, if you have an existing root cron defined, you should append those entries to this file.  This will insure a clean, consistent environment.
-
-WARNING: If executing from the command line, do not 'su' to become root.  Use ssh/rlogin/telnet to become root.  The 'su' does not give you  a completely clean root environment necessarily.
+*WARNING*: If executing from the command line, do not 'su' to become root.  Use ssh.  The 'su' does not give you  a completely clean root environment necessarily which can result in unexpected behavior.
 
 If you are executing from the command line, use the cron entry as the example of how to do it.
 
+---++ Installations
+The following are common to all types of installs:
+   1 Shuts down the previous installation if running
+   1 Removes the previous installation entirely
+   1 Restores any system files that were modified
+      * root crontab for all types
+      * for the CE install: several which are defined in that area
+   1 Downloads and installs pacman
+   1 Creates the /etc/grid-security directory and populates it with the certificates required for the service type being installed.
+   1 Installs the CA Certificates package
+   1 Runs the installation for the OSG service type selected
+   1 Compares the current version (vdt_version/osg-version) to the previously installed one. Sends email if a change is detected.
+   1 Performs some testing /validation as appropriate for the service type
 
----++ How do I run this since the documentation is not complete
+
+---+++ Compute Element (CE) / Worker Node (WN)
+*Note this dependency*: If you are using the daily installed GUMS to work with your CE node, you need to make sure it is installed about 1 hour prior to starting the CE installation.  In addition, if the GUMS install fails, your CE install will too.
+
+The CE install performs the following:
+   1 Installs the VDT supported version of Condor (optionally it can install a different Condor version from a tarball), activates and does a basic test.
+   1 Installs the OSG CE package
+   1 Installs the OSG Condor job manager setup package
+   1 Installs the OSG Managed Fork package
+   1 Creates the basic directories required for a CE installation.
+   1 Creates an rsvuser account
+   1 Validates the config.ini file against the "last known" config.ini (a template) to detect any changes. Email is sent if changes are detected.
+   1 Validates gridmap authorization mode
+      * creates a new grid-mapfile for the unix account and proxy below
+         * creates a unix account for testing
+         * does a grid-proxy-init of root's host certificate
+      * runs configure-osg for gridmap authorization
+      * updates the /etc/sudoers for gridmap authorization mode
+      * runs a series of  job submits and url copies for both gt2 (pre-ws) and gt4 (ws) GRAM.
+      * runs site_verify.pl (this can only be run at this point as root needs to be authorized as a user using the temporary grid-mapfile
+      * executes edg-mkgridmap, then removes it
+   1 Validates prima authorization mode (All but the job submits.  These are performed by another cron entry run using a "real" user's proxy after the installation completes.)
+      * runs configure-osg for prima authorization
+      * updates the /etc/sudoers for prima authorization mode
+      * test the GUMS-GIP probe
+   1 Creates all unix accounts and $HOME directories for all users defined in GUMS
+   1 validates a set of files/directories for proper permissions
+   1 updates the /etc/hosts.allow file allowing outside access
+   1 performs some rudimentary test on !CEMon 
+      * verify it is reporting to each consumer
+      * verify it can retrieve classads from the !ReSS server
+      * runs verify-gip-for-cemon-wrapper
+   1 runs pretty_gip_info.py (this was disabled with GIP 1.1.4 until a decision is made as to this being production or not)
+   1 runs all the RSV probes manually
+
+The following files/directories are affected by this installation:
+   1 /etc/grid-security - this directory is removed and re-created with each installation
+   1 /etc/xinetd.d files
+      * globus-gatekeeper
+      * gsiftp
+
+The system files shown below are also affected by the CE installation.  On the initial installation, the existing instance of these files are copy to a directory defined in the environment file and made immutable (to prevent accidental removal).  They are restored with each installation. 
+   1 /etc/services
+   1 /etc/host.allow
+   1 /etc/sudoers
+   1 /etc/passwd
+   1 /etc/group
+*IMPORTANT*: If you need to update these for new users (or whatever), you should make the changes in the "saved" directory.
+
+---++++ Worker Node (WN)
+There is no real dependency on the CE node installation for this to work.  However, it is designed to be installed on the CE node and will not likely work if installed a 'real' worker node.  It was created to allow for testing of the glideinWMS process using glexec.
+      
+The WN install performs the following:
+   1 installs the OSG wn-client package
+   1 enables all wn-cleint services
+   
+---+++ GUMS
+*Note this dependency*: If you are using the daily installed GUMS to work with your CE node, you need to make sure it is installed about 1 hour prior to starting the CE installation.  In addition, if the GUMS install fails, your CE install will too.
+
+The GUMS install performs the following:
+   1 installs the OSG GUMS package
+   1 enables all GUMS services
+   1 adds a set of admins so others (and myself) can test/use the UI from one of the files in ./GUMS/etc (this also is a validatation of a command line script)
+   1 updates the gums.config file from the OSG gums.template 
+   1 creates the necessary pool accounts for those groups requiring them.
+   1 runs './gums/gums updateGroups' to populate GUMS
+   1 tests the gums-host script script
+      * generateVOGridMapfile
+      * generateGridMapfile
+      * generateGrid3UserVoMap
+   1 tests the GUMS-GIP probe
+
+The following files/directories are affected by this installation:
+   1 /etc/grid-security - this directory is removed and re-created with each installation
+
+---+++ VOMS
+The VOMS install is not dependent on any other installs nor is it depended on at this time.  It is basically a stand-alone install/test.
+
+The VOMS install performs the following:
+   1 installs the OSG VOMS package
+   1 enables all VOMS services
+   1 configures VOMS for VOs and Users defined in an ./VOMS/etc file
+   1 runs a series of voms-proxy-init/info tests
+
+The following files/directories are affected by this installation:
+   1 /etc/grid-security - this directory is removed and re-created with each installation
+
+---+++ Gratia Collector
+
+---++ EVERYTHING BELOW HERE SHOULD BE DISREGARDED AT THIS POINT
 Using cron is the intended method for executing the installation as it insures a clean environment.
 
 You will need to make changes to some of the variables defined in the osg-install.env file for your site.  The critical ones are:
