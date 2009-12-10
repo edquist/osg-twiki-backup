@@ -1,5 +1,58 @@
-%META:TOPICINFO{author="AbhishekSinghRana" date="1260470510" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="AbhishekSinghRana" date="1260484377" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="WebHome"}%
+%TOC%
+
+%STARTINCLUDE%
+
+---+ Brief Analysis on Preemption Handling in OSG
+
+---++ Cause of Problem
+
+Preemption/eviction is a prevalent characteristic in opportunistic grid usage. At sites, preference is usually given to the primary sponsor VO. This is managed with fine-tuning of batch-system parameters. E.g., 
+   * when to start a job
+   * which VO/group to give priority in queue
+   * when to evict a low-priority job
+   * when to restart; etc. 
+
+Fine-tuning can be non-trivial. Many CMS sites have traditionally allowed low-priority jobs to start as soon as a resource slot becomes available, only to be evicted as soon a high-priority job arrives. This interval can sometimes be less than a minute. In extreme case, a start/pause negotiation cycle can recur with high frequency for the same low-priority job. E.g., a D0 job can stay unfinished in a CMS-T2 site queue, for days, interrupted 100's of times.
+
+---++ Possible Solutions
+
+---+++ Resource Providers / Sites
+
+Preemption is unavoidable, but some aspects can be better managed by sites: its logic and its rate. 
+
+*Policy Option 1:* A site can choose to make a guarantee of long duration even for low-priority jobs. E.g., 48 hours. 
+
+*Policy Option 2:* A site can choose to give all VOs high priority. 
+
+*Policy Option 3:* A site can better manage startup logic of low-priority jobs. 
+
+If sites preempt using a 'rank' expression and evict with a short 'MaxJobRetirementTime', then tuning can help. 
+
+We can prevent low-priority jobs from starting as soon as a resource slot is available. Then, high-priority jobs of sponsor VO can get an opportunity to start with reduced interference. Sites can use 'LastHeardFrom' instead of the more popular 'CurrentTime' to have the expression evaluate the same way throughout a negotiation cycle.
+ 
+In Dan Bradley's words: "I had a frustrating experience trying to figure out why machines were sometimes being handed out to users with worse priority. The reason turned out to be that users with worse priority are handled later in a negotiation cycle, and so by the time it got to them, the CurrentTime had advanced enough to make the time-sensitive machine requirements become true. The reason for the check for isUndefined(LastHeardFrom) is because the machine requirements are evaluated by both the negotiator and by the startd itself as a sort of double-check that its requirements are being met. In the startd, there is no LastHeardFrom attribute in the ClassAd, and anyway, the slot state will have changed by the time the job shows up, so we don't really want this delay clause to be checked by the startd. Therefore, if isUndefined(LastHeardFrom), we just bypass the delay check."
+
+---+++ Resource Consumers / VOs: 
+
+*Model 1:* A non-sponsor VO can use chained submission logic in workflow. This implies: if a job fails to find resources at a site, after a specified timeout, it attempts at a few other sites before quitting altogether. However, this can lead to discrepancy in semantics of failures. OSG's count of failures can differ from the VO's count. The latter can be higher. Unless there is a common agreement with the VO, the count can inadvertently give an impression of low aggregate OSG efficiency. nanoHUB uses this mechanism, alongwith some agreements on semantics. 
+
+*Model 2:* Another model is to use probing submission logic in workflow. In first phase, a test-probe job evaluates a wide breadth of OSG sites. Based on the results, in second phase soon after, actual jobs are dispatched to the successful sites subset. Engagement uses this model. Geant4 and SBGrid are adopting the same.
+
+---+++ OSG-wide Logistical Measures
+
+   *A.* Common agreements between sponsor VOs and OSG. (i) Minimum resource capacity available for opportunistic use. (ii) Site Policies.
+
+   *B.* Documentation should include tuning recommendations for sites of sponsor VOs. 
+
+*C.* Need to advertise Site policy parameters. E.g., using GIP probes and GLUE schema. 
+
+*D.* Need for non-sponsor VOs to be able to quickly discover site policies. E.g., by querying BDII or OIM. 
+
+*E.* Non-sponsor VOs which are willing to make changes in submission workflow logic should be able to dynamically adapt and make an informed decision. 
+
+*F.* Common semantics between non-sponsor VOs and OSG on 'resource failure’ versus ‘resource unavailability'.
 
 
 
