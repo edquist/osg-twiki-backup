@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1260825896" format="1.1" reprev="1.42" version="1.42"}%
+%META:TOPICINFO{author="JohnWeigand" date="1260902465" format="1.1" reprev="1.43" version="1.43"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! Gratia Interfaces - APEL/WLCG
 
@@ -242,14 +242,15 @@ BNL_ATLAS_1 and BNL_ATLAS_2 are actually the same physical site with 2 head node
 This same mechanism is used to easily renamed a site (for presentation purpose and upload to WLCG).    However this mechanism also means that for Gratia the 'sub' site are never reported about independently (So currently if you want information about  BNL_ATLAS_1 you need to go the 'Probe' reports and select the probe name (usually close to the hostname of the gatekeeper).
 
 ---++ Validation/Verification that sites are reporting.
-As a part of the interface process, a check is made at the site/resource level (not individual probes) to determine if data is being reported to Gratia every day.  If a site/resource has missing data for any day,  checks are made to see if this is due to planned maintenance or if a site/resource has gone inactive based on OIM/MyOSG data.  If after these checks are made  and a site/resource still has missing data for more than 2 days in the month an email "WARNING" notification is issued to initiate an OSG GOC ticket.  
+As a part of the interface process, a check is made at the site/resource level (not individual probes) to determine if data is being reported to Gratia every day.  If a site/resource has missing data for any day,  checks are made to see if this is due to planned maintenance or if a site/resource has gone inactive based on OIM/MyOSG data.  If after these checks are made  and a site/resource still has missing data for more than 2 days in the month an email "WARNING" notification is issued to initiate an OSG GOC ticket.  Note: this is a manual ticket initiation.
 
-During each daily run, a html file is created identifying this information and is visible from the production gratia collector in the last column of the table shown here: http://gratia.opensciencegrid.org:8880/gratia-data/interfaces/apel-lcg/
+During each daily run, a html file is created identifying this information and is visible from the production gratia collector in the last column of the table shown here: http://gratia-osg-prod.opensciencegrid.org/gratia-data/interfaces/apel-lcg/ .  This page is also accessible from the main OSG Gratia reporting menu (http://gratia-osg-prod.opensciencegrid.org/gratia-reporting/ ) on the left side under <i>WLCG ATLAS/CMS Tier1/2</i>.
 
 ---++ Pending Enhancements
-None.
+---+++ Replace the !SiteFilterFile (lcg-reportableSites) with !MyOSG
+Eventually  the [[#SiteFilterFile_lcg_reportableSit][SiteFilterFile (lcg-reportableSites]] file should be replaced with a query to !MyOSG.   The interface should utilize the WCLG Accounting Data  elements defined there.  This is awaiting some stabilization of the naming conventions used in OIM and Gratia in terms of Gratia Site versus OIM Resource Name.  Currently, if a site/resource is added/deleted from the interface, an email to gratia-operations@opensciencegrid.org is required.  This would eliminate the need for this to some extent.  The reason for saying "to some extent" is that there needs to be an analysis of how APEL uses !MyOSG in determining what sites/resources to subsequently transfer to the EGEE portal.  The handling of inactive sites is really not handled too well by this whole interface.  Fortunately, these type of changes have occurred too frequently and this is not a high priority item.
 
----++ Open issues / To-do's
+---++ Open issues / To-Do's
 
 ---+++ Normalization factor issues
 <OL>
@@ -263,11 +264,194 @@ The normalization factor is currently reflecting the latest cluster configuratio
 </LI>
 </OL>
 
-
-
 ---++ Known issues
    * The issue of using SPEC_int2000 as a performance benchmark is becoming increasingly problematic as the benchmark has been deprecated, replaced by SPEC_int2006.  There are additional complications arising from differences in server/motherboard manufacturer, compiler option settings, etc.   There has been discussion of forming an agreed set of metrics for OSG using information collected through !HEPiX, evaluations within labs participating in OSG, etc.  At present, the following table has been prepared: see [[http://www.usatlas.bnl.gov/twiki/bin/view/Admins/AccountingP2.html#Scaling_factors][this table for Fall 2007]] for *Fall 2007* figures.
    * The file =osg-user-vo-map.txt= *must* be kept up to date to correctly associate resource usage by specific Unix accounts in the accounting records to the corresponding VO.
+
+---++ Developers Corner
+This section attempts to describe the scripts and configuration files used by this interface.
+
+---+++ Scripts
+---++++ LCG.py
+This is the main interface program performing the following functions: 
+
+1. Determines a default 'normalization factor' using a specified probe as the base node. This value is applied against the CPU and Wall time data collected.  It is only used when a normalization factor for a site is not specified in the lcg-reportableSites file. The probe used is defined by the 'NormalizationProbe' attribute of the lcg.conf file.
+
+ 2. Retrieves the accounting data from the Gratia database for selected OSG sites and VOs for a month. Sites are defined in a file identified by the 'SiteFilterFile' attribute of the lcg.conf file. VOs are defined in a file identified by the 'VOFilterFile' attribute of the lcg.conf file
+With the change implemented on 6/19/07 providing for individual normalization factor by site, instead of a single query being used to retrieve the gratia data, individual queries by site are performed.  In order to reduce the verbage in the log file, only the first query is output to the log file.  The site and normalization factor used is displayed for the other site queries.
+
+3. Formats SQL DML INSERT statements to update the OSG_DATA table of the APEL/LCG database. The table name is defined by the 'LcgTable' attribute of the lcg-db.conf file.  For testing purposes a clone table called OSG_TABLE_TEST can be set instead. The SQL DML statements for the last run are placed in a directory defined by the 'LogSqlDir' attribute of the lcg.conf file. The file name is YYYY-MM.sql and contains only the DML from the last update run. 
+
+ 4. Updates the APEL/CLG database. In order to handle site and VO name changes, the SQL DML is set up to DELETE all data for the month/year and then INSERT the new data. This is a simple approach to handling these kinds of changes and works as of 4/25/2007.  It may be this will not hold up over the long run and will have to be re-visited.
+
+Additional functionality:
+
+  1. The script has been design to do everything EXCEPT update the APEL database unless the --update option is used.  This prevents accidental running of the script especially when testing.
+
+  2. Log files are creeted in the directory specified by the 'LogSqlDir' attribute of the lcg.conf file. The format of the log files is YYYY-MM.log.
+
+  3. A file containing the latest SQL DML statements used to update the APEL database is created in the same directory as the log files. The format of the sql file is YYYY-MM.sql
+
+  4. The script will, after completing the APEL database update, create  xml and html files of the data contained in the APEL database table. This was added on 4/17/08 to provide visibility into the data being sent.  No functionality is contained in this script to use these files.  This just makes them available.
+
+Usage:
+<verbatim>
+  LCG.py(lcg.sh)  --conf=config_file --date=month [--update] [--no-email]
+
+     --conf - specifies the main configuration file to be used
+              which would be the lcg.conf file normally
+
+     --date - specifies the monthly time period to be updated:
+              Valid values:
+                current  - the current month
+                previous - the previous month
+                YYYY/MM  - any year and month
+
+              The 'current' and 'previous' values are to facillitate running
+              this as a cron script.  Generally, we will run a cron
+              entry for the 'previous' month for n days into the current
+              month in order to insure all reporting has been completed.
+
+     The following 2 options are to facillitate testing and to avoid
+     accidental running and updating of the APEL/LCG database and are
+     therefore considered optional:
+
+     --update - this option says to go ahead and update the APEL/LCG database.
+                If this option is NOT specified, then everything is executed
+                EXCEPT the actual updating of the database.  The SQL DML
+                file used to update the database will be created.
+
+     --no-email - this option says to turnoff the sending of email
+                notifications on failures and successful completions.
+</verbatim>
+
+
+---++++ !DownTimes.py
+Class used to query !MyOSG for planned downtimes for a site/resource.
+
+---++++ !InactiveResources.py
+Class used to query !MyOSG for sites/resources that have been marked as <I>inactive</i>.
+
+---++++ lcg.sh
+This shell script is used to execute the LCG.py process.  The primary purpose of this shell script is to get access to a !MySql client. The !MySql being used comes from Fermi UPS.  It assumes UPS is available via /fnal/ups/etc/setups.sh. There is no command line argument to override this.  All other command line arguments are passed directly to the LCG.py script which collects the data from the gratia database and updates the APEL database. <br /> <br />This script will log error messages to stdout. So it is important you do not redirect stdout/err in the cron entry.  This will insure that someone gets an email notification if a failure occurs. <br /> <br />It is also important that you 'cd' to the lcg.sh parent directory if you specify relative paths for the various files in the lcg.conf file.
+
+---++++ find-late-updates.sh
+Shell script used to show sites/resource that have updated Gratia for the previous month during the current month.  This output of this is visible in the table column <i>late updates</i> here: http://gratia-osg-prod.opensciencegrid.org/gratia-data/interfaces/apel-lcg/
+
+---++++ create-apel-index.sh
+Shell script that creates the index.html for: http://gratia-osg-prod.opensciencegrid.org/gratia-data/interfaces/apel-lcg/ <br />This is based on certain files in the log directory specified by the <i>LogSqlDir</i> attribute in the <i>lcg.conf</i> file.
+
+---+++ Configuration (lcg.conf)
+The <i>lcg.conf</i> is the main configuration file used by the interface.
+
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
+%EDITTABLE{   format="| text, 25 | textarea, 4x50 |"  changerows="on" quietsave="on" editbutton="Edit table" }% 
+| *File* | *Description* |
+| !GratiaCollector | Data directory for Gratia collector. <br />   * /data/tomcat-gratia/webapps/gratia-data/interfaces/apel-lcg <br />The xml and html files are made accessible via this collector (uses an scp format). If you do not want the files copied to a collector, then use the keyword 'DO_NOT_COPY'. <br /> |
+| [[#SiteFilterFile_lcg_reportableSit][SiteFilterFile]] | File with list of sites/resources to be reported and the normalization factor. |
+| !SiteFilterHistory | History directory for keeping previous periods (months)!SiteFilterFile's (<NAME>.YYYYMM) <br /> |
+| [[#VOFilterFile_lcg_reportableVOs][VOFilterFile]] | File with list of VOs to be reported |
+| [[#DBConfFile_lcg_db_conf][DBConfFile]] | Configuration file for databases |
+| !LogSqlDir | Directory for log files and the sql dml update file. |
+| !MissingDataDays | Number of days where a site/resource has no data reported to Gratia for the month.  If more than this number of days, a warning/advisory email will be generated. |
+| !NormalizationProbe | Probe name to calculate a default normalization factor. <b>Note:</b> This is obsolete as all sites/resources have a normalization factor. |
+| !NormalizationPeriod | Number of periods (months) to use in calculating the normalization factor.  The period will be a full 3 months when the run is made for any previous period and from 2-3 months depending on the day the process is run in a current month. <br /><b>Note:</b> This is obsolete as all sites/resources have a normalization factor. |
+| !NormalizationDefault | Default value to use if no data is available for the !NormalizationProbe (can occur at beginning of a month and the !NormalizationPeriod is <= 1, or if there is a problem with that probe) <br /><b>Note:</b> This is obsolete as all sites/resources have a normalization factor. |
+| !FromEmail | Email address of the sender.  Since this is a cron run process, this is dependent on how email is set up locally. |
+| !ToEmail | List of comma separated email addresses.  Email notifications are sent to this list for all executions of this interface for both success and failure. |
+
+
+---++++ !SiteFilterFile (lcg-reportableSites)
+This file identifies the set of sites/resources reportable to the APEL-LCG database and the normalization factor to be used in the gratia query.
+   * token 1 - The !SiteName/Resource name as reported in Gratia.
+   * token 2 - The normalization value to be used. This was obtained from site surveys regarding the hardware used on a site's clusters and is an estimated value based on a SPECint2000 specification.  If no value is specified, then a value is derived from the  gratia database using the gratia_psacct.!ProbeName specified in lcg.conf file.
+      * These tokens are whitespace separated.   
+      * Comments - line starting with a # sign 
+      * Empty lines are permitted.
+
+Example:
+<verbatim>
+#
+#--- CMS Tier 1 ----
+USCMS-FNAL-WC1-CE   1809
+#--- CMS Tier 2 ----
+CIT_CMS_T2          3046
+GLOW                2408
+HEPGRID_UERJ        2117
+  :
+####################################
+#--- ATLAS Tier 1 ----
+BNL_ATLAS_1         2302
+#--- ATLAS Tier 2 ----
+AGLT2               3130
+BU_ATLAS_Tier2      2022
+   :
+</verbatim>
+<b>Note: In the future, the need for this configuration file should be eliminated.  It would be replaced by a query of !MyOSG using the WLCG Accounting data for the Resource/Site.</b>
+
+---++++ !VOFilterFile (lcg-reportableVOs)
+This file identifies the VO data reported for each reportable site/resource.  
+Example:
+<verbatim>
+cms
+uscms
+atlas
+usatlas
+</verbatim>
+
+---++++ !DBConfFile (lcg-db.conf)
+Identifies access information for the Gratia and APEL databases.
+
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
+%EDITTABLE{   format="| text, 25 | textarea, 2x50 |"  changerows="on" quietsave="on" editbutton="Edit table" }% 
+| *File* | *Description* |
+| !GratiaHost | Gratia database host |
+| !GratiaPort | Gratia database port |
+| !GratiaUser | Gratia user (should always be a read only) |
+| !GratiaPswd | File containing the !GratiaUser password. Permissions should be set to read only by the owner.) |
+| !GratiaDB | Gratia database (schema) |
+| | |
+| !LcgHost | APEL database host |
+| !LcgPort | APEL database port |
+| !LcgUser | APEL database user ("OSG" for both production and test) |
+| !LcgPswd | File containing the !LcgUser password. Permissions should be set to read only by the owner.) |
+| !LcgDB | APEL database/schema ("accounting" for both production and test) |
+| !LcgTable | APEL data base table for Site-Resource summary data <br />   * production (OSG_DATA) <br />   * test (OSG_DATA_TEST) |
+| !LcgUserTable | APEL data base table for Site-Resource/DN summary data <br />   * production (OSG_CN_DATA) <br />   * test (OSG_CN_DATA_TEST) |
+
+<b>IMPORTANT:</b> !MySql access permissions for the APEL accounting database is based on the node running this interface.  Currently, access is being granted from gr8x0, gratia02 and gratia03 nodes at fnal.gov.  In addition to the 4 tables updated (OSG_DATA, OSG_DATA_TEST, OSG_CN_DATA, OSG_CN_DATA_TEST), this interface needs "read-only" access to the following 2 tables:
+   * org_Tier1
+   * org_Tier2
+
+---+++ Crontab
+As mentioned somewhere way back in this document, the general practice has been run this interface from the 1st of the current month thru the 15th of the next month (e.g. for November, it will run nightly from 11/1 thru 12/15) to accommodate sites/resources that may have had reporting problems and are in "catch-up" mode.  So 2 cron entries are required:
+<verbatim>
+##########################################################################
+# Gratia-to-APEL (WLCG) transfer crontab entry
+#
+# Note: When scheduling the time of these scripts, you should first
+#       check with the root cron's database backup to insure there
+#       is not a conflict.
+#       This script also must be run on the same host as the
+#       tomcat-gratia collector as it copies files into its
+#       ./webapps/gratia-data/interfaces/apel-lcg directory.
+#-------------------------------------------------------------------------
+#
+# Previous month's transfers
+# For just the 1st n days of the month to insure all have reported
+#
+15 0 1-15 * *   dir=/home/gratia/interfaces/apel-lcg; cd $dir; ./lcg.sh --config=lcg.conf --date=previous --update; ./create-apel-index.sh /data/tomcat-gratia
+#
+#-------------------------------------------------------------------------
+# Current month's transfers.
+# Always daily.
+#
+15 1 * * *   dir=/home/gratia/interfaces/apel-lcg; cd $dir; ./lcg.sh --config=lcg.conf --date=current --update; ./find-late-updates.sh /data/tomcat-gratia; ./create-apel-index.sh /data/tomcat-gratia
+#
+##########################################################################
+</verbatim>
+
+
 
 ---++ More information
    *  %EGEE_PORTAL_OSG_VIEW%
