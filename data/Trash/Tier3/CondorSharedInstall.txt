@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1261442743" format="1.1" reprev="1.11" version="1.11"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1261516948" format="1.1" reprev="1.12" version="1.12"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -71,15 +71,21 @@ LOCAL_CONFIG_FILE = /nfs/condor/condor-etc/condor_config.cluster
 cp /scratch/condor/condor_config.local /nfs/condor/condor-etc/condor_config.cluster
 </pre>
    * Edit the cluster Condor configuration file =/nfs/condor/condor-etc/condor_config.cluster= with the following content:
-      * If needed change the value of these variables:<pre>
-## OSG T3 configuration
+      * Copy the following content (attached in [[][condor_config.cluster]]) changing the values to suite your cluster (yourdomain.org, c1-ce.yourdomain.org):<pre>
+## Condor configuration for OSG T3
+## For more detial please see
+## http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
 LOCAL_CONFIG_FILE = /nfs/condor/condor-etc/condor_config.$(HOSTNAME)
 # The following should be your T3 domain
 UID_DOMAIN = yourdomain.org
-# FILESYSTEM_DOMAIN = yourdomain.org
+# Human readable name for your Condor pool
+COLLECTOR_NAME = "Tier 3 Condor at $(UID_DOMAIN)"
+# A shared file system (NFS), e.g. job dir, is assumed if the name is the same
 FILESYSTEM_DOMAIN = $(UID_DOMAIN)
 ALLOW_WRITE = *.$(UID_DOMAIN)
 CONDOR_ADMIN = root@$(FULL_HOSTNAME)
+# Port range should be opened in the firewall (can be different on different machines)
+# This 9000-9999 is coherent with the iptables configuration in the T3 documentation 
 IN_HIGHPORT = 9999
 IN_LOWPORT = 9000
 # The following should be the full name of the head node
@@ -90,12 +96,28 @@ SEC_DAEMON_AUTHENTICATION_METHODS = password
 SEC_CLIENT_AUTHENTICATION_METHODS = password,fs,gsi,kerberos
 SEC_PASSWORD_FILE = /scratch/condor/condor_credential
 ALLOW_DAEMON = condor_pool@*
+##  Scheduling parameters for the startd
+TRUST_UID_DOMAIN = TRUE
+# start as available and do not suspend, preempt or kill
+START = TRUE
+SUSPEND = FALSE
+PREEMPT = FALSE
+KILL = FALSE
+##  Sets how often the condor_negotiator starts a negotiation cycle (for negotiator and schedd). 
+##  It is defined in seconds and defaults to 60 (1 minute), default is 300. 
+NEGOTIATOR_INTERVAL = 20
 </pre>
       * Make sure that you have the following line at the beginning of the file <pre>CONDOR_HOST = gc1-ce</pre>
          * Note: =CONDOR_HOST= can be set with or without the domain name: =gc1-ce= or =gc1-ce.yourdomain.org=
       
    * Link =condor_config= in the *condor* user's home directory to the location of the global configuration file (this allows condor to find the file without requiring environment variables):<pre>
 ln -s /opt/condor/etc/condor_config ~condor/condor_config
+</pre>
+   * Create the file with the host configuration (specific for the headnode) copying the following line:<pre>
+## OSG T3 host configuration
+## For more info: http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
+# List of daemons on the node (headnode requires collector and negotiator, schedd required to submit jobs, startd to run jobs)
+DAEMON_LIST = MASTER, COLLECTOR, NEGOTIATOR
 </pre>
    * Start up the Condor master and check for running processes <pre>
 /opt/condor/sbin/condor_master
@@ -109,7 +131,7 @@ root      4410  4348  0 06:43 pts/2    00:00:00 grep condor
 </pre>
 
    * Now create configuration files for each of the hosts for editing.   All hosts must have a corresponding condor_config.${HOST} file.  In addition all compute nodes must be configured the same way, so we create links to a single compute node configuration file (=condor_config.gc1-cXXX=): <pre>
-cd /opt/condor/etc/
+cd /nfs/condor/condor-etc/
 cp condor_config.gc1-ce condor_config.gc1-cXXX
 ln -s condor_config.gc1-cXXX condor_config.gc1-c001
 ln -s condor_config.gc1-cXXX condor_config.gc1-c002
