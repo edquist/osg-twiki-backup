@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1261523510" format="1.1" version="1.13"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1261535534" format="1.1" reprev="1.14" version="1.14"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -22,6 +22,10 @@ The [[http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.htm][Condor man
 
 ---++ Management node installation
 Install Condor on the machine that will be the central manager.  In this tutorial use *gc1-ce*, the same host as the OSG compute element.  
+
+If the =/nfs/condor= directory is exported with root squash from a NFS server that is not also the central manager you'll have to adapt the following instructions. You have to edit the configuration files in =/nfs/condor/condor-etc/= from the NFS server. Furthermore you have two options for the installation:
+   1. you disable root squash for the installation (and any time you perform Condor upgrades).
+   2. you perform installation (and upgrades) on the NFS server, then you remove the local Condor directories from it and you create them on the central manager (the same way that you do on the other nodes).
 
    * Go to the [[http://www.cs.wisc.edu/condor/downloads-v2/download.pl][download page]] and choose the Condor version (e.g. 7.4.0, current production version).
    * Choose the correct distribution for your platform (the one below condor 7.4.0 for RHEL 5 dynamically linked ):
@@ -121,6 +125,9 @@ ln -s /opt/condor/etc/condor_config ~condor/condor_config
 # schedd required to submit jobs, startd to run jobs)
 DAEMON_LIST = MASTER, COLLECTOR, NEGOTIATOR
 </pre>
+   * Set the password that will be used by the Condor system (at the prompt enter the same password for all nodes):<pre>
+condor_store_cred -c add
+</pre>
    * Start up the Condor master and check for running processes <pre>
 /opt/condor/sbin/condor_master
 ps -ef |grep condor
@@ -174,28 +181,15 @@ drwxrwxrwt 2 condor root 4096 Oct 15 04:07 execute
 drwxr-xr-x 2 condor root 4096 Oct 15 04:15 log
 drwxr-xr-x 2 condor root 4096 Oct 15 04:02 spool
 </pre>
+   * Set the password that will be used by the Condor system (at the prompt enter the same password for all nodes):<pre>
+condor_store_cred -c add
+</pre>
    * Enable automatic startup:<pre>
 cp /opt/condor/etc/examples/condor.boot /etc/init.d/condor
 chkconfig --level 235 condor on
 </pre>
    * Add Condor commands to the user environment (if you like to have condor commands in the path): <pre>
 cp /opt/condor/condor.sh /opt/condor/consor.csh /etc/profile.d/
-</pre>
-
----+++ Swap configuration on the condor submit host
-If you have no swap space on the submit host all your job submissions will fail and in =/scratch/condor/log/SchedLog= you will see errors like "Swap space estimate reached! No more jobs can be run!". 
-
-You can check your swap memory with =cat /proc/meminfo |grep Swap= and you will see something like:<pre> 
-SwapCached:          0 kB
-SwapTotal:     2097144 kB
-SwapFree:      2097080 kB
-</pre>
-If the numbers above are all 0, you have no swap space.
-
-The recommendation is to enable a swap space on your host. Here some information to [[http://www.cyberciti.biz/faq/linux-add-a-swap-file-howto/][add a swap file]] or [[http://www.xenotime.net/linux/doc/swap-mini-howto.txt][a swap-howto, see section 5]]. If you cannot, here is a workaround in Condor to avoid to use swap space. It will work for small test clusters.
-
-In the file =condor_config.gc1-ui= file add the line: <pre>
-RESERVED_SWAP = 0
 </pre>
 
 ---++ Upgrades
@@ -215,11 +209,56 @@ Check CondorTest for more.
 ---++ Special needs
 The following sections present instructions or suggestion for uncommon configurations
 
+---+++ Changes to the Firewall (IPtables)
+If you are using a Firewall (e.g. iptables) on all nodes you need to open the ports used by Condor:
+   * Edit the =/etc/sysconfig/iptables= file to add these lines ahead of the reject line:<pre>
+-A RH-Firewall-1-INPUT  -s <network_address> -m state --state ESTABLISHED,NEW -p tcp -m tcp --dport 9000:10000 -j ACCEPT  
+-A RH-Firewall-1-INPUT  -s <network_address> -m state --state ESTABLISHED,NEW -p udp -m udp --dport 9000:10000 -j ACCEPT 
+</pre> where the network_address is the address of the intranet of the T3 cluster. (Or the extranet if your T3 does not have a separate intranet).
+   * Restart the firewall:<pre>
+/etc/init.d/iptables restart
+</pre>
+
+---+++ Swap configuration on the Condor submit host
+If you have no swap space on the submit host all your job submissions will fail (remain Idle) and in =/scratch/condor/log/SchedLog= you will see errors like "Swap space estimate reached! No more jobs can be run!". 
+
+You can check your swap memory with =cat /proc/meminfo |grep Swap= and you will see something like:<pre> 
+SwapCached:          0 kB
+SwapTotal:     2097144 kB
+SwapFree:      2097080 kB
+</pre>
+If the numbers above are all 0, you have no swap space.
+
+The recommendation is to enable a swap space on your host. Here some information to [[http://www.cyberciti.biz/faq/linux-add-a-swap-file-howto/][add a swap file]] or [[http://www.xenotime.net/linux/doc/swap-mini-howto.txt][a swap-howto, see section 5]]. If you cannot, here is a workaround in Condor to avoid to use swap space. It will work for small test clusters.
+
+In the file =condor_config.gc1-ui= file add the line: <pre>
+RESERVED_SWAP = 0
+</pre>
+
 ---+++ Multiple Condor version at the same time
 The  [[#Upgrades][Upgrades]] section above shows an easy way to deal with upgrades but there may be the need to run multiple version of Condor at the same time, e.g. if the cluster has different OS that require a different binary version of Condor. If your cluster is heterogeneous (nodes are different) the [[CondorRPMInstall][RPM installation]] may be easier. 
 
+To have multiple versions of Condor in a shared installation:
+   * download and install all the versions in subdirectories of =/nfs/condor/=<pre>
+mkdir /nfs/condor/condor-versionX
+mkdir /tmp/install
+tar xvzf <condor-versionX.tar.gz>
+cd condor-versionX
+./condor_install --prefix=/nfs/condor/condor-versionX --local-dir=/tmp/scratch-versionX --type=manager</pre>   
+</pre>
+   * on each node link the correct version to =/opt/condor=:<pre>
+ln -s /nfs/condor/condor-versionX /opt/condor
+</pre> 
+   * on each node fix the file =/opt/condor/etc/condor_config= as described above
+   * other instruction are similar:
+      * prepare the same way the shared configuration files
+      * create the local condor directories
+      * fix the automatic startup
+
 ---+++ No shared user directories
-   * In all local config files (=condor_config.gc1-ce=, =condor_config.gc1-ui=, =condor_config.gc1-cXXX=) there should be no line starting with  =UID_DOMAIN == or =FILESYSTEM_DOMAIN == else these would override the value set in =condor_config=.
+Condor is assuming that the directories used to submit jobs (e.g. the home directories) are shared among all the nodes that share the same string for =FILESYSTEM_DOMAIN =. If this is not the case for you, you have to:
+   * change the =FILESYSTEM_DOMAIN= in the cluster or host configuration file so that it is different for all the nodes, e.g. =FILESYSTEM_DOMAIN == $(HOSTNAME).yourdomain.org=.
+   *  when you submit a job, tell Condor to transfer the files: the executable and the input and output files. If files cannot be moved, the job will not go to a node with a =FILESYSTEM_DOMAIN= different from the submit host.
 
 %BR%
 %COMPLETE2% %BR%
