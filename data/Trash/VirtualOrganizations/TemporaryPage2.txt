@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AbhishekSinghRana" date="1265623929" format="1.1" reprev="1.6" version="1.6"}%
+%META:TOPICINFO{author="AbhishekSinghRana" date="1265646562" format="1.1" reprev="1.7" version="1.7"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -45,6 +45,7 @@ The Hadoop RPMs require Sun Java JDK 1.6.0 or later. You can download it from ht
 <!--
 %RED% *NOTE:* %ENDCOLOR% This section is fully relevant only after you have installed =hadoop=, =fuse=, =fuse-libs= using the OSG YUM repository. Please read and revisit after the following sections.
 -->
+|Target |On every node that mounts HDFS:|
 
 FUSE (Filesystem in USErspace) is a simple interface for userspace programs to export a virtual filesystem to the linux kernel. 
 
@@ -88,16 +89,37 @@ $ vi /boot/grub/grub.conf -- Check value of 'default' and section of relevant ke
 
 If you are running a custom kernel, then be sure to enable the FUSE module with =CONFIG_FUSE_FS=m=. Building a FUSE kernel-module for  custom kernels is beyond the scope of this document.
 
+After installation of FUSE kernel-module and =fuse-libs= (as listed in sections below), a site can mount HDFS with FUSE by modifying =/etc/fstab=. Note that this document assumes =/mnt/hadoop= as the mount point. Please modify it to match your local configuration.
+
+<pre class="screen">
+$ vi /etc/fstab 
+Add -- 
+hdfs# /mnt/hadoop fuse server=NAMENODE.HOST.FQDN,port=9000,rdbuffer=32768,allow_other 0 0
+
+$mount /mnt/hadoop
+</pre>
+
+%RED%NOTE:%ENDCOLOR% Following warnings printed to the screen are harmless:
+
+<pre class="screen">
+$ mount /mnt/hadoop
+port=32767,server=(
+fuse-dfs didn't recognize /mnt/hadoop,-2
+fuse-dfs ignoring option allow_other
+</pre>
+
 ---+++ Initializer RPM
 
-Download and install the =osg-hadoop= RPM . This will initialize the OSG YUM repository for Hadoop.
+|Target |On all nodes:|
+
+Download and install the =osg-hadoop= RPM on *all* nodes. This will initialize the OSG YUM repository for Hadoop.
 
 <pre class="screen">
 $ wget http://vdt.cs.wisc.edu/hadoop/osg-hadoop-1-2.el5.noarch.rpm
 $ rpm -Uvh osg-hadoop-1-2.el5.noarch.rpm
 </pre>
 
-This initializes YUM repository in =/etc/yum.repos.d/osg-hadoop.repo=. 
+This initializes YUM repository configuration in =/etc/yum.repos.d/osg-hadoop.repo=. 
 
 %RED% *NOTE for ITB Sites:* %ENDCOLOR% By default, *Stable Repository* is enabled (=enabled=1=) in the YUM configuration. ITB sites doing testing can enable the *Testing Repository* to fetch pre-release packages. Simply set =enabled=0= in =[hadoop]= section and =enabled=1= in =[hadoop-testing]= section of =/etc/yum.repos.d/osg-hadoop.repo=.
 
@@ -106,7 +128,7 @@ This initializes YUM repository in =/etc/yum.repos.d/osg-hadoop.repo=.
 Decide the components to be installed on each node. After java, FUSE kernel-module, and the initializer RPM =osg-hadoop= have been installed,  components of the SRM-Hadoop system can be installed and upgraded using =yum= commands. 
 
 <pre class="screen">
-$ yum install|upgrade <component-name>
+$ yum install|upgrade <i>component-name</i>
 </pre>
 
 Examples:
@@ -123,64 +145,194 @@ Services can be started with:
 
 <pre class="screen">
 $ service hadoop-firstboot start
-$ chkconfig <component-name> on
-$ service <component-name> start|stop
+$ chkconfig <i>component-name</i> on
+$ service <i>component-name</i> start|stop
 </pre>
 
 FUSE can be mounted at boot time. Instructions are [[Storage.HadoopInstallation#Mounting_fuse_at_boot_time][here]].
 
 ---++++ !NameNode
 
+|Target |On the namenode:|
+
 <pre class="screen">
 $ yum install|upgrade hadoop
-$ yum install|upgrade hadoop-fuse fuse
+$ yum install|upgrade hadoop-fuse fuse fuse-libs
+$ vi /etc/sysconfig/hadoop -- Edit appropriately.
+$ service hadoop-firstboot start
+$ service hadoop start
 </pre>
 
-Main configuration file is =/etc/sysconfig/hadoop=. See [[Storage.HadoopInstallation#Edit_etc_sysconfig_hadoop][configuration template]]. Parameter =HADOOP_NAMENODE= is set to the same value on all nodes. 
+Main configuration file is =/etc/sysconfig/hadoop=. 
 
-For more details, read [[Storage.HadoopInstallation][OSG Storage's Hadoop install document]].
+After making changes to this file, a site must run =service hadoop-firstboot start= to propagate the changes to the hadoop configuration files in =/etc/hadoop=. 
+
+%RED%NOTE:%ENDCOLOR% =hadoop-firstboot= must be executed every time a site makes changes to =/etc/sysconfig/hadoop=. 
+
+See [[Storage.HadoopInstallation#Edit_etc_sysconfig_hadoop][configuration template]]. Parameter =HADOOP_NAMENODE= is set to the same hostname string on all nodes in the system. 
+
+For more details, read [[Storage.HadoopInstallation][OSG Storage's Hadoop install documents]].
+
+---++++ Secondary !NameNode
+
+|Target|On another hardware with secondary namenode:|
+
+For production-level operations, we strongly recommend deploying a secondary namenode. This should be on a separate node than the primary namenode. A virtual machine can be used if hardware is limited. Secondary namenode aids primary namenode in periodic merging of metadata (filesystem image). Parameter =HADOOP_SECONDARY_NAMENODE= is important and sets the hostname of secondary namenode.
 
 ---++++ !DataNode
 
+On every datanode:
+
 <pre class="screen">
 $ yum install|upgrade hadoop
-$ yum install|upgrade hadoop-fuse fuse
+$ yum install|upgrade hadoop-fuse fuse fuse-libs
+$ vi /etc/sysconfig/hadoop -- Edit appropriately.
+$ service hadoop-firstboot start
+$ service hadoop start
+$ chkconfig hadoop on
 </pre>
 
 Main configuration file is =/etc/sysconfig/hadoop=. See [[Storage.HadoopInstallation#Edit_etc_sysconfig_hadoop][configuration template]]. Parameter =HADOOP_DATADIR= is important and sets the partition/directory where data is stored.
 
-For more details, read [[Storage.Hadoop.HadoopInstallation][OSG Storage's Hadoop install document]].
+For more details, read [[Storage.HadoopInstallation][OSG Storage's Hadoop install document]]. To configure a datanode to use multiple directories, you need to enter each directory in the =HADOOP_DATA= setting in =/etc/sysconfig/hadoop= as a comma-separated list of directories (with no spaces) and then run =service hadoop-firstboot start=. 
+
+Example:
+
+<pre class="screen">
+$ vi /etc/sysconfig/hadoop
+Edit -- HADOOP_DATA=/data1/hadoop/data,/data2/hadoop/data,/data3/hadoop/data,/data4/hadoop/data
+$ service hadoop-firstboot start
+</pre>
 
 ---++++ !GridFTP
 
+|Target|On every node with !GridFTP server:|
+
+<pre class="screen">
+$ yum install|upgrade gridftp-hdfs
+$ vi /etc/sysconfig/hadoop -- Edit appropriately.
+$ service hadoop-firstboot start
+$ vi /etc/grid-security/prima-authz.conf -- Add GUMS hostname
+$ service xinetd restart
+</pre>
+
+It is not necessary to start any hadoop services with =service hadoop start= if a site is running a dedicated GridGTP server, with no datanode or namenode services running on the same host.
+
+Modify =prima-authz.conf= to enter the URL for your site's GUMS server, and the path to your host certificate pair:
+
+<pre class="screen">
+$ vi /etc/grid-security/prima-authz.conf 
+Edit -
+imsContact https://GUMS.HOST.FQDN:8443/gums/services/GUMSAuthorizationServicePort
+...
+serviceCert /etc/grid-security/hostcert.pem
+serviceKey  /etc/grid-security/hostkey.pem
+</pre>
+
+For more details, read [[Storage.HadoopGridFTP][OSG Storage's Hadoop install documents]].
+
 ---++++ SRM
+
+|Target|On node with SRM server:|
+
+<pre class="screen">
+$ yum install|upgrade bestman
+$ vi /opt/bestman/conf/bestman.rc -- Edit appropriately.
+$ visudo -- Add specific sudo privileges for the bestman user.
+$ service bestman start
+$ chkconfig bestman on
+</pre>
+
+Bestman SRM configuration file is =/opt/bestman/conf/bestman.rc=.  A few settings may need to be modified.
+
+Example:
+
+<pre class="screen">
+$ vi /opt/bestman/conf/bestman.rc 
+Edit --
+supportedProtocolList=gsiftp://GRIDFTP-1.HOST.FQDN:2811;gsiftp://GRIDFTP-2.HOST.FQDN:2811
+GUMSserviceURL=https://GUMS.HOST.FQDN:8443/gums/services/GUMSAuthorizationServicePort
+localPathListAllowed=/mnt/hadoop;/tmp
+</pre>
+
+Bestman uses sudo to perform changes to the filesystem namespace.  This ensures that directories get created and file get removed with the proper permissions.  You must manually add permissions.  Append the following to the end of the =/etc/sudoers= file with the =visudo= command:
+
+<pre class="screen">
+$ visudo 
+Add --
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls 
+Runas_Alias SRM_USR = ALL, !root 
+bestman ALL=(SRM_USR) NOPASSWD:SRM_CMD
+</pre>
+
+If you are running SL5, comment out the following line in /etc/sudoers:
+<pre class="screen">
+Defaults    requiretty
+</pre>
+
+For more details, read [[Storage.HadoopSRM][OSG Storage's Hadoop install documents]]. 
 
 ---++++ Transfer Probe
 
+|Target|On every node with !GridFTP server:|
+
+<pre class="screen">
+$ yum install|upgrade gratia-probe-gridftp-transfer gums-client
+$ vi /opt/vdt/gratia/probe/gratia-transfer/ProbeConfig -- Edit configuration
+$ vi /etc/gums/gums-client.properties -- Edit configuration
+</pre>
+
+The RPM installs the Gratia probe into the system crontab, but configuration needs to be made in =/opt/vdt/gratia/probe/gratia-transfer/ProbeConfig=. Main configuration file for the gums-client utilities is =/etc/gums/gums-client.properties=. 
+
+For more details, read [[Storage.HadoopGratia][OSG Storage's Hadoop install documents]]. 
+
 ---++++ Storage Probe
 
+|Target |On the namenode:|
+
+Install and configure the probe:
+
+<pre class="screen">
+$ yum install|upgrade gratia-probe-hadoop-storage
+$ vi /opt/vdt/gratia/probe/hadoop-storage/ProbeConfig -- Edit configuration
+$ vi /opt/vdt/gratia/probe/hadoop-storage/storage.cfg -- Edit configuration
+</pre>
+
+Then, install and configure the reporting:
+
+<pre class="screen">
+$ yum install|upgrade gratia_reporting
+$ cp /etc/gratia_reporting/reporting.cfg /etc/gratia_reporting/reporting_cms.cfg
+$ cp /etc/gratia_reporting/gratia_reporting.cron /etc/cron.d/.
+</pre>
+
+For more details, read [[Storage.HadoopStorageReports][OSG Storage's Hadoop install documents]]. 
 
 ---++ Validation
 
 <pre class="screen">
-srm-ping
+$ cd /mnt/hadoop
+$ hadoop fs -ls /
 </pre>
 
 <pre class="screen">
-lcg-cp
+$ srm-ping  srm://SRM.SERVER.FQDN:8443
 </pre>
 
 <pre class="screen">
-lcg-ls
+$ lcg-cp -v -b -D srmv2 file:/home/user/testfile  srm://SRM.SERVER.FQDN:8443/srm/v2/server?SFN=/mnt/hadoop/user/testfile
 </pre>
 
----++ References
+<pre class="screen">
+$ lcg-ls  -l -b -D srmv2 srm://SRM.SERVER.FQDN:8443/srm/v2/server?SFN=/mnt/hadoop
+$ lcg-ls  -l -b -D srmv2 srm://SRM.SERVER.FQDN:8443/srm/v2/server?SFN=/mnt/hadoop/user
+</pre>
 
 <br />%STOPINCLUDE% 
 %BR% 
 %COMPLETE3% %BR% 
-%RESPONSIBLE% Main.AbhishekSinghRana- 12 Sept 2008 %BR% 
-%REVIEW% Main.TanyaLevshina - 21 Jul 2009 %BR%
+%RESPONSIBLE% Main.AbhishekSinghRana- 1 Feb 2010 %BR% 
+%REVIEW% Main.TanyaLevshina - 15 Feb 2010 %BR%
 %REVFLAG% %X% %BR%
 
 %COMMENT{type="tableappend"}%
