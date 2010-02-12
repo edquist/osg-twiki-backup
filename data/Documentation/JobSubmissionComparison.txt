@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ParagMhashilkar" date="1265925232" format="1.1" reprev="1.13" version="1.13"}%
+%META:TOPICINFO{author="IgorSfiligoi" date="1265938827" format="1.1" reprev="1.14" version="1.14"}%
 %META:TOPICPARENT{name="WebHome"}%
 %LINKCSS%
 
@@ -16,7 +16,7 @@
 %EDITTHIS%
 ---+ A Comparison of OSG Job Submission/Resource Provisioning Methods
 ---++Introduction
-In Grid computing, computational resources are distributed over many independent sites with only a thin layer of Grid middleware shared between them. This deployment model is very convenient for computational resource providers. They can continue to operate their local distributed resources according to local preferences and expertise, integrating them easily with other, non-Grid resources. Moreover, the decentral­ized nature of the Grid allows for easy scalability as one just needs to split a site into multiple logical pieces if scalability becomes an issue ??? Parag, not sure what you mean by this last statement???
+In Grid computing, computational resources are distributed over many independent sites with only a thin layer of Grid middleware shared between them. This deployment model is very convenient for computational resource providers. They can continue to operate their local distributed resources according to local preferences and expertise, integrating them easily with other, non-Grid resources. Moreover, the decentral­ized nature of the Grid allows for easy scalability as one just needs to split a site into multiple logical pieces if scalability becomes an issue (e.g. install multiple CEs to the same compute cluster).
 
 However, the Grid deployment model introduces several problems for the users of the system -- three major problems being --
    * The complexity of job scheduling in the Grid environment
@@ -83,7 +83,12 @@ Most users end up with using Condor DAGMan to create a workflow of their jobs. D
 ---++++ implementation, Deployment, and Management Description
 OSGMM was designed to be easy to deploy and support at the VO/university/lab submit level. It is shipped with VDT and can be installed with the OSG client software stack with just one additional pacman command. OSGMM should be installed as root, but will run as a non-privileged user. ??? When as root, why??? OSGMM requires about 1 GB RAM (used to track jobs in the system). One instance will serve all users on that submit host, using Condor's fair-share algorithm to handle jobs from multiple users.
 
+???Igor:  Why do you need to run the MM as root? And which part? All of it? Just certain processes???
+
+
 Each VO can have a central OSGMM instance (polling ReSS for information) to run verification/maintenance jobs and then have other instances of OSGMM  (polling the VO OSGMM instance for information including site status) running on the submit hosts. OSGMM scales up to about 5,000 jobs per submit host. ???Single or multi core??? For VOs that prefer not to host their own job submission system, however, the Engage team hosts a fully functional submit host that users can utilize.
+
+???Igor: Who maintains the site validation scripts? Are they generic or VO specific???
 
 ---++++Some OSGMM Considerations
 In exchange for the relatively lightweight job submission mechanism whereby jobs are sent to distributed systems and managed by the distributed systems themselves, there are some inherent limitations as well. First, by the time that jobs actually get to the remote site, conditions may have changed and there can be longer than expected waiting for the remote queue to schedule the job for example. Also, if a site is not configured correctly, even correctly configured jobs can fail with unexpected results. 
@@ -94,24 +99,59 @@ In exchange for the relatively lightweight job submission mechanism whereby jobs
 
 ---++++High Level Architecture and Design Consideration
 
-The Glidein Workload Management System (glideinWMS) utilizes a centralized pilot based submission system called a pilot or Glidein Factory (GF). A "pilot" job is a special type of job that lands on a distributed resource and then pulls in the users job to start executing it. An important advantage of this approach is that correctly configured users jobs are less likely to fail since they go directly into a running state and thereby bypass much of the site specificity that OSGMM users must learn to manage. Pilot jobs can of course fail to start with the same frequency as OSGMM submitted jobs, but these failures are seen by the Glidein Factory that submitted the pilot job and the user does not "experience" this type of failure. 
+The Glidein Workload Management System (glideinWMS) utilizes a centralized pilot based submission system called a pilot or Glidein Factory (GF). A "pilot" job is a special type of job that lands on a distributed resource and then pulls in the users job to start executing it. This approach, often called the PULL model, has a few advantages over the standard, or PUSH model, implemented by the OSG MatchMaker:
+   * The matchmaking of jobs to sites is much easier. Instead of trying to predict where the job will start first, pilots are sent to all the Grid sites that are supposed to be able to run the job. The first pilot that starts gets the job. The remaining glideins will either start another job that can run there (even if they were not submitted for the purpose of serving that job), or terminate within a short period of time. As long as there is a significant amount of jobs in the queue, only a small fraction of pilots will terminate without performing any useful work.
+   * The pilot can validate the node before pulling a user job; as a consequence correctly configured users jobs are less likely to fail. Pilot jobs can of course fail to start with the same frequency as OSG MatchMaker submitted jobs, but these failures are seen only by the Glidein Factory that submitted the pilot job and the user does not "experience" this type of failure. 
+   * Due to the centralized nature of the system, a pilot system can handle user priorities uniformly across the Grid. In the OSG MatchMaker model, each Grid site maintains the priorities of the users, based on the policies and historical usage data specific to that site.
 
-Another benefit of moving to a centrally managed system is that VOs can manage the overall priority of users and jobs by controlling the number of job submissions.
+This approach has of course also disadvantages:
+  * It requires a much heavier investment in hardware, so it must manage all the job information in greater detail.
+  * In order to get proper security, the pilot must be able to switch identity once the user job is pulled. This is not part of the original Grid security model, so only recently was a Grid tool, namely gLExec provided for this, and only a subset of Gird sites support it.
 
-The glideinWMS system combines one or more VO frontends and a Condor collector with one or more glidein factories (GF) together with the Condor management system as a user job Workload Management System (WMS)
+The glideinWMS system was developed on top of the Condor system. Most of its functionality comes from Condor condor itself, with just a thin layer on top of it. This approach was chosen to minimize the development and maintenance cost of the product, since Condor already provided a very powerful platform on which to build on. Moreover, this allows users with previous Condor know-how an easy path to the Grid world.
 
+The glideinWMS-specific services are composed of a frontend and a glidein factory (GF). The glidein factory is responsible to know which Grid sites are available and what are they attributes, and to advertize these information as "entry-point ClassAds" to a dedicated collector (known as the WMS pool). The frontend instead plays the role of a matchmaker, internally matching user jobs to the entry-point ClassAds, and then requesting the needed amount of glideins to the factory. Finally, the factory will submit the pilots, also know as glideins, that will start the Condor daemons responsible for resource handling.
+
+The picture below shows the architecture from a schematic point of view:<br>
 <img src="%ATTACHURL%/glideinWMS_at_a_glance_medium.png" alt="glideinWMS at a glance"> 
 
-Figure above shows a typical deployment of the glideinWMS system. It consists of two Condor pools,
-   * User pool (Green color) used by the users for their job management
-   * !GlideinWMS pool (Aqua color) used by the glideinWMS system to manage glideins. 
+Finally, GSI, i.e. X509 proxies, was chosen as the security mechanism. All communication between the various processes is authenticated via GSI and can be encrypted if desired.
 
----++++ Usage Description
-VO Frontend periodically queries user pool to check the status of user job queues. Based on the job queues, it instructs the glidein factory (GF) to submit glideins to run on Grid resource(s). A glidein is a properly configured Condor startd submitted as a Grid job. glideinWMS extensively uses Condor classad mechanism as a means of communication between its services. Once a glidein starts on a worker node, it will join the user Condor pool, making the obtained Grid-batch slot as a slot in the Condor pool. At this point, a regular Condor job can start there as if it is a dedicated resource. glideinWMS does not provide GUI interface for the users to submit their jobs, instead users use Condor client tools like condor_submit to submit their jobs. The user interfaces with the Condor batch system, he/she is shielded from the problems mentioned above that are introduced by the Grid deployment. Based on the time slot allocated for glidein to run, this glidein created batch slot can run more than one user jobs before relinquishing its claim over the grid resource. Thus, glideinWMS supports resource provisioning. This mechanism is quite effective in running short jobs using glideinWMS. Since a single glidein can run multiple short jobs, the effective wait time/overhead of running several short jobs this way is equivalent to running a single grid job. The resource provisioning feature can also be used to provide a guaranteed time slot for long running jobs. glideinWMS also provides users with the capability of selecting resources based on resource characteristics, like, hardware type, OS, packages installed on the worker node and any custom information that is required for the user jobs to run. glideinWMS can be configured to run pluggable scripts as the glidein bootstraps. This is useful in advertising desired resource information. Thus the combination of glidein’s bootstrapping scripts and pluggable scripts can identify potential problems with the resource before the user job could start on the resource. This makes glideinWMS more resilient to bad CE/resources and the environment on the resource.
+---++++ Usage Description (how users use the technology & use cases)
+
+From the *final user point of view*, glideinWMS is just a distributed Condor system. As with the OSG MatchMaker, the user must write a Condor job description, although for the vanilla universe, in order to run jobs. Most of the VOs currently using gldieinWMS have portals to insulate the final users from the details of the underlaying batch system, so this has been less of a problem for us that it has been for Engage.
+
+The glideins advertise a set of attributes the users can use to match jobs to resources. The matching algorithm can be as complex or as simple as liked; for example, CMS matches just on the site name.
+
+Finally, Condor DAGMan can be used to handle workflows just like with the OSG MatchMaker. Jobs of few minutes to several hours are supported; a single Condor schedd can easily handle 5-10Hz job turnaround rate. Very long jobs may be a problem due to preemption, like with the OSG MatchMaker, but Condor will restart the failed jobs so users usually don't see any failures.
+
+GlideinWMS does not specify a mechanism for data transfers; i.e. it supports only what Condor supports. For modest input and output sizes, the standard Condor file transfer works fine (and recent versions of Condor support, possibly cached, HTTP transfer as well), but for larger file transfers users are left on their own. 
+In our experience this was never a major problem, as the VO tend to have their own data handling solutions anyhow.
+
+From the *VO point of view*, glideinWMS requires the installation of a Condor central manager and a submit node, and the installation of the glideinWMS-specific daemons.
+
+The Condor central manager and submit node installation is very close to a standard Condor installation, with just small configuration changes; the glideinWMS installer can fully automate this, if desired.
+
+The glideinWMS-specific services are composed of two parts; a factory and a frontend. The VO must install its own frontend, while the factory can be shared among several VOs. While larger VOs are encouraged to host their own factory to attain maximum flexibility, UCSD currently hosts a factory that is open (upon request) to smaller OSG VOs. So factory installation will not be discussed here, as it is intended for advanced VO admins.
+
+The frontend configuration entails installing a Web server, creating the proper glidein matching configuration and starting the frontend daemons. The main elements to be configured are the list of Condor daemon DNs, the credential(s) used for glidein submission, the VO specific validation and data gathering scripts, and finally the matchmaking expression. The last one is needed because, as described above, the frontend is the glideinWMS matchmaker, and currently does not have a matching logic powerful enough to do true matchmaking; so help from the VO administrators is needed.
+
+The attributes published for the matchmaking at the Condor level are gathered as a mix of static attributes provided by the factory (usually extracted from the information system,  a set of scripts provided by the factory and a set of scripts provided by the frontend. The reasoning behind this is that the factory can tailor the scripts toward the type of resources served, while the frontend extracts, and publishes, VO specific information. There is no prescribed naming schema for the attributes, although nothing prevents the factory and/or VO administrators to adopt one (like GLUE).
+
+The factory and the frontend also can provide validation scripts, so user jobs never land on failing jobs; instead, the just the glideins fail.
+
+---++++ Implementation, Deployment, and Management Description
+VO Frontend periodically queries the user pool to check the status of user job queues. Based on the job queues, it instructs the glidein factory (GF) to submit glideins to run on Grid resource(s). A glidein is a properly configured Condor startd submitted as a Grid job. glideinWMS extensively uses Condor classad mechanism as a means of communication between its services. Once a glidein starts on a worker node, it will join the user Condor pool, making the obtained Grid-batch slot as a slot in the Condor pool. At this point, a regular Condor job can start there as if it is a dedicated resource. 
+
+Condor itself handles the interaction with gLExec; it is only a matter of proper configuration.
+
+glideinWMS does not provide GUI interface for the users to submit their jobs, instead users use Condor client tools like condor_submit to submit their jobs. The user interfaces with the Condor batch system, he/she is shielded from the problems mentioned above that are introduced by the Grid deployment. Based on the time slot allocated for glidein to run, this glidein created batch slot can run more than one user jobs before relinquishing its claim over the grid resource. Thus, glideinWMS supports resource provisioning. This mechanism is quite effective in running short jobs using glideinWMS. Since a single glidein can run multiple short jobs, the effective wait time/overhead of running several short jobs this way is equivalent to running a single grid job. The resource provisioning feature can also be used to provide a guaranteed time slot for long running jobs. glideinWMS also provides users with the capability of selecting resources based on resource characteristics, like, hardware type, OS, packages installed on the worker node and any custom information that is required for the user jobs to run. glideinWMS can be configured to run pluggable scripts as the glidein bootstraps. This is useful in advertising desired resource information. Thus the combination of glidein’s bootstrapping scripts and pluggable scripts can identify potential problems with the resource before the user job could start on the resource. This makes glideinWMS more resilient to bad CE/resources and the environment on the resource.
+
+glideinWMS does provide a set of Web-based monitoring tools for both the glidein factory and the VO frontend. This allows the factory and VO frontend administrators to easily monitor the system and discover eventual problems.
+
+Monitoring of the Condor pool can be achieved through standard Condor monitoring tools, varying from command line tools (like condor_q and condor_status), CondorView, and up to commercial tools like the ones developed and sold by Cycle Computing. 
 
 ---++++ Some Glide-in WMS Considerations
-
-The main disadvantage of glideinWMS like any other pilot-WMSes is the increased resource utilization of a WMS. A push WMS only needs to make a site-selection decision and hand the user job to the remote Grid site. A pilot-WMS, instead, must handle pilot jobs, user jobs and the handling and monitoring of the resources provided by the pilot jobs. 
 
 glideinWMS is used by in OSG and LCG by several VOs like CMS, CDF, !DZero, !IceCUBE and GPN and by experimental High Energy physics groups like Minos, Minerva and NOVA. glideinWMS supports several workflows supported by Condor from a simple job submission to complex DAGs. During the factory configuration step, glideinWMS can query the information systems like !ReSS and BDII to get the list of available grid resources. A system administrator can either accept all the sites or be more selective about the sites listed. glideinWMS will populate it's site list based on the selection made by the administrator and information about the sites listed in BDII or !ReSS. Current version of glideinWMS does not have any support for data management by the glideinWMS system itself. However, this is less of a short coming since most of the VOs have their own data management system which can be easily used by the user jobs run via glideinWMS.
 
@@ -144,7 +184,7 @@ Like glideinWMS, the Production and Distributed Analysis system (!PanDA) is a pi
 
    * System-wide site/queue information database recording static and dynamic information used throughout !PanDA to configure and control system behavior from the 'cloud' (region) level down to the individual queue level. It is used by pilots to configure themselves appropriately for the queue they land on; by Panda brokerage for decisions based on cloud and site attributes and status; and by the pilot scheduler to configure pilot job submission appropriately for the target queue.
    * Coherent and comprehensible system view afforded to users, and to Panda's own job brokerage system, through a system-wide job database that records comprehensive static and dynamic information on all jobs in the system. To users and to Panda itself, the job database appears essentially as a single attribute-rich queue feeding a worldwide processing resource.
-   * Easy integration of local resources. Minimum site requirements are a grid computing element or local batch queue to receive pilots, outbound http support, and remote data copy support using grid data movement tools.
+   * Easy integration of local resources. Minimum site requirements are a grid computing element or local batch queue to receive pilots, outbound http support, and remote data copy support using grid data movement tools. ??? Igor: How does this differ from OSGMM and glideinWMS???
 
 Additional considerations are as follows: ???This section needs to be shortened???
    * Single workload management system to handle both ongoing managed production and individual users activity (such as analysis), so as to benefit from a common infrastructure and to allow all participants to leverage common operations support.
@@ -164,6 +204,7 @@ Jobs are submitted to !PanDA via a simple client interface by which users define
 An independent subsystem manages the delivery of pilot jobs to worker nodes via a number of scheduling systems. A pilot once launched on a worker node contacts the dispatcher and receives an available job appropriate to the site. If no appropriate job is available, the pilot may immediately exit or may pause and ask again later, depending on its configuration (standard behavior is for it to exit). If, however, a job is available, the pilot obtains a payload job description, whose principal component is the URL form which the payload script needs to be downloaded. This mechanism, where payload scripts are hosted a separate Web server which may be, and usually us, separate from the !PanDA system proper. This allows users to exercise necessary level of control over the payloads, and reduce the load on the !PanDA server, while still having standard security mechanisms in place.
 
 An important attribute of this scheme for interactive analysis, where minimal latency from job submission to launch is important, is that the pilot dispatch mechanism bypasses any latencies in the scheduling system for submitting and launching the pilot itself. The pilot job mechanism isolates workload jobs from grid and batch system failure modes (a workload job is assigned only once the pilot successfully launches on a worker node). The pilot also isolates the Panda system proper from grid heterogeneities, which are encapsulated in the pilot, so that at the Panda level the grid(s) used by !PanDA appears homogeneous. Pilots generally carry a generic 'production' grid proxy, with an additional VOMS attribute 'pilot' indicating a pilot job. Optionally, pilots may use glexec to switch their identity on the worker node to that of the job submitter.
+??? Igor: Since you come after the gldieinWMS section, can you please compare this to what the glideinWMS does???
 
 The overall !PanDA architecture is shown below<br/>
 
