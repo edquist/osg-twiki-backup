@@ -1,8 +1,126 @@
-%META:TOPICINFO{author="RuthPordes" date="1266429221" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1266437530" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="PlansTimelines"}%
----++ NEES File Transfer
+---++ NEES Requirements for Data Archiving
+---+++ Introduction
+[[https://www.nees.org][Network for Earthquake Engineering Simulation (NEES) ]]is providing the tools for researcher to learn how earthquakes and tsunami impact the buildings, bridges, utility systems and other critical components. NEES is a shared national network of 15* experimental facilities, collaborative tools, a centralized data repository, and earthquake simulation software. The center of all NEESit services is located at Purdue University. There are currently 6 Terabytes of data stored at Purdue and this is expected to grow to ~30 Terabytes over the next 2 years. It is essential to provide backup and disaster recovery for this data.
 
----+++ Alain's notes from initial planning discussion
+This will be an OSG activity  supported by  Alain Roy and Tanya Levshina in collaboration with Thomas Hacker (NEES).We will be working on providing proof-of-concept procedure that will allow to move data from Purdue to Fermi (tape) and Wisconsin(disk) and upload files back to Purdue in order to meet the needs of the NEES sites. 
+The deadline for the proof-of-concept is set at April 1st, 2010.
+
+
+---+++ Planning steps
+
+The task of archiving NEES data at Fermilab Enstore HSM entails involvement of many admin groups  as well as multiple steps that are required from users which include getting Fermi  principal, requesting Enstore tapes, etc. The list below describes the steps that were done before the test tape was allocated in Ferrmi Enstore HSM and was ready for archiving.
+   * The actions done by User (Tom)
+      * Request Fermilab account 
+      * Request tape allocation in Enstore
+      * Installed vdt client on the node at Purdue (Tanya)
+      * Tested the file transfer and upload 
+   * The actions done by Representative (Ruth)
+      * Approve user's request 
+   * The actions done by GUMS/VOMRS/VOMS admin (FermiGrid)
+      * Create a special group nees at fermilab VO
+      * Assign Tom and Tanya to the group nees
+      * Create uid, gid "nees"
+      * Map in GUMS group /fermilab/nees to user "nees"
+    * The actions done by dCache/Enstore admin
+      * configure a special storage group "nees" 
+      * configure dcache to map users with proxy attribute "/fermilab/nees" to  a particular pnfs path (/pnfs/fnal.gov/usr/nees)
+      * allocate 10 GB on tape for this storage group
+  
+The next steps could be divided into independent tasks that could be done in parallel.
+ 
+   1. Negotiation with Enstore management to provide and configure tapes for production archival (Responsible: Ruth)
+   1. Creation of the archiving tool (Responsible: Tanya, Tom)
+   1. Installation of condor DAG at Purdue (Responsible: Alain, Tom)
+   1. Creation of the file packaging tool that split archiving area into set of manageable size files  (10Gb - 20Gb) ready for archiving ( (Responsible: Alain, Tom)
+   1. Create DAG to execute the file packaging and archiving tool  (Responsible: Alain, Tom)
+   1. Create archive verification tool that verify presence of each archived file on tape and check checksum against local record (Responsible: Tanya, Tom)
+   1. Create DAG to execute archive verification tool (Responsible: Alain, Tom)
+   1. Create retrieval tool that allows to upload any archived file from tapes (Responsible: Tanya, Tom)
+   1. Provide bookkeeping framework that allow to log all the the previous step in machine readable format   (Responsible: Tanya, Tom)
+   1. Provide tools to generate reports from the logs  (Responsible: Tanya, Tom)
+   1. Negotiation with Enstore management to provide "yearly" report of tapes condition and  statistic (Responsible: Ruth)
+
+---+++  Negotiation with Enstore management 
+
+---+++  Archiving Tool
+
+Purpose: Arching tool is needed to perform transfer of the local file to Fermi Enstore HSM.
+
+The tool will be executed with user proxy certificate. A user should be a member of [[https://vomrs.fnal.gov:8443/vomrs/vo-fermilab/vomrs[[Fermilab VO]] and be be a member of "/fermilab/nees" group. 
+The tool will accept file name as a command line argument. It will perform the following tasks: 
+   * verify the file existence and permission
+   * calculate adler32 checksum for the local file (adler32 is the only checksum supported by Enstore)
+   * log: date, file name, checksum, size
+   * copy file to dCache
+   * log: date, file name,status of transfer
+   * verify that file is in dcache and checksum
+   * log: date, file name, locality of the file, size, checksum
+
+
+Proposed Implementation: Python
+
+---+++ Condor Installation at Purdue
+
+---+++ File Packaging Tool 
+
+---+++  DAG for Packaging and Archival
+
+---+++  Archive Verification Tool
+There is some time delay between the time when file that is stored in dcache (disk) and the time this file is transferred to a tape. This delay depends on Enstore configuration. That is why the independent tool is needed that a file has been archived to tape successfully.
+
+Purpose: Archive Verification tool is needed to verify that a specific archived test is on tape and has a right checksum.
+
+
+The tool will be executed with user proxy certificate. A user should be a member of [[https://vomrs.fnal.gov:8443/vomrs/vo-fermilab/vomrs[[Fermilab VO]] and be be a member of "/fermilab/nees" group. 
+The tool will accept file name and file local checksum as  command line arguments. It will perform the following tasks: 
+   * verify the file exists in dCache and is on tape.
+   * compare checksums (local vs dcache)
+   * log: date, file, local checksum, remote checksum, status
+
+Proposed Implementation: Python
+
+---+++ DAG for Archive Verification Tool
+
+---+++ Retrieval Tool
+
+Purpose: Retrieval tool is needed to retrieve  file from tape.
+
+The tool will be executed with user proxy certificate. A user should be a member of [[https://vomrs.fnal.gov:8443/vomrs/vo-fermilab/vomrs[[Fermilab VO]] and be be a member of "/fermilab/nees" group. 
+The tool will accept file name as a command line argument. It will perform the following tasks: 
+   * retrieve file form tape
+   * log: date, file, status
+
+---+++ Bookkeeping Framework
+The proposal is to follow [[http://www.cedps.net/images/f/fd/CEDPS-troubleshooting-bestPractices.pdf][Grid Logging: Best Practices Guide]] and use [[http://acs.lbl.gov/NetLoggerWiki/index.php/Main_Page][NetLogger]] API to perform all logging tasks.
+This will provide:
+   * Consistently structured, typed, log events
+   * A standard high-resolution timestamp
+   * Use of logging levels and categories to separate logs by detail and purpose.
+   * Consistent use of global and local identifiers.
+   * Use of some regular, newline-delimited ASCII text format
+
+This approach will meet some basic practical requirements: 
+   * human "readable" in a terminal or text editor
+   * directly compatible with syslog and grep
+
+Proposed Implementation: Python
+
+%ICON{warning}%NetLogger Python API requires python 2.4.x and higher.
+
+---+++ Reporting Tools
+The following reports generated from logs seems to be useful:
+   * list of files that have been attempted to archive during a particular period of time
+   * list of failed attempts to archive files
+   * list of files that are successfully archived
+   * list of files currently on tapes
+   * list of files that are in dCache but not on tape
+   * list of corrupted  files on tape
+   * time interval needed for file archiving 
+  
+
+---++ Alain's notes from initial planning discussion
 
 Archiving for NEES, 
 From Purdue to Fermilab, initially. Goes to tape. 
