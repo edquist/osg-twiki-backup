@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianBockelman" date="1266462773" format="1.1" version="1.43"}%
+%META:TOPICINFO{author="BrianBockelman" date="1266593597" format="1.1" reprev="1.44" version="1.44"}%
 %LINKCSS%
 
 ---+!! %SPACEOUT{ "%TOPIC%" }%
@@ -49,44 +49,81 @@ There's a "[[http://www.cs.wisc.edu/condor/condorg/goldenrules.html][golden rule
 
 %INCLUDE{ "CondorSubmittingMultipleJobs" }%
 
----+++ Usage of !GlobusRSL
-
-The Globus <span class="firstterm">Resource Specification Language</span> (RSL) provides a uniform way to communicate with various batch schedulers. Here is a list of RSL attributes for Condor and PBS:
-
-%RED% This could use more explanation of RSL, condor and PBS and what this lets you find out.%ENDCOLOR%
-
----++++ Condor
-|  *Attribute*  |  *Description*  | 
-| condorsubmit | Allow the client to specify abitrary additional attributes to be included in the Condor submit description file. |
-
----++++ PBS
-
-%INCLUDE{ "GlobusRlsPbsAttributes" }%
-
 ---+++Consuming storage
-There are a variety of different [[ReleaseDocumentation.LocalStorageConfiguration][storage areas in OSG]]. As a general rule, you should keep the size of the files you transfer using condor-g to an absolute minimum. In fact, the ideal is a script no larger than a few tens or a hundred lines or so. The bulk of what you need for running your jobs should be staged in (e.g. as part of a <span class="acronym">DAG</span>) before the job submission via pre-WS GRAM. Similarly, output files, and any significant logfiles should be staged out, e.g. as part of a DAG, after the job completes using !GridFTP or SRM. If you have a choice, always prefer SRM over !GridFTP because SRM queues up transfers to avoid overloads, distributes the load across multiple gftp servers and retries after failures.
+There are a variety of different [[ReleaseDocumentation.LocalStorageConfiguration][storage areas in OSG]]. As a general rule, you should keep the size of the files you transfer using Condor-G to a minimum (preferably less than 10 and definitely less than 100MB per job).  The bulk of what you need for running your jobs should be staged in (e.g. as part of a <span class="acronym">DAG</span>) before the job submission. Similarly, output files, and any significant logfiles should be staged out, e.g. as part of a DAG, after the job completes using SRM.
 
-At present, there is no "one-stop shopping" for getting access to SRM. To try out SRM on a reference platform, send email to =tg-storage at opensciencegrid.org=. They can help you get started, and coordinate getting access to the SRMs across OSG.
+At present, there is no "one-stop shopping" for getting access to SRM.  One option is to send email to =tg-storage at opensciencegrid.org=. They can help you get started, and coordinate getting access to the SRMs across OSG.
 
-Examples of srmcp usage are available from =srmcp -help=. 
+Another alternate is use lcg-info (which is not developed by the OSG, but packaged in the OSG client), which provides an almost-correct view.  Run:
 
-Please note that usually the server port is 8443 for SRM, and 2811 for !GridFTP (or gsiFTP). Different ways of specifying SRM server endpoints are:
+<pre class="screen">
+<userinput>lcg-info --list-service --bdii is.grid.iu.edu:2170 --vo gpn --attrs ServiceEndpoint</userinput>
+</pre>
+<br/>
+%TWISTY{
+mode="div"
+showlink="Show output..."
+hidelink="Hide output"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+-bash-3.2$ lcg-info --list-service --bdii is.grid.iu.edu:2170 --vo gpn --attrs ServiceEndpoint
+- Service: httpg://red-srm1.unl.edu:8443/srm/v2/server
+  - ServiceEndpoint     httpg://red-srm1.unl.edu:8443/srm/v2/server
+
+- Service: httpg://se01.cmsaf.mit.edu:8443/srm/managerv1
+  - ServiceEndpoint     httpg://se01.cmsaf.mit.edu:8443/srm/managerv1
+
+- Service: httpg://se01.cmsaf.mit.edu:8443/srm/managerv2
+  - ServiceEndpoint     httpg://se01.cmsaf.mit.edu:8443/srm/managerv2
+
+- Service: httpg://sigmorgh.hpcc.ttu.edu:49443/srm/v2/server
+  - ServiceEndpoint     httpg://sigmorgh.hpcc.ttu.edu:49443/srm/v2/server
+
+- Service: httpg://srmb.ihepa.ufl.edu:8443/srm/v2/server
+  - ServiceEndpoint     httpg://srmb.ihepa.ufl.edu:8443/srm/v2/server
+%ENDTWISTY%
+<br/>
+Replace "gpn" with your VO's name.  These are the endpoints for all the SRM servers which claim support for your VO.  Next, take the hostname (such as =red-srm1.unl.edu=) and perform another query to get the path you should write into:
+<pre class="screen">
+<userinput>lcg-info --list-se --bdii is.grid.iu.edu:2170 --vo gpn --attrs Path --query 'SE=red-srm1.unl.edu'</userinput>
+</pre>
+<br/>
+%TWISTY{
+mode="div"
+showlink="Show output..."
+hidelink="Hide output"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+-bash-3.2$ lcg-info --list-se --bdii is.grid.iu.edu:2170 --vo gpn --attrs Path --query 'SE=red-srm1.unl.edu'
+- SE: red-srm1.unl.edu
+  - Path                /mnt/hadoop/public/
+</pre>
+%ENDTWISTY%
+<br/>
+
+You can create an SRM URL from the endpoint path, and VO name (in this case, =gpn=).  Replace httpg with srm, add a "?SFN=" to the endpoint, and add the VO's name to the path:
+
+<pre>
+srm://red-srm1.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/public/gpn
+</pre>
+
+Again, this will not work for every site; sites where this does not work are due to a failing of the tool, not an error of the site.  OSG is working on a storage discovery tool that automates the last few queries.
+
+We will use the above endpoint for the examples below.  You will need to build your own to proceed.
+
+---++++ Write a file to the remote endpoint
 <verbatim>
-srm://myhost.mydomain.edu:8443//dir1/dir2/file
-srm://myhost.mydomain.edu:8443//srm/managerv1?SFN=/dir1/dir2/file
-srm://myhost.mydomain.edu:8443//srm/managerv2?SFN=/dir1/dir2/file 
+lcg-cp -b -D srmv2 file:////bin/sh srm://red-srm1.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/public/gpn/sh-copy
 </verbatim>
 
-For diagnostic purposes, using "-dbg" option with globus-url-copy, and "-debug=true" with srmcp is useful.
+Note that recursive copying of a directory does not work.
 
----++++ SRM put
+---++++ Download a file from the remote endpoint
 <verbatim>
- srmcp file:////bin/sh srm://myhost.mydomain.edu/dir1/dir2/sh-copy
-</verbatim>
-
----++++ SRM get
-<verbatim>
- srmcp srm://myhost.mydomain.edu/dir1/dir2/sh-copy file:///localdir/sh 
+lcg-cp -b -D srmv2 srm://red-srm1.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/public/gpn/sh-copy file:///tmp/sh-copy 
 </verbatim>
 
 ---++++ SRM copy (SRM to SRM):
