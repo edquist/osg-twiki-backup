@@ -1,49 +1,52 @@
-%META:TOPICINFO{author="KyleGross" date="1223293872" format="1.1" version="1.8"}%
+%META:TOPICINFO{author="BrianBockelman" date="1266789399" format="1.1" version="1.9"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
-Note:  This page refers to the ldapsearch command.  The ldapsearch command is not part of the standard OSG installation, it is commonly
-on many standard linux installations. If you do not have it and would like to get it
-from the VDT it is part of the VDT OpenLDAP package that can be pulled using pacman
-and refer to the VDT Package 'OpenLDAP.'
 
 ---++ Introduction
-This document is written for end users.  It describes how to initialize the environment of your job to correctly access the execution and data areas on the worker node.
+The OSG compute element provides a mechanism for launching job on remote clusters; OSG also provides a common job environment and software tools these jobs will be able to access when running on the worker node.  These job-level tools are often essential for developers building higher level services on the OSG.
 
-%WARNING% Storage definitions and implementations may not be consistent across OSG sites.
+This page describes how to initialize the environment of your job to correctly access the execution and data areas from the worker node.
 
----++ Whats in wn-client?
-You can see directly whats in the =wn-client= package for this release, %CACHE% %VERSION%:
+The OSG provides no scientific software dependencies or software build tools on the worker node; you will be expected to package all your application-level dependencies yourself.  Sites are not required to provide any specific tools (gcc, svn, lapack, blas, etc) beyond the ones in the OSG worker node client.  Specific VOs which own their own resources may require their sites to install additional software, but opportunistic VOs cannot do this as a rule.
+
+---++ Common software available on worker nodes.
+
+The OSG worker node client (referred to as the =wn-client= package) has the following software:
+
+   1 The site's supported set of CA certificates (located in $X509_CERT_DIR after the environment is set up).
+   1 Basic VDT underlying infrastructure.
+   1 Proxy management tools:
+      * Create proxies: =voms-proxy-init= and =grid-proxy-init=
+      * Show proxy info: =voms-proxy-info= and =grid-proxy-info=
+      * Destroy the current proxy: =voms-proxy-destroy= and =grid-proxy-destroy=
+   1 Data transfer tools:
+      * HTTP/plain FTP protocol tools:
+         * wget & curl: standard tools for downloading files with HTTP and FTP.
+      * SRM clients
+         * LCG SRM Client (=lcg-cp= and others)
+         * LBNL SRM Client (=srm-copy= and others)
+         * FNAL SRM Client (=srmcp= and others)
+      * !GridFTP client
+         * Globus !GridFTP client (=globus-url-copy=)
+         * !UberFTP, another command-line client for !GridFTP.  Covers a wider variety of the !GridFTP protocol than just copying.
+      * Site-specific protocols.
+         * DCache client: =dccp=.  This client is specifically for sites running !dCache, about 5-10 out of 80 OSG sites.
+   1 The Pegasus worker node software
+   1 !MyProxy. The full set of !MyProxy client tools.
+
+Advanced users can read the Pacman source code to see directly whats in the =wn-client= package for this release, OSG-%VERSION%:
    * http://software.grid.iu.edu/pacman/wn-client.pacman
 
-Basically, it is:
+---++ Directories in the Worker Node Environment
+The following table outlines the various important directories for the worker node environment.  You can find the directory by referring to the corresponding environment variable.
 
-   1 Our set of CA certificates.
-   2 Basic VDT underlying infrastructure (like tools to install the VDT tarballs, keep track of files, etc.)
-   3 Globus client tools. This is probably slightly more than we need: it includes tools like:
-      * proxy management (create proxy, proxy info, destroy proxy)
-      * job submission (pre-WS and WS)
-      * data transfer (globus url copy, the !GridFTP client)
-      * RLS client
-   4 The Pegasus worker node software
-   5 wget & curl: standard tools for downloading files with http and ftp. They're commonly pre-installed by the OS, but not consistently, so they are in the worker node client.
-   6 !UberFTP: command-line client for !GridFTP
-   7 SRM clients (v1 and v2)
-   8 dccp, the dcache client
-   9 !MyProxy. This is for the !MyProxy client tools, but the full !MyProxy is installed including the server. This is because the !MyProxy software isn't packaged in a way to easily distinguish client and server and we haven't pushed on making such a separation before.
-
-
----++ Storage Types Supported at OSG Sites
-All OSG sites should support the following storage:
-
-%EDITTABLE{ header="| *Name* | *What you can do* | *Notes* |" format="| text | textarea, 2x30 | textarea, 2x30 |" changerows="on" }%
-| *Name* | *What you can do* | *Notes* |
-| =$OSG_APP= | Install application software releases into via the CE. | After install, area is read-only accessible from all batch slots on your cluster. |
-| =$OSG_SITE_READ= | Stage data to using gftp that is then readable from all batch slots. | %RED% OSG sites have not consistently deployed this area. %ENDCOLOR% |
-| =$OSG_SITE_WRITE= | Stage output files to from all batch slots, for later asynchronous retrieval using gftp. | %RED% OSG sites have not consistently deployed this area. %ENDCOLOR% |
-| =$OSG_DATA= | Data files that are accessible via NFS from all batch slots, read-write. | %RED% OSG sites have not consistently deployed this area %ENDCOLOR% |
-| =$OSG_GRID= | Set of "client tools" that are part of the OSG software stack. | Available at batch slot |
+%EDITTABLE{ header="| *Environment Variable* | *What you can do* | *Notes* |" format="| text | textarea, 2x30 | textarea, 2x30 |" changerows="on" }%
+| *Environment Variable* | *What you can do* | *Notes* |
+| =$OSG_APP= | Install application software releases into via the CE. | Access to this area varies from site-to-site.  Most sites allow writes only from the head node, while others require you to access it via a special job description of VOMS role. |
+| =$OSG_DATA= | Data files that are accessible via NFS from all batch slots, read-write. | %RED% Not all OSG sites have deployed this area %ENDCOLOR% |
+| =$OSG_GRID= | Set of "client tools" that are part of the OSG software stack. | The software tools referenced above are found here. |
 | =$OSG_WN_TMP<sup>[[#FootOsgWnTmpImplementedPoorly][1]]</sup>= | Temporary storage area in which your job(s) run | Local to each batch slot |
 
 #FootOsgWnTmpImplementedPoorly
@@ -51,7 +54,6 @@ All OSG sites should support the following storage:
 
 There is no way to know in advance how much scratch disk space any given worker node has available, as OSG information systems don't advertise this.  Often it is shared among a number of job slots.  If your job has significant I/O it is important to make the subdirectory
 as above so you don't interfere with other jobs that may be using the node.
-
 
 ---++ Input and Output Files Specified via condor-g jdl
 Condor-g allows specification of the following:
@@ -95,6 +97,12 @@ The GIP uses the GLUE schema, and all information may be read via LDAP queries. 
 %INCLUDE{ "Documentation.ToolsInsetInclude" section="GlossaryTerm" INCLUDETOPIC="Documentation.GlossaryG" TERM="Grid Laboratory" }%
 
 ---+++ !!Selecting GLUE Schema Attribures Using =ldapsearch=
+
+%NOTE%  This page refers to the ldapsearch command.  The ldapsearch command is not part of the standard OSG installation, it is commonly
+on many standard linux installations. If you do not have it and would like to get it
+from the VDT it is part of the VDT OpenLDAP package that can be pulled using pacman
+and refer to the VDT Package 'OpenLDAP.'
+
 The following syntax for ldapsearch works to get all !GlueLocationLocalID &mdash; there are several &mdash; from fngp-osg.fnal.gov.
 
 <pre class="screen">
