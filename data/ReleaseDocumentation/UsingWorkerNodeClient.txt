@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianBockelman" date="1266789399" format="1.1" version="1.9"}%
+%META:TOPICINFO{author="BrianBockelman" date="1266800568" format="1.1" reprev="1.10" version="1.10"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -47,109 +47,122 @@ The following table outlines the various important directories for the worker no
 | =$OSG_APP= | Install application software releases into via the CE. | Access to this area varies from site-to-site.  Most sites allow writes only from the head node, while others require you to access it via a special job description of VOMS role. |
 | =$OSG_DATA= | Data files that are accessible via NFS from all batch slots, read-write. | %RED% Not all OSG sites have deployed this area %ENDCOLOR% |
 | =$OSG_GRID= | Set of "client tools" that are part of the OSG software stack. | The software tools referenced above are found here. |
-| =$OSG_WN_TMP<sup>[[#FootOsgWnTmpImplementedPoorly][1]]</sup>= | Temporary storage area in which your job(s) run | Local to each batch slot |
+| =$OSG_WN_TMP= | Temporary storage area in which your job(s) run | Local to each batch slot |
 
-#FootOsgWnTmpImplementedPoorly
-   1. %RED%OSG sites have inconsistently implemented $OSG_WN_TMP.%ENDCOLOR%  The default configuration of OSG is to have a single top level $OSG_WN_TMP on each worker node which multiple jobs share simultaneously.  Good-citizen grid users are expected to make a subdirectory below this directory in which to execute their job.  For instance: =export mydir=$OSG_WN_TMP/myWorkDir$RANDOM ; mkdir $mydir ; cd $mydir= %BR%.  A significant number of sites use the batch system to make an independent directory for each user job, and change $OSG_WN_TMP on the fly to point to this directory.  In these cases they will usually advertise OSG_WN_TMP to be UNAVAILABLE.  A few other sites simply dump all user jobs into a cluster-wide NFS-shared directory, very bad practice indeed.
+%NOTE% %RED%OSG sites have inconsistently implemented $OSG_WN_TMP.%ENDCOLOR%  The default configuration of OSG is to have a single top level $OSG_WN_TMP on each worker node which multiple jobs share simultaneously.  Good-citizen grid users are expected to make a subdirectory below this directory in which to execute their job.  For instance: =export mydir=$OSG_WN_TMP/myWorkDir$RANDOM ; mkdir $mydir ; cd $mydir= %BR%.  A significant number of sites use the batch system to make an independent directory for each user job, and change $OSG_WN_TMP on the fly to point to this directory.  In these cases they will usually advertise OSG_WN_TMP to be UNAVAILABLE.  A few other sites simply dump all user jobs into a cluster-wide NFS-shared directory, very bad practice indeed.
 
 There is no way to know in advance how much scratch disk space any given worker node has available, as OSG information systems don't advertise this.  Often it is shared among a number of job slots.  If your job has significant I/O it is important to make the subdirectory
 as above so you don't interfere with other jobs that may be using the node.
 
----++ Input and Output Files Specified via condor-g jdl
-Condor-g allows specification of the following:
+---++ Input and Output Files Specified via Condor-G
+Condor-G has the following attributes related to file transfers and your jobs:
 
 | =executable= | one file |
 | =output= | one file - stdout | 
 | =error= | one file - stderr |
-| =transfer_input_Files= <sup>[[#ThirdNote][1]]</sup> | comma separated list of files |
-| =transfer_output_files= <sup>[[#FourthNote][2]]</sup> | comma separated list of files |
+| =transfer_input_Files= | comma separated list of files |
+| =transfer_output_files= | comma separated list of files |
 
-%WARNING% <a name="ThirdNote"></a>Do not use to transfer more than a few megabytes: these files are transfered via the CE headnode and can cause serious loads, which can bring down the cluster. 
-%WARNING% <a name="FourthNote"></a>Do not spool gigabyte-sized files via the CE headnode by condor file transfer. Space on the headnode tends to be limited, and some sites severely quota the gram scratch area via which these files are spooled. Instead, store them in the dedicated stage-out spaces and pull them from the outside as part of a DAG. 
-
-In the remainder of this document we describe how to find your way around these various storage areas both from outside the site before you submit your job, as well as from inside the site after your job starts inside a batch slot.
+Do not use =transfer_input_files= or =transfer_output_files= to transfer more than a few megabytes: these files are transfered via the CE headnode and can cause serious loads, which can bring down the cluster.  Space on the headnode also tends to be limited, especially as some sites severely quota your home directory.  For large amount of file movement, we recommend pre-staging as covered by [[Storage/WebHome#Storage_for_the_End_User][the OSG-Storage documentation]].
 
 ---++ Finding your way around
 %NOTE% A definition of the concepts used in this document can be found in [[LocalStorageConfiguration][Local Storage Configuration]], including a section describing minimal requirements and some sample configurations.
 
 Here we describe how to find the various storage locations. We start by describing how to find things after your job starts, and then complete the discussion by describing what you can determine from the outside, before you submit a job to the site. We deliberately do not describe what these various storage implementations are. That is done in the [[LocalStorageConfiguration][Local Storage Configuration]] document.
 
----++ Setting Up $OSG_GRID
-All OSG sites should be configured so that the $OSG_GRID environment variable is already defined when your job starts running.
-First see [[RunningSourceOsgGridSetupSh][Running "source osg_grid_setup.sh"]].
-
----+++ !!Getting Information About CE Storage Before You Submit a Job
-OSG sites advertise their properties via the _Generic Information Provider (GIP)_. This information can be queried from outside the site. It is meant to be used to select sites that support the functionality you need for your applications. 
-
-<!-- Pulls definition from Documentation.GlossaryOfTerms and puts it into a blue-bordered centered box. -->
-%INCLUDE{ "Documentation.ToolsInsetInclude" section="GlossaryTerm" INCLUDETOPIC="Documentation.GlossaryG" TERM="Generic Information Provider" }%
-
-The GIP uses the GLUE schema, and all information may be read via LDAP queries. The following fields are of particular importance in the context of storage:
-
-%TABLE{ valign="top" }%  
-| *GLUE Schema name* | *OSG Correspondence* | *Notes*  | 
-| !GlueCEInfoApplicationDir | =$OSG_APP= |    |
-| !GlueCEInfoDataDir | =$OSG_DATA= |     |
-| Worker node client directory | =$OSG_GRID= | _Published with:_  %BR% !GlueLocationLocalID=OSG_GRID  %BR%   !GlueLocationName=OSG_GRID  %BR%   !GlueLocationPath= the path to the directory |
-
-%NOTE% The GLUE schema allows the site to configure different paths for SITE_READ and SITE_WRITE and DEFAULT_SE for each VO. However, few sites are likely to do this as it requires manual editing of the schema file.
-
-%INCLUDE{ "Documentation.ToolsInsetInclude" section="GlossaryTerm" INCLUDETOPIC="Documentation.GlossaryG" TERM="Grid Laboratory" }%
-
----+++ !!Selecting GLUE Schema Attribures Using =ldapsearch=
-
-%NOTE%  This page refers to the ldapsearch command.  The ldapsearch command is not part of the standard OSG installation, it is commonly
-on many standard linux installations. If you do not have it and would like to get it
-from the VDT it is part of the VDT OpenLDAP package that can be pulled using pacman
-and refer to the VDT Package 'OpenLDAP.'
-
-The following syntax for ldapsearch works to get all !GlueLocationLocalID &mdash; there are several &mdash; from fngp-osg.fnal.gov.
+---++++ Setting Up $OSG_GRID
+All OSG sites should be configured so that the $OSG_GRID environment variable is already defined when your job starts running.  The first command any job should execute after it is started in a batch slot at an OSG site is:
 
 <pre class="screen">
-$ <b>ldapsearch -x -h is.grid.iu.edu -xxx -p 2170 \
-  -b mds-vo-name=FNAL_GPFARM,mds-vo-name=local,o=grid \
-  GlueLocationLocalID </b>
+$ <userinput>source $OSG_GRID/setup.sh</userinput>
+</pre>
+=setup.sh= sets up several environment variables and configures certain client tools, such as srmcp, and adds them to the job's path. 
+The following is output from a test run of a job with the scripts configured correctly:
+<br/>
+%TWISTY{
+mode="div"
+showlink="Show..."
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+<userinput>$ globus-job-run fgitb-gk/jobmanager-condor /usr/bin/printenv</userinput>
+_CONDOR_ANCESTOR_28668=28669:1190819791:495265920
+_CONDOR_ANCESTOR_28669=25909:1195590358:2044699779
+_CONDOR_ANCESTOR_25909=25915:1195590361:2072113792
+HOME=/grid/home/fnalgrid
+OSG_WN_TMP=/local/stage1
+OSG_DATA=/grid/data
+LD_LIBRARY_PATH=/usr/local/vdt-1.8.1/apache/lib:/usr/local/vdt-1.8.1/MonaLisa/Service/VDTFarm/pgsql/lib:/usr/local/vdt-1.8.1/glite/lib:/usr/local/vdt-1.8.1/prima/lib:/usr/local/vdt-1.8.1/mysql/lib/mysql:/usr/local/vdt-1.8.1/jdk1.5/jre/lib/i386:/usr/local/vdt-1.8.1/jdk1.5/jre/lib/i386/server:/usr/local/vdt-1.8.1/jdk1.5/jre/lib/i386/client:/usr/local/vdt-1.8.1/berkeley-db/lib:/usr/local/vdt-1.8.1/expat/lib:/usr/local/vdt-1.8.1/globus/lib:
+GRID3_SITE_NAME=FNAL_FERMIGRID_ITB
+GRID3_TMP_WN_DIR=/local/stage1
+GRID3_TMP_DIR=/grid/data
+OSG_LOCATION=/usr/local/vdt-1.8.1
+OSG_HOSTNAME=fgitb-gk.fnal.gov
+OSG_STORAGE_ELEMENT=y
+OSG_JOB_CONTACT=fgitb-gk.fnal.gov/jobmanager-condor
+OSG_APP=/grid/app
+GRID3_DATA_DIR=/grid/data
+GRID3_BASE_DIR=/usr/local/vdt-1.8.1
+OSG_DEFAULT_SE=FNAL_FAPL_ITB_SE
+OSG_GRID=/usr/local/grid
+LOGNAME=fnalgrid
+OSG_SQUID_LOCATION=fermigrid4.fnal.gov
+GLOBUS_GRAM_JOB_CONTACT=https://fgitb-gk.fnal.gov:49005/11503/1195590354/
+GLOBUS_LOCATION=/usr/local/grid/globus
+OSG_SITE_NAME=FNAL_FERMIGRID_ITB
+GLOBUS_GRAM_MYJOB_CONTACT=URLx-nexus://fgitb-gk.fnal.gov:49006/
+OSG_SITE_WRITE=srm://fapl032.fnal.gov:8443
+GRID3_APP_DIR=/grid/app
+X509_USER_PROXY=/grid/home/fnalgrid/.globus/job/fgitb-gk.fnal.gov/11503.1195590354/x509_up
+OSG_SITE_READ=dcap://fapl035.fnal.gov:24525
+_CONDOR_SCRATCH_DIR=/local/stage1/condor/execute/dir_25909
+_CONDOR_SLOT=1
+_CONDOR_HIGHPORT=65535
+_CONDOR_LOWPORT=61440
+</pre>
+%ENDTWISTY%
+<br/>
+See the [[ComputeElementInstall][CE Install Guide]] and [[LocalStorageConfiguration][Local Storage Configuration]] for more information. 
 
-   version: 2
-   
-   #
-   # filter: (objectclass=*)
-   # requesting: GlueLocationLocalID
-   #
-   
-   # fngp-osg.fnal.gov, local, grid
-   dn: GlueClusterUniqueID=fngp-osg.fnal.gov, mds-vo-name=local,o=grid
-   
-   # fngp-osg.fnal.gov, fngp-osg.fnal.gov, local, grid
-   dn: GlueSubClusterUniqueID=fngp-osg.fnal.gov, GlueClusterUniqueID=fngp-osg.fna
-    l.gov, mds-vo-name=local,o=grid
-   
-   # OSG_SITE_READ, fngp-osg.fnal.gov, fngp-osg.fnal.gov, local, grid
-   dn: GlueLocationLocalID=OSG_SITE_READ, GlueSubClusterUniqueID=fngp-osg.fnal.go
-    v, GlueClusterUniqueID=fngp-osg.fnal.gov, mds-vo-name=local,o=grid
-   GlueLocationLocalID: OSG_SITE_READ
-   
-   # OSG_SITE_WRITE, fngp-osg.fnal.gov, fngp-osg.fnal.gov, local, grid
-   dn: GlueLocationLocalID=OSG_SITE_WRITE, GlueSubClusterUniqueID=fngp-osg.fnal.g
-    ov, GlueClusterUniqueID=fngp-osg.fnal.gov, mds-vo-name=local,o=grid
-   GlueLocationLocalID: OSG_SITE_WRITE
-   
-   # OSG_GRID, fngp-osg.fnal.gov, fngp-osg.fnal.gov, local, grid
-   dn: GlueLocationLocalID=OSG_GRID, GlueSubClusterUniqueID=fngp-osg.fnal.gov, Gl
-    ueClusterUniqueID=fngp-osg.fnal.gov, mds-vo-name=local,o=grid
-   GlueLocationLocalID: OSG_GRID
-   
-   # search result
-   search: 2
-   result: 0 Success
-   
-   # numResponses: 6
-   # numEntries: 5
+---++++ !!Getting Information About CE Storage Before You Submit a Job
+You can retrieve the storage information for some sites by querying the OSG information services.  We do not recommend using this method - instead, have the job discover the correct directory through its environment.  This will not work reliably at all sites.
+
+We will illustrate this below using !ReSS.
+
+%TWISTY{
+mode="div"
+showlink="Show unrecommended query method..."
+hidelink="Hide queries"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+The following query looks for storage directories for sites that support CMS (change "VO:cms" with the name of your VO):
+<pre class="screen">
+<userinput>condor_status -pool osg-ress-1.fnal.gov -const 'stringListIMember("VO:cms", GlueCEAccessControlBaseRule)' -format 'CE: %s ' GlueCEUniqueID -format 'OSG_WN_SCRATCH: %s ' GlueSubClusterWNTmpDir -format 'OSG_DATA: %s ' GlueCEInfoDataDir -format 'OSG_APP: %s\n' GlueCEInfoApplicationDir | sort | uniq</userinput>
+</pre>
+The reason the query is so long is due to the extensive format strings.  The above query shows the scratch, app, and data directories - one line per CE.  Here's a few lines of output:
+<pre class="screen">
+CE: antaeus.hpcc.ttu.edu:2119/jobmanager-sge-cms Scratch: /state/partition1 OSG_DATA: /lustre/hep/osg OSG_APP: /lustre/home/antaeus/apps
+CE: antaeus.hpcc.ttu.edu:2119/jobmanager-sge-serial Scratch: /state/partition1 OSG_DATA: /lustre/hep/osg OSG_APP: /lustre/home/antaeus/apps
+CE: belhaven-1.renci.org:2119/jobmanager-condor-default Scratch: /condor/osg_wn_tmp OSG_DATA: /nfs/osg-data OSG_APP: /nfs/osg-app
+CE: ce01.cmsaf.mit.edu:2119/jobmanager-condor-group_cmshi Scratch: /osg/tmp OSG_DATA: /osg/data OSG_APP: /osg/app
+CE: ce01.cmsaf.mit.edu:2119/jobmanager-condor-group_cmsprod Scratch: /osg/tmp OSG_DATA: /osg/data OSG_APP: /osg/app
+CE: ce01.cmsaf.mit.edu:2119/jobmanager-condor-group_cmsuser Scratch: /osg/tmp OSG_DATA: /osg/data OSG_APP: /osg/app
+CE: ce01.cmsaf.mit.edu:2119/jobmanager-condor-group_monitor Scratch: /osg/tmp OSG_DATA: /osg/data OSG_APP: /osg/app
+CE: cit-gatekeeper2.ultralight.org:2119/jobmanager-condor-cms_monitor Scratch: /wntmp OSG_DATA: /raid2/osg-data OSG_APP: /raid1/osg-app
+CE: cit-gatekeeper2.ultralight.org:2119/jobmanager-condor-cms_priority Scratch: /wntmp OSG_DATA: /raid2/osg-data OSG_APP: /raid1/osg-app
+CE: cit-gatekeeper2.ultralight.org:2119/jobmanager-condor-cms_production Scratch: /wntmp OSG_DATA: /raid2/osg-data OSG_APP: /raid1/osg-app
+CE: cit-gatekeeper2.ultralight.org:2119/jobmanager-condor-cms_user Scratch: /wntmp OSG_DATA: /raid2/osg-data OSG_APP: /raid1/osg-app
+CE: cit-gatekeeper.ultralight.org:2119/jobmanager-condor-cms_monitor Scratch: /wntmp OSG_DATA: /raid2/osg-data OSG_APP: /raid1/osg-app
+CE: cit-gatekeeper.ultralight.org:2119/jobmanager-condor-cms_priority Scratch: /wntmp OSG_DATA: /raid2/osg-data OSG_APP: /raid1/osg-app
+CE: cit-gatekeeper.ultralight.org:2119/jobmanager-condor-cms_production Scratch: /wntmp OSG_DATA: /raid2/osg-data OSG_APP: /raid1/osg-app
+CE: cit-gatekeeper.ultralight.org:2119/jobmanager-condor-cms_user Scratch: /wntmp OSG_DATA: /raid2/osg-data OSG_APP: /raid1/osg-app
+CE: cms-0.mps.ohio-state.edu:2119/jobmanager-condor-default Scratch: /hadoop/tmp OSG_DATA: /data/se/osg OSG_APP: /sharesoft/osg/app
 </pre>
 
-
----++ Examples
-[[https://twiki.grid.iu.edu/pub/Integration/LocalStorageUse/bdii_query.pl.txt][This PERL script]]  can be used to query either the GRIS or the BDII to get the OSG_GRID area.
+%ENDTWISTY%
 
 %BR%
 %COMPLETE3% %BR%
