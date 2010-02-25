@@ -1,0 +1,99 @@
+%META:TOPICINFO{author="BrianBockelman" date="1267134721" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="UsingTheGrid"}%
+%LINKCSS%
+
+%STARTINCLUDE%
+
+---+ Moving files with Condor-G
+
+Up until now, the only data moved about with our jobs is the stdout and stderr.  In this section, we will cover arbitrary file movement.  The example program we will use is possibly the most complex way to do addition, ever.
+
+---+++ Creating data to process
+Suppose we want to add all the values between 1 and 10 against the value 5.  I.e., we will calculate:
+<pre>
+1+5 = ?
+2+5 = ?
+3 + 5 = ?
+....
+</pre>
+using condor and file transfers.  First, create a common input file:
+<pre class="screen">
+echo "5" > common_input
+</pre>
+Then, create ten files containing the numbers 0 through 9.
+<pre class="screen">
+for i in {0..9}; do
+echo "$i" >> input.
+</pre>
+Finally, we need a script which can sum up the contents of two input files, and write it into our output:
+<pre class="programlisting">
+#!/bin/sh
+
+# Standard grid debugging stuff
+hostname
+printenv
+voms-proxy-info -all
+
+input1=`cat $1`
+input2=`cat $2`
+echo $(($input1+$input2+1)) >> $3
+</pre>
+Save this as =sum_test.sh=, and set it to be executable.
+Ideally, we should execute:
+<pre class="screen">
+sum_test.sh common_input input.0 output.0
+</pre>
+and get back the value of =5+1=.
+
+---+++ Automate with Condor
+We'll now have Condor automate this for us.  Save the following as =condorg_test3.submit=:
+<pre class="programlisting">
+universe=globus
+GlobusScheduler=osg-gw-2.t2.ucsd.edu:/jobmanager-condor
+executable=sum_test.sh
+arguments=input.$(PROCESS) common_input output.$(PROCESS)
+transfer_input_files=input.$(PROCESS), common_input
+transfer_output_files=output.$(PROCESS)
+when_to_transfer_output = ON_EXIT
+output = test.$(CLUSTER).$(PROCESS).out
+error  = test.$(CLUSTER).$(PROCESS).err
+log    = test.log
+queue 10
+</pre>
+As before, you'll need to replace the !GlobusScheduler above with the CE of your choice.
+
+Go ahead and submit the jobs to the grid, and see if you get the correct answers back!
+
+---+++ New Condor Parameters
+We introduced three new Condor submit parameters.  All three revolved around file movement; you can also [[http://www.cs.wisc.edu/condor/manual/v7.5/2_5Submitting_Job.html#SECTION00355000000000000000][read the Condor manual's section on file movement]].
+<pre>
+transfer_input_files=input.$(PROCESS), common_input
+</pre>
+The =transfer_input_files= command specifies which files, relative to the submit directory should be copied to the job's initial working directory.  As before, this uses Condor ClassAds, so  =$(PROCESS)= is expanded.  Here, the files =input.$i= for some =$i= and =common_input= will be in the working directory when the executable =sum_test.sh= starts.
+
+Next,
+<pre>
+transfer_output_files = output.$(PROCESS)
+</pre>
+This informs Condor that it should expect a file named =output.X= where X is the job's process at the end of execution.  If this file does not exist after the script executes, Condor will assume that something has gone wrong and put your job in a state named "Held".
+
+Finally,
+<pre>
+when_to_transfer_output = ON_EXIT
+</pre>
+This informs Condor you will be using its file transfer mechanisms, and that it should only try transferring the output files at the end of a successful job run.  If you do not add this, Condor will never start your job, but not fail it either.
+
+---+ Conclusions
+
+In this section, we covered:
+   * The simplest form of data management - transfer of input and output files with Condor-G.
+   * Processing per-job inputs and common input for all jobs.
+   * Limitations of Condor-G's approach.
+
+We've covered all the Condor basics.
+
+There's one more link to read over for those interested in more complex workflows: [[http://www.cs.wisc.edu/condor/manual/v7.5/2_10DAGMan_Applications.html][Condor DAGMan]].  DAGMan allows you to string together many Condor jobs by defining the dependencies between multiple jobs.  This way, one can have a pre-processing step to prepare input, a massive grid step to run the CPU-intensive jobs, and a post-processing step to handle all the output - a very common paradigm for high throughput computing.
+
+The remainder of the OSG User guide will cover the OSG-specific job environment and more complex data management.
+
+%STOPINCLUDE%
