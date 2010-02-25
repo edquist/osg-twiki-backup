@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1266514649" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1267141744" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="ClusterNetworkSetup"}%
 ---+!! *<nop>%SPACEOUT{%TOPIC%}%* 
 %TOC%
@@ -9,6 +9,8 @@ Brief description of function of software and how it fits into the overall syste
 This document presents some notes about the installation of a Firewall or a Router: it is a box that may provide IP level 3 routing, IP masquerading (NAT), a DNS server and a DHCP server. 
 The firewall described could be used to separate the intranet of a Tier 3 from the extranet, as the NAT server described in the "Topology with intranet and extranet" of ClusterNetwork. 
 Or it could be the Firewall separating the extranet from the Internet as in the second example of Figure 3 in ClusterNetwork.
+
+The configuration described is using 192.168.192.0/18 as intranet, coherent with all the other Tier 3 documents.
 
 The router/firewall chosen is [[http://www.vyatta.com/index.php][vyatta]] because it is available both as hardware device or software implementation, has both a command line interface similar to other commercial routers and a Web GUI, its community edition is available free of charge.
 
@@ -27,6 +29,12 @@ The instruction apply to Vyatta community edition VC5
 
 ---+++!!Engineering Considerations
 It is recommended to install the router/firewall on it own host.
+
+If you plan to choose your subnet you should be familiar with [[http://tools.ietf.org/rfc/rfc1918.txt][RFC1918]], in particular know the IANA reserved private subnets (non routable networks):
+   * 0.0.0.0 to 10.255.255.255	(10/8 prefix)
+   * 172.16.0.0 to 172.31.255.255	(172.16/12 prefix)
+   * 192.168.0.0 to 192.168.255.255	(192.168/16 prefix)
+And read [[http://support.apple.com/kb/TA25227?viewlocale=en_US][these useful tips]] on choosing the right subnet.
 
 ---+++!!Help!
 If a problem occurs during installation or verification of the service, see [[#DebugInfo][Debugging Information]].
@@ -47,24 +55,25 @@ The steps below apply to the first time install but can be followed also to fix 
 ---++ Installation Procedure
 The following steps apply to the first time install but can be followed also to fix an existing configuration.
 
-description of the steps of this Install procedure (including the commands and options required) that will have to be performed each time this is installed.
+In this example the router is a Vyatta VC5, has public IP 128.135.250.17 and NETMASK 255.255.255.0 (CDIR 128.135.250.17/24). Replace these values with your own.
+The private network is 192.168.192.0/18. Change it if you have a different one.
 
 Log in into the router using the console, change password, setup the IP address and enable ssh access. The default user/password are <tt>vyatta</tt>/<tt>vyatta</tt>. <tt>configure</tt> is used to start a configuration session, <tt>commit</tt> is used to commit changes, <tt>save</tt> to save changes on the persistent support (so that they will survive a reboot)
 <pre class="screen">
 configure
-set interfaces ethernet eth0 address 128.135.250.17/24
+set interfaces ethernet eth0 address %RED%128.135.250.17/24%ENDCOLOR%
 set service ssh
 commit
 </pre>
 Now you can login using ssh to continue the configuration if you prefer.
-Setup the host networking: hostaname, domain, DNS servers
+Setup the host networking: hostaname, domain, DNS servers. You will have to use your own gateway and DNS servers.
 <pre class="screen">
 configure
 set system host-name gc-net
 set system domain-name uchicago.edu
-set system name-server 128.135.247.50
-set system name-server 128.135.249.50
-set system gateway-address 128.135.250.1
+set system name-server %RED%128.135.247.50%ENDCOLOR%
+set system name-server %RED%128.135.249.50%ENDCOLOR%
+set system gateway-address %RED%128.135.250.1%ENDCOLOR%
 commit
 save
 </pre>
@@ -78,7 +87,7 @@ commit
 </pre>
 To allow all hosts to go on the internet (if you like to do so)
 <pre class="screen">
-set protocols static route 0.0.0.0/0 next-hop 128.135.250.1
+set protocols static route 0.0.0.0/0 next-hop %RED%128.135.250.1%ENDCOLOR%
 commit
 </pre>
 
@@ -87,15 +96,58 @@ This procedure covers the success legs only
 ---+++ Optional services
 These section contains notes on services that you may decide to add but are not required for the Tier 3 examples to work. These examples are provided as is to show what is possible. Please check Vyatta documentation.
 
-VPN configuration
+VPN configuration using PPTP. *Change username and passwrd to something safer!*
 <pre class="screen">
-set vpn pptp remote-access outside-address 128.135.250.17
-set vpn pptp remote-access client-ip-pool start 192.168.193.80 
-set vpn pptp remote-access client-ip-pool stop 192.168.193.99
+configure
+set vpn pptp remote-access outside-address %RED%128.135.250.17%ENDCOLOR%
+set vpn pptp remote-access client-ip-pool start 192.168.192.40
+set vpn pptp remote-access client-ip-pool stop 192.168.192.45
 set vpn pptp remote-access authentication mode local
-set vpn pptp remote-access authentication local-users username testuser password testpassword
+set vpn pptp remote-access authentication local-users username %RED%testuser%ENDCOLOR% password %RED%testpassword%ENDCOLOR%
 commit
 </pre>
+
+<!--
+VPN configuration using !OpenVPN. 
+
+<pre class="screen">
+mkdir /root/ks
+cd /root/ks
+touch index.txt
+echo 01 > serial
+</pre>
+
+<pre class="screen">
+cd /usr/share/doc/openvpn/examples/easy-rsa/2.0
+vi vars
+[edit KEY_DIR to point to the right dir.: /root/ks]
+./build-ca
+./build-key-server gc-net
+./build-dh
+/build-key laptop
+</pre>
+
+
+<pre class="screen">
+set interfaces openvpn vtun0
+set interfaces openvpn vtun0 mode server 
+set interfaces openvpn vtun0 server subnet 192.168.193.0/24
+set interfaces openvpn vtun0 tls ca-cert-file /root/ks/ca.crt 
+set interfaces openvpn vtun0 tls dh-file /root/ks/dh1024.pem
+set interfaces openvpn vtun0 tls cert-file /root/ks/gc-net.crt
+set interfaces openvpn vtun0 tls key-file /root/ks/gc-net.key
+commit 
+
+No CRL:
+set interfaces openvpn vtun0 tls crl-file /root/ks/crl.pem
+</pre>
+
+Ref:
+http://tuntaposx.sourceforge.net/index.xhtml
+http://www.destinyforge.com/blogs/?p=38
+http://code.google.com/p/tunnelblick/wiki/UsingTunnelblick
+http://openvpn.net/index.php/open-source/documentation/howto.html
+-->
 
 DHCP server configuration: define an address pool from 192.168.193.100 to 192.168.193.254 to dynamically assign addresses to worker nodes on the intranet; set the default router (gateway) and DNS server.
 
@@ -116,6 +168,30 @@ commit
 show system static-host-mapping
 </pre>
 
+A simple firewall configuration with some examples. Rule 2 allows all outgoing traffic but rule 1 blocks ftp traffic.
+<pre class="screen">
+set firewall name test
+edit firewall name test
+set rule 1
+edit rule 1
+set source address 192.168.192.0/18
+set protocol tcp
+set destination address 0.0.0.0/0
+set destination port ftp
+set action reject
+commit
+edit firewall name test
+set rule 2
+edit rule 2
+set source address 192.168.192.0/18
+set destination address 0.0.0.0/0
+set action accept
+
+edit interfaces ethernet eth0
+set firewall out name test
+commit
+</pre>
+
 ---++ Service Configuration/Startup/Shutdown
 The service can be treated as a hardware service even if it is software:
    * turn it on to start the service
@@ -125,10 +201,15 @@ The service can be treated as a hardware service even if it is software:
 To test the service you can try to ping or ssh the router to test it network configuration and to use machines in the private network to test the private network configuration. 
 
 ---+++ Connect to the hosts in the private network
-To connect to the hosts behind the Firewall if you set up a VPN, you can connect to it.
+You may want to connect (e.g. ssh) to the hosts behind the firewall (your natted intranet). You have some options: 
+   * port forwarding is effective but requires per host and per configuration. It may become tedious to setup.
+   * If you are on the same LAN of the Firewall/Router you can use a static route
+   * Else you will need a VPN (split tunnel)
 
-If you have no VPN you should pay attention not to send any password in clear because you may traverse a segment of insecure network but you can still use the hosts behind the firewall.
-You can setup in your computer a static route that reaches the private network through the router/firewall, e.g. <pre class="screen">sudo route add -net 192.168.192 128.135.250.17 </pre>
+If you are on the same LAN of the router/firewall, you can setup in your computer a static route that reaches the private network through the router/firewall, e.g. <pre class="screen">sudo route add -net 192.168.192 128.135.250.17 </pre>. Note that the static route will cause a routing error if you are not in the same LAN as the router.
+Since you have no VPN you should pay attention not to send any password in clear because your communication may be listened before reaching the firewall. Use of =ssh= is OK.
+
+The most flexible solution is the use of a VPN. Above is shown how to setup a PPTP server on the VC5. Most OS come with a PPTP client. You can find [[][instructions for OS X]]
 
 After this configuration you will be able to reach the hosts in the private network, e.g. <pre class="screen">ping 192.168.192.51
 ssh gcuser@192.168.192.51</pre>
@@ -153,7 +234,15 @@ delete interfaces ethernet eth1 address 192.168.0.254/24
 </pre>
 
 ---+++!!Caveats/Known Issues
-NA
+You may end up with misconfigured networks
+
+---++++ Unreachable network
+If you encounter an error like "bind: Can't assign requested address using ssh (or anything else)"  you may have some missing or wrong entry in the routing table.
+Try =netstat -nr= to view your routes and use =route add/delete= to fix them.
+
+---++++ PPTP Error
+The PPTP negotiation may fail if the server requires encryption and the client starts proposing no encryption: MPPE required but peer negotiation failed. The problem can be solved fixing the client or allowing the server to accept no encryption (unsafe) by commenting =require-mppe-128= in =/etc/ppp/options.pptpd=.
+[[http://pptpclient.sourceforge.net/howto-diagnosis.phtml#mppe_rbpnf][Click here]] to read further
 
 ---+++!!References
 Vyatta.org provides a clear and comprehensive documentation: http://www.vyatta.org/documentation (intro guides are public, reference documents require registration but are free)
