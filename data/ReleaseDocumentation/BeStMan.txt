@@ -1,253 +1,194 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1267465074" format="1.1" version="1.37"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1267485423" format="1.1" reprev="1.38" version="1.38"}%
 %META:TOPICPARENT{name="WebHome"}%
----+!! *<nop>Berkeley Storage Manager (!BeStMan)*
-%TOC%
-
+---+!! <nop>Berkley Storage Manager (!BeStMan) 
+%DOC_STATUS_TABLE%
+%TOC{depth="2"}%
 %STARTINCLUDE%
+%BR%
 
-*Purpose*: The purpose of this document is to provide [[http://sdm.lbl.gov/bestman][BeStMan]] based SE administrators the information on how to prepare, install and validate the SE.
+---++ Introduction
+The purpose of this document is to provide [[http://sdm.lbl.gov/bestman][BeStMan]] based SE administrators the information on how to prepare, install and validate the SE.
 
----+++ Current version info
-   * August 3, 2009  !BeStMan 2.2.1.2.i7.p3
+For general information on storage software architecture, implementations and use, please read [[https://twiki.grid.iu.edu/bin/view/Storage/StorageInfrastructureSoftware][StorageInfrastractureSoftware]]. For information on planning, installing and validating storage software, please follow this link to [[https://twiki.grid.iu.edu/bin/view/Storage/StorageSiteAdministrator][StorageSiteAdministrator]].
+
+---+++!! Applicable Versions
+The applicable software versions for this document are 
+%RED%
+%OSG_VERSION% 
+%ENDCOLOR%
+(or higher) and 
+%RED%
+*vdt-version  2.0*
+%ENDCOLOR%
+(or higher).
+
+---+++!!Engineering Considerations
+!BeStMan  could be installed on one node and the installation cache consists of the following components: 
+   * !BeStMan is an implementation of SRM v2.2 for essential interfaces to disk based storage systems - [[http://datagrid.lbl.gov/bestman][BeStMan Home Page]] 
+   * !GridFTP server  provides a high-performance, secure, reliable data transfer [[http://www.globus.org/toolkit/docs/3.2/gridftp][GridFTP documentation]]. 
+   * POSIX-compliant file system
+   * optional package
+      * Gratia gridftp transfer probe - cron job that reports all the file transfers to [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GratiaSiteCollector Gratia collector]]
+      *  [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS][GUMS server]] - authentication and authorization service
+
+The following questions should be answered before you can proceed with installation and 
+configuration of !BeStMan-Gateway storage solution: 
  
----++ Installation from VDT distribution
+   $ Q. _What authorization mechanism do you prefer?_ : You need to decide if you want to use grid-mapfile or !GUMS server for users’ authentication and authorization. More details about !GUMS could be found at [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS GUMS Installation Guide]]. %BR% %BR% We currently recommend using GUMS as it provides superior flexibility and allows a site to manage all of its mappings in one central location; most large sites use GUMS.
+ 
+   $ Q. _Do you want to enable Gratia gridftp-transfer probes?_ : Yes!  The Gratia gridftp-transfer probes provide much-desired statistics that OSG uses for accounting, much like the Gratia job accounting.  More details can be found at [[https://twiki.grid.iu.edu/bin/view/Accounting/WebHome  Gratia Home Page]]. The reported information will include the source and destination of transfer, certificate subject of transfer initiator, size and status of the transferred file. %BR% %BR% This probe captures transfer statistics, hence it needs to be installed on your !GridFTP server.  If you do not run your !GridFTP server and !BeStMan server out of the same VDT installation, you will want to additionally install this probe on your other !GridFTP servers.
 
-While it is possible to deploy !BeStMan as a personal disk manager, the following descriptions target a more general use installation that provides an SE functionality for serving as a data gateway into your cluster. !BeStMan is distributed by the VDT and, like other services deployed in the OSG. It installs with Pacman and assumes PacmanInstall steps have been taken. This process will  install in a directory selected by an administrator of the SE (e.g. /opt/osg-1.0/) the necessary software by running the following command line. 
-%NOTE% If you are doing a fresh install on a host that has a previous installation, setting =export OLD_VDT_LOCATION = /path-to-old-vdt/= will pre-answer the following questions.
+---+++!!Help!
+If a problem occurs during installation or verification of the service, see [[#DebugInfo][Debugging Information]].
 
----+++ 
+
+---++Checklist
+   1. [[ReleaseDocumentation/PacmanInstall][pacman]] version >= %PACMAN_VERSION% is required
+   1. The server must have a fully qualified domain name and a valid [[ReleaseDocumentation/GetGridCertificates][grid host certificate]] installed in =/etc/grid-security/=
+   1. !BeStMan server needs to have a valid host certificate installed in =/etc/grid-security/bestmancert=. The certificate should be own by a user that is running !BeStMan server. The right permission (600) should be set on those files. %ICON{warning}%  !BeStMan should be configured with host certificate in order to be able to handle requests from !LCG-Utils tools. This is mandatory for at least all !BeStMan servers that support ATLAS experiment. Normally the OSG !BeStMan implementation uses a service certificate, not a host certificate. This causes lcg-cp to fail because the certificate name (which looks like http/hostname instead of just hostname) doesn't match the hostname. 
+   1. The firewall must allow incoming connections to the !GridFTP port (default 2811). Outgoing connections must be allowed from high ports ( typically in range 32769-65535 ). We recommend to consult the [[ReleaseDocumentation/ComputeElementFirewalls][Firewall Guide]] if you install the !GridFTP server for the first time.
+   1. A working GUMS server or a gridmap-file are needed for authorization using grid certificates.
+
+---++ !BeStMan Installation Procedure
+Login as root and check if pacman version >=%PACMAN_VERSION% is installed:
+<pre class="screen">
+su root
+pacman -version
+</pre>
+
+Next,  create an installation directory and change this directory. This directory will later be used to get the !BeStMan package  from the %CACHE% cache.
+
+<pre class="screen">
+mkdir -p /opt/osg_%OSG_VERSION%-bestman/
+cd /opt/osg_%OSG_VERSION%-bestman/
+</pre>
+
+If you are using GUMS authorization method you will need to setup _VDT_GUMS_HOST_ environment variable, if you are using  gridmap-file ,please, proceed to the next step.
 <pre class="screen"> 
 cd &lt;VDT_LOCATION&gt;
-export VDT_GUMS_HOST=&lt;GUMS hostname&gt;      # if you want to use GUMS for GridFtp and Gratia GridFTP probe authorization
-pacman -get %CACHE%:Bestman 
-source setup.sh;  vdt-post-install
-
+export VDT_GUMS_HOST=&lt;GUMS hostname&gt;  
 </pre>
 
-
-The install process will ask to accept the vdt-cache and check for prerequisites, In pre-1.2 release  it will also ask to accept licenses and then ask several questions about deploying and enabling services for the GRID access. Specifically (though edited to only show the questions and suggested answers) :
+Finally, execute pacman to get the !BeStMan package from the %CACHE% cache. Pacman will ask whether you want to trust the cache (=yall=).
+<pre class="screen">
+cd &lt;VDT_LOCATION&gt;
+pacman -get %CACHE%:Bestman
+</pre>
+The install procedure will print out a warning:
 <verbatim>
-Do you want to add [http://software.grid.iu.edu/itb/] to [trusted.caches]? (y/n/yall): yall
-Do you agree to the licenses? [y/n]  y
-Where would you like to install CA files?
-Choices:
-        r (root)  - install into /etc/grid-security/certificates
-                   (existing CA files will be preserved)
-        l (local) - install into $VDT_LOCATION/globus/share/certificates
-        n (no)    - do not install
-r
-Do you want to automatically update your CA Certificates? [y/n] y
-Would you like to enable Globus GridFTP daemon to run automatically? y
-Would you like to setup daily rotation of VDT log files? y
-Would you like to enable the Bestman server to run automatically? y
-Do you want to update the CA certification revocation lists (CRLs) automatically? [y/n] y
-(downloading)                                                             
-========== IMPORTANT ==========
-The VDT no longer installs certificate authority certificates at install time.
-Most of the software installed by the VDT *will not work* until you install
-certificates.  To complete your CA certificate installation, see the notes
-in the post-install/README file.
-</verbatim>
-
-%STARTOSG12%In OSG 1.2  you are only asked to accept caches and you'll be informed that the CA certificates need to be installed.
-<pre class="screen"> 
-<verbatim>
-Do you want to add [http://software.grid.iu.edu/osg-1.2] to [trusted.caches]? (y/n/yall): yall
-Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check...       
-
-All prerequisite checks are satisfied.
-                                                                          
-
-
 ========== IMPORTANT ==========
 Most of the software installed by the VDT *will not work* until you install
 certificates.  To complete your CA certificate installation, see the notes
 in the post-install/README file.
 </verbatim>
+
+The information provided in the README is out of date. Please setup the CA certificates in the following way instead:
+<pre class="screen">
+source setup.sh
+$VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local -url osg
 </pre>
-If the =OLD_VDT_LOCATION= is set a link will be created to point to a location where the CA certificates 
-were stored  in your earlier install and you'll see the following message instead:
-<pre class="screen"> 
-<verbatim>
-Your CA certificates have been setup automatically using information from 
-OLD_VDT_LOCATION.  Verify the link at VDT_LOCATION/globus/TRUSTED_CA
-</verbatim>
+This command will download certificates distributed by the OSG to =$VDT_LOCATION/globus/share/certificates= and create a symlink from =$VDT_LOCATION/globus/TRUSTED_CA= to that location. [[VDTCAManage][Other options]] are also available.
+
+To reflect the changes update the environment and run the post installation script:
+<pre class="screen">
+vdt-post-install
 </pre>
-If the =OLD_VDT_LOCATION= is not set prior to the install or you want to change the CA certificates location, you'll have to run:
-<pre class="screen"> 
-<verbatim>
-#source VDT_LOCATION/setup.sh
-#$VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location [root|local|<PATH>] --url [osg|vdt|<URL>]
 
- Location:
-    root - install into /etc/grid-security
-    local - install into $VDT_LOCATION/globus/share
-    PATH - install into PATH (e.g. /nfs/certificates)
-
-A common example is to install the OSG-provided certificates into the OSG install directory:
-
-$VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local --url osg
-</verbatim>
+You can verify that the version installed is the version you expected by executing =vdt-version=. To see all services available use =vdt-control -list=
+<pre class="screen">
+vdt-version
+vdt-control --list
 </pre>
-%ENDOSG12%
+This completes the installation of the !BeStMan server. Move to the [[#!BeStMan Configuration][this step]] to configure the !BeStMan and !GridFTP servers. You may also chose to configure Gratia transfer probe at this time.
+If you want to install additional !GridFTP servers on the different nodes, please, follow [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GsiFtpStandAlone][this document]]
 
-The installation should finish quietly. You can review what has been in stalled by the following commands:
+
+---++ !BeStMan Configuration
+You will need to configure !BeStMan first in order to enable it as a service. The full review of !BeStMan configuration options are provided in the [[http://sdm.lbl.gov/bestman/docs/bestman-guide.html][Bestman Administrative Guide]]. The process is controlled by a !BeStMan-specific configuration script ( =$VDT_LOCATION/bestman/setup/configure= ) with command line arguments to define such items as cache directories, CA cert and CRL locations, service ports, logging information ..
+
+If you are using gridmap-file then the simplest configuratio command n for your !BeStMan installation  is shown below:
+<pre class="screen">
+cd &lt;VDT_LOCATION&gt; 
+source setup.sh 
+$VDT_LOCATION/vdt/setup/configure_bestman --server y 
+</pre>
+
+This command will install !BeStMan that will be 
+   * running  by user _"daemon"_,
+   * using certificate  /etc/grid-security/http/httpcert.pem and certificate key /etc/grid-security/http/httpkey.pem
+   * listening on secure port 10443 and public port 10080
+   * utilizing  gridftp server running on the same host on 2811 port
+   * using gridmap-file for authorization
+
+ If you want to use GUMS for authorization the simplest configuration  command will be:
+<pre class="screen">
 <verbatim>
-# source setup.sh
-# vdt-version
-
-You have installed a subset of VDT version 1.10.98v:
-
-Software                                                 Status              
---------                                                 ------              
-Berkeley Storage Manager (BeStMan) 2.2.1.2.i4            OK                  
-EDG Make Gridmap 3.0.0                                   OK                  
-Fetch CRL 2.6.6                                          -                   
-GPT 3.2autotools2004-NMI-9.0                             -                   
-Gratia GridFTP Probe 1.02.1-5                            OK                  
-Grid User Management System (GUMS) Client 1.3.14         OK                  
-Java 5 SDK 1.5.0_17                                      OK                  
-Java 6 SDK 1.6.0_11                                      OK                  
-Logrotate 3.7                                            -                   
-PRIMA Authorization Module 0.8.3                         OK                  
-vdt-update-certs 2.2                                     -                   
-Wget 1.11.4                                              OK                  
-
-
-Status legend:
-OK: Software is up to date with the latest release in VDT version 1.10.98
-- : Not enough information to determine if updates are available.
-See man page for more information.
-</verbatim>
-
-And check which services are ready to deploy with:
-<verbatim>
-# vdt-control --list
-Service            | Type   | Desired State
--------------------+--------+--------------
-fetch-crl          | cron   | enable
-vdt-rotate-logs    | cron   | enable
-vdt-update-certs   | cron   | enable
-gsiftp             | inetd  | enable
-gratia-gridftp-tran| cron   | do not enable
-bestman            | init   | enable
-</verbatim>
-%STARTOSG12%In OSG 1.2  you'll see instead
-<pre class="screen"> 
-<verbatim>
-]# vdt-version
-
-You have installed a subset of VDT version 2.0.0p8:
-
-Software                                                 Status              
---------                                                 ------              
-Berkeley Storage Manager (BeStMan) 2.2.1.2.i7.p3         OK                  
-vdt-ca-manage 1.0                                        OK                  
-vdt-update-certs 2.5                                     OK                  
-EDG Make Gridmap 3.0.0                                   OK                  
-Fetch CRL 2.6.6                                          OK                  
-GPT 3.2-4.0.8p1                                          OK                  
-Gratia GridFTP Probe 1.04.4d-1                           OK                  
-Grid User Management System (GUMS) Client 1.3.16         OK                  
-Java 5 SDK 1.5.0_20                                      OK                  
-Java 6 SDK 1.6.0_16                                      OK                  
-Logrotate 3.7                                            OK                  
-PRIMA Authorization Module 0.8.4                         OK                  
-pyOpenSSL module 0.9                                     OK                  
-VOMS Client 1.8.8-2p1                                    OK                  
-Wget 1.11.4                                              OK                  
-
-
-Status legend:
-OK: Software is up to date with the latest release in VDT version 2.0.0
-- : Not enough information to determine if updates are available.
-See man page for more information.
-
-# vdt-control --list
-Service                 | Type   | Desired State
-------------------------+--------+--------------
-fetch-crl               | cron   | do not enable
-vdt-rotate-logs         | cron   | do not enable
-vdt-update-certs        | cron   | do not enable
-gsiftp                  | inetd  | do not enable
-gratia-gridftp-transfer | cron   | do not enable
-gums-host-cron          | cron   | do not enable
+cd &lt;VDT_LOCATION&gt; 
+source setup.sh 
+$VDT_LOCATION/vdt/setup/configure_bestman --server y\
+        --cert <bestman service cert>\
+        --key  <bestman service key>\
+        --gums-host <GUMS hostname>\
+        --gums-port <GUMS port number>\
 </verbatim>
 </pre>
-And you'll have to enable desired services by hand using =vdt-control  --enable Service-name=.
-%ENDOSG12%
----+++ Configuration for VDT installation
 
-The full review of !BeStMan configuration options are provided in the [[http://sdm.lbl.gov/bestman/docs/bestman-guide.html][Bestman Administrative Guide]]. The process is controlled by a !BeStMan-specific configuration script ( =$VDT_LOCATION/bestman/setup/configure= ) with command line arguments to define such items as cache directories, CA cert and CRL locations, service ports, logging information ... During the VDT installation in pre-OSG-1.2 versions some defaults are used to do an initial configuration and can be reviewed from the =vdt-install.log= file. For example:
-<verbatim>
-# grep /bestman vdt-install.log | grep configure
-### 2009-02-18 15:27:48 (failsafe_system) cd /opt/osg/itb-0.9.2/bestman/setup; 
-./configure     --with-java-home=/opt/osg/itb-0.9.2/jdk1.6    \
---with-srm-home=/opt/osg/itb-0.9.2/bestman    \
---with-srm-owner=daemon   \
---with-cacert-path=/opt/osg/itb-0.9.2/globus/TRUSTED_CA   \
---with-certfile-path=/etc/grid-security/http/httpcert.pem   \
---with-keyfile-path=/etc/grid-security/http/httpkey.pem   \
---with-eventlog-path=/opt/osg/itb-0.9.2/vdt-app-data/bestman/logs    \
---with-cachelog-path=/opt/osg/itb-0.9.2/vdt-app-data/bestman/logs   \
---with-http-port=10080    \
---with-https-port=10443   \     
---with-globus-tcp-port-range=62000,65000  \
---with-replica-storage-path=/opt/osg/itb-0.9.2/vdt-app-data/bestman/cache   \
- --with-replica-storage-size=11368 
-</verbatim>
+Where 
+   * _<bestman service cert>_  path to service certificate 
+   * _<bestman service key>_  path to service certificate private key</br> 
 
-This configuration is done by a script =$OSG_LOCATION/vdt/setup/configure_bestman=. This script sets/changes the following Bestman parameters:
-<verbatim>
-#./configure_bestman --help
-Usage: ./configure_bestman --vdt-install <vdt install root>
-        --server <y,n>
-        --user <bestman user>
-        --cert <bestman service cert>
-        --key  <bestman service key>
-        --http-port <public port number>
-        --https-port <secure port number>
-        --globus-tcp-port-range <low_port,high_port>
-        --volatile-file-lifetime <lifetime in seconds>
-        --cache-size <Cache size in MB>
-        --gums-host <GUMS hostname>
-        --gums-port <GUMS port number>
-        --gums-url <GUMS URL>
-        --gums-dn <Client DN for GUMS interface>
-        --enable-gateway
-        --use-xrootd
-        --with-tokens-list <token-list>
-        --with-transfer-servers <GridFTP server list>
-        --with-allowed-paths <List of accessible paths>
-        --with-blocked-paths <List of non-accessible paths>
+%ICON{"warning"}% *the certificate file and key  should belong to the user* - Please, see [[#Checklist][Checklist]]. 
 
-If you specify --user you must specify --cert and --key as well
-</verbatim>
-%STARTOSG12%In OSG 1.2 Bestman is not configured automatically any more. You can still use ==$VDT_LOCATION/vdt/setup/configure_bestman= script
-to configure your server and after doing that you can still check how it was configured but looking at:
-<verbatim>
-# grep /bestman vdt-install.log | grep configure
-</verbatim>
-%ENDOSG12%
+%ICON{warning}%  !BeStMan should be configured with host certificate in order to be able to handle requests from !LCG-Utils tools. This is mandatory for at least all !BeStMan servers that support ATLAS experiment. Normally the OSG !BeStMan implementation uses a service certificate, not a host certificate. This causes lcg-cp to fail because the certificate name (which looks like http/hostname instead of just hostname) doesn't match the hostname. 
+   * _GUMS hostname_ the name of  !GUMS server, <br/> 
+   * _GUMS port number_ the port of !GUMS  server, <br/>   
 
-The default configuration sets up !BeStMan to use grid mapfiles, but bestman is also fully capable of using the GUMS server.
-If there is a need to change any of the parameters the =configure_bestman= script should be always used. Here is an example
-how the owner, ports and dependence on GUMS were changed using this script:
-<verbatim>
-vdt/setup/configure_bestman --user srm \
---cert /etc/grid-security/srm/hostcert.pem \
---key /etc/grid-security/srm/hostkey.pem  \
---server y  \
---http-port=60080    \
---https-port=60443 \
---gums-host osp2.lbl.gov \
---gums-port 8443
-</verbatim>
-
+This command will install !BeStMan that will be 
+   * running  by user _"daemon"_,
+   * listening on secure port 10443 and public port 10080
+   * utilizing  gridftp server running on the same host on 2811 port
+ 
 It is important to notice that --server y should be specified, otherwise the =configure_bestman= script disables the bestman server and then
 it needs to be turned on again with the =vdt-control --on bestman=.
 
-%ICON{warning}%  If you need to comply with the LCG standards !BeStMan should be configured with a host certificate in order to be able to handle requests from LCG-Utils tools. This is mandatory for at least all !BeStMan servers that support ATLAS experiment. Normally the OSG !BeStMan implementation uses a service certificate, not a host certificate. This causes lcg-cp to fail because the certificate name (which looks like http/hostname instead of just hostname) doesn't match the hostname. 
+
+More advanced command that allows you to use GUMS authorization, specified non-default ports for !BeStMan and !GridFTP ports range, list allowed or blocked paths, etc is show below
+
+<pre class="screen">
+<verbatim>
+# ./configure_bestman  --server <y,n>\
+        --user <bestman user>\
+        --cert <bestman service cert>\
+        --key  <bestman service key>\
+        --http-port <public port number>\
+        --https-port <secure port number>\
+        --globus-tcp-port-range <low_port,high_port>\
+        --volatile-file-lifetime <lifetime in seconds>\
+        --cache-size <Cache size in MB>\
+        --gums-host <GUMS hostname>\
+        --gums-port <GUMS port number>\
+        --with-transfer-servers <GridFTP server list>\
+        --with-allowed-paths <List of accessible paths>\
+        --with-blocked-paths <List of non-accessible paths>
+</verbatim>
+</pre>
+
+Where :
+   * _bestman user_
+   * _bestman service cert_
+   * _bestman service key_
+   * _public port number_
+   * _secure port number_
+   * _low_port,high_port_
+   * _lifetime in seconds_
+   * _GUMS hostname_
+   * _GUMS port number_
+   * _GridFTP server list_
+   * _List of accessible paths_
+   * _List of non-accessible paths_
+
+More configuration options could be found with _--help__ option.
+
 
 
 
@@ -388,3 +329,56 @@ In order to learn more about [[http://datagrid.lbl.gov/bestman][BeStMan]], pleas
 ---++ *Comments*
 | Current version above - isn't this old? | Main.RobGardner | 16 Jul 2009 - 19:52 |
 %COMMENT{type="tableappend"}%
+<!-- CONTENT MANAGEMENT PROJECT
+############################################################################################################
+ DEAR DOCUMENT OWNER
+ ===================
+
+ Thank you for claiming ownership for this document! Please fill in your FirstLast name here:
+   * Local OWNER = TanyaLevshina
+
+ Please define the document area, choose one of the defined areas from the next line
+ DOC_AREA = (ComputeElement|Storage|VO|Security|User|Monitoring|General|Integration|Operations|Tier3)
+   * Local DOC_AREA       = Storage
+
+ define the primary role the document serves, choose one of the defined roles from the next line
+ DOC_ROLE = (EndUser|Student|Developer|SysAdmin|VOManager)
+   * Local DOC_ROLE       = SysAdmin
+
+ Please define the document type, choose one of the defined types from the next line
+ DOC_TYPE = (Troubleshooting|Training|Installation|HowTo|Planning|Navigation|Knowledge)
+   * Local DOC_TYPE       = Installation
+  Please define if this document in general needs to be reviewed before release ( %YES% | %NO% )
+   * Local INCLUDE_REVIEW = %YES%
+
+ Please define if this document in general needs to be tested before release ( %YES% | %NO% )
+   * Local INCLUDE_TEST   = %NO%
+
+ change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
+   * Local REVIEW_READY   = %YES%
+
+ change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
+   * Local TEST_READY     = %NO%
+
+ change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
+   * Local RELEASE_READY  = %NO%
+
+
+ DEAR DOCUMENT REVIEWER
+ ======================
+
+ Thank for reviewing this document! Please fill in your FirstLast name here:
+   * Local REVIEWER       = AlexSim
+ Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local REVIEW_PASSED  = %IN_PROGRESS%
+
+
+ DEAR DOCUMENT TESTER
+ ====================
+
+ Thank for testing this document! Please fill in your FirstLast name here:
+   * Local TESTER         = FirstLast
+ Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local TEST_PASSED    = %IN_PROGRESS%
+############################################################################################################
+-->
