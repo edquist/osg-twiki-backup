@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1266363488" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1267748127" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -11,11 +11,39 @@
    * NFS directories are mounted on =/nfs= and linked to the required destination to make the configuration more explicit
 
 ---++ Directories exported
-NFSv4 requires a single directory tree
+When dealing with NFS, or other shared file systems, keep in mind these distinctions:
+   1 actual directory on the NFS server 
+   2 directory exported by the NFS server - if the path used by the NFS daemon  
+   3 mount point on the NFS client (the server can mount it as well)
+   4 final desired path on the NFS client (can be used on the server as well)
+1 and 2 can be the same but the use of links allows for more flexibility. The same is valid for 3 and 4. In the example below these will be 4 different paths.
+
+NFSv4 requires a single directory tree. All the directories exported are grouped in a pseudo-filesystem under =/export=
    * =home= - Home directories for Grid users; these are often shared group accounts with a name similar to the VO's name; for example *osg*, *osgedu*, *uscms*, *usatlas*, ...).  Local accounts for the *condor* user, and any other local user.
    * =condor= - Condor installation and configuration directories. It may have a subdirectory for each Condor version installed. This will allow for an easy upgrade procedure for Condor. See ClusterCondorInstall for more information. 
    * =osg= - Directories used by OSG, e.g. =OSG_GRID=, =OSG_APP= and =OSG_DATA=. Their functions is explained in the OSG documentation, for example ReleaseDocumentation.LocalStorageConfiguration.
    * =certificates= - CA certificate directory, shared across the cluster, updated by a process running on the CE node (*gc1-ce*) as part of the Grid installation.
+
+The directories are supposed to exist already somewhere in the filesystem of the NFS server and are linked (with a bid mount) in the =/export= pseudo-filesystem
+
+---++ Network configuration of NFS
+The NFS server is =gc1-nfs= and we decide to export the NFS shares to all the intranet, all the local network. Consistently with ClusterNetworkSetup this is =192.168.192.0= with NETMASK 255.255.192.0 (18 fixed bits).
+If you assume that the host is connected to the intranet with its first network interface, NIC (=eth0=), and that your NFS domain is all the intranet, then it is possible to evaluate automatically the NFS domain:<pre class="screen">ifconfig eth0 | grep "inet addr" | sed 's|:| |g' | awk '{print $3" "$7}' | xargs ipcalc -n | cut -b 9-</pre>
+
+Given the NIC attached to the intranet:<pre class="screen">
+# intranet network interface
+EXTIF="eth0"
+</pre>
+You can use:<pre class="screen">
+EXTIP="`ifconfig $EXTIF | awk  /$EXTIF/'{next}//{split($0,a,":");split(a[2],a," ");print a[1];exit}'`"
+EXTNETMASK="`ifconfig $EXTIF | awk  /$EXTIF/'{next}//{split($0,a,":");split(a[4],a," ");print a[1];exit}'`"
+EXTPREFIX=`ipcalc -p $EXTIP $EXTNETMASK | awk --field-separator "=" '{print $2;exit}'`
+network_domain=$EXTIP"/"$EXTNETMASK
+</pre>
+To evaluate automatically IP, NETMASK and IP/net string to use in the following steps of the configuration.
+The commands above are generic and should work on any Linux distribution, no matter the locale.
+
+Note that you don't have to export all the directories to all the hosts on the intranet. You can export some directories only to one host or a different subnet. Feel free to customize the examples.
 
 ---++ Configuration of the NFS server
 The NFS server is called =gc1-nfs=.  Again here we are choosing some options that imply conventions and/or policy of the local site, and so the following is meant to be suggestive.  For example the =no_root_squash= option allows the root account on another machine in the cluster to modify files exported by the NFS server. This may not be desirable since it is a little less protective of the files on the NFS server.
@@ -26,15 +54,37 @@ mkdir /exports/condor
 mkdir /exports/osg   
 mkdir /exports/certificates 
 </pre>
+   * link the exported directories to the real directories on the server by using _bind mounts_
+      * Supposing that the real directories are:<pre class="screen"> 
+/data/home
+/data/condor
+/data/osg
+/data/certificates
+</pre>
+      * then add the following lines to =/etc/fstab=:<pre class="file">
+/data/home              /exports/home           none    bind            0 0
+/data/condor            /exports/condor         none    bind            0 0
+/data/osg               /exports/osg            none    bind            0 0
+/data/certificates      /exports/certificates   none    bind            0 0
+</pre>
    * Directories are exported separately which allows mounting with different permissions.  For example, may want to mount the =condor= directory as read only from the compute nodes.
    * The configuration is in =/etc/exports=.  If the file does not exist, create it. Add lines similar to the ones in the example file: one line for each directory in =/exports=. Each line starts with the directory name, followed by the IP address of the machine  and the subnet mask (=/24= should work), followed by the parameters =(async,no_root_squash,rw)=
-   * Here an example of =/etc/exports= (my IP is =192.168.60.50=, subnet =/24= because I have a class C subnet):<pre class="file">cat /etc/exports
+   * Here an example of =/etc/exports= (my IP is =192.168.192.50=, subnet =/18=, consistent with ClusterNetworkSetup):<pre class="file">cat /etc/exports
 /exports    192.168.60.50(fsid=0,no_subtree_check,async,r) 
-/exports/home   192.168.60.50/24(async,no_root_squash,rw)
-/exports/condor 192.168.60.50/24(async,no_root_squash,rw)
-/exports/osg    192.168.60.50/24(async,no_root_squash,rw)
-/exports/certificates   192.168.60.50/24(async,no_root_squash,rw)</pre>
-   * =/exports= is the root of the NFS file system, identified by =fsid=0=, everything else you'd like to export has to be accessible under it. To export directories from outside a _bind mount_ is necessary, add it to =/etc/fstab.
+/exports/home   192.168.60.50/18(async,no_root_squash,rw)
+/exports/condor 192.168.60.50/18(async,no_root_squash,rw)
+/exports/osg    192.168.60.50/18(async,no_root_squash,rw)
+/exports/certificates   192.168.60.50/18(async,no_root_squash,rw)</pre>
+<!--
+Other example, options used in ATLAS - compare options
+<pre>/exports 192.168.60.50/18(fsid=0,insecure,no_subtree_check)
+/exports/home   192.168.60.50/18(rw,nohide,insecure,no_subtree_check,root_squash)
+/exports/condor 192.168.60.50/18(rw,nohide,insecure,no_subtree_check,root_squash)
+/exports/osg    192.168.60.50/18(rw,nohide,insecure,no_subtree_check,root_squash)
+/exports/certificates   192.168.60.50/18(rw,nohide,insecure,no_subtree_check,root_squash)
+</pre>
+-->
+   * =/exports= is the root of the NFS file system, identified by =fsid=0=, everything else you'd like to export has to be accessible under it. To export directories from outside a _bind mount_ is necessary, add it to =/etc/fstab=.
    * NFS has to be restarted in order for any change to take effect.  This is done by =/etc/init.d/nfs restart=.
    * To enable NFS at boot-time, and to start it up: <pre class="screen">
 chkconfig --level 345 nfs on
@@ -43,12 +93,18 @@ chkconfig --level 345 nfs on
 <!-- 
 portmap is not necessary for NFSv4
    * Also check that the =portmap= service is running at levels 3,4,5:<pre class="screen">chkconfig --list portmap
-portmap        	0:off	1:off	2:off	3:on	4:on	5:on	6:off</pre>
+portmap        	0:off	1:off	2:off	3:on	4:on	5:on	6:off 
+</pre>
 -->
+   * restart the services:<pre class="screen">
+/sbin/service rpcidmapd restart
+/sbin/service portmap restart
+/sbin/service nfs restart
+</pre>
 
-Another important file is:
-   * =/etc/idmapd.conf =, defining the domain and how the users are mapped
-   * To test if NFS is working locally:<pre class="screen">
+Another important file is =/etc/idmapd.conf=, defining the domain and how the users are mapped. Use =man idmapd= and =man idmapd.conf= to find out more if you want to use if.
+
+Now you can test if NFS is working locally:<pre class="screen">
 mkdir /tmp/test
 mount -t nfs4 gc1-nfs:/condor /tmp/test
 touch /exports/condor/testfile
@@ -58,7 +114,7 @@ umount /tmp/test
 rmdir /tmp/test
 </pre>
    * Note how in the mount directory in the command uses only  the relative path starting from the NFS root.
-   * On the NFS server (*gc1-nfs*) the exported directories are linked to their destination.  This is usually a soft link. Sometimes a bind mount is used.
+   * On the NFS server (*gc1-nfs*) the exported directories can be mounted but normally are linked to their destination (the path used on the clients).  This is usually a soft link. Sometimes a bind mount is used.
 
 ---++ Configuration on client machines: /etc/fstab
    * Almost all other hosts import directories from the NFS server.  This is controlled editing =/etc/fstab= adding the lines (the NFS server is =gs1-nfs= and it is configured as above):<pre class="file">
