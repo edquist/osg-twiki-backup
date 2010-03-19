@@ -1,0 +1,85 @@
+%META:TOPICINFO{author="AlanDeSmet" date="1269038802" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="NEESFileTransfer"}%
+This is, at the moment, a completely unorganized pile of my notes and to do lists. Various parts will move to the other NEESFileTransfer pages as I go.
+
+---++ To Do
+
+   * Document how to monitor the Condor process. condor_q -dag, looking for rescue dags, etc
+   * Pass "--blocking-factor 256" to multivol-tar. Some _very_ crude tests suggest a 15% speed boost if all of the input data is in cache.  Since our data isn't I'd expect an even larger improvement.  The down side is that our tar files will always be multiples of 128kiB (256*512), versus the 10kiB (20*512) that it is now.  Given the size of our files (5-10 GiB), this should be insignificant.
+   * Make parallel job limits a command line argument
+   * Automate checksum checking
+      1. Add a "Checksum" step, probably after Clean. Just run the appropriate report
+      1. Add a "Validate" step, after Checksum. It needs to wait 4 hours before starting. (Make wait duration a command line argument)  Compare to report output from previous step.  Use Condor's ability to delay a job start to accomplish this.  Because of the delay, we can not use the global 2-job throttle!  A longer discussion of this problem is its own section below as "The Throttling Problem"
+   * Send email on results. - Can't just have as end node in the DAG; it will never run if there are errors.
+   * Have fileobjs implemented as some sort of disk-based backing store?  Perhaps SQLite?  This would reduce RAM usage (currently at about 2 GB for the 4TB data set).  If designed correctly, it could also store the resulting tarball the file ended up in, could store the size and date and be used to identify files needing incremental updates.
+   * Top level unified log.  A single log that an admin can tail to see rough progress.
+   * Determine long term availability of self for project, let Ruth know.
+   * Add priorities to the top level DAG to ensure that jobs run from group 0 through group 600 in order.  It happens to work right now, but we're relying on an implementation artifact of DAGMan.  The DAGMan team has warned that the artifact may go away in the future and jobs will run in (seemingly) random order.  While harmless to the actual results, it's nice to have the groups transfer in order for human review.
+   * prepare-test should write some log output (netlogger if possible)
+   * prepare-test should be willing to pull binary paths from environment (if explicitly set there), or from the path.  Current hard coded paths: rm, gnutar, storage_tools_setup (setup.sh), multivol_tar, archive, condor_submit_dag
+   * Documentation: Developer. Include notes on architecture 
+   * Documentation: Usage.
+   * Allow specifying command line arguments in a configuration file for convenience
+   * Allow specifying more than one directory to prepare-transfer
+   * Retrieval script
+      * User specifies list of files or directories wanted. Automatically identify tar files needed.  Retrieve tar files.  Use multivol_tar to extract specific requests. Delete tar files.  Similar to prepare-transfer, it should create a DAG and should minimize the number of tar files on local disk at once.
+   * Log archiving: zip/tar.gz up log files and move to a designated directory for future review
+   * Add file size, date, and possibly checksum to the manifest
+   * The manifest needs to be backed up, otherwise you won't be able to easily find your files in a disaster situation! It probably needs to be merged with all manifests ever generated (in the long term incremental world)
+
+
+---++ Notes
+
+   * Names on tape are forever. Attempting to overwrite an existing file in dCache is an error.  Given this...
+      * ...if we retry the Archive step, we must rewrite the archive_in file to omit successful transfers.
+      * ...if we retry the entire group, we'll need to change the tar filename.  We'll probably want to append '.try1' and so forth.
+
+
+---++ The Throttling Problem
+Between transferring the files (the Archive step) and the (as yet unwritten) Validate step, we need to wait 4 hours.  This causes a problem.  The current architecture limits two groups to running simultaneously.  This is fine right now as the groups are blocking on disk and network.  But adding the 4 hour wait would mean that over 4 hours only 2 groups could process.  Assuming two groups running simultaneously each take 1 hour to tar and transfer (based on tests), we should be able to do 8 groups in that time.  We can't afford a 75% slowdown.
+
+Furthermore, we should consider: currently we only allow 2 groups running at once.  This practically means that 2 instances of MultivolTar or Archive.  It's not possible to say "Run up to 2 instances of MultivolTar _and_ up to 2 instances Archive," which might be useful for maximizing the machine's throughput.
+
+---+++ Techniques
+
+These are techniques which might be useful.
+
+---++++ throttling
+
+We need to throttle:
+   * Disk usage - Directly ("No more than 50 GiB") or indirectly ("No more than 2 groups in transit at once").  This is a hard limit. Failure to observe the limit will cause failures.
+   * Disk bandwidth - Doing more than, say, 2 tars at once is likely worse in speed.
+   * Network bandwith - Doing more than a handful of srmcp transfers at once is likely worse in speed.
+
+We can throttle in several ways
+   * *DAGMAN_MAX_JOBS_SUBMITTED* - Current, March 19, 2010, solution. Simple, but throttle applies to all jobs in the DAG. Problematic if we want different throttles for the MultivolTar, Archive, and Validate steps.  Also doesn't cross multiple simultaneous backups (but will that ever happen?)
+   * *DAGMan categories* - Pretty simple. Necessitates different nodes (jobs or subdags) for different categories.  If nodes are broken up that way, it's not possible to have one node cause an earlier one to fail without adding a parent DAG per tree of nodes.  One parent DAG per tree of nodes breaks the categories into different dagmans, at which point the throttles stop working. Doesn't cross multiple simultaneous backups (but will that ever happen?)
+   * *vanilla jobs* - run a startd (and collector and negotiator) on the node. Have multiple slots, each assigned to a dedicated task.
+      * Have 2 slots with Requirement=jobtype=="datatransfer".  Mark the data transfer subdags as vanilla jobs with jobtype="datatransfer".  On the down side, we lose access to DAGMan's automatic handling of rescue subdags; we'd need to re-write the functionality from scratch. (We lose the functionality because the subdag support in DAGMan forces a rewrite of the dag.condor.sub file. There doesn't appear to be a way to modify it.)  It's probably not too hard, but it is more work.
+         * If we go this route, we might consider just making the subdags simple scripts. We lose a small bit in live information from condor_q, and we lose the (easyish) ability to automatically retry just MultivolTar or just Archive. But is it worth our time trying retries on that level?
+      * We might do something clever with seperate slots for MultivolTar and Archive, but we can't have too many MultivolTar steps run until matching Clean steps have run to free up disk space. This might work well with the "license claiming" technique below.
+   * *License claiming* - A given node can be queued up and free to start whenever it wants, but it's actually a shell script.  The first thing the script does it check for permission to start, in the form of a "license," similar to license management systems.  This is a fair amount of work.  For Archive, the license might be a simple counter limiting the simultaneous runs.  For MultivolTar, the license might be "is there enough free space for my anticipated disk usage + 20%"?  A license must be atomically testable and claimable; if a MultivolTar needs 13GiB, it needs to claim that space immediately, even if it doesn't actually use it. The license for the disk space might be released when Clean runs, or it might be immediately after MultivolTar finishes (we can check real disk space free or used and subtract outstanding claims to see what's left.) This is potentially complex, as it adds a bunch of potential race conditions and deadlocks.  On the up side, we can throttle on exactly what we care about (disk space).
+      * DAGMan can potentially help here.  The script to claim the license could be a PRE script that blocks. Then, use DAGMAN_MAX_JOBS_IDLE to avoid having too many blocked jobs running at once.
+   * *Custom scheduling system* - Write a custom scheduling system.  A _lot_ of work, and reimplements functionality already (partially) present in DAGMan.
+
+---+++ Solutions
+
+We have solutions, but none are ideal:
+
+---++++ Categories in the top level DAG
+
+The top level DAG current exists only to throttle groups to 2 running simultaneously.  We could put more smarts here.  Instead of one node per group, there would be two.  The first would contain the existing subdag.  The second would contain a single job (or possibly a subdag): Validate.  These two nodes would be marked as "CATEGORY G00001_datatransfer datatransfer" and "CATEGORY G00001_validate validate" groups.  We would throttle with "MAXJOBS datatransfer 2" and "MAXJOBS validate 10".
+
+Pros:
+   * Simple
+   * Relatively fast to implement
+
+Cons:
+   * DAGMan can't help with recovery if Validate fails.  There is no way to say "go back to G00001_datatransfer and change it from "succeeded" to "failed."  If you resubmit the top level rescue DAG, the system will rerun the Validate steps, but not the paired datatransfer subdags.
+      * We can potentially work around by rewriting things, but this is complicated.
+   * If multiple runs are started at once, each one has a limit of 2 simultaneous jobs, which is bad.
+      * It probably doesn't matter. Don't run multiple jobs simultaneously.
+
+---++++ Custom queue manager/dispatcher
+
+When the existing subdag finishes
