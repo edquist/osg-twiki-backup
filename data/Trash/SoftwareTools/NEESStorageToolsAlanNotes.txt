@@ -1,10 +1,105 @@
-%META:TOPICINFO{author="AlanDeSmet" date="1269277344" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="AlanDeSmet" date="1269362385" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="NEESFileTransfer"}%
 This is, at the moment, a completely unorganized pile of my notes and to do lists. Various parts will move to the other NEESFileTransfer pages as I go.
+
+---++ Monitoring a run
+
+---+++ Pausing a run
+
+Use "condor_hold -a" to pause a run. "condor_release -a" to restart it.  This may cause problems as running processes (including archive and multivol-tar) will be terminated, then restarted when you condor_release.
+
+---+++ Instantaneous snapshot
+
+You can see what the run is doing with "condor_q -dag"  Typical output might look like:
+<verbatim>
+-- Submitter: hpc114.tech.purdue.edu : <128.210.135.144:44418> : hpc114.tech.pur
+due.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD
+ 657.0   adesmet         3/22 14:44   0+00:15:53 R  0   7.3  condor_dagman -f -
+ 658.0    |-G00000       3/22 14:44   0+00:15:39 R  0   7.3  condor_dagman -f -
+ 659.0    |-G00001       3/22 14:44   0+00:15:34 R  0   7.3  condor_dagman -f -
+ 663.0    |-G00000_Arch  3/22 14:56   0+00:03:48 R  0   0.0  archive_wrapper.sh
+ 661.0    |-G00001_Mult  3/22 14:44   0+00:15:20 R  0   0.0  multivol-tar.sh -c
+
+5 jobs; 0 idle, 5 running, 0 held
+</verbatim>
+
+657 is the top level DAG, managing the run as a whole.  It has been runing for almost 16 minutes.
+
+658 and 659 are the sub-DAGs, managing groups 0 (00000) and 1 (00001) respectively.  They have been running for about 15.5 minutes each.
+
+663 is the Archive step for group 0.  It has been running for about 4 minutes.
+
+661 is the MultivolTar step for group 1.  It has been running for about 15 minutes.
+
+Groups will run from 00000 through the largest number.  So if you see something like this:
+
+<verbatim>
+-- Submitter: hpc114.tech.purdue.edu : <128.210.135.144:44418> : hpc114.tech.pur
+due.edu
+ ID      OWNER/NODENAME   SUBMITTED     RUN_TIME ST PRI SIZE CMD
+ 657.0   adesmet         3/22 14:44   0+00:45:53 R  0   7.3  condor_dagman -f -
+ 658.0    |-G00002       3/22 15:14   0+00:15:39 R  0   7.3  condor_dagman -f -
+ 659.0    |-G00003       3/22 15:14   0+00:15:34 R  0   7.3  condor_dagman -f -
+ 663.0    |-G00002_Arch  3/22 15:26   0+00:03:48 R  0   0.0  archive_wrapper.sh
+ 661.0    |-G00003_Mult  3/22 15:14   0+00:15:20 R  0   0.0  multivol-tar.sh -c
+
+5 jobs; 0 idle, 5 running, 0 held
+</verbatim>
+We know that groups 0 and 1 are done, and we're up to groups 2 and 3.
+
+---+++ Reviewing logs
+
+For the progress as a whole, check the top level dag.dagman.out.  In particular, sections like the following are interesting.
+
+---++++ Most recent status
+<verbatim>
+3/22 15:47:34 Number of idle job procs: 1
+3/22 15:47:34 Of 408 nodes total:
+3/22 15:47:34  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+3/22 15:47:34   ===     ===      ===     ===     ===        ===      ===
+3/22 15:47:34     2       0        2       0     403          0        1
+</verbatim>
+
+These status updates will appear at regular intervals.  2 of the groups are done, 2 are queued up to run (and are probably running).  403 are ready to run, but aren't yet because of the 2 simultaneous group throttle.  1 group failed.
+
+---++++ History of group starts and finishes
+You might run the following command to see groups starting and finishing:
+<verbatim>
+egrep 'Event|failed' dag.dagman.out
+</verbatim>
+The output will look like this:
+<verbatim>
+3/22 14:44:29 Event: ULOG_SUBMIT for Condor Node G00000 (658.0)
+3/22 14:44:29 Event: ULOG_EXECUTE for Condor Node G00000 (658.0)
+3/22 14:44:29 Event: ULOG_SUBMIT for Condor Node G00001 (659.0)
+3/22 14:44:34 Event: ULOG_EXECUTE for Condor Node G00001 (659.0)
+3/22 15:07:08 Event: ULOG_JOB_TERMINATED for Condor Node G00000 (658.0)
+3/22 15:07:14 Event: ULOG_SUBMIT for Condor Node G00002 (665.0)
+3/22 15:07:19 Event: ULOG_EXECUTE for Condor Node G00002 (665.0)
+3/22 15:29:54 Event: ULOG_JOB_TERMINATED for Condor Node G00002 (665.0)
+3/22 15:29:54 Node G00002 job proc (665.0) failed with status 1.
+3/22 15:30:00 Event: ULOG_SUBMIT for Condor Node G00003 (669.0)
+3/22 15:30:05 Event: ULOG_EXECUTE for Condor Node G00003 (669.0)
+3/22 15:47:28 Event: ULOG_JOB_TERMINATED for Condor Node G00001 (659.0)
+3/22 15:47:34 Event: ULOG_SUBMIT for Condor Node G00004 (672.0)
+3/22 15:47:39 Event: ULOG_EXECUTE for Condor Node G00004 (672.0)
+3/22 15:59:00 Event: ULOG_JOB_TERMINATED for Condor Node G00003 (669.0)
+3/22 15:59:00 Node G00003 job proc (669.0) failed with status 1.
+3/22 15:59:07 Event: ULOG_SUBMIT for Condor Node G00005 (674.0)
+3/22 15:59:07 Event: ULOG_EXECUTE for Condor Node G00005 (674.0)
+</verbatim>
+
+A group (known as a "Node" here) will go from SUBMIT, to EXECUTE, to JOB_TERMINATED.  If a group fails, there will be something like "Node G00003 job proc (669.0) failed with status 1.".
+
+
+
+
 
 ---++ To Do
 
    * Document how to monitor the Condor process. condor_q -dag, looking for rescue dags, etc
+   * If MultivolTar, Archive, or Clean fails, the tarballs will be left there.  Given the limited space, this is a problem and will likely lead to filling the disk and the entire system crashing.  Note that "licensing claiming" on disk would solve the problem, although the entire system will deadlock when it runs low on space until someone cleans up the aborted runs.
    * Done. <strike>Pass "--blocking-factor 256" to multivol-tar. Some _very_ crude tests suggest a 15% speed boost if all of the input data is in cache.  Since our data isn't I'd expect an even larger improvement.  The down side is that our tar files will always be multiples of 128kiB (256*512), versus the 10kiB (20*512) that it is now.  Given the size of our files (5-10 GiB), this should be insignificant.</strike> 
    * Make parallel job limits a command line argument
    * Automate checksum checking
@@ -69,6 +164,7 @@ We can throttle in several ways
    * *License claiming* - A given node can be queued up and free to start whenever it wants, but it's actually a shell script.  The first thing the script does it check for permission to start, in the form of a "license," similar to license management systems.  This is a fair amount of work.  For Archive, the license might be a simple counter limiting the simultaneous runs.  For MultivolTar, the license might be "is there enough free space for my anticipated disk usage + 20%"?  A license must be atomically testable and claimable; if a MultivolTar needs 13GiB, it needs to claim that space immediately, even if it doesn't actually use it. The license for the disk space might be released when Clean runs, or it might be immediately after MultivolTar finishes (we can check real disk space free or used and subtract outstanding claims to see what's left.) This is potentially complex, as it adds a bunch of potential race conditions and deadlocks.  On the up side, we can throttle on exactly what we care about (disk space).
       * DAGMan can potentially help here.  The script to claim the license could be a PRE script that blocks. Then, use DAGMAN_MAX_JOBS_IDLE to avoid having too many blocked jobs running at once.
    * *Custom scheduling system* - Write a custom scheduling system.  A _lot_ of work, and reimplements functionality already (partially) present in DAGMan.
+   * Perhaps multivol-tar should block and immediately handle the srmcp and clean. steps.  This ensures that only 10GB are used by a given group at once. multivol-tar would need to either run the srmcp and clean steps directory, or would submit condor jobs and wait for them.  Open question: recovery if restarted.
 
 ---+++ Solutions
 
