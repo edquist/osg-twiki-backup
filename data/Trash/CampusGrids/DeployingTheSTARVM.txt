@@ -1,6 +1,108 @@
-%META:TOPICINFO{author="MichaelFenn" date="1267222932" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="MichaelFenn" date="1270152763" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! %MAKETEXT{"Deploying the STAR VM" }%
 
+%TOC%
+
+---+ ACAT 2010 Presentation
+
 The presentation below was presented at ACAT 2010 and gives a brief overview of the challenges inherent in deploying any computational VM.  It focuses on the STAR VM in particular.
 <p><iframe src="http://docs.google.com/present/embed?id=dgb89dpf_32cfbv3xf4&interval=30&size=m" frameborder="0" width="555" height="451"></iframe></p>
+
+---+ Contextualization Principles
+
+The topic of VM contextualization merits further discussion. It is a safe assumption that any given VM image will not successfully integrate into a VOC as implemented at any given site. This is due to a variety of factors, including but not limited to: the need to mount any eternal filesystems, the need to acquire an IP address (be it via DHCP or some overlay networking mechanism), the need to handshake with a batch system, and the need to define any grid-specific environment variables. Thus, the image must be contextualized in two phases: image-level and instance-level. Image-level contextualization occurs once per VM disk image per site. Instance-level contextualization occurs once per VM instance.
+
+---++ Image-level contextualization
+
+Important considerations for image-level contextualization are image format, image layout, shared filesystem support, and batch scheduler integration. Image format refers to the representation of the disk's data within the image file. Image layout refers to how the various partitions are placed on the disk and to what other disk structures are present. 
+
+The simplest image format is that of the raw disk image. A raw image is simply a file containing the exact byte string that would appear on a physical device. This format is highly compatible but is not space efficient because the image file's size must be equal to the capacity of the virtual device being represented. Note that raw images compress very well with gzip compression, so they are fairly easy to distribute. In order to mitigate the in-use size issue, there has been a proliferation of virtual image formats such as VMDK, VDI, VHD, and QCOW2. These formats vary in implementation and hypervisor support, but they all allow the compact representation of a disk image. When utilizing one of these formats, the size of the image is determined by the size of the actual data present on the device, instead of being determined by the capacity of the device. In order to contextualize the VM image format, the image must simply be converted to a format that is compatible with the hypervisor used at a given site. The [[http://linux.die.net/man/1/qemu-img][qemu-img]] tool provides functionality that can convert images between many of the popular formats, thus freeing the user from reliance on any particular hypervisor image format. Hypervisor vendors also generally provide a tool that can convert between their format and the raw format.
+
+The image layout issue can become much more involved. The two main image layouts are the partition image layout and the disk image layout. A partition image contains a representation of a single disk partition. Essentially, this layout could be referred to as a filesystem image, since a partition does not contain any metadata with regard to itself. This layout requires a hypervisor that is able to present individual partitions to a guest OS. Currently, only the Xen hypervisor is capable of this. The disk image layout contains a representation of an entire disk, including the master boot record, boot sector, and partition table. All hypervisors, including KVM, are capable of utilizing this type of image. Since Xen requires the guest kernel and initial ramdisk to be located outside of the VM image, Xen may only boot from disk images when it is used in conjunction with the pygrub utility. This utility mounts the disk image and extracts the kernel and initial ramdisk from the image, and as such, can only be utilized with a disk in the raw disk format. There is no set procedure for converting between partition images and disk images. Images will generally need to be converted (at least temporarily) to the raw format in order to allow standard disk tools to be utilized. There are, however, several useful tools and one guiding principle. The principle is: a disk image is the same as a physical disk, and a partition image is the same as a physical partition. Converting between image formats is a matter of getting the correct disk structures into the correct places. Useful tools include:
+
+   * =fdisk=, allows the calculation of partition extents and the creation/modification of partition tables,
+
+   * =dd=, allows block level copying of defined sections of an image,
+
+   * =mount=, when used with the -o loop option allows a partition image to be mounted,
+
+   * =kpartx=, allows the exposure of the partitions of a disk image as individual devices,
+
+   * =chroot=, allows the running of the native tools present in the image if necessary.
+
+These tools, along with the bootloader installer, should be sufficient to assemble a disk image from a set of partition image or decompose a disk image into a set of partition images.
+
+Grid systems have specifications that the compute nodes must adhere to. These specifications generally require that various filesystems be shared among the compute element (CE) and its associated worker nodes. Thus, the image must be contextualized so that it properly mounts those filesystems. In particular, any software libraries needed to mount the site's shared filesystem must be installed and the grid-provided application, user-provided application, and user data shares must the mounted at the locations defined by the CE configuration. One such specification is that of the Open Science Grid which perscribed the definition of the =$OSG_GRID=, =$OSG_APP=, and =$OSG_DATA= environment variables.
+
+There must also be a way to get computational jobs into the VM. Either the site's batch scheduler or a VO-level scheduling system must be installed into the VM image. If the site's batch scheduler is installed, it is prudent to configure the scheduling system in such a way that the VM's scheduling pool may be partitioned off from the site's general scheduling pool in order to satisfy the constraints of the VOC Model. If a VO-level scheduler is installed, some provision must be made for crossing NAT boundaries.
+
+---++ Instance-level contextualization
+
+Whereas image-level contextualization can be performed manually by a systems administrator, instance-level contextualization occurs once per VM instantiation and as such must be automated. As described in above, certain resources must be leased from the physical site. These resources include network addresses, disk space, and scheduler slots.
+
+Network addresses, including both MAC and IP addresses, should be assigned (leased) to the VMs in such a way as to avoid conflicts. Leasing of MAC addresses must be performed by the hypervisor. Leasing of IP addresses may be performed by the hypervisor if it is capable of passing this information to the guest (e.g. Xen) or may be through the standard DHCP protocol. One such method of assignment is to implement a central leasing server. Before VM instantiation, the hypervisor node would contact a central service and made a lease request for a MAC or IP address. The service would then maintain a lease database in order to avoid duplication. Since MAC and IP addresses will be unique to a hypervisor node, that node may also use a function to map its address to that of the VM. As long as this function will not cause an overlap in addresses, this method satisfies the uniqueness constraint without the requirement of a centralized service.
+
+If the VOC nodes are not spawned from a single image, some allocation of disk space must be made to the hypervisor. This could use hypervisor's local disk, but care must be taken to avoid exceeding the disk's capacity, especially when dynamically resizing disk image formats are used. Another solution would be to map LUNs of a storage area network to the hypervisor node. 
+
+If the scheduling system requires the use of fixed slots for compute nodes, then these must also be assigned. Techniques described for leasing network addresses can be easily extended to provide for such a scheduler.
+
+---++ Best Practices for VOs
+
+n light of the above discussion, some best practices emerge for VO's that wish to provide a VM. In short, VO's should use disk image layouts in the raw format that either join a global scheduling pool or utilize a common operating system distribution. This advice is expanded upon below.
+
+It is best to provide the VM as a disk image layout in the raw format. The disk image layout is compatible with all hypervisors (although Xen requires the pygrub utility) whereas the partition image is only natively compatible with Xen. Substantial administrator effort is required to convert between partition and disk layouts. Similarly, the raw format is preferred due to its broad compatibility. Sites may choose to use the raw image directly, or to convert it to their preferred format. It is however, necessary to compress raw images for transport between sites. It has been observed that raw images compress very well, generally to the size of the actual data.
+
+Two approaches emerge to mitigate the administrator effort needed to install a compatible batch scheduler. First, the VM may be configured to join a global scheduling pool, via mechanisms such as Condor Glide-ins, Condor with the IPOP overlay network, or Kestrel. If this is not chosen, the VM should utilize a common distribution of the GNU/Linux operating system such as the various Debian or Red Hat derivatives. The use of such as system maximizes the probability that appropriate packages will exist for the system, thus minimizing administrator effort.
+
+Some VO's may wish to have a measure of certainty that their VM has not been altered from the original image. This guarantee is not easy to enforce in the general case. In fact, it is likely that various sites must alter the VM image from its original state due to the factors discussed in this section. It is possible for a VO administrator to sign the VO image with his/her X.509 certificate. This will greatly restrict the VM's usability because the VM will only be able to be deployed at sites which can utilize the provided VM image without modification.
+
+---+ Contextualizing the STAR VM
+
+A practical application of the principles and techniques discussed avove has been performed at Clemson University to enable the contextualization of the STAR experiment's VM. This VM contains the programs and libraries necessary for the simulation and analysis of STAR's experimental data.
+
+The STAR VM image is provided as a Xen partition image named =starworker_part.img= with no bootloader or kernel. Therefore, to use the image with KVM, it is necessary to create a disk device. To do this with the =qemu-img= tool, issue the command:
+
+<pre class=screen>qemu-img create -f raw 10G starworker.img</pre>
+
+Then, in order to have the appropriate bootloader and kernel installed into the image, a fresh installation of the guest operating system (Scientific Linux in this case) is performed. This installation should be performed with the target hypervisor. For QEMU/KVM, the invocation command is: 
+<pre class=screen>qemu-kvm -hda starworker.img -m 512 -net nic -net user</pre>
+ Note that the contents of a this installation will be completely replaced in a later step, this installation is simply to apply the appropriate partitionioning scheme and to install the bootloader. These two steps may be performed manually if desired.
+
+Now that the kernel and bootloader are installed into the new image, the contents of the root directory must be copied from the provided image to the new image. Do do this, both images must be mounted. However, the new disk image cannot be mounted directly, the partition inside the image must be mounted. There are two ways of doing this: using =kpartx= and calculating the offset manually.
+
+To use =kpartx=, issue the following commands:
+<pre class=screen>
+kpartx -l starworker.img #to see which loop devices will be created 
+                         #(some trial and error may be necessary to mount the correct partition),
+kpartx -a starworker.img #to actually create the loop devices,
+mount /dev/mapper/loop0p$PARTNUM /mnt/loopdisk #$PARTNUM is the partition number to mount.
+</pre>
+
+To calculate the offset manually issue the commands:
+<pre class=screen>
+fdisk -lu starworker.img #output will contain a start column that contains the offset 
+                         #of each partition as well as a header giving the units of the offset,
+mount -o loop,offset=$(( $START * $UNITS )) starworker.img /mnt/loopdisk/ 
+#where the $START variable has been set 
+#with the value of the start column and the $UNITS variable
+#has been set with the value of the units given by fdisk.
+</pre>
+
+Once the appropriate partition in the disk image has been mounted, the partition image is mounted with the command: 
+<pre class=screen>mount -o loop starworker_part.img /mnt/looppart/</pre>
+
+Once both images have been mounted, the following commands with copy the contents of the original partition image into the new disk image and then umount both images.
+<pre class=screen>
+cp -a /mnt/looppart/* /mnt/loopdisk
+umount /mnt/looppart 
+umount /mnt/loopdisk
+</pre>
+
+If kpartx was used to mount the partition, the following command is issued to remove the loop devices:
+<pre class=screen>
+kpartx -d starworker.img
+</pre>
+At this point, the STAR VM is bootable with KVM and the site-specific batch scheduler and shared filesystems are configured as normal.
+
+Instance-level contextualization also needs to be performed on each instance of the image. Due to the site-local networking and storage environments, the only resource that has to be leased to the VM instance is a MAC address. This is performed via a functional mapping from the hypervisor's hostname to a MAC address, avoiding the need for a central leasing service.
