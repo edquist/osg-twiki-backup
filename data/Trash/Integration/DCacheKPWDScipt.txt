@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TedHesselroth" date="1136489759" format="1.0" version="1.1"}%
+%META:TOPICINFO{author="IwonaSakrejda" date="1270228929" format="1.1" version="1.2"}%
 %META:TOPICPARENT{name="SrmCache"}%
 #!/usr/bin/perl -w
 
@@ -16,8 +16,8 @@ use Getopt::Std;
 my %opts;
 getopts('c:o:u:', \%opts);
 
-my $hostcert	= $opts{c} || "/etc/grid-security/hostcert.pem";
-my $hostuser	= $opts{u} || "edginfo";
+my $hostcert   = $opts{c} || "/etc/grid-security/hostcert.pem";
+my $hostuser   = $opts{u} || "edginfo";
 my $dcacheKpwd = $opts{o} || "/opt/d-cache/etc/dcache.kpwd";
 my $tmp = "$dcacheKpwd.tmp";
 my ($uid, $gid) = (getpwnam($hostuser))[2, 3];
@@ -26,23 +26,23 @@ my $hostdn;
 open(HOSTDN, "openssl x509 -subject -noout < $hostcert |");
 
 while (<HOSTDN>) {
-	 if (/^subject=\s*(.*CN=.*)/) {
-		  $hostdn = $1;
-		  last;
-	 }
+    if (/^subject=\s*(.*CN=.*)/) {
+        $hostdn = $1;
+        last;
+    }
 }
 close(HOSTDN);
 
 die "Could not determine host DN\n" unless $hostdn;
 die "Could not find user '$hostuser' in passwd file\n" unless
-	 defined($uid) && defined($gid);
+    defined($uid) && defined($gid);
 
 my $globuscfg = '/etc/sysconfig/edg';
 open(GLOBUSCFG, "<$globuscfg") or die "Could not open $globuscfg: $!\n";
 my $gridmap = '/etc/grid-security/grid-mapfile';
 
 while (<GLOBUSCFG>) {
-	 $gridmap = $1 if (/^GRIDMAP\s*=\s*(\S*)\s*/);
+    $gridmap = $1 if (/^GRIDMAP\s*=\s*(\S*)\s*/);
 }
 close(GLOBUSCFG);
 
@@ -53,19 +53,19 @@ my %ac4gid;
 my %uid4ac;
 
 while (<GRIDMAP>) {
-	 if (/^"(.*CN=.*)"\s+(\S+)\s*$/) {
-		  my $dn = $1;
-		  my $ac = $2;
+    if (/^"(.*CN=.*)"\s+(\S+)\s*$/) {
+        my $dn = $1;
+        my $ac = $2;
 
-		  push( @{$map{$ac}} , $dn );
+        push( @{$map{$ac}} , $dn );
 
-		  # Something changes Email= to E= somewhere
-		  # If we have a DN with Email= change it to E= and add it also
+        # Something changes Email= to E= somewhere
+        # If we have a DN with Email= change it to E= and add it also
 
-		  if ($dn =~ s/Email=/E=/) {
-			  push( @{$map{$ac}} , $dn );
-		  }
-	 }
+        if ($dn =~ s/Email=/E=/) {
+           push( @{$map{$ac}} , $dn );
+        }
+    }
 }
 
 open(DCACHE, ">$tmp") || die "Could not open $tmp: $!\n";
@@ -75,71 +75,128 @@ print DCACHE "# from the grid-mapfile\n\n";
 print DCACHE "version 2.1\n\n";
 
 if ($hostdn) {
-	 print DCACHE 'mapping "'.$hostdn.'" '."$hostuser\n"
-					. "\n"
-					. "login $hostuser read-write $uid $gid / / /\n"
-					. "\t$hostdn\n\n";
+    print DCACHE 'mapping "'.$hostdn.'" '."$hostuser\n"
+               . "\n"
+               . "login $hostuser read-write $uid $gid / / /\n"
+               . "\t$hostdn\n\n";
 }
 if ($hostdn =~ s/Email=/E=/) {
-	 print DCACHE 'mapping "'.$hostdn.'" '."$hostuser\n"
-					. "\n"
-					. "login $hostuser read-write $uid $gid / / /\n"
-					. "\t$hostdn\n\n";
+    print DCACHE 'mapping "'.$hostdn.'" '."$hostuser\n"
+               . "\n"
+               . "login $hostuser read-write $uid $gid / / /\n"
+               . "\t$hostdn\n\n";
 }
 
 for (sort keys %map) {
-	 my $ac = $_;
-	 my ($uid, $gid);
+    my $ac = $_;
+    my ($uid, $gid);
 
-	 if ($ac =~ s/^\.//) {
-		  # pool account
+    if ($ac =~ s/^\.//) {
+        # pool account
 
-		  $ac .= "001";
-		  ($uid, $gid) = (getpwnam($ac))[2, 3];
+        $ac .= "001";
+        ($uid, $gid) = (getpwnam($ac))[2, 3];
 
-		  if (defined($gid)) {
-				$ac4gid{$gid} = $ac;
-				$uid4ac{$ac} = $uid;
-		  } else {
-				warn "$0: cannot find user '$ac'\n";
-		  }
+        if (defined($gid)) {
+            $ac4gid{$gid} = $ac;
+            $uid4ac{$ac} = $uid;
+        } else {
+            warn "$0: cannot find user '$ac'\n";
+        }
 
-	 } else {
-		  # static account: use corresponding pool account if needed
+    } else {
+        # static account: use corresponding pool account if needed
 
-		  ($uid, $gid) = (getpwnam($ac))[2, 3];
+        ($uid, $gid) = (getpwnam($ac))[2, 3];
 
-		  if (defined($gid)) {
-				if (exists $ac4gid{$gid}) {
-					 $ac = $ac4gid{$gid};
-					 $uid = $uid4ac{$ac};
-				}
-		  } else {
-				warn "$0: cannot find user '$ac'\n";
-		  }
-	 }
+        if (defined($gid)) {
+            if (exists $ac4gid{$gid}) {
+                $ac = $ac4gid{$gid};
+                $uid = $uid4ac{$ac};
+            }
+        } else {
+            warn "$0: cannot find user '$ac'\n";
+        }
+    }
 
-	 next unless defined $gid;
+    next unless defined $gid;
 
-	 my @grp = sort @{$map{$_}};
+    my @grp = sort @{$map{$_}};
 
-	 print DCACHE "# Mappings for '$_' users\n";
+    print DCACHE "# Mappings for '$_' users\n";
 
-	 for (@grp) {
-		  print DCACHE "mapping \"$_\" $ac\n";
-	 }
+    for (@grp) {
+        print DCACHE "mapping \"$_\" $ac\n";
+    }
 
-	 print DCACHE "\n";
-	 print DCACHE  "# Login for '$_' users\n";
-	 print DCACHE  "login $ac read-write $uid $gid / / /\n";
+    print DCACHE "\n";
+    print DCACHE  "# Login for '$_' users\n";
+    print DCACHE  "login $ac read-write $uid $gid / / /\n";
 
-	 for (@grp) {
-		  print DCACHE "\t$_\n";
-	 }
+    for (@grp) {
+        print DCACHE "\t$_\n";
+    }
 
-	 print DCACHE "\n";
+    print DCACHE "\n";
 }
 
 close(DCACHE);
 rename($tmp, $dcacheKpwd) or die "Error: cannot rename $tmp to $dcacheKpwd: $!\n";
 
+
+<!-- CONTENT MANAGEMENT PROJECT
+############################################################################################################
+   DEAR DOCUMENT OWNER
+   ===================
+
+   Thank you for claiming ownership for this document! Please fill in your FirstLast name here:
+   * Local OWNER          = SuchandraThapa
+
+   Please define the document area, choose one of the defined areas from the next line
+   DOC_AREA = (ComputeElement|Storage|VO|Security|User|Monitoring|General|Integration|Operations|Tier3)
+   * Local DOC_AREA       = Integration
+
+   define the primary role the document serves, choose one of the defined roles from the next line
+   DOC_ROLE = (EndUser|Student|Developer|SysAdmin|VOManager|Documenter)
+   * Local DOC_ROLE       = Documenter
+
+   Please define the document type, choose one of the defined types from the next line
+   DOC_TYPE = (Troubleshooting|Training|Installation|HowTo|Planning|Navigation|Knowledge)
+   * Local DOC_TYPE       = HowTo
+   
+   Please define if this document in general needs to be reviewed before release ( %YES% | %NO% )
+   * Local INCLUDE_REVIEW = %NO%
+
+   Please define if this document in general needs to be tested before release ( %YES% | %NO% )
+   * Local INCLUDE_TEST   = %NO%
+
+   change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
+   * Local REVIEW_READY   = %NO%
+
+   change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
+   * Local TEST_READY     = %NO%
+
+   change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
+   * Local RELEASE_READY  = %YES%
+
+
+   DEAR DOCUMENT REVIEWER
+   ======================
+
+   Thank for reviewing this document! Please fill in your FirstLast name here:
+   * Local REVIEWER       = 
+  
+   Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local REVIEW_PASSED  = %IN_PROGRESS%
+
+
+   DEAR DOCUMENT TESTER
+   ====================
+
+   Thank for testing this document! Please fill in your FirstLast name here:
+   * Local TESTER         = 
+  
+   Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local TEST_PASSED    = %IN_PROGRESS%
+############################################################################################################
+-->
