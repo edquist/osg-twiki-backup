@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1269481589" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1270505118" format="1.1" reprev="1.8" version="1.8"}%
 ---+!! *<nop>%SPACEOUT{Bestman-Gateway Installation Guide}%*
 %TOC%
 
@@ -18,7 +18,7 @@ This document applies to an install of
 
 ---++++++!!Engineering Considerations
 !BeStMan-Gateway storage could be installed on one node and the installation cache consists of the following components: 
-   * !BeStMan-Gateway is an implementation of SRM v2.2 for essential interfaces to disk based storage systems - [[http://datagrid.lbl.gov/bestman][BeStMan Home Page]] 
+   * !BeStMan-Gateway is an implementation of SRM v2.2 for essential interfaces to disk based storage systems - [[https://sdm.lbl.gov/bestman/][BeStMan Home Page]] 
    * !GridFTP server  provides a high-performance, secure, reliable data transfer [[http://www.globus.org/toolkit/docs/4.2/4.2.1/data/gridftp/][GridFTP documentation]]. It is recommended that multiple !GridFTP instances on different servers if:
       * You are serving the VOs that use storage heavily (CMS, ATLAS, CDF, and D0) and have more than 250 cores
       * Your site will be managing more than 50 TB of disk space
@@ -27,10 +27,6 @@ This document applies to an install of
    * optional package
       * Gratia gridftp transfer probe - cron job that reports all the file transfers to [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GratiaSiteCollector Gratia collector]]
       *  [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS][GUMS server]] - authentication and authorization service
-
-     <img src="%ATTACHURLPATH%/bestman_gateway_arch.jpeg" alt="bestman_gateway_arch.jpeg" width='384' height='288' />
-
-
 
 ---++Checklist
    1. [[ReleaseDocumentation/PacmanInstall][pacman]] version >= %PACMAN_VERSION% is required
@@ -41,9 +37,11 @@ This document applies to an install of
    1. A working GUMS server or a gridmap-file are needed for authorization using grid certificates.
 
 ---++Installation Procedure
-Login as root and check if pacman version >=%PACMAN_VERSION% is installed:
+Login as root, setup pacman and check if pacman version >=%PACMAN_VERSION% is installed:
 <pre class="screen">
 su root
+cd /opt/pacman_%PACMAN_VERSION% 
+. setup.sh
 pacman -version
 </pre>
 Next create and change to an installation directory. This directory will later be used to get the !BeStMan package  from the %CACHE% cache.
@@ -51,6 +49,14 @@ Next create and change to an installation directory. This directory will later b
 mkdir -p /opt/bestman/
 cd /opt/bestman/
 </pre>
+If you are using GUMS authorization method you will need to setup VDT_GUMS_HOST environment variable, if you are using gridmap-file ,please, proceed to the next step.
+
+<pre class="screen">
+<verbatim> 
+export VDT_GUMS_HOST=<GUMS hostname>  
+</verbatim> 
+</pre>
+
 Finally execute pacman to get the !BeStMan package from the %CACHE% cache. Pacman will ask whether you want to trust the cache (=yall=) and whether you want to accept the license (=y=).
 <pre class="screen">
 pacman -get %CACHE%:Bestman
@@ -86,76 +92,38 @@ vdt-control --list
 This completes the installation of the !BeStMan server. Move to the next step to configure the !BeStMan and !GridFTP servers. You may also chose to configure Gratia transfer probe at this time.
 
 ---++ Service Configuration
-The !BeStMan and !GridFTP servers and Gratia transfer probe are configured by the =configure-osg= script located in =$VDT_LOCATION/osg/bin/configure-osg= based on the =$VDT_LOCATION/osg/etc/config.ini= configuration file.
-
-The =$VDT_LOCATION/osg/etc/= directory contains two template files =config.ini=. You will have to  edit the =$VDT_LOCATION/osg/etc/config.ini= file following instructions that precede each entry.  Here is the list of entries that need to be changed (in red the parts that you must change):
-
+You will need to configure !BeStMan-Gateway first in order to enable it as a service. The configuration command is shown below:
 <pre class="screen">
-[Bestman]
-enabled = %(enable)s
-user = daemon
-mode = standalone
-transfer_servers = gsiftp://%RED%your_host_fqdn%ENDCOLOR%
-certificate_file = /etc/grid-security/bestman/bestmancert.pem
-key_file =  /etc/grid-security/bestman/bestmankey.pem
-http_port = 10080
-https_port = 10443
-token_list = DATADISK[desc:SITEDATADISK][20] [usedBytesCommand:/usr/bin/du -s -b /data]
-allowed_paths = /data
+<verbatim>
+cd /opt/bestman 
+source setup.sh 
+$VDT_LOCATION/vdt/setup/configure_bestman --server y \
+--cert /etc/grid-security/bestmancert/bestmancert.pem  \
+--key  /etc/grid-security/bestmancert/bestmankey.pem  
+--gums-host  <GUMS hostname>  \
+--enable-gateway  \
+--with-allowed-paths /data
+</verbatim>
+</pre>  
 
-[Gridftp]
-enabled = %(enable)s
-mode = standalone
-
-[Gratia]
-enabled = %(enable)s
-resource = &lt;your registered site name&gt;
-probes = %(itb-gridftp-gratia)s
-</pre>
-If you don't know what are space tokens or don't want pre-defined, static space tokens remove the line starting with =token_list= from your configuration. You will need to define static space tokens (=token_list=) ONLY if you want to use pre-defined, static space tokens. In this case, you need to provide a list of space token name, description and size of space allocated for each token. You may also provide the command  (followed usedBytesCommand) that will be run by !BeStMan-gateway to obtain used space info of the corresponding space token. Keep in mind that in gateway-mode, !BeStMan is not managing your space. 
-
-The =Misc Services= section defines what method of authorization should be used. If your site uses a *gridmap-file* for authorization, please make following changes:<pre class="screen">
-[Misc Services]
-use_cert_updater = %(enable)s
-authorization_method = gridmap
-</pre>
-
-In case your site supports *GUMS*, the fully qualified domain name of the GUMS server must be specified:<pre class="screen">
-[Misc Services]
-use_cert_updater = %(enable)s
-gums_host = &lt;your gums server fqn&gt;
-authorization_method = prima
-</pre>
-
-You can verify that your configuration is valid by executing =configure-osg -v=. Finally execute =configure-osg -c= to configure the !BeStMan installation. <pre class="screen">
-configure-osg -v
-configure-osg -c
-</pre>
-
-Hopefully all steps completed successfully and =vdt-control -list= shows the list of available services:
-<pre class="screen">
-# vdt-control --list
-Service                 | Type   | Desired State
-------------------------+--------+--------------
-fetch-crl               | cron   | enable
-vdt-rotate-logs         | cron   | enable
-vdt-update-certs        | cron   | enable
-gsiftp                  | inetd  | enable
-gratia-gridftp-transfer | cron   | enable
-gums-host-cron          | cron   | enable
-edg-mkgridmap           | cron   | do not enable
-bestman                 | init   | enable
-</pre>
-
+This command will install !BeStMan that will be 
+   * running  by user _"daemon"_,
+   * using certificate  /etc/grid-security/bestmancert/bestmancert.pem and certificate key /etc/grid-security/bestmancert/bestmankey.pem, The certificate file and key should exist for configuration to work (see #Checklist) 
+   * listening on secure port 10443 and public port 10080
+   * utilizing  gridftp server running on the same host on 2811 port
+   * using GUMS server that is running on  <GUMS hostname>  host and using 8443 port for authorization, if you want to use gridmap file skip this option.
+   *  /data will be used to store users' data. This directory should have adequate permissions so users have read/write/execute access.
 
 Now, you should make modification in =/etc/sudoers= file namely add the following lines to this file: 
 <pre class="screen">
+<verbatim>
 # Comment out this line, if it is in your /etc/sudoers file (RHEL5+)
 #Defaults    requiretty
 
 Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls, /bin/cp 
 Runas_Alias SRM_USR = ALL, !root 
-<user_name> ALL=(SRM_USR) NOPASSWD: SRM_CMD 
+daemon ALL=(SRM_USR) NOPASSWD: SRM_CMD 
+</verbatim>
 </pre>
 Please keep in mind that this is just an example, you can choose more  be more restrictive policy for your site.
 !BeStMan server will not be able to run if this step is missed.
@@ -180,6 +148,32 @@ and also to =$VDT_LOCATION/vdt/etc/vdt-local-setup.csh=:
 cp $VDT_LOCATION/post-install/prima-authz.conf /etc/grid-security 
 cp $VDT_LOCATION/post-install/gsi-authz.conf /etc/grid-security 
 </pre>
+
+---++ Enabling the Services
+You can use the _vdt-control -list_ command to see all services that are installed as part of the install, and whether or not they are enabled or disabled. 
+You will need to enable the following services:
+   * fetch-crl   
+   * vdt-rotate-logs  
+   * vdt-update-certs       
+   * gsiftp           
+   * gums-host-cron   %ICON{warning}% In case you want to run Gratia !GridFTP transfer probe and are using !GUMS for authorization
+   * edg-mkgridmap     %ICON{warning}% In case you want to use gridmap-file for authorization 
+
+You can execute _vdt-control -enable_ command and list all services you want to enable:
+<pre class="screen">
+cd /opt/bestman
+source setup.sh
+vdt-control -enable fetch-crl vdt-rotate-logs vdt-update-certs gsiftp  
+</pre> 
+
+If you are using !GUMS or have gridmap-file and don't want to use automatically generated one, please, skip this section:
+<pre class="screen">
+cd /opt/bestman;
+source setup.sh
+vdt-control -enable edg-mkgridmap
+edg/sbin/edg-mkgridmap
+</pre> 
+
 ---++ Service Startup/Shutdown
 To start type:
 <pre class="screen">
@@ -194,13 +188,17 @@ vdt-control --off
 
 To check if !BeStMan is installed and operational you need to [[https://twiki.grid.iu.edu/bin/view/SiteCoordination/GridClientTutorial][install client software]], obtain voms proxy certificate and then run the srm-ping to verify the !BeStMan server is up and running:
 <pre class="screen">
+<verbatim>
 srm-ping  srm://<your bestman host fqn>:10443/srm/v2/server
+</verbatim>
 </pre>
 
 To verify that you can transfer files do srm-copy:
 
 <pre class="screen">
+<verbatim>
  srm-copy file:////tmp/test srm://<your bestman host fqn>:10443/srm/v2/server\?SFN=/data/test
+</verbatim>
 </pre>
 
 Verify that the [[ReleaseDocumentation/GratiaTransferProbe#Sanity_Check][gratia probe is working]].
@@ -295,116 +293,23 @@ SRM-CLIENT*EXPLANATION[0]=SRM-CLIENT: PutDone is called successfully
 ---++++++!!Caveates/Known Issues
 ---++++++!!Screendump of Install
 <pre class="screen">
-[root@fg0x5 itb_bestman]#. pacman-3.28/setup.sh
-[root@fg0x5 itb_bestman]# mkdir itb_bestman
-[root@fg0x5 itb_bestman]#cd itb_bestman
-[root@fg0x5 itb_bestman]#pacman -get ITB:Bestman
-Do you want to add [http://software.grid.iu.edu/itb/] to [trusted.caches]? (y/n/yall): yall
-Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check...        
-
-All prerequisite checks are satisfied.
-                                                                           
-
-
-========== IMPORTANT ==========
-Most of the software installed by the VDT *will not work* until you install
-certificates.  To complete your CA certificate installation, see the notes
-in the post-install/README file.
-
-[root@fg0x5 itb_bestman]# source setup.sh
-[root@fg0x5 itb_bestman]# $VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local -url osg
-Setting CA Certificates for VDT installation at '/usr/local/itb_bestman'
-
-Setup completed successfully.
-
-
-[root@fg0x5 itb_bestman]# source setup.sh
-[root@fg0x5 itb_bestman]# vdt-post-install
-Starting...
-Configuring PRIMA... Done.
-Configuring EDG-Make-Gridmap... Done.
-Completed all configuration.
-[root@fg0x5 itb_bestman]# vdt-control --list
-Service                 | Type   | Desired State
-------------------------+--------+--------------
-fetch-crl               | cron   | do not enable
-vdt-rotate-logs         | cron   | do not enable
-vdt-update-certs        | cron   | do not enable
-gsiftp                  | inetd  | do not enable
-gratia-gridftp-transfer | cron   | do not enable
-gums-host-cron          | cron   | do not enable
-edg-mkgridmap           | cron   | do not enable
-
-[
-
-[root@osp4 osg-1.2.3-gsiftp]# cd osg/etc
-[root@osp4 etc]# rm config.ini[root@fg0x5 itb_bestman]# vdt-version
-
-You have installed a subset of VDT version 2.0.99p11:
-
-Software                                                 Status              
---------                                                 ------              
-Berkeley Storage Manager (BeStMan) 2.2.1.2.i7.p3         OK                  
-vdt-ca-manage 1.0                                        OK                  
-vdt-update-certs 2.5                                     OK                  
-CA Certificates 1.10 (includes IGTF 1.32 CAs)            -                   
-EDG Make Gridmap 3.0.0                                   OK                  
-Fetch CRL 2.6.6                                          OK                  
-GPT 3.2-4.0.8p1                                          OK                  
-Gratia GridFTP Probe 1.04.4d-1                           OK                  
-Grid User Management System (GUMS) Client 1.3.17         OK                  
-Java 5 SDK 1.5.0_21                                      OK                  
-Java 6 SDK 1.6.0_16                                      OK                  
-Logrotate 3.7                                            OK                  
-PRIMA Authorization Module 0.8.4                         OK                  
-pyOpenSSL module 0.9                                     OK                  
-VOMS Client 1.8.8-2p1                                    OK                  
-Wget 1.11.4                                              OK                  
-
-
-Status legend:
-OK: Software is up to date with the latest release in VDT version 2.0.99
-- : Not enough information to determine if updates are available.
-See man page for more information.
-[root@fg0x5 itb_bestman]# configure-osg -c
-
-Using /usr/local/itb_bestman/osg/etc/config.ini for configuration information
-running 'vdt-register-service --name gsiftp --enable'... ok
-running 'vdt-register-service --name bestman --enable'... ok
-running 'vdt-register-service --name vdt-rotate-logs --enable'... ok
-running 'vdt-register-service --name fetch-crl --enable'... ok
-Running /usr/local/itb_bestman/fetch-crl/share/doc/fetch-crl-2.6.6/fetch-crl.cron, this process make take some time to fetch all the crl updates
-fetch-crl[19751]: 20091117T162821-0600 Could not download any CRL from /usr/local/itb_bestman/globus/TRUSTED_CA//da75f6a8.crl_url:
-fetch-crl[19751]: 20091117T162821-0600 download failed from 'http://ca.garudaindia.in/crl/cacrl.pem'
-fetch-crl[19751]: 20091117T162821-0600 download for http://ca.garudaindia.in/crl/cacrl.pem is not valid and none of the URLs in '/usr/local/itb_bestman/globus/TRUSTED_CA//da75f6a8.crl_url' is operational
-running 'vdt-register-service --name vdt-update-certs --enable'... ok
-running 'vdt-register-service --name gums-host-cron --enable'... ok
-running 'vdt-register-service --name edg-mkgridmap --disable'... ok
-Running /usr/local/itb_bestman/gums/scripts/gums-host-cron, this process make take some time to query vo and gums servers
-Configure-osg completed successfully
-
-[root@fg0x5 itb_bestman]# vdt-control --list
-Service                 | Type   | Desired State
-------------------------+--------+--------------
-fetch-crl               | cron   | enable
-vdt-rotate-logs         | cron   | enable
-vdt-update-certs        | cron   | enable
-gsiftp                  | inetd  | enable
-gratia-gridftp-transfer | cron   | enable
-gums-host-cron          | cron   | enable
-edg-mkgridmap           | cron   | do not enable
-bestman                 | init   | enable
-
-[root@fg0x5 itb_bestman]# vdt-control -on
-enabling cron service fetch-crl... ok
-enabling cron service vdt-rotate-logs... ok
-enabling cron service vdt-update-certs... ok
-enabling inetd service gsiftp... ok
-enabling cron service gratia-gridftp-transfer... ok
-enabling cron service gums-host-cron... ok
-skipping cron service 'edg-mkgridmap' -- marked as disabled
-enabling init service bestman... ok
-
+. /opt/pacman_3.28/setup.sh
+mkdir -p /opt/bestman/
+cd /opt/bestman
+export VDT_GUMS_HOST=gums.fnal.gov
+pacman -get http://software.grid.iu.edu/osg-1.2:Bestman
+. setup.sh
+vdt-post-install
+$VDT_LOCATION/vdt/setup/configure_bestman --server y --cert /etc/grid-security/bestmancert/bestmancert.pem  --key  /etc/grid-security/bestmancert/bestmankey.pem   --gums-host gums.fnal.gov  --enable-gateway  --with-allowed-paths /data
+cp  /etc/grid-security/hostcert.pem /etc/grid-security/bestmancert/bestmancert.pem
+cp /etc/grid-security/hostkey.pem /etc/grid-security/bestmancert/bestmankey.pem
+vi /etc/sudoers
+mkdir /data
+chmod 777 /data
+vdt-version
+vdt-control --list
+vdt-control -enable fetch-crl vdt-rotate-logs vdt-update-certs gsiftp  
+vdt-control -on
 </pre>
 
 
