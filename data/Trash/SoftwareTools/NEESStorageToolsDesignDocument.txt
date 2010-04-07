@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1268800380" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1270677665" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="NEESFileTransfer"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -8,7 +8,7 @@
 
 
 
-Version 1.0 Draft-1
+Version 1.0 Draft-3
 
 Document Owner: Tanya Levshina, Open Science Grid, Fermilab
 
@@ -50,12 +50,27 @@ Added detailed to the documents
 March 16,2010
 </td> <td width="126" valign="top" style="width: 94.45pt; border-top-style: none; border-top-width: initial; border-top-color: initial; border-left-style: none; border-left-width: initial; border-left-color: initial; border-bottom-style: solid; border-bottom-color: windowtext; border-bottom-width: 1pt; border-right-style: solid; border-right-color: windowtext; border-right-width: 1pt; padding-top: 0in; padding-right: 5.4pt; padding-bottom: 0in; padding-left: 5.4pt; height: 0.3in">
 
-1.0-Draft-2
+1.0-Draft-3
 </td> </tr> 
+<tr style="height: 0.3in"> <td width="144" valign="top" style="width: 1.5in; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-right-color: windowtext; border-bottom-color: windowtext; border-left-color: windowtext; border-right-width: 1pt; border-bottom-width: 1pt; border-left-width: 1pt; border-top-style: none; border-top-width: initial; border-top-color: initial; padding-top: 0in; padding-right: 5.4pt; padding-bottom: 0in; padding-left: 5.4pt; height: 0.3in">
+
+Tanya Levshina
+</td> <td width="277" valign="top" style="width: 207.9pt; border-top-style: none; border-top-width: initial; border-top-color: initial; border-left-style: none; border-left-width: initial; border-left-color: initial; border-bottom-style: solid; border-bottom-color: windowtext; border-bottom-width: 1pt; border-right-style: solid; border-right-color: windowtext; border-right-width: 1pt; padding-top: 0in; padding-right: 5.4pt; padding-bottom: 0in; padding-left: 5.4pt; height: 0.3in">
+
+Added information about prepare transfer tool and monitoring to the documents
+</td> <td width="114" valign="top" style="width: 85.4pt; border-top-style: none; border-top-width: initial; border-top-color: initial; border-left-style: none; border-left-width: initial; border-left-color: initial; border-bottom-style: solid; border-bottom-color: windowtext; border-bottom-width: 1pt; border-right-style: solid; border-right-color: windowtext; border-right-width: 1pt; padding-top: 0in; padding-right: 5.4pt; padding-bottom: 0in; padding-left: 5.4pt; height: 0.3in">
+
+April 7th,2010
+</td> <td width="126" valign="top" style="width: 94.45pt; border-top-style: none; border-top-width: initial; border-top-color: initial; border-left-style: none; border-left-width: initial; border-left-color: initial; border-bottom-style: solid; border-bottom-color: windowtext; border-bottom-width: 1pt; border-right-style: solid; border-right-color: windowtext; border-right-width: 1pt; padding-top: 0in; padding-right: 5.4pt; padding-bottom: 0in; padding-left: 5.4pt; height: 0.3in">
+
+1.0-Draft-3
+</td> </tr> 
+
+
 </table>
 
 ---++Introduction
-The purpose of this document is to describe the design storage archiving tools. The tools are the general purpose software intended for NEES data archiving to tapes. This document is intended for people who are planning to perform archiving and/or would like better understand the design and purpose of the provided tools.The readers are not expected to be familiar with srm protocol, dCache/Enstore HSM and with the srm-client commands.
+The purpose of this document is to describe the design storage archiving tools. The tools are the general purpose software intended for NEES data archiving to tapes. This document is intended for people who are planning to perform archiving and/or would like better understand the design and purpose of the provided tools.The readers are not expected to be familiar with condor, condor-DAG, srm protocol, dCache/Enstore HSM and with the srm-client commands.
 
 The document will cover the initial assumptions, high level design, software dependency, implementation decisions and test plan, 
 The tools could be deployed on Linux nodes with  SL 4 or 5 OS. 
@@ -63,6 +78,7 @@ The tools could be deployed on Linux nodes with  SL 4 or 5 OS.
 ---++ Overview:
 
 The archiving tools should be able to perform the following tasks:
+   * Analyze directory scheduled for backup, create manifest, condor DAG jobs and configuration, staging area etc 
    * Prepare a file for archiving
    * Upload a file to the remote storage
    * Verify that a file is on tape
@@ -73,6 +89,7 @@ The archiving tools should be able to perform the following tasks:
       * location (disk/tape)
       * path
       * creation date
+   * Monitor archiving progress
 
 The other requirements are listed below:
    * Bookkeeping - It is expected that all the tools provide comprehensive log in machine-readable format
@@ -114,17 +131,32 @@ In order to satisfy these assumptions the following packages should be installed
    * netlogger 4.1.2 and higher
    * gnutar 1.17
    * OSG client 1.2.18 and higher
+   * Condor/Condor-G 7.2.5 
+   * Apache with mod_python
 
 ---++ System Architecture
 
 The following components are essential to provide archiving/retrieving functionality:
+   * PrepareTransfer script to analyze data that needs to be backed up. This tool prepares plan how to divided data depending on the size, creates manifest (mapping of the files to the groups), staging area and set of DAG and subDAG jobs that should be executed according to predefined policy.
    * Tar Tool to create multivolume tar file from subset of data. The same tool should be used to list content of multivolume tar file or extract files from it.  The tool should be able to create the volumes of the specified size.  
    * Archiver to archive multiple files to remote storage 
    * Verification tool  to check file location and compare remote and local checksums 
    * Recovery tool to retrieve multiple files from remote storage
    * Report generator to produce predefined reports from storage tools log files 
+   * Monitoring tool to monitor the archiving progress
+   * Web tools to allow display and search the status of archiving jobs as well as locality, checksum and content of a particular group 
 
 <img src="%ATTACHURLPATH%/tools_design.jpg" alt="tools_design" width='600' height='400' />
+
+
+<img src="%ATTACHURLPATH%/preparetransfer_design.jpg" alt="prepare_transfer" width='600' height='400' />
+
+
+<img src="%ATTACHURLPATH%/monitor_design.jpg" alt="monitoring" width='600' height='400' />
+
+---+++ Prepare Transfer tool
+
+Comming soon....
 ---+++ Multivolume tar file tool
 
 Comming soon....
@@ -347,3 +379,5 @@ Python , java
 %META:FILEATTACHMENT{name="reprt_1.html" attachment="reprt_1.html" attr="" comment="" date="1267047251" path="report_1.pdf" size="51096" stream="report_1.pdf" tmpFilename="/usr/tmp/CGItemp34482" user="TanyaLevshina" version="2"}%
 %META:FILEATTACHMENT{name="report_1.pdf" attachment="report_1.pdf" attr="" comment="" date="1267051733" path="report_1.pdf" size="57555" stream="report_1.pdf" tmpFilename="/usr/tmp/CGItemp34382" user="TanyaLevshina" version="4"}%
 %META:FILEATTACHMENT{name="tools_design.jpg" attachment="tools_design.jpg" attr="" comment="" date="1268776895" path="tools_design.jpg" size="59519" stream="tools_design.jpg" tmpFilename="/usr/tmp/CGItemp35399" user="TanyaLevshina" version="1"}%
+%META:FILEATTACHMENT{name="preparetransfer_design.jpg" attachment="preparetransfer_design.jpg" attr="" comment="" date="1270677473" path="preparetransfer_design.jpg" size="49707" stream="preparetransfer_design.jpg" tmpFilename="/usr/tmp/CGItemp34936" user="TanyaLevshina" version="1"}%
+%META:FILEATTACHMENT{name="monitor_design.jpg" attachment="monitor_design.jpg" attr="" comment="" date="1270677545" path="monitor_design.jpg" size="48833" stream="monitor_design.jpg" tmpFilename="/usr/tmp/CGItemp34950" user="TanyaLevshina" version="1"}%
