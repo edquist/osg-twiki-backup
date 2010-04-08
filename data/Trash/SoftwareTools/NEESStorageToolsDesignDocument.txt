@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1270677665" format="1.1" reprev="1.8" version="1.8"}%
+%META:TOPICINFO{author="AlanDeSmet" date="1270757895" format="1.1" version="1.9"}%
 %META:TOPICPARENT{name="NEESFileTransfer"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -155,6 +155,39 @@ The following components are essential to provide archiving/retrieving functiona
 <img src="%ATTACHURLPATH%/monitor_design.jpg" alt="monitoring" width='600' height='400' />
 
 ---+++ Prepare Transfer tool
+
+*Purpose:*
+
+prepare-transfer scans a directory tree, creates an archiving plan,
+and writes a condor_dagman DAG implementing that plan.
+
+*Functionality:*
+
+prepare-transfer scans the directory tree, identifying files to be archived.  The files are divided into groups of no more than 10,737,418,240 * 0.95 bytes.  (This exact value can be adjusted with the --max-tar-size parameter.)  A group may exceed that size if a single source file exceeds that size, in which case the group will consist exclusively of that one file.
+
+prepare-transfer then writes an archiving plan, implemented as a tree of condor_dagman DAGs, to /opt/staging/new (configurable via --staging).  The top level is flat, consisting of one node per group.  The nodes have no dependencies.  The top level DAG will allow now more than two nodes to run simultaneously.  The individual nodes are sub-DAGs, each in their own sub-directory.  The sub-DAGs are each a linear series of nodes which process the files assigned to the group.  The stages are:
+
+   * MultivolTar - uses multivol-tar.sh to combines the input files into one or more tar files not to exceed 10,737,418,240 bytes (--max-tar-size).
+   * ListTarFiles - identifies the files created by MultivolTar. Because the overhead of tar is not known in advance, the exact number of tar files creates isn't known until it has finished.  This step identifies them for the later steps.
+   * Archive - uses archive.sh to transfer the tar files to srm://fndca1.fnal.gov:8443/srm/managerv2\?SFN=/pnfs/fnal.gov/usr/nees (--srm-dst)
+   * Clean - removes the local copies of the tar files to free space for other tnodes.
+
+In addition, prepare-transfer writes a "manifest" into the staging directory, listing the source files and the group they were included in.  This file allows a user seeking to restore an individual file to identify which tar file or files they will need.
+
+Once done, a user should be able to "cd /opt/staging/new" (configurable via --staging), then run "condor_submit_dag dag" to begin the archiving process.
+
+*Input:*
+   * The root of the directory to back up.
+
+*Output:*
+   * A tree of directories /opt/staging/new (configurable via --staging) constituting a plan for doing the archive.
+
+*Error conditions:*
+   * Files identified as unreadable will be reported to standard error and skipped.
+
+*Synopsis:*
+
+_prepare-transfer [options] <root directory to backup>_
 
 Comming soon....
 ---+++ Multivolume tar file tool
