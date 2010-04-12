@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RobGardner" date="1271113723" format="1.1" reprev="1.5" version="1.5"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1271115720" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! <nop>%TOPIC%
 %TOC%
@@ -63,7 +63,7 @@ Two areas need to be setup: _storage_path_ and _storage_cache_. You may use  sep
    * /storage/cache is the name of a service directory for the redirector (it hosts actual data on data servers). Files under _storage_cache_ are not visible to users.
    * /storage/path on the redirector is the name of a directory that contains references to all files in the Xrootd system. Xrootd clients have access to _storage_path_. 
 <pre class="screen">
-mkdir -p /storage/data
+mkdir -p /storage/path
 mkdir -p /storage/cache
 </pre>
 
@@ -113,13 +113,12 @@ vdt-control --on
 </pre>
 
 
-
 ---++ Installing and configuring the data server(s)
 These instruction must be executed on each of the data servers.
 
-Decide what area you would use as a _storage_path_ and _storage_cache_ (e.g =/storage/data= and =/storage/cache=).For the data servers we recommend to create separate partition (anyway two directories will work).  
-   * /storage/cache hosts actual data on data servers. Files under_cache_ are not visible to users.
-   * /storage/path is the name of a directory that contains symbolic links to the actual files in cache. Xrootd clients have access to storage_path.
+Decide which area to use as a _storage_path_ and _storage_cache_ (e.g =/storage/path= and =/storage/cache=).For the data servers we recommend creating separate disk partitions. Note on data servers: 
+   * =/storage/cache= contains the actual data. 
+   * =/storage/path= is the name of the directory that contains symbolic links to the files in _storage_cache_ . Xrootd clients have access to storage_path.
 You will probably:
    * choose your disk or raid array
    * create a partition, e.g. using =fdisk= 
@@ -159,14 +158,14 @@ vdt-version
 This completes the installation part of the Xrootd data server. The next step is to configure  !Xrootd redirector. The command below uses the defaults chosen in these instructions, you may need to change them:
    * $VDT_LOCATION is a directory of Xrootd installation (=/opt/xrootd=)
    * xrootd is the user name of the non-privileged user that runs Xrootd 
-   * redirector.yourdomain is the name (FQDN) of the redirector host, e.g. =gc1-xrdr.yourdomain.org= 
+   * redirector.yourdomain is the name (FQDN) of the redirector host, e.g. =redirector.yourdomain.org= 
    * =/storage/cache= and =/storage/path= are the directories created above
    * =--public-cache-size 1= is an option needed for historical reasons. It will be removed from future versions.
 
 <pre class="screen">
 cd /opt/xrootd
 source setup.sh
-$VDT_LOCATION/vdt/setup/configure_xrootd  --server y  --user xrootd  --xrdr-host  gc1-xrdr.yourdomain.org  --xrdr-storage-path /storage/path   --xrdr-storage-cache /storage/cache  --public-cache-size 1
+$VDT_LOCATION/vdt/setup/configure_xrootd  --server y  --user xrootd  --xrdr-host  redirector.yourdomain.org  --xrdr-storage-path /storage/path   --xrdr-storage-cache /storage/cache  --public-cache-size 1
 </pre>
 
 Hopefully all steps completed successfully and =vdt-control -list= shows the list of available services:
@@ -177,21 +176,36 @@ Service                 | Type   | Desired State
 xrootd                  | init   | enable
 </pre>
 
+---++ Start/Stop !Xrootd
+On each node where  !Xrootd is installed (redirector or data server) to start/stop Xrtood use the following. 
+
+To start: <pre class="screen">
+cd /opt/xrootd
+source setup.sh
+vdt-control --on
+</pre>
+
+To stop: <pre class="screen">
+cd /opt/xrootd
+source setup.sh
+vdt-control --off
+</pre>
+
 ---++ Testing your system
- Login on redirector node as an ordinary user.
+ Login on the redirector node as an ordinary user.
 
 <pre class="screen">cd /opt/xrootd 
 source setup.sh 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$VDT_LOCATION/xrootd/lib 
 export LD_PRELOAD=$VDT_LOCATION/xrootd/lib/libXrdPosixPreload.so 
 echo &ldquo;This is a test&rdquo; &gt;/tmp/test 
-cp /tmp/test xroot://gc1-xrdr:1094///xrootd/data/test 
-cp xroot://gc1-xrdr:1094///xrootd/data/test /tmp/test1 
+cp /tmp/test xroot://redirector:1094///storage/path/test 
+cp xroot://gc1-xrdr:1094///storage/path/test /tmp/test1 
 diff /tmp/test1 /tmp/test 
 </pre>
 
 For example:
-<pre class="screen">cp /tmp/test xroot://gc1-xrdr.yourdomain.org:1094//xrootd/data/test </pre>
+<pre class="screen">cp /tmp/test xroot://redirector.yourdomain.org:1094//storage/path/test </pre>
 
 
 ---++ Advanced installation options
@@ -199,7 +213,20 @@ For example:
 To maximize the performance of your xrootd installation, you should place the storage cache and storage path on separate partitions.  The partition used for the storage cache should be optimized for the type of files used by scientific applications that will utilize the xrootd installation.  In general, you can use the defaults for =mke2fs= since that will tend to optimize for large files.
 
 The partition used for the storage path should be optimized to hold a large number of inodes and files.  Since the storage path is used to hold symlinks to the actual data files, the file system should have a large number of inodes since each symlink will require an inode to hold an entry for the symlink.  In addition, the size of the data blocks used by the filesystem on the partition should be made as small as possible.  Since symlinks will typically consume an entire block regardless of the size of data block, a small data block size results in less space being wasted.  For an ext3 file system, passing =-b 1024= to =mke2fs= will set the block size to 1kb per block which is the smallest allowed block size.
-  
+
+---+++ Create disk partitions for the data servers
+You will probably:
+   * choose your disk or raid array
+   * create a partition, e.g. using =fdisk= 
+   * format it, e.g. using ext3 file system
+   * mount the disk in your main file system, e.g. adding to =/etc/fstab= a line like:<pre class="screen">
+/dev/sda5               /storage                ext3    defaults        1 2
+</pre>
+   * create the directories<pre class="screen">
+mkdir -p /storage/path
+mkdir -p /storage/cache
+</pre>
+
 
 ---+++ Adding a data server
 
