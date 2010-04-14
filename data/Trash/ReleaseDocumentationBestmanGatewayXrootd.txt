@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1271167728" format="1.1" version="1.40"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1271264316" format="1.1" reprev="1.41" version="1.41"}%
 %META:TOPICPARENT{name="WebHome"}%
 %DOC_STATUS_TABLE%
 https://twiki.grid.iu.edu/twiki/pub/Storage/WebHome/images.jpg
@@ -7,38 +7,43 @@ https://twiki.grid.iu.edu/twiki/pub/Storage/WebHome/images.jpg
 %BR%
 
 ---++ Introduction
-This document describes the installation of a Storage Element that consists of !BeStMan-Gateway that provides an SRM interface coupled with a GridFTP server on top of Xrootd.
-! BeStMan, developed by the Scientific Data Management Group of Lawrence Berkeley National Laboratory, is a generic SRM v2.2 load balancing frontend for transfer servers.
+This document describes the installation of a Storage Element that consists of !BeStMan-Gateway that provides an SRM interface coupled with a !GridFTP server on top of Xrootd.
+!BeStMan, developed by the Scientific Data Management Group of Lawrence Berkeley National Laboratory, is a generic SRM v2.2 load balancing frontend for transfer servers.
 Xrootd is a high performance network storage system widely used in high energy physics experiments such as ATLAS and ALICE. The underlying Xroot data transfer protocol provides highly efficient access to ROOT based data files. Please see [[#References][these]] references for more information.
+
+For general information on storage software architecture, implementations and use, please read [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/StorageInfrastructureSoftware][StorageInfrastractureSoftware]]. For information on planning, installing and validating storage software, please follow this link to [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/StorageSiteAdministrator][StorageSiteAdministrator]].
 
 The configuration of this distributed storage is pretty complicated, so we will not be able to provide automatic configuration scripts for all options available for each components for the time being. The goal of this document is to give enough information for system administrators to do initial simple configuration of the storage as well as provide references to the documents that may help to accomplish more sophisticated configuration. 
 
----++ Architecture 
-!BeStMan-Gateway storage consists of the following components: 
+---+++!! Applicable Versions
+The applicable software versions for this document are 
+%RED%
+%OSG_VERSION% 
+%ENDCOLOR%
+(or higher) and 
+%RED%
+*vdt-version  2.0*
+%ENDCOLOR%
+(or higher).
+
+---+++!!Engineering Considerations
+!BeStMan-Gateway/Xrootd Storage Element requires at least three nodes. The following components have to be installed on the first node:
    * !BeStMan-Gateway is an implementation of SRM v2.2 for essential interfaces to disk based storage systems - [[http://datagrid.lbl.gov/bestman][BeStMan Home Page]] 
-   * !GridFTP server  provides a high-performance, secure, reliable data transfer [[http://www.globus.org/toolkit/docs/3.2/gridftp][GridFTP documentation]]
-   * POSIX-compliant file system
+   * !GridFTP-Xrootd  package that contains  !GridFTP server and Data Storage Interface (DSI) module for Xrootd/Posix. !GridFTP provides a high-performance, secure, reliable data transfer [[http://www.globus.org/toolkit/docs/3.2/gridftp][GridFTP documentation]]. The Xrootd preload library allows standard POSIX I/O calls to xrootd servered files instead of calls to the local file system.
+   * If you want that !BeStMan to use GUMS for authorization, you should be able to access GUMS server that is installed on your site or installed it yourself on a different node, following [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS][GUMS Server Installation Guide ]] 
+   * !XrootdFS is a Posix filesystem  that allows !GridFTP, !BeStMan and other grid applications to work with Xrootd storage system. !XrootdFS works on top of !FUSE.
    * optional package
       * Gratia gridftp transfer probe - cron job that reports all the file transfers to [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GratiaSiteCollector Gratia collector]]
-      *  [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS][GUMS server]] - authentication and authorization service
-%BR%
+!Xrootd should be installed on two or more other nodes. One node should be configured as a head node (redirector node) all the other nodes will serve as data servers. 
+ 
 <img src="%ATTACHURLPATH%/betsman_gateway_xrootd.jpeg" alt="betsman_gateway_xrootd.jpeg" width='384' height='288' />
 
+ 
+The following questions should be answered before you can proceed with installation and configuration of !BeStMan-Gateway/Xrootd Storage solution: 
 
----++ Configuration decisions 
- 
-The following questions should be answered before you can proceed with installation and configuration of !BeStMan-gateway/Xrootd storage solution: 
- 
-Q. _What authorization mechanism do you prefer?_ 
- 
-You have to decide if you want to use grid-map-file or !GUMS server for users’ 
-authentication and authorization. 
-More details about !GUMS could be found at 
-[[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS  GUMS Documentation]]
+   $ Q. _What authorization mechanism do you prefer?_ : You need to decide if you want to use grid-mapfile or !GUMS server for users’ authentication and authorization. More details about !GUMS could be found at [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS GUMS Installation Guide]]. %BR% %BR% We currently recommend using GUMS as it provides superior flexibility and allows a site to manage all of its mappings in one central location; most large sites use GUMS.
 
- Q. _Do you need to support space tokens?_
-  
-!BeStMan-gateway supports predefined, static space tokens that should be 
+   $ Q. _Do you need to support space tokens?_ : !BeStMan-Gateway supports predefined, static space tokens that should be 
 included in configuration. It doesn't keep trace or enforce static space tokens.  If 
 you want partition your storage space and have a “designated” space for some 
 VOs or users you can choose to use space tokens. You will have to decide the 
@@ -46,23 +51,32 @@ names and descriptions of the tokens as well as the size of the area. This
 information will be used in !BeStMan configuration, and Xrootd server 
 configuration on data server and redirector nodes. 
  
-Q. _What is your Mount Point for !XrootdFS  on !BeStMan node?_
- 
- You will need this information for !XrootdFS, !GridFTP and Xrootd configuration. 
- 
-Q. _How to partition storage areas on Xrootd redirector and data server nodes?_ 
 
-Xrootd is using two storage areas. One storage area (referred as _storage_path) could be accessed by clients using xroot protocol. This area contains symbolic links to the data files that are located in the cache storage area (referred as  _storage_cache_).
+ 
+  $ Q. _How to partition storage areas on Xrootd redirector and data server nodes_?: !Xrootd is using two storage areas. One storage area (referred as _storage_path_) could be accessed by clients using Xroot protocol. This area contains symbolic links to the data files that are located in the cache storage area (referred as  _storage_cache_).
 The Xrootd developers recommended to use a separate partition for each storage area, but  in principal for _storage_path_ a directory can be used as well. In Xrootd 
 production instillation at SLAC an ext3 partition is used for  _storage_path_. This storage area requires a significant amount of inodes. However, too many inodes 
 means small block size. For real file, that means a limit of file size (though not clear about sym linked files, which are big in size but are filled with empty holes). At 
 SLAC, the block size is set to 1k (thus put a limit of real file size at ~256GB). 
  
 
-Q. _Do you want to enable Gratia gridftp-transfer probes?_
-
-If you want to report all the transfers in and out of your storage you would need to install or enable Gratia gridftp-transfer probes. More details should be found at [[https://twiki.grid.iu.edu/bin/view/Accounting/WebHome  Gratia Home Page]]. The reported information will include the source and destination of transfer, certificate subject of transfer initiator, size and status of the transferred file.   
+  $ Q. _Do you want to enable Gratia gridftp-transfer probes_?: If you want to report all the transfers in and out of your storage you would need to install or enable Gratia gridftp-transfer probes. More details should be found at [[https://twiki.grid.iu.edu/bin/view/Accounting/WebHome  Gratia Home Page]]. The reported information will include the source and destination of transfer, certificate subject of transfer initiator, size and status of the transferred file.   
  
+--+++!!Help!
+If a problem occurs during installation or verification of the service, see [[#DebugInfo][Debugging Information]].
+%BR%
+If you cannot resolve the problem, the best way to get help is by following this InstallHelpProcedure.
+
+---++Checklist
+   1. [[ReleaseDocumentation/PacmanInstall][pacman]] version >= %PACMAN_VERSION% is required
+   1. The server must have a fully qualified domain name and a valid [[ReleaseDocumentation/GetGridCertificates][grid host certificate]] installed in =/etc/grid-security/=
+   1. !BeStMan server needs to have a valid host certificate installed in =/etc/grid-security/bestmancert=. The certificate should be own by a user that is running !BeStMan server. The right permission (600) should be set on those files. %ICON{warning}%  !BeStMan should be configured with host certificate in order to be able to handle requests from !LCG-Utils tools. This is mandatory for at least all !BeStMan servers that support ATLAS experiment. Normally the OSG !BeStMan implementation uses a service certificate, not a host certificate. This causes lcg-cp to fail because the certificate name (which looks like http/hostname instead of just hostname) doesn't match the hostname. 
+   1. The firewall must allow incoming connections to the !BeStMan-Gateway ports (default:1080,10443)
+   1. The firewall must allow incoming connections to the !GridFTP port (default 2811). Outgoing connections must be allowed from high ports ( typically in range 32769-65535 ). We recommend to consult the [[ReleaseDocumentation/ComputeElementFirewalls][Firewall Guide]] if you install the !GridFTP server for the first time.
+   1.  The firewall must allow multiple ports to be opened for Xrootd. See detailed information [[][here]].
+   1. A working GUMS server or a gridmap-file are needed for authorization using grid certificates.
+
+
 ---++ VDT packages 
 All the required components but FUSE can be installed from %CACHE%: 
  
