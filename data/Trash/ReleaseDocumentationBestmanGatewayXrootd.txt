@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1271274408" format="1.1" reprev="1.42" version="1.42"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1271285869" format="1.1" reprev="1.43" version="1.43"}%
 %META:TOPICPARENT{name="WebHome"}%
 %DOC_STATUS_TABLE%
 https://twiki.grid.iu.edu/twiki/pub/Storage/WebHome/images.jpg
@@ -30,7 +30,7 @@ The applicable software versions for this document are
 !BeStMan-Gateway/Xrootd Storage Element requires at least three nodes. The following components have to be installed on the first node:
    * !BeStMan-Gateway is an implementation of SRM v2.2 for essential interfaces to disk based storage systems - [[http://datagrid.lbl.gov/bestman][BeStMan Home Page]] 
    * !GridFTP-Xrootd  package that contains  !GridFTP server and Data Storage Interface (DSI) module for Xrootd/Posix. !GridFTP provides a high-performance, secure, reliable data transfer [[http://www.globus.org/toolkit/docs/3.2/gridftp][GridFTP documentation]]. The Xrootd preload library allows standard POSIX I/O calls to xrootd servered files instead of calls to the local file system.
-   * If you want that !BeStMan to use GUMS for authorization, you should be able to access GUMS server that is installed on your site or installed it yourself on a different node, following [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS][GUMS Server Installation Guide ]] 
+   * If you want !BeStMan to use GUMS for authorization, you should be able to access existing GUMS server  or installed it yourself on a different node, following [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS][GUMS Server Installation Guide ]] 
    * !XrootdFS is a Posix filesystem  that allows !GridFTP, !BeStMan and other grid applications to work with Xrootd storage system. !XrootdFS works on top of !FUSE.
    * optional package
       * Gratia gridftp transfer probe - cron job that reports all the file transfers to [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GratiaSiteCollector Gratia collector]]
@@ -61,12 +61,12 @@ If you cannot resolve the problem, the best way to get help is by following this
 
 ---++Checklist
    1. [[ReleaseDocumentation/PacmanInstall][pacman]] version >= %PACMAN_VERSION% is required
-   1. !FUSE should be installed on the "!BeStMan-Gateway" node
+   1. !FUSE should be installed on the node where !BeStMan-Gateway and !XrootdFS are installed
    1. The server must have a fully qualified domain name and a valid [[ReleaseDocumentation/GetGridCertificates][grid host certificate]] installed in =/etc/grid-security/=
    1. !BeStMan server needs to have a valid host certificate installed in =/etc/grid-security/bestmancert=. The certificate should be own by a user that is running !BeStMan server. The right permission (600) should be set on those files. %ICON{warning}%  !BeStMan should be configured with host certificate in order to be able to handle requests from !LCG-Utils tools. This is mandatory for at least all !BeStMan servers that support ATLAS experiment. Normally the OSG !BeStMan implementation uses a service certificate, not a host certificate. This causes lcg-cp to fail because the certificate name (which looks like http/hostname instead of just hostname) doesn't match the hostname. 
    1. The firewall must allow incoming connections to the !BeStMan-Gateway ports (default:1080,10443)
    1. The firewall must allow incoming connections to the !GridFTP port (default 2811). Outgoing connections must be allowed from high ports ( typically in range 32769-65535 ). We recommend to consult the [[ReleaseDocumentation/ComputeElementFirewalls][Firewall Guide]] if you install the !GridFTP server for the first time.
-   1.  The firewall must allow multiple ports to be opened for Xrootd daemons on redirector and data server nodes. See detailed information [[][here]].
+   1.  The firewall must allow multiple ports to be opened for Xrootd daemons on redirector and data server nodes. See detailed information [[#XrootdFirewall][here]].
    1. A working GUMS server or a gridmap-file are needed for authorization using grid certificates.
 
 ---++ !FUSE 
@@ -102,6 +102,9 @@ cd /opt/osg_%OSG_VERSION%-bestman/
 </pre>
 
 Install !XrootdFS from %CACHE%. Pacman will ask whether you want to trust the cache (=yall=).
+<pre class="screen">
+pacman -get %CACHE%:XrootdFS
+</pre>
 Next, you will need to install !BeStMan in the same directory. If you are using GUMS authorization method you will need to setup _VDT_GUMS_HOST_ environment variable, if you are using  gridmap-file ,please, proceed to the next step.
 <pre class="screen"> 
 cd /opt/osg_%OSG_VERSION%-bestman/
@@ -165,7 +168,7 @@ $VDT_LOCATION/vdt/setup/configure_xrootdfs \
 </verbatim>
 </pre>
  
-Where _$VDT_LOCATION_  is a directory where the package is installed,<br/> 
+Where <br/> 
 _user name_ of the non-privileged user that runs xrootdfs daemon and  is an owner of <br/>
 _hostname_ is a FQDN of Xrootd redirector host <br/> 
 _storage_path_ is  a !XrootdFS mount point that will be created for you. The name of the mount point should correspond to the name of  storage area on !Xrootd nodes  <br/> 
@@ -244,7 +247,7 @@ $VDT_LOCATION/vdt/setup/configure_gridftp --use-xrootd \
  --xrootd-storage-path <storage_path> 
 </verbatim>
 </pre>
-Where _$VDT_LOCATION_ is a directory for !GridFTP installation,  <br/>
+Where
 _hostname_ is a FQDN of the Xrootd redirector host,  <br/>
 _storage_path_ is a !GridFTP virtual mount point and storage area on redirector node 
 
@@ -280,8 +283,8 @@ and copy /etc/passwd, /etc/shadow, /etc/group, and /etc/gshadow to each of the x
 
 
 Next create and change to an installation directory. <pre class="screen">
-mkdir -p /opt/xrootd/
-cd /opt/xrootd/
+mkdir -p /opt/osg_%OSG_VERSION%-xrootd
+cd /opt/osg_%OSG_VERSION%-xrootd
 </pre>
 
 Install the !Xrootd package from the %CACHE% cache.  Pacman will ask whether you want to trust the cache (answer =yall=).
@@ -299,12 +302,15 @@ You can verify that the version installed is the version you expected by invokin
 vdt-version
 </pre>
 
----++ Xrootd  Configuration on data server node 
+---++ Xrootd  Configuration 
+
+---+++ Configuration on data server node 
+
 To configure Xrootd on each data server node you have to login to the node as root and perform the following actions:
 
 <pre class="screen">
 <verbatim>
-cd /opt/xrootd
+cd /opt/osg_%OSG_VERSION%-xrootd
 . setup.sh
 $VDT_LOCATION/vdt/setup/configure_xrootd \
  --server y \
@@ -312,11 +318,11 @@ $VDT_LOCATION/vdt/setup/configure_xrootd \
  --xrdr-host  <hostname> \
  --xrdr-storage-path <storage_path> \
  --xrdr-storage-cache <storage_cache> \
- --with-tokens-list "<TOKEN_1_NAME>[desc:<TOKEN_1_DESC>][<TOKEN_1_SIZE_GB>];<TOKEN_2_NAME>[desc:<TOKEN_2_DESC>][<TOKEN_2_SIZE>]"   \
+ --with-tokens-list "<TOKEN_1_NAME>[desc:<TOKEN_1_DESC>][<TOKEN_1_SIZE_GB>];<TOKEN_2_NAME>[desc:<TOKEN_2_DESC>][<TOKEN_2_SIZE>]" \
  --public-cache-size <PUBLIC_SPACE_SIZE>;
 </verbatim>
 </pre>
-Where _$VDT_LOCATION_ is a directory of  Xrootd installation, <br/>
+Where 
 _user_ name of the non-privileged user that runs Xrootd (this user SHOULD have a login shell) <br/>
 _hostname_ that FQDN of redirector  host <br/>
 _storage_cache_ is the name of a directory that hosts actual data. Files under_cache_ is not visible to users.<br/>
@@ -325,89 +331,202 @@ _TOKEN_NAME_,_TOKEN_SIZE_ should matched tokens described in the !BeStMan config
 _PUBLIC_SPACE_SIZE_ is the size of storage area (in GB) allocated for public use (are not reserved with a particular space token)   
  
 
----++ Xrootd redirector node Configuration
+---+++ Configuration on redirector node 
 
 <pre class="screen">
-cd &lt;VDT_LOCATION&gt;
+<verbatim>
+cd /opt/osg_%OSG_VERSION%-xrootd
 . setup.sh 
 $VDT_LOCATION/vdt/setup/configure_xrootd \
  --server y \
- --user &lt;user&gt; \
+ --user <user> \
  --this-is-xrdr \
- --xrdr-storage-path &lt;storage_path&gt; \
- --xrdr-storage-cache &lt;storage_cache&gt; \
- --with-tokens-list "&lt;TOKEN_1_NAME&gt;[desc:&lt;TOKEN_1_DESC&gt;][&lt;TOKEN_1_SIZE_GB&gt;];&lt;TOKEN_2_NAME&gt;[desc:&lt;TOKEN_2_DESC&gt;][&lt;TOKEN_2_SIZE&gt;]"   \
- --public-cache-size &lt;PUBLIC_SPACE_SIZE&gt;
+ --xrdr-storage-path <storage_path> \
+ --xrdr-storage-cache <storage_cache> \
+ --with-tokens-list "<TOKEN_1_NAME>[desc:<TOKEN_1_DESC>][<TOKEN_1_SIZE_GB>];<TOKEN_2_NAME>[desc:<TOKEN_2_DESC>][<TOKEN_2_SIZE>]" \
+ --public-cache-size <PUBLIC_SPACE_SIZE>
+</verbatim>
 </pre>
  
-Where _$VDT_LOCATION_ is a directory of  Xrootd installation, <br/>
+Where 
 _user_ name of the non-privileged user that runs Xrootd (this user SHOULD have a login shell) <br/>
 _storage_cache_ is the name of a directory that hosts actual data. Files under_cache_ is not visible to users.<br/>
 _storage_path_ is the name of a directory that hosts  symbolic links to actual files in _cache_.  Xrootd clients have access to  _storage_path_.<br/>
 _TOKEN_NAME_,_TOKEN_SIZE_ should matched tokens described in the !BeStMan configuration.If you  are not using static space tokens you should skip this option.   <br/>
 _PUBLIC_SPACE_SIZE_ is the size of storage area (in GB) allocated for public use (are not reserved with a particular space token)   
  
----++ Start  the system 
-You have to be root to start each service. You have to start all the components in the 
+#XrootdFirewall
+---+++ Check firewall rules
+It is important to make sure your firewall (if any) isn't blocking the ports that Xrootd uses for communication.  Otherwise, it becomes difficult to diagnose errors and failures may occur.  Xrootd uses the following ports:
+
+| *Host* | *Port Number* | *Protocol* |
+|!Xrootd data server| random ports selected by the OS |tcp|
+|!Xrootd redirector|1094|tcp|
+||2094|tcp|
+||1213|tcp|
+
+Check the firewall rules with =/etc/init.d/iptables status=.   See below for more information on firewall configuration settings for Xrootd.
+---++++ !!Firewall configuration for the Xrootd redirector
+
+Edit the /etc/sysconfig/iptables file to add these lines ahead of the REJECT line (if your host has reject rules in its iptables configuration):
+<pre class="file">
+# Xrootd connections  (from anywhere) 
+-A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1094 -j ACCEPT 
+-A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1213 -j ACCEPT 
+-A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2094 -j ACCEPT 
+-A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2525 -j ACCEPT 
+# 
+</pre>
+Check the status of iptables:
+<pre class="screen">
+/etc/init.d/iptables status
+</pre>
+
+Restart iptables:
+<pre class="screen">
+/etc/init.d/iptables restart
+</pre>
+Check the status of the iptables to see the changes:
+<pre class="screen">
+/etc/init.d/iptables status
+</pre>
+
+---+++ !!Firewall configuration for an Xrootd data server
+
+Edit the /etc/sysconfig/iptables file and add these lines ahead of the REJECT line:
+<pre class="file">
+# Xrootd connections  (from anywhere) 
+-A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2525 -j ACCEPT 
+# 
+</pre>
+Check the status of iptables:
+<pre class="screen">
+/etc/init.d/iptables status
+</pre>
+Restart iptables:
+<pre class="screen">
+/etc/init.d/iptables restart 
+</pre>
+Check the status of the iptables to see the changes:
+<pre class="screen">
+/etc/init.d/iptables status
+</pre>
+Now edit the file $VDT_LOCATION/xrootd/etc/xrootd.cfg and change xrd.port any to xrd.port 2525. 
+
+
+---++ Enabling the Services
+---+++ Enabling services on BeStMan-Gateway node
+You can use the _vdt-control -list_ command to see all services that are installed as part of the install, and whether or not they are enabled or disabled. 
+You will need to enable the following services:
+   * fetch-crl   
+   * vdt-rotate-logs  
+   * vdt-update-certs       
+   * gsiftp           
+   * gratia-gridftp-transfer  %ICON{warning}% In case you want to run Gratia !GridFTP transfer probe
+   * gums-host-cron   %ICON{warning}% In case you want to run Gratia !GridFTP transfer probe and are using !GUMS for authorization
+   * edg-mkgridmap     %ICON{warning}% In case you want to use gridmap-file for authorization 
+
+First, login to !BeStMan-Gateway node as root. You can execute _vdt-control -enable_ command and list all services you want to enable:
+<pre class="screen">
+cd /opt/osg_%OSG_VERSION%-bestman
+source setup.sh
+vdt-control -enable fetch-crl vdt-rotate-logs vdt-update-certs gsiftp  
+</pre> 
+
+If you are using !GUMS or have gridmap-file and don't want to use automatically generated one, please, skip this section:
+<pre class="screen">
+cd  /opt/osg_%OSG_VERSION%-bestman
+source setup.sh
+vdt-control -enable edg-mkgridmap
+edg/sbin/edg-mkgridmap
+</pre> 
+---++ Services Startup/Shutdown 
+You have to be root to start/stop each service. You have to start all the components in the 
 following order (this is order is optional but seems logical): 
-   1. Start Xrootd redirector. Login on redirector node,  then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+   1. Start Xrootd redirector. Login on redirector node,  then: <pre class="screen">cd  /opt/osg_%OSG_VERSION%-xrootd
 . setup.sh 
 vdt-control –on
 </pre> 
-   1. Start Xrootd on all the data server nodes. Login on each Xrootd data server node, then:<pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+   1. Start Xrootd on all the data server nodes. Login on each Xrootd data server node, then:<pre class="screen">cd /opt/osg_%OSG_VERSION%-xrootd
 . setup.sh 
 vdt-control –on
 </pre> 
-   1, Start !XrootdFS,!GridFTP and  !BeStMan. Login on !BeStMan node, then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
-. setup.sh 
-vdt-control –on
-</pre> 
-   1. Start standalone !GridFTP servers. Login on each !GridFTP server node, then:  <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+   1, Start !XrootdFS,!GridFTP and  !BeStMan. Login on !BeStMan node, then: <pre class="screen">cd /opt/osg_%OSG_VERSION%-bestman
 . setup.sh 
 vdt-control –on
 </pre> 
 
----++ Stop the system 
 You have to be root to stop each service. You have to stop all the components in the 
 following order (this is order is optional but seems logical): 
  
-   1. Stop !XrootdFS,!GridFTP and !BeStMan. Login on !BeStMan node, then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+   1. Stop !XrootdFS,!GridFTP and !BeStMan. Login on !BeStMan node, then: <pre class="screen">cd  /opt/osg_%OSG_VERSION%-bestman
 . setup.sh 
 vdt-control –off
 </pre> 
-   1. Stop standalone !GridFTP servers. Login on each !GridFTP server node, then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+   1. Stop standalone !GridFTP servers. Login on each !GridFTP server node, then: <pre class="screen">cd /opt/osg_%OSG_VERSION%-xrootd
 . setup.sh 
 vdt-control –off
 </pre>  
-   1. Stop Xrootd redirector. Login on redirector node,  then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
-. setup.sh 
-vdt-control –off
-</pre> 
-   1.. Stop Xrootd on all the data server nodes. Login on each Xrootd data server node, then: <pre class="screen">cd  &lt;VDT_LOCATION&gt; 
+   1. Stop Xrootd redirector. Login on redirector node,  then: <pre class="screen">cd xrootd
 . setup.sh 
 vdt-control –off
 </pre> 
 
 ---++ System sanity check 
-In order to verify that the system is functional you will need to download client package. Create a directory, e.g.  /opt/osg-client. Make sure there are no non-standard versions of perl, python, tcsh, or bash in your $PATH variable. 
-We will refer to this directory as _&lt;VDT_LOCATION&gt;_.  
+---++ Validation of Service Operation 
+In order to verify that the system is functional you will need to have access to srm client commands, be able to create a proxy certificate (_grid-proxy-init_ or _voms_proxy_init_ command) and have access to your certificate and private key.
 
-<pre class="screen"> 
+There are multiple ways of doing this.
+
+---+++ Preparing to run srm-client command on the !BeStMan node
+Running commands on the node you have just installed !BeStMan. 
+   * Login on this node as "yourself'
+   * Setup location of !BeStMan installation
+<pre class="screen">
 cd &lt;VDT_LOCATION&gt;
-pacman -get %CACHE%:client
-. setup.sh 
+. setup.sh
 </pre>
-You will need to get your _voms-proxy_ certificate:
-<pre class="screen"> 
-voms-proxy-init –voms &lt;voname&gt;:/&lt;voname&gt;
+   * Make sure that you have access to your certificate and private key on that node, you will need it to create a proxy certificate. Execute grid-proxy-init:
+<pre class="screen">
+grid-proxy-init
+Your identity: .....
+Enter GRID pass phrase for this identity:
 </pre>
- 
+   * You will need to add the path to all the srm client scripts to your _PATH_ environment variable and create grid proxy certificate. In order to do so you will need to have your certificate 
+<pre class="screen">
+cd &lt;VDT_LOCATION&gt;
+. setup.sh
+export PATH=$PATH:$VDT_LOCATION/bestman/bin
+</pre>
+---+++ Preparing to run srm-client command from the different node
+
+ Install client command on the node where you have your certificate and public key. The detailed instruction is provided in [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/ClientInstallationGuide][in that installation Guide]]. Then generate a proxy certificate by issuing _grid_proxy_init or _voms_proxy_init_:
+<pre class="screen">
+. &lt;VDT_LOCATION&gt;/setup.sh
+grid-proxy-init
+Your identity: .....
+Enter GRID pass phrase for this identity:
+</pre>
+
+or
+
+<pre class="screen">
+. &lt;VDT_LOCATION&gt;/setup.sh
+voms-proxy-init -voms  &lt;voms_name&gt;
+Enter GRID pass phrase for this identity:
+</pre>
+Where  &lt;VDT_LOCATION&gt is the directory where you installed the client.
+
+---+++ Executing SRM-client commands 
+After you manage to get proxy certificate and access to srm commands you may try to verify !BeStMan:
+
 Execute srm-ping: 
 <pre class="screen">
  srm-ping srm://&lt;BeStMan_host&gt;:&lt;secured_port_http&gt;/srm/v2/server 
  </pre>
-Expected results:
-<pre class="screen"> 
+
+Expected results: 
+<pre class="screen>
 ########################################### 
 SRM_HOME is /usr/local/osg-client/srm-client-lbnl 
 JAVA_HOME is /usr/local/osg-client/jdk1.5 X509_CERT_DIR = 
@@ -502,10 +621,32 @@ ExitCode=0
 
 If you turn on Gratia !GridFTP transfer probes you should be able to see the accounting information by accessing your Gratia collector. See details in  [[GratiaTransferProbe][Preparing, Installing and Validating Gratia transfer probe]].
 
+ 
+#DebugInfo
+---++ Debugging Information
+---+++!!File Locations
+If any of the tests described above have failed or you are just curious to see what’s going 
+on you could find log and configuration files for each of the module in the following 
+location on a relevant node: 
+|*Module Name*|*Configuration files*| *Log files*| 
+|!BeStMan| $VDT_LOCATION/bestman/conf/bestman.rc |$VDT_LOCATION/vdt-app-data/bestman/logs/event.srm.log| 
+|!GridFTP|$VDT_LOCATION/vdt/services/vdt-run-gsiftp.sh.env | $VDT_LOCATION/globus/var/log/gridftp.log <br/>$VDT_LOCATION/globus/var/log/gridftp-auth.log | 
+|!XrootdFS |$VDT_LOCATION/xrootdfs/start.sh <br/>$VDT_LOCATION/xrootdfs/stop.sh |NA| 
+|Xrootd – redirector |$VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/xrootd_2.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf  <br/>|$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog  <br/>$VDT_LOCATION/xrootd/var/logs/ xrootd_cnd/xrdlog |
+|Xrootd – data server| $VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf |$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog |
 
- 
----++ Troubleshooting – What could go wrong with such trivial tasks? 
- 
+---+++!!Open Ports
+|*Module Name*|*Port Number*| *Protocol*|
+|!BeStMan| 8080 (default 10080)| tcp|
+||8443 (default 10443)|tcp|
+|!GridFTP|2811|tcp|
+||lowPort,maxPort if needed to control outbound globus connections|tcp|
+|!Xrootd redirector|1094|tcp|
+||2094|tcp|
+||1213|tcp|
+|!Xrootd data server| opens random port selected by OS;|tcp|
+|^|replace "xrd.port any" with a particular port in $VDT_LOCATION/xrootd/etc/xrootd.cfg| |
+---+++!!Debugging Procedure
 If   sanity checks failed you would probably need to check the each component in order 
 to verify what went wrong with your installation. In order to do so you should ,probably, 
 check all them in the following order: 
@@ -515,7 +656,7 @@ check all them in the following order:
    * !GridFTP 
    * !BeStMan 
 
----+++ Verifying Xrootd 
+---+++ !!Verifying Xrootd 
 Login on the node where you have installed !BeStMan, then 
 <pre class="screen">
 cd $VDT_LOCATION
@@ -527,7 +668,7 @@ cp xroot://&lt;XRDR_host&gt;:1094//&lt;XRDR_storage_path&gt;/test /tmp/test1
 diff /tmp/test1 /tmp/test 
 </pre>
 
----+++ Verifying !XrootdFS 
+---+++ !!Verifying !XrootdFS 
 Login on the node where you have installed !XrootdFS, then 
 <pre class="screen">
 cd &lt;storage_path&gt;
@@ -536,14 +677,14 @@ ls –l test1
 cat test1 
 </pre>
 
----+++ Verifying !GUMS 
+---+++ !!Verifying !GUMS 
 Make sure that the service certificate you are specified for !BeStMan  configuration with  
 --cert &lt;service_cert&gt; , --key  &lt;service_key&gt;  options and !GridFTP service certificate are 
 accepted by !GUMS  (see [[http://vdt.cs.wisc.edu/releases/1.10.1/notes/GUMS.html GUMS Installation Documentation]])   
  
 Get mapping _uid_ for your certificate and verify that this _uid_ exists on !BeStMan and !GridFTP node. 
  
----+++ Verifying !GridFTP 
+---+++ !!Verifying !GridFTP 
 Login on the node where you have installed have your certificate installed and  access to %CACHE%:client.
 
 You will need to get your voms-proxy certificate: 
@@ -560,7 +701,7 @@ echo “This is a test” >/tmp/test
 globus-url-copy -dbg file:///tmp/test gsiftp://&lt;GridFtp_host&gt;/tmp/test 
 </pre>
 
----+++ Verifying !BeStMan
+---+++!!Verifying !BeStMan
 Make sure that !BeStMan is running and there is no error in the log file (_$VDT_LOCATION/vdt-app-data/bestman/logs/event.srm.log_). Login on the node where you have installed !BeStMan then
 
 <pre class="screen">
@@ -568,46 +709,6 @@ Make sure that !BeStMan is running and there is no error in the log file (_$VDT_
 daemon   27648  0.0  0.0  4944 1168 pts/2    S    07:46   0:00 /bin/sh /usr/local/itb_bestman/bestman/sbin/bestman.server
 daemon   27676  3.3  7.4 715240 155208 pts/2 Sl   07:46   1:59 /usr/local/itb_bestman/jdk1.6/bin/java -server -Xmx512m -Dorg.globus.tcp.port.range=20000,25000 -DX509_CERT_DIR=/usr/local/itb_bestman/globus/TRUSTED_CA -Daxis.ServerConfigFile=/usr/local/itb_bestman/bestman/conf/server-config.wsdd gov.lbl.srm.server.Server /usr/local/itb_bestman/bestman/conf/bestman.rc
 </pre>
-
----++ List of utilized ports
-|*Module Name*|*Port Number*| *Protocol*|
-|!BeStMan| 8080 (default 10080)| tcp|
-||8443 (default 10443)|tcp|
-|!GridFTP|2811|tcp|
-||lowPort,maxPort if needed to control outbound globus connections|tcp|
-|!Xrootd redirector|1094|tcp|
-||2094|tcp|
-||1213|tcp|
-|!Xrootd data server| opens random port selected by OS;|tcp|
-|^|replace "xrd.port any" with a particular port in $VDT_LOCATION/xrootd/etc/xrootd.cfg| |
-
----++ Log file and configuration locations 
- 
-If any of the tests described above have failed or you are just curious to see what’s going 
-on you could find log and configuration files for each of the module in the following 
-location on a relevant node: 
-|*Module Name*|*Configuration files*| *Log files*| 
-|!BeStMan| $VDT_LOCATION/bestman/conf/bestman.rc |$VDT_LOCATION/vdt-app-data/bestman/logs/event.srm.log| 
-|!GridFTP|$VDT_LOCATION/vdt/services/vdt-run-gsiftp.sh.env | $VDT_LOCATION/globus/var/log/gridftp.log <br/>$VDT_LOCATION/globus/var/log/gridftp-auth.log | 
-|!XrootdFS |$VDT_LOCATION/xrootdfs/start.sh <br/>$VDT_LOCATION/xrootdfs/stop.sh |NA| 
-|Xrootd – redirector |$VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/xrootd_2.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf  <br/>|$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog  <br/>$VDT_LOCATION/xrootd/var/logs/ xrootd_cnd/xrdlog |
-|Xrootd – data server| $VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf |$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog |
- 
----++ Looking for help? 
-The detailed information about each component can found on the following web sites: 
-   * [[http://fuse.sourceforge.net  FUSE]]
-   * [[http://wt2.slac.stanford.edu/xrootdfs/xrootdfs.html  XrootdFS]]
-   * [[http://datagrid.lbl.gov/bestman BeStMan]]  
-   * [[http://www.globus.org/toolkit/docs/3.2/gridftp  GridFTP]]
-   * [[http://xrootd.slac.stanford.edu/papers/Scalla-Intro.htm  Xrootd]]
-   * [[http://vdt.cs.wisc.edu/index.html current VDT cache]]
-
-
- 
-Numerous documents about storage solutions supported by OSG as well as other useful 
-links could be found at [[https://twiki.grid.iu.edu/twiki/bin/view/Documentation/WebHome OSG Documnetation]]
- 
-See if your question is already answered under the [[https://twiki.grid.iu.edu/bin/view/Documentation/SETools%2cTips%2cFAQs FAQ section]] If not, please send all your questions to osg-storage@opensciencegrid.org  
 
 ---++ Known issues
    * None
@@ -618,20 +719,22 @@ There are lots of references in this twiki to Bestman and Xrootd.
    * [[http://indico.fnal.gov/getFile.py/access?contribId=15&sessionId=26&resId=0&materialId=slides&confId=2538][Xrootd presentation on OSG Storage Forum]]
    * [[http://xrootd.slac.stanford.edu/doc/dev/xrd_config.htm][Xrootd XRD Config Reference]]
    * [[http://xrootd.slac.stanford.edu/doc/dev/cms_config.htm][Xrootd CMS Config Reference]] 
-   * See BestmanGatewayXrootdUseCases for some site installation examples
+   * [[http://fuse.sourceforge.net  FUSE]]
+   * [[http://wt2.slac.stanford.edu/xrootdfs/xrootdfs.html  XrootdFS]]
+   * [[http://datagrid.lbl.gov/bestman BeStMan]]  
+   * [[http://www.globus.org/toolkit/docs/3.2/gridftp  GridFTP]]
+   * [[http://xrootd.slac.stanford.edu/papers/Scalla-Intro.htm  Xrootd]]
+   * [[http://vdt.cs.wisc.edu/index.html current VDT cache]]
+ 
+
+---++ Support
+   * [[https://twiki.grid.iu.edu/bin/view/Documentation/SETools%2cTips%2cFAQs][Frequently Asked Questions answered here]] 
+   * If you cannot find answers, please send all your questions to osg-storage@opensciencegrid.org  
 
 
+---+++Screen Dump of the Complete Install Process 
+---++++ Basic Installation and Configuration
 
-%BR%
-%COMPLETE2% %BR%
-%RESPONSIBLE% Main.TanyaLevshina - 18 Feb 2009 %BR%
-%REVIEW% Main.SuchandraThapa - 21 Jul 2009 %BR%
-%REVFLAG% %X% %BR%
-
----++ *Comments*
-| In the Stand-alone gridftp instructions, the user needs to run vdt-post-install to generate the prima conf files. | Main.SarahWilliams | 18 Nov 2009 - 21:02 |
-| Same section, the user needs to edit prima-authz.conf to specify the correct location of their gums server. | Main.SarahWilliams | 18 Nov 2009 - 21:48 |
-%COMMENT{type="tableappend"}%
 
 <!-- CONTENT MANAGEMENT PROJECT
 ############################################################################################################
