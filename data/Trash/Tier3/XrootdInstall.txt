@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1271195408" format="1.1" version="1.21"}%
+%META:TOPICINFO{author="RobGardner" date="1271259472" format="1.1" reprev="1.22" version="1.22"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop> Xrootd Installation*
 %TOC%
@@ -217,61 +217,63 @@ diff /tmp/test1 /tmp/test
 ---++ Advanced installation options and issues
 
 ---+++ Disabling !Xrootd's CNS
-CNS (Composite Name Space) is an Xrootd component that provides a unified name space: users on the redirector can see all the files from all the data servers.
-To stop CNS  daemon that is is running on every data server node  and stop additional instance of xrd daemon running on redirector node do the following:
-   1. Login  on redirector node and stop xrootd::<pre class="screen">
+CNS (Composite Name Space) is an Xrootd service (*XrdCnsd*) that runs on data server nodes to provide a unified name space for all the data in the system.  With this service a client on the redirector can have a composite view of files from each of the data servers.  There have been some reports of problems/issues with  *XrdCnsd* and its use no longer recommended by the Xrootd developers (it will be removed in future releases). 
+
+To disable CNS do the following:
+   1. Login to the *redirector* host and stop xrootd: <pre class="screen">
 cd /opt/xrootd 
 . setup.sh
-vdt-control -off
+vdt-control --off
 </pre>
-   1. On the redirector modify also =$VDT_LOCATION/post-install/xrootd= deleteing the following lines: <pre class="file">
+   1. Modify =$VDT_LOCATION/post-install/xrootd= deleteing the following lines: <pre class="file">
  if test "`hostname`" = $XRDR_HOST;then
             $XROOTD_HOME/etc/StartXRD -c $XROOTD_HOME/etc/xrootd_cnd.cfg -n xrootd_cnd
  fi
 </pre>
-   1. On the redirector node, modify Xrootd's configuration ($VDT_LOCATION/xrootd/etc/xrootd.cfg) by commenting the following line:<pre class="file">
+   1. Modify Xrootd's configuration (=$VDT_LOCATION/xrootd/etc/xrootd.cfg=) commenting the following line:<pre class="file">
 #ofs.forward 3way $(xrdr):2094 mv rm rmdir trunc
 </pre>
-   1. Restart xrootd on redirector node: <pre class="screen">
+   1. Restart xrootd: <pre class="screen">
 cd /opt/xrootd 
 . setup.sh
-vdt-control -on
+vdt-control --on
 </pre>
-   1. Login  each data server node and stop xrootd::<pre class="screen">
+   1. Login to each *data server* and stop xrootd::<pre class="screen">
 cd /opt/xrootd 
 . setup.sh
-vdt-control -off
+vdt-control --off
 </pre>
-   1. Modify Xrootd's configuration ($VDT_LOCATION/xrootd/etc/xrootd.cfg) by commenting the following line:<pre class="file">
+   1. Modify Xrootd's configuration (=$VDT_LOCATION/xrootd/etc/xrootd.cfg=) commenting the following line:<pre class="file">
 #ofs.notify create closew mkdir | ${xrootdlocation}/bin/XrdCnsd -d -l ${xrootdlocation}/var/logs/cnsd.log root://$(xrdr):2094
 </pre>
-   1. Restart xrootd on data server node: <pre class="screen">
+   1. Restart xrootd: <pre class="screen">
 cd /opt/xrootd 
 . setup.sh
-vdt-control -on
+vdt-control --on
 </pre>
+
 ---+++ Optimizing disk partitions for performance
-To maximize the performance of your Xrootd installation, you should place the storage cache and storage path on separate partitions.  The partition used for the storage cache should be optimized for the kinds of files anticipated by the application.  In general, you can use the defaults for =mke2fs= since that will tend to optimize for large files. 
+To maximize the performance of your Xrootd installation, you should place the _storage_cache_ and _storage_path_  on separate disk partitions.  The partition used for the storage cache should be optimized for the kinds of files anticipated by the application.  In general, you can use the defaults for the  =mke2fs= program since that will tend to optimize for large files. 
 
-The partition used for the storage path should be optimized to hold a large number of inodes and files.  Since the storage path is used to hold symlinks to the actual data files, the file system should have a large number of inodes since each symlink will require an inode to hold an entry for the symlink.  In addition, the size of the data blocks used by the filesystem on the partition should be made as small as possible.  Since symlinks will typically consume an entire block regardless of the size of data block, a small data block size results in less space being wasted.  For an ext3 file system, passing =-b 1024= to =mke2fs= will set the block size to 1kb per block which is the smallest allowed block size.
+The partition used for the _storage_path_ should be optimized to hold a large number of inodes and files.  Since the _storage_path_ is used to hold symlinks to the actual data files, the file system should have a large number of inodes since each symlink will require an inode to hold an entry for the symlink.  In addition, the size of the data blocks used by the filesystem on the partition should be made as small as possible since symlinks will typically consume an entire block regardless of the size of data block; a small data block size results in less space being wasted.  For an [[http://en.wikipedia.org/wiki/Ext3][ext3 file system]], passing =-b 1024= to =mke2fs= will set the block size to 1024 bytes which is the smallest allowed block size.
 
-Normally =mke2fs= is invoked using the wrapper =mkfs -t ext3 ...= that passes the options along. Use =man mke2fs= to see all the options.
+Sometimes =mke2fs= is invoked using the wrapper =mkfs -t ext3 ...= that passes the options along. Use =man mke2fs= to see all the options.
 
-%NOTE% Xrootd inherits the limitation of the underline filesystem used to store data. E.g. If you use ext3 file system you are limited to 31998 sub-directories per one directory, stemming from its limit of 32000 links per inode.
+%NOTE% Xrootd inherits the characteristics of the underlying file system.  E.g. if you use and ext3 file system you are limited to 31998 subdirectories per one directory, stemming from its limit of 32000 links per inode.  
 
 ---+++ Creating disk partitions for the data servers
-General procedure:
-   * Choose your disk or raid array
-   * Create a partition, e.g. using =fdisk= and creating a new partition of type linux: <pre class="screen">
+Here is a general example (there are many approaches taken in practice):
+   * Choose your disk or RAID array
+   * Create a partition of type Linux using =fdisk= (answer prompts as appropriate): <pre class="screen">
 /sbin/fdisk /dev/sda
 </pre>
    * Format the partition into an ext3 file system: <pre class="screen">
 mkfs -t ext3 /dev/sda1
 </pre>
-   * Mount the disk in your main file system, e.g. by adding to =/etc/fstab= a line like:<pre class="file">
+   * Mount the disk in your root file system, e.g. by adding to =/etc/fstab= a line like:<pre class="file">
 /dev/sda1               /storage                ext3    defaults        1 2
 </pre>
-   * Create the needed Xrootd directories as usual<pre class="screen">
+   * Create the needed Xrootd directories as usual:<pre class="screen">
 mkdir -p /storage/path
 mkdir -p /storage/cache
 </pre>
@@ -280,7 +282,7 @@ mkdir -p /storage/cache
 
 ---+++ Firewall configuration for the Xrootd redirector
 
-Edit the =/etc/sysconfig/iptables= file to add these lines ahead of the reject line:
+Edit the =/etc/sysconfig/iptables= file to add these lines *ahead* of the REJECT line (if your host has reject rules in its [[http://en.wikipedia.org/wiki/Iptables][iptables]] configuration):
 <pre class="file"># Xrootd connections  (from anywhere) 
 -A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1094 -j ACCEPT 
 -A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1213 -j ACCEPT 
@@ -298,7 +300,7 @@ Check the status of the iptables to see the changes: <pre class="screen">
 
 ---+++ Firewall configuration for an Xrootd data server
 
-Edit the =/etc/sysconfig/iptables= file and add these lines ahead of the reject line:
+Edit the =/etc/sysconfig/iptables= file and add these lines ahead of the REJECT line:
 <pre class="file"># Xrootd connections  (from anywhere) 
 -A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2525 -j ACCEPT 
 # </pre>
@@ -310,53 +312,45 @@ Now edit the file =$VDT_LOCATION/xrootd/etc/xrootd.cfg= and change =xrd.port any
 
 ---+++ Log and configuration file locations 
  
-If any of the tests described above have failed or you are just curious to see what’s going 
-on you could find log and configuration files for each of the module in the following 
-location on a relevant node: 
+If any of the tests described above have failed or you are just curious to see what’s going on,  you can find log and configuration files in the following locations:
 |*Host*|*Configuration files*| *Log files*| 
 |Xrootd – redirector |$VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/xrootd_2.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf  <br/>|$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog  <br/>$VDT_LOCATION/xrootd/var/logs/xrootd_cnd/xrdlog |
 |Xrootd – data server| $VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf |$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog |
  
----+++ Installing !XrootdFS
-[[http://wt2.slac.stanford.edu/xrootdfs/xrootdfs.html][XrootdFS]] is a POSIX filesystem for an Xrootd storage cluster and is based on [[http://en.wikipedia.org/wiki/Filesystem_in_Userspace][FUSE]] (Filesystem in Userspace). !FUSE is a kernel module that intercepts and services requests to non-privileged user space file systems like !XrootdFS.  
+---+++ !XrootdFS - a POSIX file system for Xrootd
+[[http://wt2.slac.stanford.edu/xrootdfs/xrootdfs.html][XrootdFS]] is a POSIX filesystem for an Xrootd storage cluster based on [[http://en.wikipedia.org/wiki/Filesystem_in_Userspace][FUSE]] (Filesystem in Userspace). !FUSE is a kernel module that intercepts and services requests to non-privileged user space file systems like !XrootdFS.    Install !XrootdFS on nodes where you want a single Xrootd file system to appear, e.g. on an *interactive user node* or a !GridFTP server connected to an Xrootd system.  
+%NOTE% For earlier [[http://xrootd.slac.stanford.edu/doc/cvshead/updates.html][Xrootd releases]] such as 20100315-1007, !XrootdFS requires CNS.
 
-You must install !XrootdFS on the nodes where you want a single filesystem for your files in Xrootd, e.g. on the interactive nodes and on the !GridFTP server, if you have one and want your Xrootd files to be accessible via !GridFTP.
 
-The procedure is:
-   * Install FUSE if not installed already.
-   * Setup Pacman.
-   * Make the installation directory (e.g. =/opt/xrootdfs=). 
-   * Install !XrootdFS.
-
----++++ !FUSE 
-Three packages must be installed:
+---++++!! Install FUSE 
+Three rpm packages must be installed:
    * fuse
    * fuse-libs
    * kernel-module-fuse
-This can be done via yum or rpms. Or, it can be  downloaded from http://sourceforge.net/project/showfiles.php?group_id=121684&package_id=132802 and built according to instructions provided at [[http://fuse.sourceforge.net][there]].     Note that root privileges are required.  It is essential that the FUSE version ( &gt; 2.7.3) and flavor match your kernel. 
+This can be done via the *yum* utility (e.g. =yum install fuse=) or rpm commands directly.  Alternatively (for those familiar with building kernels) FUSE can be  downloaded from http://sourceforge.net/projects/fuse/ and built according to instructions provided there.  Note that root privileges are required.  It is essential that the FUSE version ( &gt; 2.7.3) and flavor match your kernel. 
 
----++++ Install !XrootdFS
-!XrootdFS can be installed from %CACHE% cache. The installation described here is done as root even though services do not  run as root. Pacman will ask whether you want to trust the cache (answer =yall=).
-<pre class="screen"> 
-cd /opt/xrootdfs
+---++++!! Install !XrootdFS 
+Setup Pacman and make an installation directory (e.g. =/opt/xrootdfs=).  Install !XrootdFS from the %CACHE% cache. The installation described here is done as root even though services do not  run as root.  Pacman will ask whether you want to trust the cache (answer =yall=).
+<pre class="screen">cd /opt/xrootdfs
 pacman -get %CACHE%:XrootdFS 
 </pre> 
- 
+
 Configure !XrootdFS with the following command where:
-   * =$VDT_LOCATION= is the installation directory of the Xrootd redirector (=/opt/xrootdfs=)
-   * =xrootd= is the non-privileged user that runs the !XrootdFS service
+   * =$VDT_LOCATION= is the installation directory of the !XrootdFS package (=/opt/xrootdfs=)
+   * =xrootd= is the non-privileged user that runs the !XrootdFS service (it must have a login shell)
    * FQDN of the redirector host, e.g.  =redirector.yourdomain.org= 
-   * =/storage/path= is the directory discussed above in the installation of redirector and data servers
+   * =/xrootd= is the mount point for the file system
+   * =/storage/path= is the _storage_path_ directory on the redirector host, as discussed above
 <pre class="screen">
 $VDT_LOCATION/vdt/setup/configure_xrootdfs \
  --user xrootd \
- --cache /storage/path \
+ --cache /xrootd \
  --xrdr-host redirector.yourdomain.org  \
  --xrdr-storage-path /storage/path
 </pre>
  
 
-
+%BR%
 ---++ References
 *Scalla Xrootd:*
    * [[http://xrootd.slac.stanford.edu/][Scalla home]] and [[http://xrootd.slac.stanford.edu/papers/Scalla-Intro.htm][Scalla introduction]]
