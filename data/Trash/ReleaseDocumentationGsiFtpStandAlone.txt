@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TedHesselroth" date="1270497091" format="1.1" reprev="1.29" version="1.29"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1271888844" format="1.1" reprev="1.30" version="1.30"}%
 %META:TOPICPARENT{name="WebHome"}%
 %DOC_STATUS_TABLE%
 https://twiki.grid.iu.edu/twiki/pub/Storage/WebHome/images.jpg
@@ -8,10 +8,10 @@ https://twiki.grid.iu.edu/twiki/pub/Storage/WebHome/images.jpg
 
 ---++Introduction
 <div id="indent">
-The !GridFTP package contains components necessary to set up a stand-alone gsiftp server and tools necessary to monitor and report its performance.
+The !GridFTP package contains components necessary to set up a stand-alone gsiftp server and tools used to monitor and report its performance.
 A stand-alone gsiftp server might be used under the following circumstances:
    * A simple front-end to a filesystem allowing access over WAN - for example NFS.
-   * Bestman is capable of distributing its workload among several gsiftp servers so if you expect large movements of data into/out of your site, multiple gsiftp servers can be set up.
+   * [[BeStMan][!BeStMan] is capable of distributing its workload among several gsiftp servers so if you expect large movements of data into/out of your site, multiple gsiftp servers can be set up.
 </div>
 
 ---+++!!Applicable Versions
@@ -39,6 +39,12 @@ per 4Gbps of available bandwidth (assuming you have 10Gbps interfaces on the
 server) if you want to maximize throughput. 
 </p>
 
+You have to decide what authorization mechanism do you prefer. You may use either grid-mapfile or !GUMS server for users’ authentication and authorization. More details about !GUMS could be found at [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS GUMS Installation Guide]]. %BR% %BR% We currently recommend using GUMS as it provides superior flexibility and allows a site to manage all of its mappings in one central location; most large sites use GUMS.
+
+
+---+++!!Help!
+If a problem occurs during installation or verification of the service, see [[#DebugInfo][Debugging Information]].
+
 ---++Checklist
    1. [[PacmanInstall][pacman]] version >=%PACMAN_VERSION% is required
    1. The server must have a fully qualified domain name and a valid [[GetGridCertificates][grid host certificate]] installed in =/etc/grid-security/=
@@ -49,13 +55,23 @@ server) if you want to maximize throughput.
 Login as root and check if pacman version >=%PACMAN_VERSION% is installed:
 <pre class="screen">
 su root
+cd &lt;PACMAN3.28_LOCATION&gt;
+. setup.sh
 pacman -version
 </pre>
+
 Next create and change to an installation directory. This directory will later be used to get the !GridFTP package  from the %CACHE% cache.
 <pre class="screen">
 mkdir -p /opt/osg/osg-%OSG_VERSION%-gsiftp/
 cd /opt/osg/osg-%OSG_VERSION%-gsiftp/
 </pre>
+
+If you are using GUMS authorization method you will need to setup _VDT_GUMS_HOST_ environment variable, if you are using  gridmap-file ,please, proceed to the next step.
+<pre class="screen"> 
+cd &lt;VDT_LOCATION&gt;
+export VDT_GUMS_HOST=&lt;GUMS hostname&gt;  
+</pre>
+
 Finally execute pacman to get the !GridFTP package from the %CACHE% cache. Pacman will ask whether you want to trust the cache (=yall=) and whether you want to accept the license (=y=).
 <pre class="screen">
 pacman -get %CACHE%:GridFTP
@@ -91,77 +107,58 @@ vdt-control --list
 This completes the installation of the !GridFTP server. Move to the next step to configure the server.
 
 ---++ Service Configuration
-
-To configure the port range used by the server to transfer files, add following lines to =$VDT_LOCATION/vdt/etc/vdt-local-setup.sh=:
-
-<pre class="screen">
-  export GLOBUS_TCP_PORT_RANGE=32000,64000
-  export GLOBUS_TCP_SOURCE_RANGE=32000,64000
+If you are dealing with firewall the gridftp port range should be properly set. In order to do so you will have to modify _vdt-local-setup.sh_.
+<pre class="file">
+<vebratim>
+#edit $VDT_LOCATION/vdt/etc/vdt-local-setup.sh 
+GLOBUS_TCP_SOURCE_RANGE=<low_port,high_port>
+GLOBUS_TCP_PORT_RANGE=<low_port,high_port>
+export GLOBUS_TCP_SOURCE_RANGE
+export GLOBUS_TCP_PORT_RANGE
+</vebratim>
 </pre>
 
-and also to =$VDT_LOCATION/vdt/etc/vdt-local-setup.csh=:
+Where _low_port,high_port_ - is the ports range that is allowed for all outbound globus connections for gridftp (e.g GLOBUS_TCP_SOURCE_RANGE=40000,49150). See [[ReleaseDocumentation/ComputeElementFirewalls#iptables_for_RHEL_or_compatible][Firewall Guide]]  for more information how to modify iptables.
 
-<pre class="screen">
-  setenv GLOBUS_TCP_PORT_RANGE 32000,64000
-  setenv GLOBUS_TCP_SOURCE_RANGE 32000,64000
+If you are using GUMS authorization method, please, copy the following two files from _$VDT_LOCATION/post-install_ to in _/etc/grid-security_, otherwise skip this step: 
+ <pre class="screen">
+cp $VDT_LOCATION/post-install/prima-authz.conf /etc/grid-security 
+cp $VDT_LOCATION/post-install/gsi-authz.conf /etc/grid-security 
 </pre>
 
-The !GridFTP Stand-Alone server is configured by the =configure-osg= script located in =$VDT_LOCATION/osg/bin/configure-osg= based on the =$VDT_LOCATION/osg/etc/config.ini= configuration file.
-The =$VDT_LOCATION/osg/etc/= directory contains two template files =config.ini= and =storage.ini=. First remove the =config.ini= and then rename =storage.ini= to =config.ini=. This procedure will be simplified in the future.
+You will need to make sure that users have write permission in to the storage area.  
+
+---+++ Gratia !GridFTP Transfer Probe Configuration
+If you are using !GridFTP server that is installed during the !BeStMan installation you will need  to enable,configure Gratia !GrdFTP transfer probe and perform the actions described in
+ [[GratiaTransferProbe][Preparing, Installing and Validating Gratia transfer probe]]
+
+
+---++ Enabling the Services
+You can use the _vdt-control -list_ command to see all services that are installed as part of the install, and whether or not they are enabled or disabled. 
+You will need to enable the following services:
+   * fetch-crl   
+   * vdt-rotate-logs  
+   * vdt-update-certs       
+   * gsiftp           
+   * gratia-gridftp-transfer  %ICON{warning}% In case you want to run Gratia !GridFTP transfer probe
+   * gums-host-cron   %ICON{warning}% In case you want to run Gratia !GridFTP transfer probe and are using !GUMS for authorization
+   * edg-mkgridmap     %ICON{warning}% In case you want to generate and/or update gridmap-file and use it  for authorization 
+
+You can execute _vdt-control -enable_ command and list all services you want to enable:
 <pre class="screen">
-rm $VDT_LOCATION/osg/etc/config.ini
-mv $VDT_LOCATION/osg/etc/storage.ini $VDT_LOCATION/osg/etc/config.ini
-</pre>
+cd &lt;VDT_LOCATION&gt;
+source setup.sh
+vdt-control -enable fetch-crl vdt-rotate-logs vdt-update-certs gsiftp
+</pre> 
 
-Then edit the =$VDT_LOCATION/osg/etc/config.ini= file following instructions that precede each entry.  Here is the list of entries that need to be changed:
-
+If you are using !GUMS or have gridmap-file and don't want to use automatically generated one, please, skip this section:
 <pre class="screen">
-[Gridftp]
-enabled = %(enable)s
-mode = standalone
-
-[Gratia]
-enabled = %(enable)s
-sitename = <your registered site name>
-probes = %(itb-gridftp-gratia)s
-</pre>
-
-The =Misc Services= section defines what method of authorization should be used. If your site uses a %RED%gridmap-file%ENDCOLOR% for authorization, please make following changes:
-<pre class="screen">
-[Misc Services]
-use_cert_updater = %(enable)s
-authorization_method = gridmap
-</pre>
-
-In case your site supports %RED%GUMS%ENDCOLOR%, the fully qualified domain name of the GUMS server must be specified:
-
-<pre class="screen">
-[Misc Services]
-use_cert_updater = %(enable)s
-gums_host = your.gums.server
-authorization_method = prima
-</pre>
-
-You can verify that your configuration is valid by executing =configure-osg -v=. Finally execute =configure-osg -c= to configure the !GridFTP server:
-<pre class="screen">
-configure-osg -v
-configure-osg -c
-</pre>
-
-Hopefully all steps completed successfully and =vdt-control -list= shows the list of available services:
-<pre class="screen">
-Service                 | Type   | Desired State
-------------------------+--------+--------------
-fetch-crl               | cron   | enable
-vdt-rotate-logs         | cron   | enable
-vdt-update-certs        | cron   | enable
-gsiftp                  | inetd  | enable
-gratia-gridftp-transfer | cron   | do not enable
-gums-host-cron          | cron   | enable
-edg-mkgridmap           | cron   | do not enable
-</pre>
-
-
+cd <VDT_LOCATION>;
+source setup.sh
+vdt-control -enable edg-mkgridmap
+edg/sbin/edg-mkgridmap
+</verbatim>
+</pre> 
 ---++ Service Startup/Shutdown
 
 The operation of !GridFTP requires a set of utilities to be executed periodically. These utilities can be found in the table above and are listed as =cron= in the Type column.  The !GridFTP Server is started and shut down by the =inetd= super daemon once a connection is made. This service is called the =gsiftp= service. It requires =/etc/services= and =/etc/inetd.conf= to be changed. You can use =vdt-control= to make the necessary changes to =inetd= and =cron=: 
@@ -181,7 +178,7 @@ Please note that on some unix systems =xinetd= instead of =inetd= will be used.
 ---++ Validation of Service Operation
 
 To validate the operation of the !GridFTP server use the =globus-url-copy= client to transfer a file.
-
+First, creat a file:
 <pre class="screen">
 dd if=/dev/zero of=/tmp/zero.source bs=1k count=1024
 
@@ -362,7 +359,7 @@ skipping cron service 'edg-mkgridmap' -- marked as disabled
  ===================
 
  Thank you for claiming ownership for this document! Please fill in your FirstLast name here:
-   * Local OWNER = TedHesselroth
+   * Local OWNER = TanyaLevshina
 
  Please define the document area, choose one of the defined areas from the next line
  DOC_AREA = (ComputeElement|Storage|VO|Security|User|Monitoring|General|Integration|Operations|Tier3)
@@ -395,7 +392,7 @@ skipping cron service 'edg-mkgridmap' -- marked as disabled
  ======================
 
  Thank for reviewing this document! Please fill in your FirstLast name here:
-   * Local REVIEWER       = FirstLast
+   * Local REVIEWER       = TedHesselroth
  Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local REVIEW_PASSED  = %NO%
 
