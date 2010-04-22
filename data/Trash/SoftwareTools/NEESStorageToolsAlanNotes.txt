@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AlanDeSmet" date="1271790328" format="1.1" version="1.8"}%
+%META:TOPICINFO{author="AlanDeSmet" date="1271970411" format="1.1" reprev="1.9" version="1.9"}%
 %META:TOPICPARENT{name="NEESFileTransfer"}%
 This is, at the moment, a completely unorganized pile of my notes and to do lists. Various parts will move to the other NEESFileTransfer pages as I go.
 
@@ -92,44 +92,166 @@ The output will look like this:
 
 A group (known as a "Node" here) will go from SUBMIT, to EXECUTE, to JOB_TERMINATED.  If a group fails, there will be something like "Node G00003 job proc (669.0) failed with status 1.".
 
+---++ Design Constraints
+
+---+++ Hard requirements
+
+   * When we transfer files to Fermilab, the individual files we transfer should be between 5 GB and 10 GB.  The occasional smaller one is acceptable, but to be avoided.  We will need to group together smaller files into single tarballs and split apart larger files.
+
+   * Our local working space is small compared to the data to be transferred.
+
+---+++ Desires
+
+   * The backup process should finish as quickly as possible.
+
+---++ The current design
+
+prepare-transfer is a script that recursively scans the directory to be archived.  It creates a tranfer plan, dividing data into 10GB group as possible.  This transfer plan is written as a set of DAGs.  Each group gets its own sub-DAG, consisting of a single chain of steps: 1. create the tarball, 2. transfer the tarball to Fermi, 3. clean up the local copy of the tarball.  The individual sub-DAGs are collected in a top level DAG that lists the individual sub-DAGs with no dependencies.  The top level DAG only allows two sub-DAGs to run at a time.
+
+---++ Current problems
+
+---+++ Incremental backups
+
+Total Estimate: _20-56 hours_ depending on choices made
+
+No incremental backup work has been done. The following steps would be necessary:
+
+   1. _4-8 hours_ - Extend the manifest to contain the ctime, mtime, file size, and possibly a cksum for each file included.  This will allow the incremental backup process to identify files that need to be backed up.
+   2. _4-8 hours_ - The manifests need to be placed into a unified location so that all previous backups are listed and available for comparison.
+   3. _4-8 hours_ - Possibly create a new manifest form in a rapidly accessible database format (Berkeley DB and SQLite are obvious options).  The manifest already contains over 500,000 records using 128 MB of space.  As the manifest continues to grow simply scanning the list will take increasing amounts of time and memory.  
+   4. _8-16 hours_ - Teach prepare-transfer to use the manifest and to not back up files that are already backed up.
+
+Open question: The existing backup manifests lack ctimes, etc data.  How do we move forward?  I see two options:
+
+   A. Do another full backup with the improved manifests.  No development time, but requires another week or so of babysitting the backup.  Also costs money to pay for more tapes.
+   B. Scan the existing backups for the information.  Can this potentially be done on the Fermilab side to avoid transferring data?  Maybe _8-16 hours_ of development and debugging time.  If we can't run this on the Fermilab side, we're looking at a week of data transfer.
+
+---+++ Validation
+
+Total estimate: _about 8 hours_
+
+The validation step is currently manually handled.  It should be automated.  The complication is that between the Erase and Validate steps we need to wait 4 hours.  Technically it's easy to add; we can do something dumb like a node that calls "/bin/sleep 14400" or something clever using Condor's job deferral_time.  However, we can't put this in the subDAGs or we'll end up with both subDAGs hanging out in the 4 hour waiting window with no forward progress.  There is also a little bit of complication in that the deferral_time can't be calculated until we know the transfer step is done; a POST script for the transfer step can do the job simply enough.
+
+_about 8 hours_ - The likely plan would be to put the validation steps in the top level dag, changing it from being completely flat to containing short chains, each consisting of the subDAG followed by the validation step.  Instead of a global throttle of 2 jobs in the top level DAG, we'd use job clusters to limit the subDAGs to 2 at onec and have no limit or a large limit on the Validation step (which is reasonably fast and small).  On the down side, this splits the logic for a particular group's workflow between two different files, complicating debugging.
+
+---+++ Retrieval script
+
+Total estimate: _20-40 hours_.  This is a very rough estimate.
+
+Currently a user must identify which tarballs are relevant (using the manifest), then download and extract them himself while simultaneously managing disk space.  This should be reduced to a simple tool that takes a list of files to recover and creates a DAG.  This will require a unified manifest location, identical to the one mentioned in "Incremental backups" above.
 
 
+---+++ Changes to the directory tree (correctness/stability)
+
+Total Estimate: _8+ hours_ depending on choices made
+
+There is a race condition between the plan being created and a given step being executed.  By the time the tarball step actually tries to read a given file or subdirectory, many things could have changed:
+
+   * The file may have been deleted.  Our tarball step currently fails with an error.  Even if it worked, the resulting tarball would be missing files the manifest believed were there.  Also, if large enough files were removed, the resulting tarball could fall out of the ideal 5GB-10GB size (slightly bad)
+      * _4-16 hours_ - Possible fixes: --ignore-failed-read (suppresses error), use "-v" output from tar to collect list of files actually included.
+   * The file may have changed size, so our plan is no longer accurate.  Small changes are not a big deal, but if a file grows enough it could cause a single 9.8GB file (good) to turn into a 10GB file and .4GB file (slightly bad).  A group that contains a single 10GB file might find that file truncated down to 100kB, yielding a 100kB tarball file (slightly bad).
+      * _Unknown length_ Creating groups on the fly could drastically reduce and potentially eliminate the problem, but would involve an entirely new workflow/dataflow system, discussed in its own section.
+	  * _Free_ - Leave the system be and accept the occasional poorly sized archive.
+   * Files may have been added to a directory we are archiving.  We pass not just filenames, but directories to the tarball step.  Part of the reasoning is to shorten the number of files passed to tar, but in hindsight this was unnecessary.  Changing that aspect is easy.  However, we also pass directories in to ensure that empty directories are backed up.  If we pass in an empty directory to tar and files appear in it before tar reaches that directory, the resulting tar file will be larger, per the "files may have changed size" problem, above.  
+      * _4-8 hours_ - Possible fix: Pass tar an exact list of files to back up. Ignore empty directories.
+   * We may run out of working space.  See "disk space problems."
 
 
----++ To Do
+---+++ Disk space problems (correctness/stability)
+
+Total estimate: _2+ hours_ depending on choices made
+
+Because of limited disk space, we can have somewhere between 1 to 5 groups running simultaneously.  The exact number varies from group to group.  If we exceed the limit, we run out of disk space and the system falls down.
+
+The current system implements a simple 2 groups-at-a-time throttle. This mostly
+works, but failed during production when two extra large groups happened to run
+simultaneously.  This was hand-resolved by hand manipulating the top level DAG
+to run the large groups in a chain of dependencies; the last node of large
+group subDAGs was the parent for all of the smaller groups, allowing them to
+run in parallel, up to the 2-group-at-a-time throttle.
+
+What can we do?  Some options:
+
+   A. _2 hours_ - Only allow one group's sub-DAG to run at a time. Very simple and safe, but guarantees that the network will be idle while creating the tarball, and that the source disk will be idle while transferring to Fermilab.  It's still possible to run out of disk space if "Changes to the directory tree" (above) causes the tarball to grow too large.
+   B. _about 8 hours_ - Automatically build chains as was done manually.  Possibly do something slightly cleverer by having all small groups depend on all large jobs, then use DAGMan categories to throttle.  It's still possible to run out of disk space if "Changes to the directory tree" (above) causes a tarball to grow too large.
+   C.  _16+ hours_ - Limit to one simultaneous MultiVolTar
+      1. Ensure MultiVolTar can handle --append
+      2. Ensure the local tarballs are kept on their own partition, so that a disk-full situation doesn't break other parts.
+      3. Ensure only one tarball step can run at a time using dedicated slots. See "Speed" above.
+      4. The tarball creation step should execute the following loop:
+         1. START: Estimate space needed
+         2. Wait until free space > estimated requirements
+         3. Make tarball
+         4. If tarball attempt succeeded, exit,
+         5. Erase failed tarball.
+         6. Go to START.
+
+---+++ Speed
+
+Total estimate: _8-16 hours_
+
+The system as implemented will only run two tasks simultaneously.  Ideally this would be one create tarball step (which will saturate disk I/O from the source) and one transfer set (which will saturate network I/O to Fermi).  However, because different groups are different subDAGs, it's easy for them to instead run two create tarball steps or two transfer steps, which oversaturate one end, but leave the other idle.  Maximizing throughput would involve keeping both channels saturated as much as feasible.  We want one create tarball job running, starting another as soon as the previous one finishes, pausing only when there isn't enough disk space.  We want one transfer job running, starting another as soon as the previous one finishing, pausing only when there is nothing available to transfer.
+
+_8-16 hours_ - We could create dedicated tarball and transfer slots on a startd.  This will give us parallelism, but if the transfer and tarball steps don't take similar amounts of time there will be periods during which one is idle since we currently don't allow more than two groups to run simultaneously to avoid running out of disk space.
+
+We can address the disk space problem with an entirely new workflow/dataflow system, is discussed in its own section.
+
+---+++ Data flow versus workflow
+
+Total estimate: _160+ hours_ - This amounts to writing or finding a data flow system.
+
+We're using DAGMan, which is a workflow manager, and is limited to workflow with no or very limited (with subDAGs) cycles.
+
+Our working space is small compared to the data to be transferred.  Enough workspace to keep a copy of the entire source is not feasible.  As a result, we can have anywhere from 1 to 5 tarballs safely working in parallel before the multiple tarballs chew up all of the space.  Ideally we would have one tarball step working (saturating I/O to the disk we're backing up) and one transfer step working (saturating network I/O to the remote system), and no more.  DAGMan cannot capute this idea.  We currently use a sub-DAG per group, then limit 2 of those subDAGs to running at once ensure that we don't run out of disk space.  (And this is an imperfect solution that caused some mid-run errors as some combinations of 2 groups required more space than was available.)  Because they are sub-DAGs, DAGman cannot enforce limits per category to limit to one create and one transfer simultaneously queued. (This goal can be implemented, perhaps even better, using dedicated slots. See "Speed" above.)
+
+A data flow model might fit the problem better.  Here is what such a model might look like.
+
+The first process would scan the directory tree and produces a list of files to archive, nothing more.  
+
+Another process would slowly consume the list of files to archive, creating the tarball one file at a time.  When adding one more file would exceed the 10 GB goal, that tarball would be declared "done" and the tarball creating step would start a new tarball.  If adding a file to the current tarball would exceed the available disk space, the process would block until suitable disk space is free.  An error at this point would cause the tarball to be deleted and all files included in it re-added to the list of files to archive.  Note that adding files one at a time to a tarball will incur a speed hit, but I don't know the magnitude.
+
+(Adding files one-at-at-time while accounting for disk space is tricky.  We'll need to ensure that MultiVolTar can handle the --append option.  To eliminate the race condition of a file growing between invoking MultiVolTar and MultiVolTar actually reading the file, we'll need to make a copy of the previous tarball, --append the file, then check if we exceeded our expectations, falling back on the copy if necessary.  This would be particularly slow and space inefficient, perhaps additional intelligence could be put into MultiVolTar to help.)
+
+Meanwhile, a transfer process would be waiting for "done" tarballs that are not also marked as "transferred".  So long as there are done tarballs, it would grab one, transfer it, mark it as "transferred" and head back to waiting for a "done" tarball.  An error at this point will leave the tarball marked as "done" and it will be automatically retried.  Some sort of counter would be necessary; if a given tarball fails enough times, it is deleted and all files included in it re-added to the list of files to archive.
+
+Next a process would be watching to see tarballs marked as "transferred."  It would delete the local copy and mark that somewhere.  Failure would be retried.  Enough failures on a given tarball would be ignored with a warning to the log file; the system can continue to function, but the space occupied by the undeleted file may slow down the system or in a worst case cause the system to freeze until space is available.
+
+Another process would also be looking for tarballs marked "transferred" (and possibly deleted).  It would collect the checksums.  If it fails, it might try again, but more likely it wil re-add the files included to the list of files to archive.
+
+A final process would watch for tarballs that had a collected checksum, and for which that checksum was collected at least 4 hours ago.  It would validate the remote archive's checksum.  Errors of the form "Wrong checksum" would cause the files in the tarball to be re-added to the list of files to archive.  Other errors would be retried several times (as they are likely transient network errors or machine down errors) before re-adding the files to the list of files to archive.
+
+---+++ Miscellaneous tasks
+
+   * _16+ hours_ - Create a retrieval script.  Currently a user would need to identify files to retriev
+   * _4-8 hours_ - Send email on results. - Can't just have as end node in the DAG; it will never run if there are errors. 
+   * _8 hours_ - Create a top level unified log, A single log that an admin can tail to see rough progress.  Currently monitoring the process involves checking multiple log files across multiple directories.  Tanya is thinking NetLogger, since it's what the other layers use.
+   * _4-8 hours_ - prepare-transfer should log information (again NetLogger)
+   * _4 hours_ - prepare-transfer should pull binaries paths from the environment (if explicitly set) or from the $PATH. Currently it uses hard coded paths.  (m, gnutar, storage_tools_setup (setup.sh), multivol_tar, archive, condor_submit_dag)
+   * _4 hours_ - Allow specifying command line arguments in a configuration file for convenience.
+   * _8 hours_ - Allow specifying more than one directory to back up.
+   * _4 hours_ - Add priorities to the top level DAG to ensure that jobs run from group 0 through group 600 in order. It happens to work right now, but we're relying on an implementation artifact of DAGMan. The DAGMan team has warned that the artifact may go away in the future and jobs will run in (seemingly) random order. While harmless to the actual results, it's nice to have the groups transfer in order for human review. 
    * Reduce RAM usage.  prepare-transfer uses about 1.2 GB of memory on the 4 TB /nees data set.  Generally speaking the VM doesn't need anywhere near this much RAM, meaning the VM is either overallocated most of the time, or prepare-transfer takes a long time while it swaps in and out of memory.
       * Stop storing the entire file tree in memory. It's largely an artifact of the development history starting with using the output of "ls -lRa", but is now unnecessary. Quick and dirty testing suggests this is the largest payoff, using about 50% of the memory.
-	  * Stop storing the full group information in RAM.  When we fill a group, immediately write its configuration to disk and wipe the internal file lists. Quick and dirty testing suggests this is the second largest payoff, using about 40% of the memory.
+         * We might keep all of the information, but on disk, possibly in a simple database like SQLite or Berkeley DB.
+         * We might change the system to build the groups as it reads the tree.
+      * Stop storing the full group information in RAM.  When we fill a group, immediately write its configuration to disk and wipe the internal file lists. Quick and dirty testing suggests this is the second largest payoff, using about 40% of the memory.
    * listtars.sh should pass output to sort. It's just more human friendly that way.  In particular, it makes the resulting Archive logs less mysterious.
-   * Document how to monitor the Condor process. condor_q -dag, looking for rescue dags, etc
+
+   * Improve documentation on how to monitor and manage the Condor process.  In particular, handling rescue DAGs.
    * If MultivolTar, Archive, or Clean fails, the tarballs will be left there.  Given the limited space, this is a problem and will likely lead to filling the disk and the entire system crashing.  Note that "licensing claiming" on disk would solve the problem, although the entire system will deadlock when it runs low on space until someone cleans up the aborted runs.
    * Make parallel job limits a command line argument
    * Automate checksum checking
       1. Add a "Checksum" step, probably after Clean. Just run the appropriate report
       1. Add a "Validate" step, after Checksum. It needs to wait 4 hours before starting. (Make wait duration a command line argument)  Compare to report output from previous step.  Use Condor's ability to delay a job start to accomplish this.  Because of the delay, we can not use the global 2-job throttle!  A longer discussion of this problem is its own section below as "The Throttling Problem"
    * Send email on results. - Can't just have as end node in the DAG; it will never run if there are errors.
-   * Have fileobjs implemented as some sort of disk-based backing store?  Perhaps SQLite?  This would reduce RAM usage (currently at about 2 GB for the 4TB data set).  If designed correctly, it could also store the resulting tarball the file ended up in, could store the size and date and be used to identify files needing incremental updates.
-   * Top level unified log.  A single log that an admin can tail to see rough progress.
-   * Add priorities to the top level DAG to ensure that jobs run from group 0 through group 600 in order.  It happens to work right now, but we're relying on an implementation artifact of DAGMan.  The DAGMan team has warned that the artifact may go away in the future and jobs will run in (seemingly) random order.  While harmless to the actual results, it's nice to have the groups transfer in order for human review.
-   * prepare-transfer should write some log output (netlogger if possible)
-   * prepare-transfer should be willing to pull binary paths from environment (if explicitly set there), or from the path.  Current hard coded paths: rm, gnutar, storage_tools_setup (setup.sh), multivol_tar, archive, condor_submit_dag
    * Documentation: Developer. Include notes on architecture 
-   * Documentation: Usage.
-   * Allow specifying command line arguments in a configuration file for convenience
-   * Allow specifying more than one directory to prepare-transfer
-   * Retrieval script
-      * User specifies list of files or directories wanted. Automatically identify tar files needed.  Retrieve tar files.  Use multivol_tar to extract specific requests. Delete tar files.  Similar to prepare-transfer, it should create a DAG and should minimize the number of tar files on local disk at once.
    * Log archiving: zip/tar.gz up log files and move to a designated directory for future review
-   * Add file size, date, and possibly checksum to the manifest.  Later incremental upgrades will need this information to identify changed files.  Possible bonus: Implement as a simple filename->value database (Berkley DB or SQLite, probably. SQLite allows potentially more interesting queries like.)
    * The manifest needs to be backed up, otherwise you won't be able to easily find your files in a disaster situation! It probably needs to be merged with all manifests ever generated (in the long term incremental world)
    * As validate steps finish, write entries to manifest-verified. Same as normal manifest, but confirms that it arrived.
    * Write grouping report to disk inside the workdir, as it's useful later.  Include a handy computer parsable version with exact numbers
-   * New tool. That computer parsable grouping report (previous task), and condor-user-logs. Determine bytes/sec in multivol-tar and in archive
-   * Have separate throttles for multivol-tar and archive.  Thus, we might allow only 1 simultaneous multivol-tar, but perhaps 2 simultaneous archives.  The tough part is ensuring the don't end up with too many tarballs on local disk.  See "The Throttling Problem" below for more on this.
+      * New tool. That computer parsable grouping report (previous task), and condor-user-logs. Determine bytes/sec in multivol-tar and in archive
 
----+++ Incremental
-Incremental backups are currently out of the scope of the project, but for consideration:
-   * Compare local disk with name, size, and date from manifest-verified for all previous runs.  If different, include in the incremental.  (This will miss files that change, but somehow keep both the same size and date. I believe this is a reasonable risk, but if it's not, we can add the adler32 checksum to the comparison. On the down side, this requires reading all files previously transferred with the same size and date, which I anticipate will be slow.)
+
 
 
 ---++ Notes
@@ -137,6 +259,18 @@ Incremental backups are currently out of the scope of the project, but for consi
    * Names on tape are forever. Attempting to overwrite an existing file in dCache is an error.  Given this...
       * ...if we retry the Archive step, we must rewrite the archive_in file to omit successful transfers.
       * ...if we retry the entire group, we'll need to change the tar filename.  We'll probably want to append '.try1' and so forth.
+
+Per group flow:
+
+<pre><verbatim>
+Create -> List -> Transfer -> Erase -> Checksum -> Wait 4 hours -> Validate
+ ^          /     `-^   /      \            /                          /
+  \        /           /        fail       /                          /
+   `------+-----------+-------------------+--------------------------+
+</verbatim></pre>
+
+Can be represented as a maze of sub-DAGs: Mess to understand and debug when there are problems.
+
 
 
 ---++ The Throttling Problem
