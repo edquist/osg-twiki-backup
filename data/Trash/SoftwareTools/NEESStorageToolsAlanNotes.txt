@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1272301906" format="1.1" version="1.15"}%
+%META:TOPICINFO{author="AlanDeSmet" date="1272314297" format="1.1" reprev="1.16" version="1.16"}%
 %META:TOPICPARENT{name="NEESFileTransfer"}%
 This is, at the moment, a completely unorganized pile of my notes and to do lists. Various parts will move to the other NEESFileTransfer pages as I go.
 
@@ -117,33 +117,44 @@ Total Estimate: _20-56 hours_ depending on choices made
 No incremental backup work has been done. The following steps would be necessary:
 
    1. _4-8 hours_ - Extend the manifest to contain the ctime, mtime, file size, and possibly a cksum for each file included.  This will allow the incremental backup process to identify files that need to be backed up.
+      * We might include the cksum for the tar file itself, so one doesn't need the full logs to verify them.
    2. _4-8 hours_ - The manifests need to be placed into a unified location so that all previous backups are listed and available for comparison.
    3. _4-8 hours_ - Possibly create a new manifest form in a rapidly accessible database format (Berkeley DB and SQLite are obvious options).  The manifest already contains over 500,000 records using 128 MB of space.  As the manifest continues to grow simply scanning the list will take increasing amounts of time and memory.  
    4. _8-16 hours_ - Teach prepare-transfer to use the manifest and to not back up files that are already backed up.
+   5. _UNKNOWN_ - Backup the manifest itself. Just copy over to Fermilab and accept that it will be small compared to the ideal tape archive?  Given its relatively small size, perhaps Fermilab can keep it spinning on live disk?  We might also include our log files for completeness.
 
-%BLUE% Question: how we deal with failed runs? We need to change the directory structure and separate runs from manifests. VDT supply mysql - could we use it instead of Berkley BD or SQLLite? We have backup "our" database with manifests and ,probably,logs. %ENDCOLOR%
+   * %BLUE% Question: how we deal with failed runs? We need to change the directory structure and separate runs from manifests. VDT supply mysql - could we use it instead of Berkley BD or SQLLite? We have backup "our" database with manifests and ,probably,logs. %ENDCOLOR%
+   * %GREEN% Alan: Failed runs: I imagine we would simply not include them in the centralize manifest.  MySQL: Setting up and backing up MySQL is a lot more complicated than Berkeley DB or SQLite.  Even if we need to add one of them to our package, I'm confident it will take less time. Backup of the manifests: Yes, we need to. Added as point 5 above.%ENDCOLOR%
 
 Note that we need a "--full-backup" option that ignores the manifest.
 
-Open question: The existing backup manifests lack ctimes, etc data.  How do we move forward?  I see two options:
+Open question: The existing backup manifests lack ctimes, etc data.  How do we move forward?  I see several options:
 
+   A. Recreate each tar file from the manifest, and compare the resulting checksums to what we wrote to tape.  If the checksums are the same, we can write the current time/ctime/mtime into a new manifest.  Any tar files that had at least one byte of difference will be marked as un-backed up and will be regenerated.  If we do this, we should do a test run to see roughly what percentage are saved.  This is likely time intensive to develop.
    A. Do another full backup with the improved manifests.  No development time, but requires another week or so of babysitting the backup.  Also costs money to pay for more tapes.
-%BLUE%  I would say that this is not a good option%ENDCOLOR%
+      * %BLUE%  I would say that this is not a good option%ENDCOLOR%
    A. Scan the existing backups for the information.  Can this potentially be done on the Fermilab side to avoid transferring data?  Maybe _8-16 hours_ of development and debugging time.  If we can't run this on the Fermilab side, we're looking at a week of data transfer.
-
-%BLUE% I didn't get it - do you propose to retrieve files, untar them and restore missing information. I don't like this option either.%ENDCOLOR%
+      * %BLUE% I didn't get it - do you propose to retrieve files, untar them and restore missing information. I don't like this option either.%ENDCOLOR%
+      * %GREEN% Alan: That's exactly the proposal.%ENDCOLOR%
    A. Special case: Note the time the initial backup started.  Any file whose mtime is older that is assumed backed up.  Maybe _8 hours_ of development and debugging time.
+      * %BLUE% This is much easier but will it guarantee the complete accuracy? Is it possible to do the following: recreate tar from manifest and compare cheksums (we have all the checksums). If  the checksums match do as proposed above. If not assume that we need to backup all the files in this group %ENDCOLOR%
+      * %GREEN% Alan: This can not guarantee accuracy.  In particular, if a file is added (or modified) but given an earlier date, it will be overlooked.  The recreating the tars is a good idea (is potentially time intensive to develop and run) and was promoted to a full blown option above. %ENDCOLOR%
 
-%BLUE% This is much easier but will it guarantee the complete accuracy? Is it possible to do the following: recreate tar from manifest and compare cheksums (we have all the checksums). If  the checksums match do as proposed above. If not assume that we need to backup all the files in this group %ENDCOLOR%
 ---+++ Validation
 
 Total estimate: _about 8 hours_
 
 The validation step is currently manually handled.  It should be automated.  The complication is that between the Erase and Validate steps we need to wait 4 hours.  Technically it's easy to add; we can do something dumb like a node that calls "/bin/sleep 14400" or something clever using Condor's job deferral_time.  However, we can't put this in the subDAGs or we'll end up with both subDAGs hanging out in the 4 hour waiting window with no forward progress.  There is also a little bit of complication in that the deferral_time can't be calculated until we know the transfer step is done; a POST script for the transfer step can do the job simply enough.
 
-_about 8 hours_ - The likely plan would be to put the validation steps in the top level dag, changing it from being completely flat to containing short chains, each consisting of the subDAG followed by the validation step.  Instead of a global throttle of 2 jobs in the top level DAG, we'd use job clusters to limit the subDAGs to 2 at onec and have no limit or a large limit on the Validation step (which is reasonably fast and small).  On the down side, this splits the logic for a particular group's workflow between two different files, complicating debugging.
+Options:
 
-%BLUE% I would like to discuss this more. Right now we have a daemon that monitors logfiles and extract the name of the all copied files and check if they are on tape already. It could be done as DAG job but I would not do dependency.%ENDCOLOR%
+   A. _about 4 hours_ - Use the existing daemon that monitors log files, but add it as a top level, independent DAG node with a large automatic retry count.  The daemon will need to exit when the run as a whole is done.  We'll also need to modify the concurrency limits using [[http://www.cs.wisc.edu/condor/manual/v7.4/2_10DAGMan_Applications.html#SECTION003106400000000000000 job categories/maxjobs]] to ensure that it is allowed to run.
+      1. Add a "Checksum" step. Just run the appropriate report
+      1. Add a "Validate" step, after Checksum. It needs to wait 4 hours before starting. (Make wait duration a command line argument)  Compare to report output from previous step.  
+
+   A. _about 8 hours_ - The likely plan would be to put the validation steps in the top level dag, changing it from being completely flat to containing short chains, each consisting of the subDAG followed by the validation step.  Instead of a global throttle of 2 jobs in the top level DAG, we'd use [[http://www.cs.wisc.edu/condor/manual/v7.4/2_10DAGMan_Applications.html#SECTION003106400000000000000 job categories/maxjobs]] to limit the subDAGs to 2 at once and have no limit or a large limit on the Validation step (which is reasonably fast and small).  On the down side, this splits the logic for a particular group's workflow between two different files, complicating debugging.
+
+      * %BLUE% I would like to discuss this more. Right now we have a daemon that monitors logfiles and extract the name of the all copied files and check if they are on tape already. It could be done as DAG job but I would not do dependency.%ENDCOLOR%
 ---+++ Retrieval script
 
 Total estimate: _20-40 hours_.  This is a very rough estimate.
@@ -159,13 +170,15 @@ Total Estimate: _8+ hours_ depending on choices made
 There is a race condition between the plan being created and a given step being executed.  By the time the tarball step actually tries to read a given file or subdirectory, many things could have changed:
 
    * The file may have been deleted.  Our tarball step currently fails with an error.  Even if it worked, the resulting tarball would be missing files the manifest believed were there.  Also, if large enough files were removed, the resulting tarball could fall out of the ideal 5GB-10GB size (slightly bad)
-      * _4-16 hours_ - Possible fixes: --ignore-failed-read (suppresses error), use "-v" output from tar to collect list of files actually included.
+      * _4-16 hours_ - Possible fixes: --ignore-failed-read (suppresses error).  Collect actual list of files backed up either using "-v" to MultiVolTar, or us "tar tvf" to view the list.  Using tar tvf has the advantage of also letting us retrieve the actual mtime and size for use in the manifest.  Look to the GNU Tar manual on [[http://www.gnu.org/software/tar/manual/tar.html#SEC15 The '--verbose' Option]] and [[http://www.gnu.org/software/tar/manual/tar.html#SEC112 Quoting Member Names]] for information on parsing the output of "tar t".  Unfortunately it does not include ctime, although changing the ctime but not the mtime would be very odd.
    * The file may have changed size, so our plan is no longer accurate.  Small changes are not a big deal, but if a file grows enough it could cause a single 9.8GB file (good) to turn into a 10GB file and .4GB file (slightly bad).  A group that contains a single 10GB file might find that file truncated down to 100kB, yielding a 100kB tarball file (slightly bad).
       * _Unknown length_ Creating groups on the fly could drastically reduce and potentially eliminate the problem, but would involve an entirely new workflow/dataflow system, discussed in its own section.
 	  * _Free_ - Leave the system be and accept the occasional poorly sized archive.
    * Files may have been added to a directory we are archiving.  We pass not just filenames, but directories to the tarball step.  Part of the reasoning is to shorten the number of files passed to tar, but in hindsight this was unnecessary.  Changing that aspect is easy.  However, we also pass directories in to ensure that empty directories are backed up.  If we pass in an empty directory to tar and files appear in it before tar reaches that directory, the resulting tar file will be larger, per the "files may have changed size" problem, above.  
       * _4-8 hours_ - Possible fix: Pass tar an exact list of files to back up. Ignore empty directories.
    * We may run out of working space.  See "disk space problems."
+
+As a more radical solution, if we have a local backup on accessible disk that we guarantee won't update while the Fermi backup runs, it solves all of the problems, the plan can't be interrupted. It's possible that this backup system could even start doing the local backup itself (something as simply as rsync would work fine).
 
 
 ---+++ Disk space problems (correctness/stability)
@@ -198,6 +211,23 @@ What can we do?  Some options:
          5. Erase failed tarball.
          6. Go to START.
 %BLUE% I am not sure that I understood that. If we have just one Multivolume tar , we will have to address problem during retrieval%ENDCOLOR% 
+
+---+++ Packaging
+
+We should be able to provide a package and instructions allowing a third party to install and use this system without assistance from Alan and Tanya.
+
+Some tasks that might be part of this effort.  (Anything we decide isn't relevant should go back into the "Miscellaneous tasks" entry below.)
+   * Improve documentation on how to monitor and manage the Condor process.  In particular, handling rescue DAGs.
+   * Documentation: Developer. Include notes on architecture 
+
+---+++ Notification and monitoring
+
+Broadly speaking, we need better monitoring (log files?) and notification of completion and errors.  At the moment there is a lot of manual inspection and expert knowledge required, making it difficult for a third party to manage a run.
+
+Some tasks that might be part of this effort.  (Anything we decide isn't relevant should go back into the "Miscellaneous tasks" entry below.)
+   * _4-8 hours_ - Send email on results. - Can't just have as end node in the DAG; it will never run if there are errors. 
+   * _8 hours_ - Create a top level unified log, A single log that an admin can tail to see rough progress.  Currently monitoring the process involves checking multiple log files across multiple directories.  Tanya is thinking NetLogger, since it's what the other layers use.
+   * _4-8 hours_ - prepare-transfer should log information (again NetLogger)
 
 ---+++ Speed
 
@@ -235,10 +265,6 @@ A final process would watch for tarballs that had a collected checksum, and for 
 
 ---+++ Miscellaneous tasks
 
-   * _16+ hours_ - Create a retrieval script.  Currently a user would need to identify files to retriev
-   * _4-8 hours_ - Send email on results. - Can't just have as end node in the DAG; it will never run if there are errors. 
-   * _8 hours_ - Create a top level unified log, A single log that an admin can tail to see rough progress.  Currently monitoring the process involves checking multiple log files across multiple directories.  Tanya is thinking NetLogger, since it's what the other layers use.
-   * _4-8 hours_ - prepare-transfer should log information (again NetLogger)
    * _4 hours_ - prepare-transfer should pull binaries paths from the environment (if explicitly set) or from the $PATH. Currently it uses hard coded paths.  (m, gnutar, storage_tools_setup (setup.sh), multivol_tar, archive, condor_submit_dag)
    * _4 hours_ - Allow specifying command line arguments in a configuration file for convenience.
    * _8 hours_ - Allow specifying more than one directory to back up.
@@ -250,14 +276,8 @@ A final process would watch for tarballs that had a collected checksum, and for 
       * Stop storing the full group information in RAM.  When we fill a group, immediately write its configuration to disk and wipe the internal file lists. Quick and dirty testing suggests this is the second largest payoff, using about 40% of the memory.
    * listtars.sh should pass output to sort. It's just more human friendly that way.  In particular, it makes the resulting Archive logs less mysterious.
 
-   * Improve documentation on how to monitor and manage the Condor process.  In particular, handling rescue DAGs.
    * If MultivolTar, Archive, or Clean fails, the tarballs will be left there.  Given the limited space, this is a problem and will likely lead to filling the disk and the entire system crashing.  Note that "licensing claiming" on disk would solve the problem, although the entire system will deadlock when it runs low on space until someone cleans up the aborted runs.
    * Make parallel job limits a command line argument
-   * Automate checksum checking
-      1. Add a "Checksum" step, probably after Clean. Just run the appropriate report
-      1. Add a "Validate" step, after Checksum. It needs to wait 4 hours before starting. (Make wait duration a command line argument)  Compare to report output from previous step.  Use Condor's ability to delay a job start to accomplish this.  Because of the delay, we can not use the global 2-job throttle!  A longer discussion of this problem is its own section below as "The Throttling Problem"
-   * Send email on results. - Can't just have as end node in the DAG; it will never run if there are errors.
-   * Documentation: Developer. Include notes on architecture 
    * Log archiving: zip/tar.gz up log files and move to a designated directory for future review
    * The manifest needs to be backed up, otherwise you won't be able to easily find your files in a disaster situation! It probably needs to be merged with all manifests ever generated (in the long term incremental world)
    * As validate steps finish, write entries to manifest-verified. Same as normal manifest, but confirms that it arrived.
