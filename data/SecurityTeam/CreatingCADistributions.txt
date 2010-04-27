@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JamesBarlow" date="1271876682" format="1.1" version="1.25"}%
+%META:TOPICINFO{author="DougOlson" date="1272392467" format="1.1" reprev="1.26" version="1.26"}%
 %META:TOPICPARENT{name="PoliciesProcedures"}%
 %DOC_STATUS_TABLE%
 
@@ -6,12 +6,17 @@
 ---+ Creating CA Distributions
 This page documents the OSG Security Team process for creating new Certificate Authority packages for distribution to OSG sites. Note that you must follow the process through to the end to notify GOC of the new distribution.
 
+<b>Updated 27 April 2010</b> to reflect building a CA package based on the new IGTF layout that makes symlinks from CA files to names including both the new and old hash name forms for openssl 1.0. %RED%<b>In Progress</b>%ENDCOLOR%
+
 Please refer to the separate procedure on [[AddRemoveCA][adding or removing CAs]] before making a new [[CADistribution][CA distribution]].
 
 ---++ Setup
    1 Get a user certificate+key in pkcs12 format from the DOEGrids CA. See Documentation.CertificateGet for instructions.
    1 Ask goc@opensciencegrid.org to add permissions for your certificate subject to access the https://osg-svn.rtinfo.indiana.edu/cadist svn repository. 
    1 Verify that rpmbuild is installed. The rpmbuild command is required for making the rpm, so it's best to use a !RedHat machine (any flavor) for this process.
+   1 Verify that dpkg-deb, fakeroot, dpkg-scanpackages and debsigs  are in your $PATH:<br />$ which dpkg-deb fakeroot dpkg-scanpackages debsigs 
+      * If any of the tools are not installed on your system you may use build-debian-tools to download and install them <br/> $./build-debian-tools
+      * source the setup.sh file from the installed debian tools directory
    1 Install an svn client. Version 1.4.x is strongly recommended. Don't use a version 1.5.x client. See http://subversion.tigris.org/getting.html and/or http://www.collab.net/downloads/subversion/svn1.4.html.
    1 Configure svn to use your pkcs12 certificate+key for authentication by adding the following to ~/.subversion/servers, changing the path to your pkcs12 file as appropriate:<br />[groups]<br />iu = *.indiana.edu<br />[iu]<br />ssl-client-cert-file = /home/username/.globus/usercred.p12 
    1 Checkout a copy of the https://osg-svn.rtinfo.indiana.edu/cadist svn repository:<br />$ svn co https://osg-svn.rtinfo.indiana.edu/cadist 
@@ -22,19 +27,33 @@ Please refer to the separate procedure on [[AddRemoveCA][adding or removing CAs]
 
 ---++ Updating to a new IGTF distribution
    1 Change to an empty working directory and set $CAWORKDIR to the path:<br />$ cd `mktemp -d`<br />$ export CAWORKDIR=`pwd` 
-   1 Set $IGTF_CERTS_VERSION:<br />$ export IGTF_CERTS_VERSION=1.24
-   1 Download the new IGTF distribution tarball (and PGP signature) from http://www.eugridpma.org/distribution/igtf/current/:<br />$ wget http://dist.eugridpma.info/distribution/igtf/current/igtf-policy-installation-bundle-$IGTF_CERTS_VERSION.tar.gz<br/>$ wget http://dist.eugridpma.info/distribution/igtf/current/igtf-policy-installation-bundle-$IGTF_CERTS_VERSION.tar.gz.asc
+   1 Set $IGTF_CERTS_VERSION:<br />$ export IGTF_CERTS_VERSION=1.34
+   1 Download the new IGTF distribution tarball (and PGP signature) from http://dist.eugridpma.info/distribution/igtf/current/:<br>Note that to get the new symlink layout you may need to download http://dist.eugridpma.info/distribution/igtf/$IGTF_CERTS_VERION-new/:</br><br />$ wget http://dist.eugridpma.info/distribution/igtf/current/igtf-policy-installation-bundle-$IGTF_CERTS_VERSION.tar.gz<br/>$ wget http://dist.eugridpma.info/distribution/igtf/current/igtf-policy-installation-bundle-$IGTF_CERTS_VERSION.tar.gz.asc
    1 Verify the PGP signature on the tarball:<br/>$ gpg --verify igtf-policy-installation-bundle-$IGTF_CERTS_VERSION.tar.gz.asc
    1 Unpack the certificates:<br />$ tar xzf igtf-policy-installation-bundle-$IGTF_CERTS_VERSION.tar.gz 
-   1 Go to a checkout of the https://osg-svn.rtinfo.indiana.edu/cadist svn repository and make sure it's up-to-date:<br />$ cd ~/svn/osg/cadist/trunk/CA-Certificates-Base<br />$ svn update 
-   1 Run the process-igtf-distribution.pl script:<br />$ ./process-igtf-distribution.pl $CAWORKDIR/igtf-policy-installation-bundle-$IGTF_CERTS_VERSION/src/accredited ./certificates > igtf-$IGTF_CERTS_VERSION-update.log 
-   1 Review the following three files:<br />igtf-$IGTF_CERTS_VERSION-update.log<br />igtf-$IGTF_CERTS_VERSION-update-diffs.log<br />igtf-$IGTF_CERTS_VERSION-update-script.sh<br />Be sure to understand the differences. Be particularly careful about hashes in the output that have &ldquo;files not in IGTF&rdquo; next to them--they will be deleted! Re-run the process-igtf-distribution.pl script as needed. In case the removal an IGTF CA may impact OSG operations, refer to the procedure for [[AddRemoveCA][removing CAs]].
-   1 Run the update script:<br />$ ./igtf-$IGTF_CERTS_VERSION-update-script.sh
-   1 Verify changes:<br />$ svn diff > /tmp/diffs 
-   1 Update the certificates/INDEX.txt file. Don't miss the version number at the bottom of the page. 
-   1 Verify that certificates/INDEX.txt contains the right number of CAs:<br/>$ grep http certificates/INDEX.txt | egrep -v 'www.igtf.net|security.teragrid.org'| wc -l<br/>$ ls certificates/*.0 | wc -l
+   1 Select the CAs and install to temporary location
+      * cd igtf-policy-installation-bundle-$IGTF_CERTS_VERSION
+      * ./configure --prefix=$CAWORKDIR/certificates --with-profile=classic --with-profile=mics --with-profile=slcs
+      * make install
+   1 Go to a checkout of the https://osg-svn.rtinfo.indiana.edu/cadist svn repository and make sure it's up-to-date:<br />$ cd ~/svn/osg/cadist/trunk/CA-Certificates-Base<br />$ svn update <br />$ export CABASEDIR=`pwd`
+   1 Install the non-IGTF CAs
+      * cd non-igtf-certificates
+      * for each CA to install, %BLUE% alias %ENDCOLOR% = alias name of the CA<br/>./alias.install $CAWORKDIR/certificates
+   1 compare differences:
+      * $ for ca in $CAWORKDIR/certificates/* ; do  diff $ca $CABASEDIR/certificates; done
+      * $ for ca in $CABASEDIR/certificates/* ; do  diff $ca $CAWORKDIR/certificates; done
+      * make sure appropriate extra CA files from $CABASEDIR/non-igtf-certificates are included or removed from the distribution directory, $CABASEDIR/certificates
+   1 Set the OSG version (Note that a version for the ITB should have an ITB following the release number).
+      * $ export OSG_CACERTS_MAJOR_VERSION=1
+      * $ export OSG_CACERTS_RELEASE=14ITB
+      * $export OUR_CERTS_VERSION=$OSG_CACERTS_MAJOR_VERSION.$OSG_CACERTS_RELEASE
+   1 Generate the index file
+      * cd $CABASEDIR
+      * $ ./mk-index.pl --version $OUR_CERTS_VERSION --dir certificates --out certificates/INDEX.html
+   1 Verify that certificates/INDEX.html contains the right number of CAs:
+      * ls certificates/*.pem | wc  # should agree with the number of CAs listed in certificates/INDEX.html
    1 Update the certificates/CHANGES file. 
-   1 Commit all changes:<br />$ svn commit -m "Updated to IGTF version $IGTF_CERTS_VERSION"
+   1 Commit all changes:<br />$ svn commit -m "Updated to IGTF version $IGTF_CERTS_VERSION, OSG version $OUR_CERTS_VERSION"
 
 ---++ Other updates
 
@@ -66,11 +85,8 @@ If any other changes are required:
    1 Verify that rpmbuild is in your $PATH:<br />$ which rpmbuild
    1 Run the make-rpm script:<br />$ ./make-rpm
 
----++ Make the DEB [Under Testing]
+---++ Make the DEB
    1 Verify that $OUR_CERTS_VERSION and $IGTF_CERTS_VERSION are set correctly:<br />$ echo $OUR_CERTS_VERSION $IGTF_CERTS_VERSION
-   1 Verify that dpkg-deb, fakeroot, dpkg-scanpackages and debsigs  are in your $PATH:<br />$ which dpkg-deb fakeroot dpkg-scanpackages debsigs 
-      * If any of the tools are not installed on your system you may use build-debian-tools to download and install them <br/> $./build-debian-tools
-      * source the setup.sh file from the installed debian tools directory
    1 Run the make-deb script:<br />$ ./make-deb
 
 ---++ Save the distribution files in SVN
