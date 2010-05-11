@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RobGardner" date="1273607155" format="1.1" reprev="1.16" version="1.16"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1273607958" format="1.1" reprev="1.17" version="1.17"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! <nop>%SPACEOUT{%TOPIC%}%
 %TOC%
@@ -8,6 +8,9 @@
 
 
 ---++ Introduction
+Xrootd is a high performance network storage system widely used in high energy physics experiments such as ATLAS and ALICE. The underlying Xroot data transfer protocol provides highly efficient access to ROOT based data files.  This page provides instructions for creating a simple Xrootd storage system consisting of:
+   * One redirector node
+   * One or more data server node(s)
 Most of this installation can be performed as non-privileged user.  Some steps in the Getting started section need to be performed as root. Features of this installation:
    * Cluster administrator functions (requiring root privileges) separate from Xrootd administrative functions (non-privileged account)
    * Enables the *unix* security module in Xrootd
@@ -15,7 +18,9 @@ Most of this installation can be performed as non-privileged user.  Some steps i
    * Configuration from the Xrootd administration account
    * Control (start/stop) from the Xrootd administration account
 
----++ Getting Started (Cluster Administrator)
+
+
+---++ Getting Started
 To prepare the installation:
    * Identify hosts and roles
    * Check firewall rules
@@ -23,7 +28,51 @@ To prepare the installation:
    * Install Pacman (optionally this can be done by the Xrootd administration account)
    * Prepare the storage storage directories on Xrootd redirector and data server hosts
 
-These instructions are very much like what is in [[XrootdInstall#Getting_Started][the Xrootd install document]] for the first 4 steps.
+---+++ Identify hosts and roles (Cluster Administrator)
+   * Identify the redirector node
+   * Identify the data server(s)
+
+---+++ Check firewall rules (Cluster Administrator)
+It is important to make sure your firewall (if any) isn't blocking the ports that Xrootd uses for communication.  Otherwise, it becomes difficult to diagnose errors and failures may occur.  Xrootd uses the following ports:
+
+| *Host* | *Port Number* | *Protocol* |
+|!Xrootd data server| random ports selected by the OS |tcp|
+|!Xrootd redirector|1094|tcp|
+||2094|tcp|
+||1213|tcp|
+
+Check the firewall rules with =/etc/init.d/iptables status=.   See below for more information on firewall configuration settings for Xrootd.
+
+---+++ Create the xrootd user account (Cluster Administrator)
+You need a non privileged Xrootd user account on the redirector and all data servers, and that user *must have a login shell*.    If you manage your accounts by hand (rather than using a service such as LDAP) you would, on your management node:
+<pre class="screen">
+/usr/sbin/groupadd xdradmin 
+/usr/sbin/useradd --gid xrdadmin xrdadmin
+</pre>
+and copy =/etc/passwd, /etc/shadow, /etc/group,= and =/etc/gshadow= to each of the xrootd nodes.
+
+---+++ Install Pacman
+Pacman is a package management program used to install OSG software.
+ReleaseDocumentation.PacmanInstall describes how to install Pacman.
+You may select  =/opt/pacman= as the installation directory.<br>
+%TWISTY{
+mode="div"
+showlink="Show an example of how to install Pacman..."
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+cd /opt
+wget http://atlas.bu.edu/~youssef/pacman/sample_cache/tarballs/pacman-3.29.tar.gz
+tar --no-same-owner -xzvf pacman-3.29.tar.gz
+cd pacman-3.29
+source setup.sh
+cd ..
+ln -s pacman-3.29 pacman
+</pre>
+%ENDTWISTY%
+Once Pacman is installed do: =source /opt/pacman/setup.sh=.  You are ready to install Xrootd.
 
 ---+++ Choose the storage directories
 Choose the same pathnames for the redirector and data servers
@@ -39,8 +88,8 @@ Prepare the directories:
 <pre class="screen">
 mkdir -p /storage/path
 mkdir -p /storage/cache
-chown xrootd:xrootd /storage/cache
-chown xrootd:xrootd /storage/path
+chown xrdadmin:xrdadmin /storage/cache
+chown xrdadmin:xrdadmin /storage/path
 </pre>
 
 
@@ -124,55 +173,9 @@ source setup.sh
 vdt-control --non-root --off
 </pre>
 
----++ Feature evaluation
-Here a list of feature request and comments:
-   * non root installation - OK
-   * security - part
-      * allows to restrict hosts (currently *.yourdomain.org) - OK
-      * allows user directories and admin user (xrootd) - part
-         * by hand editing and directory creation, in the future a script to add/remove users will be provided
-   * startup script for reboot and for watchdog - discussion
-   * optional CNS - OK
-
----+++ Startup script 
-Discussion:<pre>Date: Tue, 11 May 2010 12:40:04 -0500
-From: Alain Roy <roy@cs.wisc.edu>
-To: Doug Benjamin <benjamin@phy.duke.edu>
-Cc: Tanya Levshina <tlevshin@fnal.gov>, 'Scot Kronenfeld' <kronenfe@cs.wisc.edu>, 'Andrew Hanushevsky' <abh@stanford.edu>,
-    "'Yang, Wei'" <yangw@slac.stanford.edu>, 'Rob Gardner' <rwg@hep.uchicago.edu>, "'Kroeger, Wilko'" <wilko@slac.stanford.edu>,
-    'Fabrizio Furano' <furano@cern.ch>, 'Dan Fraser' <fraser@anl.gov>, 'Rik Yoshida' <rik.yoshida@anl.gov>,
-    'Marco Mambelli' <marco@hep.uchicago.edu>, 'Sarah Williams' <saewill@iupui.edu>
-Subject: Re: xrootd in VDT
+A separate pages collects nots about feature requests and open issues: XrootdInstallNotes
 
 
-On May 10, 2010, at 10:47 PM, Doug Benjamin wrote:
-> Hello,
->
->  How is the system started after a reboot or crash when run in not root mode.  Is there a watch dog process?
-
-Right now, there isn't. Understanding the right thing to do makes me realize that I don't understand the full scope of your goals.
-
-In the case where we've installed as root, I think we're fine--xrootd will restart upon reboot.
-
-In the non-root case, we don't have an easy handle on what to do upon restart, because we can't hook into the boot process. So there
-are at least two solutions.
-
-1) Are we not allowed to install *anything* as root? If we can install something as root, we can install an init script. But I don't
-understand the constraints on our non-root installation.
-
-2) We could install a cron job as the user, and it could restart xrootd. Once the cron job is triggered, it would restart xrootd.
-
-Unless #2 already exists, it's a bit of development. It's not hard, but there are things I don't know how to do. I don't know how to
-reliably tell if xrootd is running. We also need to be careful of common pitfalls in running cron jobs. (What if the script hangs a
-bit, and cron invokes it again?) These aren't hard problems, but it takes a bit of time to get the details correct.
-
-In my ideal world, if we want to do #2, the script that does it would be provided by the Xrootd folks because they understand Xrootd
-more deeply: how to start it up, how to verify it's running, how to track the processes, etc. However, if they can't provide it, we can
-take on that task.
-
-Thoughts?
--alain
-</pre>
 
 %BR%
 -- Main.RobGardner - 05 Apr 2010
