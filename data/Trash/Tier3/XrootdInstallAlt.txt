@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RobGardner" date="1273693753" format="1.1" version="1.22"}%
+%META:TOPICINFO{author="RobGardner" date="1273703863" format="1.1" reprev="1.23" version="1.23"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! <nop>%SPACEOUT{%TOPIC%}%
 %TOC%
@@ -29,14 +29,10 @@ and copy =/etc/passwd, /etc/shadow, /etc/group,= and =/etc/gshadow= to each of t
 
 
 ---+++ Prepare the storage directories (Cluster Administrator)
-The same pathnames must be used for the redirector and data server nodes.  For larger data servers we recommend creating separate disk partitions (see below).  These directories have the following roles:
-   * _/storage/path_ 
-      * On the redirector: the directory containing internal Xrootd references to files in the system.  Xrootd clients access files using _/storage/path_.
-      * On data servers: the directory containing internal Xrootd references to files in the system. 
-   * _/storage/cache_
-      * On the redirector: unused
-      * On data servers: stores the files
-Prepare the directories and give ownership to the *xrdadmin* account which will be used by the Xrootd administrator.
+We recommend using the same pathnames for all data server nodes.  For larger data servers we recommend creating a separate partition (from the system partition) for these directories (see below).  The directories have the following roles:
+   * _/storage/path_ : a directory containing internal Xrootd references to files in the system. 
+   * _/storage/cache_: where physical files are stored
+On each data server, prepare the directories and give ownership to the *xrdadmin* account which will be used by the Xrootd administrator.
 <pre class="screen">
 mkdir -p /storage/path
 mkdir -p /storage/cache
@@ -158,7 +154,9 @@ source setup.sh
 vdt-control --non-root --off
 </pre>
 
----++ Testing the system 
+---++ Testing and Using the System 
+
+---+++ Simple copy test
 Login on the redirector node (e.g. =redirector.yourdomain.org=) and:
 <pre class="screen">cd $INSTALL_DIR
 source setup.sh 
@@ -169,28 +167,26 @@ cp xroot://redirector.yourdomain.org:1094///storage/path/test /tmp/test1
 diff /tmp/test1 /tmp/test 
 </pre>
 
----++ Advanced installation options and issues
-
----+++ File access permissions (Xrootd Administrator)
-Xrootd allows Access Control Lists that define user permissions on Xrootd files.   These are defined in the file =$VDT_LOCATION/xrootd/etc/auth_file=. The default configuration enables ACLs, allows full access to Xrootd administrator =xrdadnim= and  read-only access to all other users to all files in the system.  However full read/write access can be given to users in directory tree named by the Unix user name.
-
-To add a private user directory for the user =myuser=:<pre class="screen">
+---+++ Add a user directory
+To add a user directory for a user with Unix account name  =myuser=, login to the redirector and do: <pre class="screen">
 source setup.sh 
 export LD_PRELOAD=$VDT_LOCATION/xrootd/lib/libXrdPosixPreload.so 
 mkdir /storage/path/myuser
 </pre>
+The =myuser= user must be supported on each data server in the Xrootd system (eg. in =/etc/passwd=, etc).
 
-To add an arbitrary directory for the group =specialgroup=:<pre class="screen">
-source setup.sh 
-export LD_PRELOAD=$VDT_LOCATION/xrootd/lib/libXrdPosixPreload.so 
-mkdir /storage/path/customdir
+
+---++ Advanced installation options and issues
+
+---+++ Enable Group Permissions on a Directory (Xrootd Administrator)
+Xrootd implements Access Control Lists that define user permissions on Xrootd files.  ACLs are defined in the file =$VDT_LOCATION/xrootd/etc/auth_file=.  The default configuration allows:
+   * full read/write access to the Xrootd administrator =xrdadnim= 
+   * full read/write access to user files in directories named by the Unix user account name
+   * read access to all files for all users
+To give a Unix group (=our_group=) read/write permissions to a directory called =workdir=, add the following line to =$VDT_LOCATION/xrootd/etc/auth_file=:<pre class="file">
+g our_group /storage/path/workdir a
 </pre>
-And add the following line to =$VDT_LOCATION/xrootd/etc/auth_file=:<pre class="file">
-g specialgroup /storage/redirector/customdir a
-</pre>
-
-For more information on changing the Xrootd Authorization database file see the [[http://xrootd.slac.stanford.edu/doc/prod/sec_config.htm#_Toc211067862][Xrootd manual]].
-
+This file must be synchronized across all servers in the Xrootd cluster.  You must restart Xrootd (=vdt-control --non-root --off, vdt-control --non-root --on=) to load the new configuration, again the redirector and on each data server. For more authorization options see the [[http://xrootd.slac.stanford.edu/doc/prod/sec_config.htm#_Toc211067862][this section]] in the _Scalla: Extended Features Supplement Authentication & Access Control Configuration Reference_.
 
 
 ---+++ Firewalls and Xrootd port usage (Cluster Admnistrator)
@@ -233,18 +229,8 @@ Check the status of iptables, resart, and check again: <pre class="screen">
 Now edit the file =$VDT_LOCATION/xrootd/etc/xrootd.cfg= and change =xrd.port any= to =xrd.port 2525=.
  
 
-
----+++ Optimizing disk partitions for performance (Cluster Administrator)
-To maximize the performance of your Xrootd installation, you should place the _storage_cache_ and _storage_path_  on separate disk partitions.  The partition used for the storage cache should be optimized for the kinds of files anticipated by the application.  In general, you can use the defaults for the  =mke2fs= program since that will tend to optimize for large files. 
-
-The partition used for the _storage_path_ should be optimized to hold a large number of inodes and files.  Since the _storage_path_ is used to hold symlinks to the actual data files, the file system should have a large number of inodes since each symlink will require an inode to hold an entry for the symlink.  In addition, the size of the data blocks used by the file system on the partition should be made as small as possible since symlinks will typically consume an entire block regardless of the size of data block; a small data block size results in less space being wasted.  For an [[http://en.wikipedia.org/wiki/Ext3][ext3 file system]], passing =-b 1024= to =mke2fs= will set the block size to 1024 bytes which is the smallest allowed block size.
-
-Sometimes =mke2fs= is invoked using the wrapper =mkfs -t ext3 ...= that passes the options along. Use =man mke2fs= to see all the options.
-
-%NOTE% Xrootd inherits the characteristics of the underlying file system.  E.g. if you use and ext3 file system you are limited to 31998 subdirectories per one directory, stemming from its limit of 32000 links per inode.  
-
 ---+++ Creating disk partitions for the data servers (Cluster Administrator)
-Here is a general example (there are many approaches taken in practice):
+Here is a simple example (many approaches taken in practice):
    * Choose your disk or RAID array
    * Create a partition of type Linux using =fdisk= (answer prompts as appropriate): <pre class="screen">
 /sbin/fdisk /dev/sda
@@ -254,11 +240,43 @@ mkfs -t ext3 /dev/sda1
 </pre>
    * Mount the disk in your root file system, e.g. by adding to =/etc/fstab= a line like:<pre class="file">
 /dev/sda1               /storage                ext3    defaults        1 2
-</pre>
+</pre> followed by the command =mount -a=.
    * Create the needed Xrootd directories as usual:<pre class="screen">
 mkdir -p /storage/path
 mkdir -p /storage/cache
 </pre>
+
+
+---+++ Multiple Partitions on a Data Sever
+You can have multiple partitions on the data server, and you can add new partitions without having to reconfigure Xrootd if the partitions and directories are named appropriately.  Presume Xrootd was configured with the option =--storage-cache /storage/cache= (as above) and the original /etc/fstab was:
+<pre class="file">
+/dev/sda1               /storage/cache/pool1          ext3    defaults        1 2
+</pre>
+with directory:
+<pre classe="screen">
+mkdir -p /storage/cache/pool1
+</pre>
+Later, new partitions can be added as appropriate to =/etc/fstab=:
+<pre class="file">
+/dev/sda1               /storage/cache/pool1          ext3    defaults        1 2
+/dev/sda2               /storage/cache/pool2          ext3    defaults        1 2
+/dev/sdb1               /storage/cache/pool3          ext3    defaults        1 2
+</pre> 
+followed by:<pre classe="screen">
+mkdir -p /storage/cache/pool2
+mkdir -p /storage/cache/pool3
+</pre>
+You will need to restart Xrootd when new partitions are added.
+
+
+---+++ Optimizing disk partitions for performance (Cluster Administrator)
+To maximize the performance of your Xrootd installation, you should place the _storage_cache_ and _storage_path_  on separate disk partitions.  The partition used for the storage cache should be optimized for the kinds of files anticipated by the application.  In general, you can use the defaults for the  =mke2fs= program since that will tend to optimize for large files. 
+
+The partition used for the _storage_path_ should be optimized to hold a large number of inodes and files.  Since the _storage_path_ is used to hold symlinks to the actual data files, the file system should have a large number of inodes since each symlink will require an inode to hold an entry for the symlink.  In addition, the size of the data blocks used by the file system on the partition should be made as small as possible since symlinks will typically consume an entire block regardless of the size of data block; a small data block size results in less space being wasted.  For an [[http://en.wikipedia.org/wiki/Ext3][ext3 file system]], passing =-b 1024= to =mke2fs= will set the block size to 1024 bytes which is the smallest allowed block size.
+
+Sometimes =mke2fs= is invoked using the wrapper =mkfs -t ext3 ...= that passes the options along. Use =man mke2fs= to see all the options.
+
+%NOTE% Xrootd inherits the characteristics of the underlying file system.  E.g. if you use and ext3 file system you are limited to 31998 subdirectories per one directory, stemming from its limit of 32000 links per inode.  
 
 ---+++ Increasing the maximum number of file descriptors (Cluster Administrator)
 For bigger systems the default number of file descriptors (=ulimit -n=, 1024) is insufficient to assure access by many clients simultaneously
