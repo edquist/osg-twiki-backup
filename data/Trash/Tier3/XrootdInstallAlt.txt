@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RobGardner" date="1273703863" format="1.1" reprev="1.23" version="1.23"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1273707658" format="1.1" reprev="1.24" version="1.24"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! <nop>%SPACEOUT{%TOPIC%}%
 %TOC%
@@ -96,7 +96,7 @@ Note:
    * =/storage/cache= and =/storage/path= are the directories discussed above
    * =--enable-security= is a configuration option necessary to enable security (user ownership on directories)
    * By default client access is permitted to any host in your domain.  To restrict access or allow client access from hosts outside your local domain, use the option =--set-security-binding=  followed by the domain from which the clients can contact the data server nodes.  A wildcard is accepted.  Multiple domains can be specified by supplying a comma separated list. The default is your domain (same as =--set-security-binding *.yourdomain.edu=).
-   * By default file access control is as follows: the Xrootd administrator =xrdadmin= has full (read/write) access and all other users have only read access.  See Advanced Topics below for more options.
+   * See the Access Control Lists section in Advanced Topics below for information about file access defaults and customization.
 
 Now =vdt-control -list= shows the Xrootd service is installed:
 <pre class="screen">
@@ -156,37 +156,46 @@ vdt-control --non-root --off
 
 ---++ Testing and Using the System 
 
----+++ Simple copy test
+---+++!! Simple copy tests
 Login on the redirector node (e.g. =redirector.yourdomain.org=) and:
-<pre class="screen">cd $INSTALL_DIR
-source setup.sh 
-export LD_PRELOAD=$VDT_LOCATION/xrootd/lib/libXrdPosixPreload.so 
+<pre class="screen">source $INSTALL_DIR/setup.sh 
 echo &ldquo;This is a test&rdquo; &gt;/tmp/test 
-cp /tmp/test xroot://redirector.yourdomain.org:1094///storage/path/test 
-cp xroot://redirector.yourdomain.org:1094///storage/path/test /tmp/test1 
+xrdcp /tmp/test xroot://redirector.yourdomain.org:1094//storage/path/test 
+xrdcp xroot://redirector.yourdomain.org:1094//storage/path/test /tmp/test1 
 diff /tmp/test1 /tmp/test 
 </pre>
-
----+++ Add a user directory
-To add a user directory for a user with Unix account name  =myuser=, login to the redirector and do: <pre class="screen">
-source setup.sh 
-export LD_PRELOAD=$VDT_LOCATION/xrootd/lib/libXrdPosixPreload.so 
-mkdir /storage/path/myuser
+Users can write in their own space. E.g. a user with Unix account name  =myuser= (the account must exist, eg. in =/etc/passwd=, etc,  on the redirector and on all the data servers) could save a file in Xrootd: <pre class="screen">source $INSTALL_DIR/setup.sh 
+echo &ldquo;This is a user test&rdquo; &gt;/tmp/test 
+xrdcp /tmp/test xroot://redirector.yourdomain.org:1094//storage/path/myuser/test 
 </pre>
-The =myuser= user must be supported on each data server in the Xrootd system (eg. in =/etc/passwd=, etc).
+Note that =xrdcp= creates missing directories.
 
+---+++!! Tests using the !libXrdPosixPreload library
+Using Xrootd with the POSIX preload library
+<pre class="screen">source $INSTALL_DIR/setup.sh
+export LD_PRELOAD=$VDT_LOCATION/xrootd/lib/libXrdPosixPreload.so 
+echo &ldquo;This is a new test&rdquo; &gt;/tmp/test 
+mkdir xroot://redirector.yourdomain.org:1094//storage/path/subdir
+cp /tmp/test xroot://redirector.yourdomain.org:1094//storage/path/subdir/test 
+cp xroot://redirector.yourdomain.org:1094//storage/path/subdir/test /tmp/test1 
+diff /tmp/test1 /tmp/test 
+rm xroot://redirector.yourdomain.org:1094//storage/path/subdir/test 
+rmdir xroot://redirector.yourdomain.org:1094//storage/path/subdir
+</pre>
 
 ---++ Advanced installation options and issues
 
----+++ Enable Group Permissions on a Directory (Xrootd Administrator)
+---+++ Access Control Lists (Xrootd Administrator)
 Xrootd implements Access Control Lists that define user permissions on Xrootd files.  ACLs are defined in the file =$VDT_LOCATION/xrootd/etc/auth_file=.  The default configuration allows:
-   * full read/write access to the Xrootd administrator =xrdadnim= 
+   * full read/write access to the Xrootd administrator =xrdadmin= 
    * full read/write access to user files in directories named by the Unix user account name
    * read access to all files for all users
-To give a Unix group (=our_group=) read/write permissions to a directory called =workdir=, add the following line to =$VDT_LOCATION/xrootd/etc/auth_file=:<pre class="file">
+
+For more authorization options see the [[http://xrootd.slac.stanford.edu/doc/prod/sec_config.htm#_Toc211067862][this section]] in the _Scalla: Extended Features Supplement Authentication & Access Control Configuration Reference_. 
+E.g. to give a Unix group (=our_group=) read/write permissions to a directory called =workdir=, add the following line to =$VDT_LOCATION/xrootd/etc/auth_file=:<pre class="file">
 g our_group /storage/path/workdir a
 </pre>
-This file must be synchronized across all servers in the Xrootd cluster.  You must restart Xrootd (=vdt-control --non-root --off, vdt-control --non-root --on=) to load the new configuration, again the redirector and on each data server. For more authorization options see the [[http://xrootd.slac.stanford.edu/doc/prod/sec_config.htm#_Toc211067862][this section]] in the _Scalla: Extended Features Supplement Authentication & Access Control Configuration Reference_.
+This file must be synchronized across all servers in the Xrootd cluster.  You must restart Xrootd (=vdt-control --non-root --off, vdt-control --non-root --on=) to load the new configuration, again the redirector and on each data server. 
 
 
 ---+++ Firewalls and Xrootd port usage (Cluster Admnistrator)
@@ -229,7 +238,8 @@ Check the status of iptables, resart, and check again: <pre class="screen">
 Now edit the file =$VDT_LOCATION/xrootd/etc/xrootd.cfg= and change =xrd.port any= to =xrd.port 2525=.
  
 
----+++ Creating disk partitions for the data servers (Cluster Administrator)
+---+++ Creating a separate disk partition for the data cache (Cluster Administrator)
+Instead of storing the Xrootd data on the system partition you can have it on a separate one.
 Here is a simple example (many approaches taken in practice):
    * Choose your disk or RAID array
    * Create a partition of type Linux using =fdisk= (answer prompts as appropriate): <pre class="screen">
@@ -239,15 +249,16 @@ Here is a simple example (many approaches taken in practice):
 mkfs -t ext3 /dev/sda1
 </pre>
    * Mount the disk in your root file system, e.g. by adding to =/etc/fstab= a line like:<pre class="file">
-/dev/sda1               /storage                ext3    defaults        1 2
+/dev/sda1               /storage/cache/pool1                ext3    defaults        1 2
 </pre> followed by the command =mount -a=.
    * Create the needed Xrootd directories as usual:<pre class="screen">
 mkdir -p /storage/path
 mkdir -p /storage/cache
+mkdir -p /storage/cache/pool1
 </pre>
 
 
----+++ Multiple Partitions on a Data Sever
+---+++ Multiple partitions on a data server (Cluster Administrator)
 You can have multiple partitions on the data server, and you can add new partitions without having to reconfigure Xrootd if the partitions and directories are named appropriately.  Presume Xrootd was configured with the option =--storage-cache /storage/cache= (as above) and the original /etc/fstab was:
 <pre class="file">
 /dev/sda1               /storage/cache/pool1          ext3    defaults        1 2
@@ -280,7 +291,7 @@ Sometimes =mke2fs= is invoked using the wrapper =mkfs -t ext3 ...= that passes t
 
 ---+++ Increasing the maximum number of file descriptors (Cluster Administrator)
 For bigger systems the default number of file descriptors (=ulimit -n=, 1024) is insufficient to assure access by many clients simultaneously
-The limit should be increased to 65500 descriptors on the redirector and all data servers, for root and for the user under which xrootd is running (=xrootd=).
+The limit should be increased to 65500 descriptors on the redirector and all data servers, for root and for the user under which xrootd is running (=xrdadmin=).
 The procedure below is valid for RHEL 4/5 based Linux distributions (SL[C/F], !CentOS, ...):
 
 Configure the system to accept the desired value for maximum number of open files. Check the value in =/proc/sys/fs/file-max= (=cat /proc/sys/fs/file-max=)to see if it is larger than the value needed for the maximum number of open files.
@@ -288,7 +299,9 @@ To increase to 65500 the number of file descriptors:<pre class="screen">echo 655
 and, to make it persistent across reboots, edit =/etc/sysctl.conf=  to include the line: <pre class="file">fs.file-max = 65500</pre>
 
 Set the value for maximum number of open files (both hard and soft limit) in the file =/etc/security/limits.conf=. To do that add the following line below the commented line that should already be there:<pre class="file"># domain type item value
-* - nofile 65500</pre>
+root - nofile 65500
+xrdadmin - nofile 65500
+</pre>
 <!-- Explanation, not necessary --
 This line sets the default number of open file descriptors for every user on the system to 65500. Note that the "nofile" item has two possible limit values under the header: hard and soft. Both types of limits must be set before the change in the maximum number of open files will take effect. By using the "-" character, both hard and soft limits are set simultaneously. The hard limit represents the maximum value a soft limit may have and the soft limit represents the limit being actively enforced on the system at that time. Hard limits can be lowered by normal users, but not raised and soft limits cannot be set higher than hard limits. Only root may raise hard limits.
 -->
