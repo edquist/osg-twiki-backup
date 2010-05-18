@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1274216054" format="1.1" version="1.6"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1274226124" format="1.1" reprev="1.7" version="1.7"}%
 %META:TOPICPARENT{name="WebHome"}%
 %DOC_STATUS_TABLE%
 https://twiki.grid.iu.edu/twiki/pub/Storage/WebHome/images.jpg
@@ -42,30 +42,37 @@ Gratia !GridFTP transfer probe is an optional package that is implemented as a c
    1. The firewall must allow incoming connections to the gsiftp port (default 2811). Outgoing connections must be allowed from high ports ( typically in range 32769-65535 ). We recommend to consult the [[ComputeElementFirewalls][Firewall Guide]] if you install the !GridFTP server for the first time.
    1. A working GUMS server or a gridmap-file are needed for authorization using grid certificates.
 
+---++ Getting started
+---+++ Install Pacman 
+Pacman is a package management program used to install OSG software.   ReleaseDocumentation.PacmanInstall describes how to install Pacman which can be installed by either the cluster administrator or the (non-privileged) Xrootd administration account.  For example the cluster administrator might install this in  =/opt/pacman= such as in the following
+%TWISTY{
+mode="div"
+showlink="Pacman installation example."
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+cd /opt
+wget http://atlas.bu.edu/~youssef/pacman/sample_cache/tarballs/pacman-3.29.tar.gz
+tar --no-same-owner -xzvf pacman-3.29.tar.gz
+cd pacman-3.29
+source setup.sh
+cd ..
+ln -s pacman-3.29 pacman
+</pre>
+%ENDTWISTY% Once installed setup its environment with for example =source /opt/pacman/setup.sh=.  
 
 ---++Installation Procedure
-Login as root and set up  pacman, make sure that >=%PACMAN_VERSION% is installed:
-
+Installation should be performed as root.
+Create an installation directory, e.g. =/opt/gridftp-xrootd, and install the !GridFTP-Xrootd package  from the %CACHE% cache. Pacman will ask whether you want to trust the cache (answer =yall=). <!-- and whether you want to accept the license (answer =y=). -->
 <pre class="screen">
-su root
-. &lt;PACMAN_LOCATION&gt;/setup.sh
-pacman -version
-</pre>
-
-Next create and change to an installation directory. This directory will later be used to get the !GridFTP-Xrootd package  from the %CACHE% cache.
-<pre class="screen">
-mkdir -p /opt/%OSG_VERSION%-gridftp-xrootd/
-cd /opt/osg%OSG_VERSION%-gridftp-xrootd/
-</pre>
-
-You will need to install !GridFTP-Xrootd package from the %CACHE% cache. 
-Pacman will ask whether you want to trust the cache (=yall=) and whether you want to accept the license (=y=).
- 
-<pre class="screen">
+mkdir -p /opt/gridftp-xrootd/
+cd /opt/gridftp-xrootd/
 pacman -get %CACHE%:Xrootd-GridFTP
 </pre>
 
-The install procedure will print out a warning:
+The install procedure will print out a warning but the information provided in the README is out of date.  :
 <verbatim>
 ========== IMPORTANT ==========
 Most of the software installed by the VDT *will not work* until you install
@@ -73,21 +80,14 @@ certificates.  To complete your CA certificate installation, see the notes
 in the post-install/README file.
 </verbatim>
 
-Before proceed with CA certificates installation you may want to install to install Gratia transfer probes:
-<pre class="screen">
-pacman -get %CACHE%:Gratia-GridFTP
-. setup.sh
-</pre>
-
-
-Now you may proceed to CA certificates setup. Keep in  mind the information provided in the README is out of date. Please setup the CA certificates in the following way instead:
+Setup the CA certificates in the following way instead:
 <pre class="screen">
 source setup.sh
 $VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local -url osg
 </pre>
 This command will download certificates distributed by the OSG to =$VDT_LOCATION/globus/share/certificates= and create a symlink from =$VDT_LOCATION/globus/TRUSTED_CA= to that location. [[VDTCAManage][Other options]] are also available.
 
-To reflect the changes update the environment and run the post installation script:
+Update the environment and run the post installation script:
 <pre class="screen">
 source setup.sh
 vdt-post-install
@@ -103,6 +103,43 @@ vdt-control --list
 This completes the installation of the !GridFTP-Xrootd server. Move to the next step to configure  !GridFTP-Xrootd server and Gratia transfer probe at this time.
 
 ---++ Service Configuration
+
+Now, you have to configure  !GridFTP to work with !Xrootd
+
+<pre class="screen">
+<verbatim>
+$VDT_LOCATION/vdt/setup/configure_gridftp --use-xrootd \
+ --xrootd-host <hostname>\
+ --xrootd-mount-point <storage_path> \
+ --xrootd-storage-path <storage_path> 
+</verbatim>
+</pre>
+Where
+_hostname_ is a FQDN of the Xrootd redirector host,  <br/>
+_storage_path_ is a !GridFTP virtual mount point and storage area on redirector node 
+
+If you are using GUMS for authorization perform the following commands:
+<pre class="screen">
+cp $VDT_LOCATION/post-install/prima-authz.conf /etc/grid-security 
+cp $VDT_LOCATION/post-install/gsi-authz.conf /etc/grid-security 
+</pre> 
+
+If you are dealing with firewall the gridftp port range should be properly set. In order to do so you will have to modify _vdt-local-setup.sh_.
+<pre class="file">
+#edit $VDT_LOCATION/vdt/etc/vdt-local-setup.sh 
+GLOBUS_TCP_SOURCE_RANGE=&lt;low_port,high_port&gt;
+GLOBUS_TCP_PORT_RANGE=&lt;low_port,high_port&gt;
+export GLOBUS_TCP_SOURCE_RANGE
+export GLOBUS_TCP_PORT_RANGE
+</pre>
+
+Where _low_port,high_port_ - controls all outbound globus connections for gridftp (e.g GLOBUS_TCP_SOURCE_RANGE=40000,49150)
+ 
+---+++ Gratia !GridFTP Transfer Probe
+If you are using !GridFTP server that is installed during the !BeStMan installation you will need to enable, configure Gratia !GridFTP transfer probe and perform the actions described in
+ [[GratiaTransferProbe][Preparing, Installing and Validating Gratia transfer probe]]
+
+---+++ config.ini to remove for now
 The  !GridFTP-Xrootd server and Gratia transfer probe are configured by the =configure-osg= script located in =$VDT_LOCATION/osg/bin/configure-osg= based on the =$VDT_LOCATION/osg/etc/config.ini= configuration file.
 
 The =$VDT_LOCATION/osg/etc/= directory contains two template files =config.ini=. You will have to  edit the =$VDT_LOCATION/osg/etc/config.ini= file following instructions that precede each entry.  Here is the list of entries that need to be changed:
@@ -362,7 +399,7 @@ edg-mkgridmap           | cron   | do not enable
  ====================
 
  Thank for testing this document! Please fill in your FirstLast name here:
-   * Local TESTER         = FirstLast
+   * Local TESTER         = MarcoMambelli
  Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local TEST_PASSED    = %NO%
 ############################################################################################################
