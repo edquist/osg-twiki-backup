@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DerekWeitzel" date="1274720311" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="DerekWeitzel" date="1274729037" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="UsingTheGrid"}%
 %LINKCSS%
 
@@ -21,16 +21,16 @@ The differences between the submission file for OSGMM and GlideinWMS are minimal
 
 
    * Since Condor is no longer submitting directly to the grid, the universe for the job will need to change from grid, to vanilla.
-   <pre class="screen">
+   <pre class="file">
    universe=grid</pre>
    to
-    <pre class="screen">
+    <pre class="file">
    universe=vanilla</pre>
 
    * It is no longer necessary to set a timeout or periodic_hold expression.  This is due to the nature of pilot submission, when a slot is free, you can instantly run on it.
 
    * It is useful to have an error detection/correction statement in the submission file such as:
-   <pre class="screen">
+   <pre class="file">
    OnExitHold = (ExitStatus =!= 0)
    OnExitRemove = (ExitStatus == 0)
    PeriodicRelease = ((CurrentTime - EnteredCurrentStatus) > 60) && (HoldReasonCode =!= 1)</pre>
@@ -40,22 +40,121 @@ The differences between the submission file for OSGMM and GlideinWMS are minimal
 
 ---+++ File Transfer
    * Need to specify should_transfer_files:
-     <pre class="screen">
+     <pre class="file">
      should_transfer_files = YES</pre>
 
    * It is still necessary to specify transfer_input_files, but do not need to specify transfer_output_files.  GlideinWMS will transfer every file that is created back to the submission host.  This often leads to many temporary files being transferred back when a job completes.  It is important to delete temporary files as a part of your job.
 
 
+---+++ Example !GlideinWMS Condor submission
+%TWISTY{
+mode="div"
+showlink="Show !GlideinWMS Submission file"
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="file">
+inputTab = PrimaseCTDnohis.tab
+storeNumber = 01.24.10-11.34.59
+
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+
+transfer_input_files = $(inputTab)
+remote_output_files = srm://red-srm1.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/user/powers/Rosetta/$(storeNumber)/Step1/rosetta.step1.tar.gz
+
+executable = init.sh
+Args = $(inputTab) $(remote_output_files)
+
+output=condor_out/output.$(Cluster).$(Process)
+error=condor_out/error.$(Cluster).$(Process)
+log=results.log
+
+queue 1
+</pre>
+
+   * The =inputTab= and =storeNumber= are the inputs into the file.  =storeNumber= is a unique identifier used for storing on the srm server.
+   * Notice the =should_transfer_files= and =when_to_tranfser_output= are both specified.  These are specified because there is no shared file system in !GlideinWMS
+   * =transfer_input_files= is here to designate what files to transfer with the job.  
+   * =remote_output_files= is where to store the output file after the job completes.  The job (init.sh) has the transfer written into it.
+   * =output=, =error=, and =log= are standard in any Condor job description.
+
+
+%ENDTWISTY%
+
+
 ---++DAGMan Pitfalls
 
-When OSGMM runs a job, the exit status of the job is always 0, regardless of the actual exit status at the remote site.  Due to this, DAGMan will always interpret the node as succeeding in OSGMM.  A common approach to solve this is to have each job individually have a post script to check for successful completion.
+When OSGMM runs a job, the exit status of the job is always 0, regardless of the actual exit status at the remote site.  Due to this, DAGMan will always interpret the job as succeeding in OSGMM.  A common approach to solve this is to have each job have a post script to check for successful completion.
 
-In GlideinWMS, the correct exit status will be transferred back with the job.  In this case, it is easier to use DAGMan's automatic exit status checking for error detection.  If you only want error detection, then you do not need to add anything to the DAG.  If you want DAGMan to retry the job if it fails, add:
-<pre class="screen">
-RETRY <job> 5</pre>
-This will retry the job on failure 5 times.
+In !GlideinWMS, the correct exit status will be transferred back with the job.  In this case, it is easier to use DAGMan's automatic exit status checking for error detection.  If you only want error detection, then you do not need to add anything to the DAG.  If you want DAGMan to retry the job if it fails, add:
+<pre class="file">
+RETRY unique_name 5</pre>
+This will retry the job after a failure 5 times.
+
+%TWISTY{
+mode="div"
+showlink="Show example !DAGMan Submission file"
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="file">
+JOB step1 condor.step1.submit DONE
+JOB step3 condor.step3.submit
+SCRIPT PRE step1 pre.sh step1
+JOB step2-0 condor.step2.submit
+PARENT step1 CHILD step2-0
+PARENT step2-0 CHILD step3
+RETRY step2-0 1000
+JOB step2-1 condor.step2.submit
+PARENT step1 CHILD step2-1
+PARENT step2-1 CHILD step3
+RETRY step2-1 1000
+....
+JOB step2-999 condor.step2.submit
+PARENT step1 CHILD step2-999
+PARENT step2-999 CHILD step3
+RETRY step2-999 1000
+
+Retry step1 5
+Retry step3 5
+</pre>
+
+In this example, the DAG is a single setup node (step1), a 1000 node wide middle (step2), and a single finishing node (step3).  
+
+%ENDTWISTY%
+
 
 ---++Monitoring Jobs
+
+It is more difficult in !GlideinWMS to monitor exactly where your jobs are going.  !GlideinWMS's VOFrontend provides some monitoring regarding the total jobs running at a site.  A useful command is:
+<pre class="screen">
+condor_status -format '%s\n' 'GLIDEIN_Site' -const 'IS_MONITOR_VM =!= TRUE' | sort | uniq -c</pre>
+This command will output the number of glideins at each site.
+%TWISTY{
+mode="div"
+showlink="Show example output"
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+
+<pre class="screen">
+[dweitzel@glidein ~]$ condor_status -format '%s\n' 'GLIDEIN_Site' -const 'IS_MONITOR_VM =!= TRUE' | sort | uniq -c
+      3 BNL
+    210 Nebraska
+    764 Omaha
+     57 UConn
+      1 UCSD
+     16 UNESP
+      5 Wisconsin
+</pre>
+
+%ENDTWISTY%
+
+
 
 
 ---++ *Comments*
