@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TedHesselroth" date="1274822959" format="1.1" reprev="1.9" version="1.9"}%
+%META:TOPICINFO{author="TedHesselroth" date="1274893365" format="1.1" reprev="1.10" version="1.10"}%
 %META:TOPICPARENT{name="OpportunisticStorage"}%
 ---+*%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -11,12 +11,189 @@ One of the main drivers of IRODS is the federation of heterogeneous data managem
 
 It should be noted that federation in IRODS terminology is across Multiple IRODS instances, or zones. Federation allows access to other IRODS instances from an IRODS instance. The IRODS zone hosting the file is the root of the logical path of the file. Therefore federation as defined in IRODS does not in itself make the instances transparent. That may be acceptable, but it seems to defeat the purpose of having logical vs physical names. Furthermore, it would nominally require an IRODS instance at each site, though it is conceivable that a central host could run an IRODS instance for each site.
 
-The logical name does hide the specific storage resource that the file is on. Logical names are mapped to physical names in the iCAT database. An ftp server can be a storage resource, and with SRM support it should be possible to put distributed SRM resources into one zone. So federation of OSG resources would be the creation of an IRODS zone with distributed storage resources. File transfers would be done through the one IRODS server, acting as a cache for files moved to or from the storage resources. It would take several iclient commands to move a file. Alternatively, these might be written in the form of a rule which could be invoked by one client command.  It may be possible to overload some of the existing iclient commands to invoke direct transfer between user and storage resource rather than using the IRODS server as a proxy. At a lower level, the native IRODS transfer mechanism does use direct data channels, but only to and from IRODS servers.
- 
-That allows flexible file location, though further catalog operations will be necessary to, for example, make sure collections of files are co-located. Support exists in IRODS for the use of custom scripts to execute various file operations, through the Universal Mass Storage System driver. Into these scripts might be placed to perform additional operations as needed.
+The logical name does hide the specific storage resource that the file is on. Logical names are mapped to physical names in the iCAT database. Federation of OSG resources would be the creation of an IRODS zone with distributed storage resources. That allows flexible file location, though further catalog operations will be necessary to, for example, make sure collections of files are co-located.
 
-Another option is to use only the iCAT portion of IRODS, to form a logical namespace and to define collections. Data could then be moved using using the presently-used clients such as globus-url-copy. File transfers would involve additional steps of catalog reading and file registration. Such a use could potentially pose difficulties, since it is not the canonical way of using IRODS. FTS (see below) may be a better fit for this model. 
+OSG Storage Elements do not incorporate iRODS servers, therefore direct transfer using native iRODS movers is not possible. Support exists in IRODS for the use of custom scripts to execute file operations, through the Universal Mass Storage System driver. Into these scripts might be placed code to cause the transfer to be done using current such as globus-url-copy.
 
+Another option is to use only the iCAT portion of IRODS, to form a logical namespace and to define collections. Data could then be moved by the client, followed by file registration by the client. Such a use could potentially pose difficulties, since it is not the canonical way of using IRODS. FTS (see below) may be a better fit for this model. 
+
+See the next section for a more complete discussion of the requirements and possible approaches.
+
+---+++ OSG iRODS Model
+
+Discovery, Transfer, Catalog, Management
+
+*Within iRODS framework, or iRODS as a component in another framework?*
+
+Minimize the disparity between this approach and what would be done for direct submission to sites.
+
+---++++Discovery
+   
+Provide for automatic selection of storage element. Support data-driven computation.
+
+   * On directory creation, assign a storage element to it
+      * Schema requires it to be stored in a data object
+      * Should include the expected size of the directory
+         * May need to move the files to another storage element
+      * Space reservation option
+      * Storage profile option
+   * Use the discovery service to return the TURL or SURL to the user.
+   * Associate a compute element with a storage element via data objects
+      * Computation profile option
+         * Influences where the data is placed
+   * Use RSV probe to identify authorized sites
+   * Allow for operation with OSGMM
+
+#OSGiRODSDataTransfer
+---++++Data Transfer
+
+Desire direct transfer between storage element and user based on non-iRODS storage services. Storage Management policies and Catalog operations should be triggered as in normal iRODS operation.
+
+No option here is recommended, for the specified reasons.
+
+   * Use iRODS standard transfer with gridftp extension microservices
+      * Because the gridftp extension is a set of microservices (not a driver) it does not invoke policy rules.
+         * Driver is in development.
+      * In iRODS a gridftp server is a compound resource; data must hop through the OSG iRODS server
+   * Use an SRM transfer with and SRM interface to iRODS
+      * Academia Sinica developed SRM interface for SRB.
+      * Said by RENCI to be "interested" in SRM interface for iRODS.
+      * Presumably would be an adapter for native 
+      * Must use gridftp or other non-iRODS storage resources; data must hop through the OSG iRODS server
+   * Use microservice-wrapped web service for callbacks
+      * Integrate with globus.org-type service
+      * Facilitate future integration with Java-based iRODS microservices
+      * May do GUMS call
+      * Does not invoke policy rules
+      * gsoap, complicated, must recompile for each added web service
+   * Use iRODS transfer with Universal Mass Storage Driver
+      * Storage resources registered as such
+      * Uses regular transfer microservices, which will invoke policy rules
+      * Must stage through OSG irods server
+      * Might have to use grid credential proxy
+         * No support for this in iRODS*
+   * Use iRODS as a shadow storage service
+      * Actual transfers in external framework
+         * Using same clients as for non-opportunistic storage.        
+      * Get TURL or SURL and make the transfer in the next step
+         * Override microservice to provide info rather than transfer data
+            * Essential that iRODS automatic policy functions are still invoked.
+            * Policy functions are invoked before and after invocation of drivers
+               * Custom driver using rcExecCmd (same as UMSD)
+               * Additional cmd within workflow with msiExecCmd
+         * Write UMSD functions to return information rather than do transfers
+            * Must avoid false registration on failure
+               * Must have a way to block until file completion
+            * Current nop for file transfer (stage only). Extend?
+               * univMSSFileWrite, etc
+               * Could write scripts for either gridftp or srm. It may be better in the end to use separate drivers for gridftp and SRM.
+      * In order for pre and post-processing to work in the normal iRODS way, the driver would to block while the client does the transfer.
+         * Would need to establish a connection and have a protocol with the client to have it do the transfer, report status, etc.
+         * *Evaluation of complexity/effort/risk is necessary before recommendation can be made.*
+   * Use iCAT catalog commands directly, completely bypassing any iRODS data object functionality.
+      * iRODS as a component within another framework.
+      * Only a few client commands, such as ireg (to register a file) and imeta (to add metadata), would be usable
+      * Policy rules are not invoked.
+      * Can administrative commands based on catalog-only functionality meet the capability requirements for Catalog and Management, below?
+         * To what degree will a new framework need to be written?
+         * To what degree would use of a full iRODS server still fall short of the capability requirements?
+      * *Evaluation of complexity/effort/risk is necessary before recommendation can be made.*            
+
+---++++Catalog
+
+Database registration should be transparent to the user.
+
+   * Trigger job on completion of pre-defined file set.
+   * Add FITS data to metadata (LSST)
+      * Database searchability
+   * Monitor data movement status
+   * Leverage existing iRODS GUIs and web interfaces.
+   * Support Storage Management functions, see below
+
+Deploy only iCAT at sites? Or iCAT-enabled iRODS, but only as info server and policy executor?
+
+---++++Management
+
+Should be done through iRODS policy rules.
+
+   * Trigger deletion of expired data collections.
+   * Maintain space and availability information.
+   * Replication
+   * Relocation
+   * Aggregation
+
+---+++ OSG iRODS Program of Work for Shadow Storage Option
+
+A plan sketch would be the following. The work starts with the Data Transfer function.
+
+   1. Install iRODS and add several distributed gridftp resources in a resource group.
+   1. Run various elementary rule files, with transfers only to local cache resource.
+   1. Create and run elementary rules using rulegen.
+   1. Run a rule with msiExecCmd invoking example hello script
+   1. Write an example script and run a rule with msiExecCmd invoking it.
+   1. Check the functionality of the Universal Mass Storage Driver with dummy scripts. 
+   1. Copy the Universal Mass Storage Driver as a new driver.
+      1. Follow the documentation outlining the creation of a new driver.
+   1. Add a storage resource with the type of the new driver.
+   1. Before extending, recheck the functionality of the supported command subset.
+   1. Write a new univMSSFileWrite function.
+      1. Include connection to client and protocol for return status
+      1. *Study degree of difficulty before starting program of work.*
+   1. Check the functionality with a file write and dummy driver script.
+      1. Verify that pre and post-processing policy rules are invoked.
+      1. *Study issues of why MSS is currently supported only as staging* -asynchronicity?
+   1. Design actual univMSSFileWrite function.
+      1. Do this design before starting the program of work.
+   1. Repeat the previous three steps for all other functions.
+   1. Devise and execute thorough transfer tests.
+      1. In parallel -test each new function as it is written, continuous integration.
+   1. Propose modification of UMSD in iRODS code base to extended version.
+   1. Write and test rules using the msiExecCmd microservices for Discovery, Catalog, and Management functions.
+
+
+---+++ Component Design for Shadow Storage Option
+
+How the scripts that invoke specific operations can be written such that iRODS and currently available tools can work together and support the requirements of the model.
+
+The complete list of file operations is: univMSSFileCreate, univMSSFileOpen, univMSSFileRead, univMSSFileWrite,
+    univMSSFileClose, univMSSFileUnlink, univMSSFileStat, univMSSFileFstat, univMSSFileLseek,
+    univMSSFileFsync, univMSSFileMkdir, univMSSFileChmod, univMSSFileRmdir, univMSSFileOpendir,
+    univMSSFileClosedir, univMSSFileReaddir, univMSSFileStage, univMSSFileRename,
+    univMSSFileGetFsFreeSpace, univMSSFileTruncate, univMSSStageToCache, univMSSSyncToArch. Some of the operations may not be possible with gridftp or SRM.
+
+---++++univMSSFileRead
+
+   1. preprocessing
+   1. fileRead function
+      1. Determine if the endpoint is gridftp or SRM.
+         1. Look up the database entry for storage resource, or parse the URL.
+      1. Obtain TURL or SURL. 
+         1. Get server name from iCAT lookup based on the storage resource attributes.
+         1. Use OSG Discovery Tool to find the example URL.
+         1. Make substitution using logical path to compose URL.
+      1. Communicate the URL to the user.
+         1.
+      1. Block while the user software reads the file.
+         1. Open a connection to the user and wait.
+         1. Or use iRODS session connection.
+         1. Consider asynchronous model with data object in pending state, update on transfer completion. 
+      1. Receive a report on the result of the read.
+         1. Or, time out.
+      1. Act based on the success or failure of the user's read.
+         1.
+         1.
+      1. Exit with suitable return code. 
+   1. postprocessing
+         1. OSG Storage Federation accounting.
+
+
+---+++ OSG iRODS Program of Work for iCAT-only Option
+
+   1. Decide on Catalog and Management capability requirements.
+   1. Determine what iRODS functionality is available that does not involve data operations.
+   1. Sketch a framework that would use available functionality and possible supplemental tools to meet requirements.
+   1. Assess complexity/effort/risk if creating/acquiring the framework.
+  
 ---+++Directing a collection to a resource
 
 One can use iclient commands to specify the resource to which a file should go. According to the default iCAT schema, a resource may be associated with a file, but not for a collection. This allows a collection to be spread over several resources. One can use rules, such as these from ARGO, to guide an iput to a resource according to the destination collection.
@@ -95,154 +272,6 @@ A collection may be thought of as a directory in the logical namespace.
 <pre>
 </pre>
 
----+++ OSG iRODS Model
-
-Discovery, Transfer, Catalog, Management
-
-*Within iRODS framework, or iRODS as a component in another framework?*
-
-Minimize the disparity between this approach and what would be done for direct submission to sites.
-
----++++Discovery
-   
-Provide for automatic selection of storage element. Support data-driven computation.
-
-   * On directory creation, assign a storage element to it
-      * Schema requires it to be stored in a data object
-      * Should include the expected size of the directory
-         * May need to move the files to another storage element
-      * Space reservation option
-      * Storage profile option
-   * Use the discovery service to return the TURL or SURL to the user.
-   * Associate a compute element with a storage element via data objects
-      * Computation profile option
-         * Influences where the data is placed
-   * Use RSV probe to identify authorized sites
-   * Allow for operation with OSGMM
-
----++++Data Transfer
-
-Desire direct transfer between storage element and user based on non-iRODS storage services. Storage Management policies and Catalog operations should be triggered as in normal iRODS operation.
-
-The fifth option here is recommended, for the specified reasons.
-
-   * Use iRODS standard transfer with gridftp extension microservices
-      * Because the gridftp extension is a set of microservices (not a driver) it does not invoke policy rules.
-         * Driver is in development.
-      * In iRODS a gridftp server is a compound resource; data must hop through the OSG iRODS server
-   * Use an SRM transfer with and SRM interface to iRODS
-      * Academia Sinica developed SRM interface for SRB.
-      * Said by RENCI to be "interested" in SRM interface for iRODS.
-      * Presumably would be an adapter for native 
-      * Must use gridftp or other non-iRODS storage resources; data must hop through the OSG iRODS server
-   * Use microservice-wrapped web service for callbacks
-      * Integrate with globus.org-type service
-      * Facilitate future integration with Java-based iRODS microservices
-      * May do GUMS call
-      * Does not invoke policy rules
-      * gsoap, complicated, must recompile for each added web service
-   * Use iRODS transfer with Universal Mass Storage Driver
-      * Storage resources registered as such
-      * Uses regular transfer microservices, which will invoke policy rules
-      * Must stage through OSG irods server
-   * Use iRODS as a shadow storage service
-      * Actual transfers in external framework
-         * Using same clients as for non-opportunistic storage.        
-      * Get TURL or SURL and make the transfer in the next step
-         * Override microservice to provide info rather than transfer data
-            * Essential that iRODS automatic policy functions are still invoked.
-            * Policy functions are invoked before and after invocation of drivers
-               * Custom driver using rcExecCmd (same as UMSD)
-               * Additional cmd within workflow with msiExecCmd
-         * Write UMSD functions to return information rather than do transfers
-            * Must avoid false registration on failure
-               * Must have a way to block until file completion
-            * Currrent nop for file transfer (stage only). Extend?
-               * univMSSFileWrite, etc
-               * Could write scripts for either gridftp or srm. It may be better in the end to use separate drivers for gridftp and SRM.
-
----++++Catalog
-
-Database registration should be transparent to the user.
-
-   * Trigger job on completion of pre-defined file set.
-   * Add FITS data to metadata (LSST)
-      * Database searchability
-   * Monitor data movement status
-   * Leverage existing iRODS GUIs and web interfaces.
-   * Support Storage Management functions, see below
-
-Deploy only iCAT at sites? Or iCAT-enabled iRODS, but only as info server and policy executor?
-
----++++Management
-
-Should be done through iRODS policy rules.
-
-   * Trigger deletion of expired data collections.
-   * Maintain space and availability information.
-   * Replication
-   * Relocation
-   * Aggregation
-
----+++ OSG iRODS Program of Work.
-
-A plan sketch would be the following. The work starts with the Data Transfer function.
-
-   1. Install iRODS and add several distributed gridftp resources in a resource group.
-   1. Run various elementary rule files, with transfers only to local cache resource.
-   1. Create and run elementary rules using rulegen.
-   1. Run a rule with msiExecCmd invoking example hello script
-   1. Write an example script and run a rule with msiExecCmd invoking it.
-   1. Check the functionality of the Universal Mass Storage Driver with dummy scripts. 
-   1. Copy the Universal Mass Storage Driver as a new driver.
-      1. Follow the documentation outlining the creation of a new driver.
-   1. Add a storage resource with the type of the new driver.
-   1. Before extending, recheck the functionality of the supported command subset.
-   1. Write a new univMSSFileWrite function.
-      1. Study degree of difficulty before starting program of work.
-   1. Check the functionality with a file write and dummy driver script.
-      1. Verify that pre and post-processing policy rules are invoked.
-      1. *Study issues of why MSS is currently supported only as staging* -asynchronicity?
-   1. Design actual univMSSFileWrite function.
-      1. Do this design before starting the program of work.
-   1. Repeat the previous three steps for all other functions.
-   1. Devise and execute thorough transfer tests.
-      1. In parallel -test each new function as it is written, continuous integration.
-   1. Propose modification of UMSD in iRODS code base to extended version.
-   1. Write and test rules using the msiExecCmd microservices for Discovery, Catalog, and Management functions.
-
-
----+++ Component Design
-
-How the scripts that invoke specific operations can be written such that iRODS and currently available tools can work together and support the requirements of the model.
-
-The complete list of file operations is: univMSSFileCreate, univMSSFileOpen, univMSSFileRead, univMSSFileWrite,
-    univMSSFileClose, univMSSFileUnlink, univMSSFileStat, univMSSFileFstat, univMSSFileLseek,
-    univMSSFileFsync, univMSSFileMkdir, univMSSFileChmod, univMSSFileRmdir, univMSSFileOpendir,
-    univMSSFileClosedir, univMSSFileReaddir, univMSSFileStage, univMSSFileRename,
-    univMSSFileGetFsFreeSpace, univMSSFileTruncate, univMSSStageToCache, univMSSSyncToArch. Some of the operations may not be possible with gridftp or SRM.
-
----++++univMSSFileRead
-
-   1. preprocessing
-   1. fileRead function
-      1. Determine if the endpoint is gridftp or SRM.
-         1. Look up the database entry for storage resource, or parse the URL.
-      1. Obtain TURL or SURL. 
-         1. Get server name from iCAT lookup based on the storage resource attributes.
-         2. Use OSG Discovery Tool to find the example URL.
-         3. Make substitution using logical path to compose URL.
-      1. Communicate the URL to the user.
-         1.
-      1. Block while the user software reads the file.
-         1.
-      1. Receive a report on the result of the read.
-      1. Act based on the success or failure of the user's read.
-         1.
-         1.
-      1. Exit with suitable return code. 
-   1. postprocessing
-         1. OSG Storage Federation accounting.
 
 ---++globus.org
 
