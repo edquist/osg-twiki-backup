@@ -1,0 +1,262 @@
+%META:TOPICINFO{author="DouglasStrain" date="1274996678" format="1.1" reprev="1.1" version="1.1"}%
+---+!! *<noop>%SPACEOUT{ "SrmTesterProbe" }%*
+%DOC_STATUS_TABLE%
+
+This a page for storage RSV probes.  It includes installation and configuring of optional probes, as well as descriptions of the SRM client probes and of the srm-tester probes.
+
+This page will probably be transferred to the Release documentation once packaged into the VDT.
+
+
+---++ Installing SRM RSV Probes
+---+++ Install RSV from VDT
+
+First download PacMan and then use it to 
+
+<verbatim>
+wget http://physics.bu.edu/pacman/sample_cache/tarballs/pacman-latest.tar.gz=
+gunzip pacman-latest.tar.gz
+tar xvf pacman-latest.tar
+pacman -get http://vdt.cs.wisc.edu/vdt_200_cache:OSG-RSV
+</verbatim>
+
+Note: vdt_200_cache is the name of the pacman repository (perhaps unfortunately named a pacman "cache"). You can also replace this with "vdt_2089_cache" for the dev cache or test-cache/dstrain for my personal test cache. Until dependencies are fixed, you will also have to get the package SRM-Tester-LBNL.
+
+*Install and update certs*
+
+=pacman -get http://vdt.cs.wisc.edu/vdt_200_cache:CA-Certificates-Updater vdt-ca-manage setupca --location local --url osg=
+
+To turn this on to auto-update:
+
+=vdt-control --enable vdt-update-certs vdt-control --enable fetch-crl vdt-control --on vdt-update-certs vdt-control --on fetch-crl=
+
+---+++ Java Version
+
+For certain versions of the VDT (currently 2.0.89 has this issue), the java versions of the srm client and of the VDT are mismatched. If you are getting a "java.lang.UnsupportedClassVersionError" for the srm-client probes, edit the VDT_LOCATION setup.sh and change JAVA_HOME (and the subsequent path) from jdk1.5 to jdk1.6.
+
+---++ Configure RSV Probes
+
+After downloading OSG-RSV and all dependencies, you will have a osg-rsv directory. In VDT_LOCATION/setup, there will be a configure-osg-rsv program. You will have run this program in order to configure the probes. I used a script similar to this:
+
+<verbatim>
+cd $VDT_LOCATION
+source setup.sh
+cd osg-rsv/setup
+./configure_osg_rsv --consumer --init --server y --setup-for-apache --user dstrain --srm-probes --srm-uri fgt0x5.fnal.gov:10443 --srm-dir /srmcache/fnalgrid/rsvtest --ce-uri localhost --srm-webservice-path srm/v2/server
+</verbatim>
+
+
+Note that there are many options to configure (run with --help for a full list). A brief description follows:
+
+   * --server y: Needed to add the service to the vdt-control menu
+   * --setup-for-apache --consumer: Needed to output to a web-page.
+   * --srm-probes: Install all probes of "OSG-SRM" type.
+   * --srm-uri: The name and port of the server you want to monitor.
+   * --srm-dir: A test directory that you have access to
+   * --user: The user that this probe should run as. This user will need a cert/proxy set up at /tmp/x509up_<uid>
+   * --srm-webservice-path: The web service path. srm/v2/server for Bestman. srm/managerv2 for dCache.
+   * --ce-uri: A bug in older vdt versions requires RSV to be run on CE nodes. Fake it with "--ce-uri localhost" for stand-alone RSV machines.
+
+Once you have run this, you should see some files in osg-rsv/submission/probes directory.
+Note that you will have to run this once for each host that you wish to monitor. However, it is recommended that you get one running successfully before you enable additional probes.
+
+
+---+++ Enabling additional probes
+
+The configure_osg_rsv only initializes probes that are set to be enabled by default. The srmclient and srmtester probes are disabled by default. To enable them, you will need to enable them in the config file. In the osg-rsv/config directory, there will be a file for each hostname you have configured (ie. fgt0x5.fnal.gov_metrics.conf). Each probe will be in here in cron-type format.
+
+<verbatim>
+on srm-ping-probe@org.osg.srm.srmping 13,33,53 * * * *
+off srmclient-probe@org.osg.srm.srmclient-copy 29 * * * *
+off srmclient-probe@org.osg.srm.srmclient-get 20 * * * *
+off srmclient-probe@org.osg.srm.srmclient-mkdir 5 * * * *
+...
+</verbatim>
+
+
+Here you can configure which probes are enabled/disabled and how often they run. Be careful about running too much (ie. don't enable all probes to run every minute as this will overload your machine with jobs). Change any probes from "off" to "on" to enable their configuration. You can also change the timing in the last columns (format: minutes hours day-of-month month day-of-week).
+After configuring this, you will need to run the configure command again:
+
+<verbatim>
+cd ../setup
+./configure_osg_rsv --consumer --init --server y --setup-for-apache --user dstrain --srm-probes --srm-uri fgt0x5.fnal.gov:10443 --srm-dir /srmcache/fnalgrid/rsvtest --ce-uri localhost --srm-webservice-path srm/v2/server
+</verbatim>
+
+
+You should now see the new probes in the submissions directory.
+
+
+---+++ Running Metrics (automatically)
+
+Once the probes have been configured (see above), then you need to enable and run them. RSV Probes use condor_cron to coordinate timed events. First, enable condor-cron:
+
+
+<verbatim>
+vdt-control --enable condor-cron
+vdt-control --on condor-cron
+</verbatim>
+
+
+Then, start RSV:
+
+<verbatim>
+vdt-control --enable osg-rsv
+vdt-control --on osg-rsv
+</verbatim>
+
+
+Note that you will have to turn osg-rsv (--off) and then (--on) every time you modify configure_osg_rsv settings.
+Once you do so, the script will scan the submission directory and start all probes in condor_cron. It will also start the consumers as well. You can verify that this worked by running condor_cron_q
+
+<verbatim>
+condor_cron_q
+...
+29.0 dstrain 5/13 13:27 0+00:00:00 I 0 0.0 probe_wrapper.pl /
+30.0 dstrain 5/13 13:27 0+00:00:00 I 0 0.0 probe_wrapper.pl /
+31.0 dstrain 5/13 13:27 0+00:00:03 R 0 0.0 probe_wrapper.pl /
+32.0 dstrain 5/13 13:27 0+00:00:00 I 0 0.0 rotate_html_files.
+33.0 dstrain 5/13 13:27 0+00:00:03 R 0 0.0 html-consumer
+34.0 dstrain 5/13 13:27 0+00:00:03 R 0 0.0 gratia-script-cons
+34 jobs; 26 idle, 8 running, 0 held=
+</verbatim>
+
+The configure script will also modify your httpd.conf in VDT's apache to serve files from the osg-rsv/output/html directory. You will see something in your apache/conf/extra/vdt-webapps.conf (included from httpd.conf) like:
+
+<verbatim>
+# Set options for RSV's HTML directory
+<Directory "/usr/local/vdt-2.0.89-srmtester/osg-rsv/output/html">
+Options None
+AllowOverride None
+Order Allow,Deny
+Allow from all
+</Directory>
+# Create alias for RSV output directory
+Alias /rsv /usr/local/vdt-2.0.89-srmtester/osg-rsv/output/html
+</verbatim>
+
+You should be able to go to your web server (on port 8443 unless you changed it in httpd.conf in https://server:port/rsv and see the rsv output (takes a few minutes to update after its started).
+
+
+---++ SRM Client Probes
+
+Included in the optional SRM probes are two types of probes.  The first will begin with "org.osg.srm.srmclient-".
+These will use SRM client commands to connect to your storage facility and run commands to check basic 
+functionality connected to the SRM storage protocol.  Each probe will return a status:
+
+  * OK (Green): This means the test was successful.
+  * Warning (Yellow): This means that the server returned "Not supported".  This operation does not work, but only because it is not supported by your storage element.
+  * Critical (Red):  The test has failed.  Click on the link (in html consumer) for more details.
+
+These probes have to use either the Fermi SRM client (srmping, srmcp, etc) or the lbnl client (srm-ping, srm-copy, etc).  
+If the probe is failing because it is using the wrong type, you may have to specify the "srm-client-type" option in the configure line above.
+
+Description of the functionality for each probe is below:
+
+   * *org.osg.srm.srmclient-copy:* Tests a SRM copy operation on the remote server.  First, uploads a file using srmcp/srm-copy from a local file to a file named like 1274991241-srmclient-probe-test-file-remote.14288 in the remote directory (numbers differ based on time and process id).  It then copies it to a new file called 1274991241-srmclient-probe-test-file-remote.142881274991241-srmclient-probe-test-file-remote.14288.copy.  It uses a srmls/ssrm-ls to verify that the copy has occurred.  Lastly, it performs a srmrm/srm-rm to clean up both copies.
+   * *org.osg.srm.srmclient-get:* Tests SRM copy to get a file from the server.  Use srmcp/srm-copy to copy a file to the remote server.  Use srmcp/srm-copy to retrieve the file from the server.  Compares the two copies using the unix diff command.
+   * *org.osg.srm.srmclient-mkdir:*  This command uses srmmkdir/srm-mkdir to create a directory on the storage element.  It uses srmls/srm-ls to verify that the directory exist.  The cleanup uses srm-rmdir/srm-rmdir to remove the temporary directory.
+   * *org.osg.srm.srmclient-rmdir:* This command uses srmmkdir/srm-mkdir to create a directory, then uses srmrmdir/srm-rmdir to delete it.  It uses srmls/srm-ls to verify both that the directory was created and then that it also was later removed.
+   * *org.osg.srm.srmclient-mv:* Tests the srmmv or srm-mv command.  This first copies a file to the storage element using srmcp/srm-copy.  It then moves it to a new name using srmmv/srm-mv.  It then uses srmrm/srm-rm to clean both the old name and new name off the server (in case the mv failed).
+   * *org.osg.srm.srmclient-ping:* Pings a server using srmping/srm-ping.  Uses the exit status to verify whether the command was successful.
+   * *org.osg.srm.srmclient-put:* Tests srmcp/srm-copy.  Put a file onto the server using srmcp/srm-copy, then use srmls/srm-ls to verify that the file was copied successfully.  Lastly, srmrm/srm-rm is used to clean this file off the storage element.
+   * *org.osg.srm.srmclient-reservespace:* Test srm-reserve-space command to reserve a space.
+   * *org.osg.srm.srmclient-releasespace:* Test srm-reserve-space then srm-reserve-space it.
+   * *org.osg.srm.srmclient-rm:* Use srmcp/srm-copy to copy a file to the server then remove it using srmrm/srm-rm.  Use srmls/srm-ls to verify the file has been removed.
+
+---++ SRM tester Probes
+
+
+Included in the optional SRM probes are two types of probes.  The second will begin with "org.osg.srm.srmtester-".
+These will use the Bestman "srm-tester" command to connect to your storage facility and run commands to check basic 
+functionality connected to the SRM storage protocol.  Each probe will return a status:
+
+  * OK (Green): This means the test was successful.
+  * Warning (Yellow): This means that the server returned "Not supported".  This operation does not work, but only because it is not supported by your storage element.
+  * Critical (Red):  Either the test failed, or it was not tested, due to a dependent operation failing (i.e. if a put fails, then there is no file to get).  Click on the link (in html consumer) for more details.
+
+Each probe runs one "operation", which corresponds to a common task, such as getting a file.  Some of these operations actually comprise multiple SRM commands or tests, so it is possible that one test fails, causing the subsequent tests to be not completed.  This would register as a failure.  In the case of a "critical" result, you can view the details, which will include a summary of all commands performed, and which have failed.  It will also show the detailed output of the srm-tester, which may give some clues as to why the operation failed.
+
+Description of the functionality for each probe is below:
+
+
+   * *org.osg.srm.srmtester-bringonline:* Test bringonline functionality.  This test will put a file, try to bring it to ONLINE latency, then will remove it.  This operation uses the following SRM operations:srmPrepareToPut, srmStatusOfPutRequest, gsiftp-put, srmPutDone, srmBringOnline, srmStatusOfBringOnlineRequest, srmLs, srmRm.  This test will only succeed if the srmBringOnline operation succeeds.
+   * *org.osg.srm.srmtester-get:*  Test getting a file from the server.  This will put a file on the server, then get it using gsiftp.  It uses the SRM operations:
+srmPrepareToPut, srmStatusOfPutRequest, gsiftp-put, srmPutDone, srmPrepareToGet, srmStatusOfGetRequest, gsiftp-get, srmReleaseFiles, srmLs, srmRm.
+   * *org.osg.srm.srmtester-getspacemeta:* This operation tests getting the meta-data attributes of a reserved space.  It reserves a space, then gets the meta-data, then releases the space.  It uses srmReserveSpace, srmGetSpaceMetadata, srmReleaseSpace.
+   * *org.osg.srm.srmtester-getspacetokens:* This operation tests retrieving space tokens.  It uses the following SRM functionality: srmReserveSpace, srmGetSpaceTokens, srmReleaseSpace
+   * *org.osg.srm.srmtester-gettransferprotocols:*  This tests the srmGetTransferProtocols operation.
+   * *org.osg.srm.srmtester-gsiftp:*
+   * *org.osg.srm.srmtester-ls:*
+   * *org.osg.srm.srmtester-mkdir:*
+   * *org.osg.srm.srmtester-mv:*
+   * *org.osg.srm.srmtester-ping:*  This operation pings a server to see if it responds.  It only uses the srmPing operation.
+   * *org.osg.srm.srmtester-pull:*
+   * *org.osg.srm.srmtester-push:*
+   * *org.osg.srm.srmtester-put:*
+   * *org.osg.srm.srmtester-release:*  
+   * *org.osg.srm.srmtester-reserve:*
+   * *org.osg.srm.srmtester-rmdir:*
+   * *org.osg.srm.srmtester-srmrm:*
+
+
+---+++ Comments
+%COMMENT{type="tableappend"}%
+
+<!-- CONTENT MANAGEMENT PROJECT
+############################################################################################################
+   DEAR DOCUMENT OWNER
+   ===================
+
+   Thank you for claiming ownership for this document! Please fill in your FirstLast name here:
+   * Local OWNER          = DouglasStrain
+
+   Please define the document area, choose one of the defined areas from the next line
+   DOC_AREA = (ComputeElement|Storage|VO|Security|User|Monitoring|General|Integration|Operations|Tier3)
+   * Local DOC_AREA       =  Storage
+
+   define the primary role the document serves, choose one of the defined roles from the next line
+   DOC_ROLE = (EndUser|Student|Developer|SysAdmin|VOManager|Documenter)
+   * Local DOC_ROLE       = SysAdmin
+
+   Please define the document type, choose one of the defined types from the next line
+   DOC_TYPE = (Troubleshooting|Training|Installation|HowTo|Planning|Navigation|Knowledge)
+   * Local DOC_TYPE       = Knowledge
+   
+   Please define if this document in general needs to be reviewed before release ( %YES% | %NO% )
+   * Local INCLUDE_REVIEW = %YES%
+
+   Please define if this document in general needs to be tested before release ( %YES% | %NO% )
+   * Local INCLUDE_TEST   = %NO%
+
+   change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
+   * Local REVIEW_READY   = %NO%
+
+   change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
+   * Local TEST_READY     = %NO%
+
+   change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
+   * Local RELEASE_READY  = %NO%
+
+
+   DEAR DOCUMENT REVIEWER
+   ======================
+
+   Thank for reviewing this document! Please fill in your FirstLast name here:
+   * Local REVIEWER       = TanyaLevshina
+  
+   Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local REVIEW_PASSED  = %IN_PROGRESS%
+
+
+   DEAR DOCUMENT TESTER
+   ====================
+
+   Thank for testing this document! Please fill in your FirstLast name here:
+   * Local TESTER         = 
+  
+   Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local TEST_PASSED    = %IN_PROGRESS%
+############################################################################################################
+-->
+
+
+-- Main.DouglasStrain - 27 May 2010
