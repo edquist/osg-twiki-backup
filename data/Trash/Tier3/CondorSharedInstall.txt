@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1274464695" format="1.1" reprev="1.22" version="1.22"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1274985056" format="1.1" reprev="1.23" version="1.23"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %DOC_STATUS_TABLE%
@@ -72,24 +72,24 @@ tar xvzf ~/condor-%CONDORREL%-linux-x86-rhel5-dynamic.tar.gz
 cd condor-%CONDORREL%
 ./condor_install --prefix=/opt/condor --local-dir=/scratch/condor --type=manager</pre>   
    * The installation script will place the machine-specific configuration file in the the directory specified by =local-dir=.  We want to manage these files in the shared area, so: <pre class="screen">
-cp /scratch/condor/condor_config.local /opt/condor/etc/
-cp /opt/condor/etc/condor_config.local /opt/condor/etc/condor_config.gc1-ce
+mv /scratch/condor/condor_config.local /opt/condor/etc/
 </pre>
    * Open the global Condor configuration file =/opt/condor/etc/condor_config= in an editor.
-      * Change the value of this variable:<pre class="file">
+      * Change the value of this variable (find it in the file):<pre class="file">
+LOCAL_CONFIG_FILE = /opt/condor/etc/condor_config.local
+</pre>
+   * Open the local Condor configuration file =/opt/condor/etc/condor_config.local= in an editor.
+      * On top add this line:<pre class="file">
 LOCAL_CONFIG_FILE = /nfs/condor/condor-etc/condor_config.cluster
 </pre>
-
-<!--   * Copy the local configuration file to create the cluster configuration file: <pre class="screen">
-cp /scratch/condor/condor_config.local /nfs/condor/condor-etc/condor_config.cluster
-</pre>
--->
+   * Optionally you can copy the important values (RELEASE_DIR, MAIL, CONDOR_IDS, LOCK, JAVA, JAVA_MAXHEAP_ARGUMENT) from =condor_config.local= into =condor_config.cluster= and have the global Condor configuration file point directly to the second one. Inspect the file to make sure that no important setting is skipped.
    * Edit the cluster Condor configuration file =/nfs/condor/condor-etc/condor_config.cluster= with the following content:
-      * Copy the following content (attached in [[][condor_config.cluster]]) changing the values to suite your cluster (yourdomain.org, gc1-ce.yourdomain.org). You may find some suggestion in the local configuration file =/scratch/condor/condor_config.local=:<pre class="file">
+      * Copy the following content (attached in [[][condor_config.cluster]]) changing the values to suite your cluster (yourdomain.org, gc1-hn.yourdomain.org). You may find some suggestion in the local configuration file =/scratch/condor/condor_config.local=:<pre class="file">
 ## Condor configuration for OSG T3
 ## For more detial please see
 ## http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
 LOCAL_CONFIG_FILE = /nfs/condor/condor-etc/condor_config.$(HOSTNAME)
+LOCAL_DIR = /scratch/condor
 # The following should be your T3 domain
 UID_DOMAIN = %RED%yourdomain.org%ENDCOLOR%
 # Human readable name for your Condor pool
@@ -99,7 +99,7 @@ FILESYSTEM_DOMAIN = $(UID_DOMAIN)
 ALLOW_WRITE = *.$(UID_DOMAIN)
 CONDOR_ADMIN = root@$(FULL_HOSTNAME)
 # The following should be the full name of the head node
-CONDOR_HOST = %RED%gc1-ce.yourdomain.org%ENDCOLOR%
+CONDOR_HOST = %RED%gc1-hn.yourdomain.org%ENDCOLOR%
 # Port range should be opened in the firewall (can be different on different machines)
 # This 9000-9999 is coherent with the iptables configuration in the T3 documentation 
 IN_HIGHPORT = 9999
@@ -122,20 +122,44 @@ SUSPEND = FALSE
 PREEMPT = FALSE
 KILL = FALSE
 </pre>
-      * Make sure that you have the following important line in the file <pre>CONDOR_HOST = gc1-ce</pre> (in red in the example above)
-         * Note: =CONDOR_HOST= can be set with or without the domain name: =gc1-ce= or =gc1-ce.yourdomain.org=
-      
+      * Make sure that you have the following important line in the file <pre>CONDOR_HOST = gc1-hn</pre> (in red in the example above). 
+         * *Note:* =CONDOR_HOST= can be set with or without the domain name: =gc1-hn= or =gc1-hn.yourdomain.org=
+         * *Note:* =CONDOR_HOST= is the node running the Condor collector and negotiator. If you are running them on separate nodes, define both =NEGOTIATOR_HOST= and =COLLECTOR_HOST= and set each with the correct host name.
    * Link =condor_config= in the *condor* user's home directory to the location of the global configuration file (this allows condor to find the file without requiring environment variables):<pre class="screen">
 ln -s /opt/condor/etc/condor_config ~condor/condor_config
 </pre>
-   * Create the file with the host configuration (specific for the headnode) copying the following line:<pre class="file">
+   *  Create the files with the host configuration specific for the nodes using the following content. We will create 3 base configuration files: one for the headnode, one for worker nodes, one for the interactive nodes (user interface). (specific for the headnode) copying the following line:
+      * For the headnode, =/nfs/condor/condor-etc/condor_config.headnode=:<pre class="file">
 ## OSG T3 host configuration
 ## For more info: http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
 # List of daemons on the node (headnode requires collector and negotiator, 
 # schedd required to submit jobs, startd to run jobs)
 DAEMON_LIST = MASTER, COLLECTOR, NEGOTIATOR
 </pre>
-   * Set the password that will be used by the Condor system (at the prompt enter the same password for all nodes):<pre class="screen">
+      * For the worker nodes, =/nfs/condor/condor-etc/condor_config.worker=:<pre class="file">
+## OSG T3 host configuration
+## For more info: http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
+# List of daemons on the node (headnode requires collector and negotiator, 
+# schedd required to submit jobs, startd to run jobs)
+DAEMON_LIST = MASTER, STARTD
+</pre>
+      * For the interactive nodes, =/nfs/condor/condor-etc/condor_config.interactive=:<pre class="file">
+## OSG T3 host configuration
+## For more info: http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
+# List of daemons on the node (headnode requires collector and negotiator, 
+# schedd required to submit jobs, startd to run jobs)
+DAEMON_LIST = MASTER, SCHEDD
+</pre>
+   * Then for each node create a link pointing to the template, e.g.:<pre class="screen">
+cd /nfs/condor/condor-etc/
+ln -s condor_config.headnode condor_config.gc1-hn
+ln -s condor_config.interactive condor_config.gc1-ui001
+ln -s condor_config.worker condor_config.gc1-wn001
+ln -s condor_config.worker condor_config.gc1-wn002
+ln -s condor_config.worker condor_config.gc1-wn003
+</pre> Each node must have its own =condor_config.${HOST}= file. If some nodes require a special configuration you can copy the template (e.g. =condor_config.worker=) and customize it.
+   * If you are not installing Condor on the headnode (e.g. on the NFS server), stop here, login on the headnode end follow the instructions in the next section. On the headnode, setup Condor and set the password that will be used by the Condor system (at the prompt enter the same password for all nodes):<pre class="screen">
+source /opt/condor/condor.sh
 condor_store_cred -c add
 </pre>
    * Start up the Condor master and check for running processes <pre class="screen">
@@ -148,23 +172,6 @@ root      4410  4348  0 06:43 pts/2    00:00:00 grep condor
 </pre>
    * To shutdown <pre>/opt/condor/sbin/condor_off -master
 </pre>
-
-   * Now create configuration files for each of the hosts for editing.   All hosts must have a corresponding condor_config.${HOST} file.  In addition all compute nodes must be configured the same way, so we create links to a single compute node configuration file (=condor_config.gc1-cXXX=): <pre class="screen">
-cd /nfs/condor/condor-etc/
-cp condor_config.gc1-ce condor_config.gc1-wnXXX
-ln -s condor_config.gc1-cXXX condor_config.gc1-wn001
-ln -s condor_config.gc1-cXXX condor_config.gc1-wn002
-ln -s condor_config.gc1-cXXX condor_config.gc1-wn003
-cp condor_config.gc1-ce condor_config.gc1-ui
-</pre>
-   * For the user interface machine, where one submits jobs, edit =condor_config.gc1-ui= and enable the master and schedd processes by setting =DAEMON_LIST = MASTER, SCHEDD=
-   * For compute nodes, which run jobs, edit =condor_config.gc1-wnXXX=. Enable master and startd processes by setting =DAEMON_LIST = MASTER, STARTD= and make sure that job start also when the worker node is used by adding the line  =START=TRUE=. By default Condor waits that a host is not used interactively before starting a job. Summarizing, the lines to add/modify:<pre class="file">
-DAEMON_LIST = MASTER, STARTD
-START=TRUE
-</pre>
-   * Remove the unused configuration file in the =/scratch/condor/= directory:<pre class="screen">
-rm /scratch/condor/condor_config.local 
-</pre>
    * Enable automatic startup at boot by setting the correct path of the =condor_master= executable (=MASTER=/opt/condor/sbin/condor_master=) in the boot file =/opt/condor/etc/examples/condor.boot=. Then:<pre class="screen">
 cp /opt/condor/etc/examples/condor.boot /etc/init.d/condor
 chkconfig --level 235 condor on
@@ -174,14 +181,15 @@ cp /opt/condor/condor.sh /opt/condor/condor.csh /etc/profile.d/
 </pre> 
 
 ---++ Setting up the other nodes 
-%RED% Fix instructions, one from RPM are more clear%ENDCOLOR%
 This should be executed on all other nodes where Condor should be running (worker nodes, submit host)
-   * Create the local Condor directories in =/scratch/condor= (making sure that =execute= directory has the right permissions =a+rwx +t=) <pre class="screen">
+   * Link the installation directory and create the local Condor directories in =/scratch/condor= (making sure that =execute= directory has the right permissions =a+rwx +t=) <pre class="screen">
+ln -s /nfs/condor/condor /opt/condor
 mkdir /scratch
 mkdir /scratch/condor
 mkdir /scratch/condor/execute
 mkdir /scratch/condor/log
 mkdir /scratch/condor/spool
+chown condor /scratch/condor/*
 chmod a+rwx /scratch/condor/execute
 chmod +t /scratch/condor/execute
 </pre>
@@ -192,7 +200,8 @@ drwxrwxrwt 2 condor root 4096 Oct 15 04:07 execute
 drwxr-xr-x 2 condor root 4096 Oct 15 04:15 log
 drwxr-xr-x 2 condor root 4096 Oct 15 04:02 spool
 </pre>
-   * Set the password that will be used by the Condor system (at the prompt enter the same password for all nodes):<pre class="screen">
+   * Setup Condor and set the password that will be used by the Condor system (at the prompt enter the same password for all nodes):<pre class="screen">
+source /opt/condor/condor.sh
 condor_store_cred -c add
 </pre>
    * Enable automatic startup:<pre class="screen">
@@ -200,7 +209,12 @@ cp /opt/condor/etc/examples/condor.boot /etc/init.d/condor
 chkconfig --level 235 condor on
 </pre>
    * Add Condor commands to the user environment (if you like to have condor commands in the path): <pre class="screen">
-cp /opt/condor/condor.sh /opt/condor/consor.csh /etc/profile.d/
+cp /opt/condor/condor.sh /opt/condor/condor.csh /etc/profile.d/
+</pre>
+   * Start Condor and check the processes:<pre class="screen">/etc/init.d/condor start
+# should reply: Starting up Condor
+ps -ef |grep condor
+# you should see condor_master and the desired daemons (depending on the host)
 </pre>
 
 ---++ Upgrades
@@ -223,9 +237,9 @@ The following sections present instructions or suggestion for uncommon configura
 ---+++ Changes to the Firewall (IPtables)
 If you are using a Firewall (e.g. iptables) on all nodes you need to open the ports used by Condor:
    * Edit the =/etc/sysconfig/iptables= file to add these lines ahead of the reject line:<pre class="file">
--A RH-Firewall-1-INPUT  -s <network_address> -m state --state ESTABLISHED,NEW -p tcp -m tcp --dport 9000:10000 -j ACCEPT  
--A RH-Firewall-1-INPUT  -s <network_address> -m state --state ESTABLISHED,NEW -p udp -m udp --dport 9000:10000 -j ACCEPT 
-</pre> where the network_address is the address of the intranet of the T3 cluster. (Or the extranet if your T3 does not have a separate intranet).
+-A RH-Firewall-1-INPUT  -s &lt;network_address> -m state --state ESTABLISHED,NEW -p tcp -m tcp --dport 9000:10000 -j ACCEPT  
+-A RH-Firewall-1-INPUT  -s &lt;network_address> -m state --state ESTABLISHED,NEW -p udp -m udp --dport 9000:10000 -j ACCEPT 
+</pre> where the _network_address_ is the address of the intranet of the T3 cluster e.g. 192.168.192.0/18. (Or the extranet if your T3 does not have a separate intranet). You can omit the =-s= option if you have nodes of your Condor cluster (startd, schedd, ...) outside of that network.
    * Restart the firewall:<pre class="screen">
 /etc/init.d/iptables restart
 </pre>
