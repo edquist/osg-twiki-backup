@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1275071621" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1275086470" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="ModulesIntro"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %DOC_STATUS_TABLE%
@@ -10,6 +10,8 @@ This is a tutorial to demonstrate how to install and setup a basic CE installati
 
 These instructions assume that the Compute Element software is being installed on system following the guidelines for OSG Tier 3s. 
 These include a RHEL based OS and a Condor resource manager, installed as described in ModulesIntro. Other recommandations are at the beginning of [[ModulesIntro][that]] document. As usual different configuration will likely work but you may have to change/adapt the instructions.
+
+A more complete set of instructions is in [[ReleaseDocumentation.ComputeElementInstall][ComputeElementInstall from the release documentation]].
 
 ---+++ Requirements
 You'll need a server with the following:
@@ -45,8 +47,7 @@ ln -s pacman-3.29 pacman
 %ENDTWISTY% Once installed setup its environment with for example =source /opt/pacman/setup.sh=.  
 
 ---+++ Creating directories
-Create the installation directory and =/etc/grid security=<pre class="screen">
-mkdir /opt/osgce
+Create the installation directory and =/etc/grid security= : <pre class="screen">
 mkdir /etc/grid-security
 mkdir /etc/grid-security/http
 </pre>
@@ -59,27 +60,27 @@ Next, the host and service certificates will need to be placed in the proper pla
    * =rsvcert.pem= - RSV service certificate file
    * =rsvkey.pem= - RSV service key file
 
-Copy http certificate and key to =/etc/grid-security/http= and the host and RSV certificates and keys to =/etc/grid-security=:<pre class="screen">
-cp httpcert.pem httpkey.pem /etc/grid-security/http   
+Copy the host, RSV and http certificates and keys to =/etc/grid-security= or the correct subdirectory: <pre class="screen">
 cp hostcert.pem hostkey.pem /etc/grid-security/
-cp rsvcert.pem rsvkey.pem /etc/grid-security/
+cp rsvcert.pem rsvkey.pem /etc/grid-security/rsv/
+cp httpcert.pem httpkey.pem /etc/grid-security/http   
 </pre>
 Make sure that the owner is root:<pre class="screen">
 chown root:root /etc/grid-security/host*
-chown root:root /etc/grid-security/rsv*
+chown rsvuser:rsvuser /etc/grid-security/rsv/*
 chown root:root /etc/grid-security/http/http*
 </pre>
 Set the correct permissions for the certificate and key files:<pre class="screen">
 chmod 400 /etc/grid-security/hostkey.pem
 chmod 444 /etc/grid-security/hostcert.pem
-chmod 400 /etc/grid-security/rsvkey.pem
-chmod 444 /etc/grid-security/rsvcert.pem
+chmod 400 /etc/grid-security/rsv/rsvkey.pem
+chmod 444 /etc/grid-security/rsv/rsvcert.pem
 chmod 400 /etc/grid-security/http/httpkey.pem
 chmod 444 /etc/grid-security/http/httpcert.pem=
 </pre>
    
-Now create and set  for the OSG service directories with the correct permissions: OSG_APP, OSG_DATA, OSG_GRID. More information on all the possible service directories and on recommended configurations is in  ReleaseDocumentation.LocalStorageConfiguration. We assume a shared file system is used and <pre class="screen">
-ln -s /nfs/osg /osg
+Now create the OSG service directories with the correct permissions: OSG_APP, OSG_DATA, OSG_GRID. More information on all the possible service directories and on recommended configurations for OSG sites is in  ReleaseDocumentation.LocalStorageConfiguration. We assume a shared file system is used with the structure in ClusterNFSSetup. <pre class="screen">
+ln -s /nfs/osg /osg  # if you did not already
 mkdir -p /osg/app
 mkdir -p /osg/app/etc
 chmod 1777 /osg/app
@@ -88,219 +89,156 @@ mkdir -p /osg/data
 chmod 1777 /osg/data
 mkdir -p /osg/wn
 </pre>
-   * Create grid security directory
-<pre class="screen">
-[root@uct3-edge5 opt]# mkdir /etc/grid-security
-[root@uct3-edge5 opt]# mkdir /etc/grid-security/http
+
+---+++ RSV preparations
+%RED%Service certificate, GUMS entries%ENDCOLOR%
+RSV will need an user  account to run it's probes and a proxy.  We will use proxy generated using your user certificate (you will need to recreate and refresh it once a week).
+    * =useradd rsvuser= to create an account called rsvuser for rsv to use
+To generate the proxy, do the following:
+    * run =grid-proxy-init -valid 168:0= on a system which has your grid certificate and the osg client tools in your path
+    * run =grid-proxy-info= and then note the file given in the line starting with path (e.g. = path     : /tmp/x509up_u20016= )
+    * copy this file to =/tmp/rsv_proxy= on the machine where you are installing your CE (e.g. =scp /tmp/x509up_u20016 root@host:/tmp/rsv_proxy=)
+    * run =chown rsvuser:rsvuser /tmp/rsv_proxy= 
+
+---+++ Install worker node software
+If not already installed, install the OSG Worker Node software stack as in the [[ModulesIntro#Worker_node_client][Worker Node section of ModulesIntro]].  
+
+---++ Install and configure the CE
+Create an install directory and install the Compute Element: <pre class="screen">
+mkdir /opt/osgce
+cd /opt/osgce
+pacman -allow trust-all-caches -get http://software.grid.iu.edu/osg-1.2:ce
 </pre>
-
----+++ Installing worker node software
-   * Install WN stack
-<pre class="screen">
-[root@uct3-edge5 opt]# cd wn-1.2/
-[root@uct3-edge5 wn-1.2]# pacman -allow trust-all-caches -get http://software.grid.iu.edu/osg-1.2:wn-client
+Set the following variables to point to your Condor installation so that it is used by the CE. If you have a local resource manager different from Condor (e.g. PBS or LSF) check the [[ReleaseDocumentation.ComputeElementInstall#Install_job_managers][job manager section in the Release CE Install document]] instead.
+If you used the [[CondorRPMInstall][RPM distribution]] then set:<pre class="screen">
+export VDTSETUP_CONDOR_LOCATION=/usr
+export VDTSETUP_CONDOR_CONFIG=/etc/condor/condor_config
+</pre> else if you did the [[CondorSharedInstall][shared tar installation]] set: <pre class="screen">
+export VDTSETUP_CONDOR_LOCATION=/opt/condor
+export VDTSETUP_CONDOR_CONFIG=/opt/condor/etc/condor_config
 </pre>
-
----+++ Installing CE software
-   * Install CE stack
-<pre class="screen">
-[root@uct3-edge5 opt]# cd osg-1.2/
-[root@uct3-edge5 osg-1.2]# pacman -allow trust-all-caches -get http://software.grid.iu.edu/osg-1.2:ce
-Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check...       
-
-All prerequisite checks are satisfied.
-                                                          
-
-
-========== IMPORTANT ==========
-Most of the software installed by the VDT *will not work* until you install
-certificates.  To complete your CA certificate installation, see the notes
-in the post-install/README file.
-
-
-
-                                                                              
-Pacman Installation of OSG-1.2.0 Complete
+Now install the Condor jobmanager setup package: <pre class="screen">
+pacman -allow trust-all-caches -get http://software.grid.iu.edu/osg-1.2:Globus-Condor-Setup
 </pre>
-   * Install managed fork
-<pre class="screen">
-[root@uct3-edge5 osg-1.2]# pacman -allow trust-all-caches -get http://software.grid.iu.edu/osg-1.2:ManagedFork
+Install managed fork: <pre class="screen">
+pacman -allow trust-all-caches -get http://software.grid.iu.edu/osg-1.2:ManagedFork
 </pre>
-   * Install jobmanager setup package
-<pre class="screen">
-[root@uct3-edge5 osg-1.2]# pacman -allow trust-all-caches -get http://software.grid.iu.edu/osg-1.2:Globus-Condor-Setup
-</pre>
+<!-- Managed fork will install its own Condor if no Condor is provided using VDTSETUP_CONDOR_LOCATION, .... If Condor is found, it will be used to schedule local executions on the gatekeeper host 
+-->
 
 ---+++ Configure CE
-   * Run post-install script
-<pre class="screen">
-[root@uct3-edge5 osg-1.2]# source setup.sh 
-[root@uct3-edge5 osg-1.2]# vdt-post-install 
-Starting...
-Configuring PRIMA... Done.
-Configuring EDG-Make-Gridmap... Done.
-Configuring PRIMA-GT4... Done.
-Completed all configuration.
+Run the post-install script: <pre class="screen">
+source /opt/osgce/setup.sh 
+vdt-post-install 
 </pre>
-   * Setup CA certificates
-<pre class="screen">
-[root@uct3-edge5 osg-1.2]# vdt-ca-manage setupca --location local --url osg
-Setting CA Certificates for VDT installation at '/opt/osg-1.2'
+Setup CA certificates: <pre class="screen">
+vdt-ca-manage setupca --location local --url osg
+</pre>
+#### Add link to other CA options
 
-Setup completed successfully.
-</pre>
----++++ Modify config.ini
-   * Edit =osg/etc/config.ini=
-   * In =[Default]= section
-      * Set =localhost= to the correct dns name for your CE (e.g. localhost = your.domain)
+Edit =osg/etc/config.ini= changing the following entries (use also the comments in the file as guidelines/explanation):
+   * In the =[Default]= section:
+      * Set =localhost= to the correct FQDN (Fully qualified Domain Name) for your CE (e.g. localhost = gc1-ce.yourdomain.org)
       * Set =admin_email= to your email address
    * In the =[Site Information]= section
-      * Set =group= to OSG
-      * Set =site_name= to your site's name
-      * =sponsor= For this workshop, use 'osg'
-      * =site_policy= A url to your site's usage policy. Example: http://www.mwt2.org/policy.html
-      * =contact=, set this to your email address
-      * =city=
-      * =country=
-      * =latitude= You can set this to 0 if you do not know your lattitude
-      * =longitude= Like latitude
-   * In the =[Condor]= section
-      * =enabled= , change the =%(unavailable)s= to =%(enable)s=
-      * =home=, set this to =/opt/osg-1.2/condor=
-      * =wsgram= , change the =%(unavailable)s= to =%(enable)s=
-   * In the =[ManagedFork]= section
-      * =enabled= , change the =%(unavailable)s= to =%(enable)s=
-      * =condor_location= , change the =%(unavailable)s= to =/opt/osg-1.2/condor=
-   * In the =[Misc Services]= section
-      * =use_cert_updater= , change the =%(unavailable)s= to =%(enable)s=
-      * =authorization_method=, change the =%(unavailable)s= to gridmap
-   * In the =[Storage]= section
-      * =grid_dir= , change the =%(unavailable)s= to =/opt/wn-client=
-      * =app_dir= , change the =%(unavailable)s= to =/opt/app=
-      * =data_dir= , change the =%(unavailable)s= to =/opt/data=
-      * =worker_node_temp= , change the =%(unavailable)s= to =/tmp=
-      * =site_read= , change the =%(unavailable)s= to =/opt/data=
-      * =site_write= , change the =%(unavailable)s= to =/opt/data=
-   * In the  =[GIP]= section
-      * Remove the =%(unavailable)s= and replace it with the correct values for the variables listed below
-      * =batch= , change the =%(unavailable)s= to =condor=
-   * In the  =[Subcluster CHANGEME]= section
-      * Change name to =[Subcluster Main]=
-      * =name=, change to =Main=
-      * =node_count= , change the =NUMBER_OF_NODE= to the number of worker nodes your cluster has. For this tutorial, enter =1=
-      * =ram_mb= , change the =MB_OF_RAM= to the ram that your cluster has in MB (hint: =cat /proc/meminfo=)
-      * =cpu_module= , change the =CPU_MODEL_FROM_/proc/cpuinfo= to the model of your  cluster's cpus (hint: =cat /proc/cpuinfo=)
-      * =cpu_vendor= , change the =VENDOR_AMD_OR_INTEL= to the vendor of your  cluster's cpus (e.g. =Intel=, =AMD=)
-      * =cpu_speed_mhz= , change the =CLOCK_SPEED_MHZ= to the clock speed of your  cluster's cpus in MHz. For example, a 2.83GHz cpue runs at 2830 MHz.
-      * =cpus_per_node=, change =#_PHYSICAL_CHIPS_PER_NODE= to number of chips per node (e.g. =1=)
-      * =cores_per_node=, change =#_CORES_PER_NODE= to number of cores total in the node (e.g. =8= for a dual socket, quad core node)
-   * In the =[RSV]= section
-      * =enabled= , change the =%(unavailable)s= to =%(enable)s=
-      * =rsv_user= , change the =%(unavailable)s= to name of the account that has been created for rsv ( rsv_user)
-      * =enable_ce_probes= , change the =%(unavailable)s= to =%(enable)s=
-      * =ce_hosts= , change the =%(unavailable)s= to =%(localhost)s=
-      * =enable_gridftp_probes= , change the =%(unavailable)s= to =%(enable)s=
-      * =gridftp_hosts= , change the =%(unavailable)s= to =%(localhost)s=
-      * =use_service_cert= , change the =%(unavailable)s= to =%(enable)s=
-      * =rsv_cert_file= , change the =%(unavailable)s= to =/etc/grid-security/rsv/rsvcert.pem=
-      * =rsv_key_file= , change the =%(unavailable)s= to =/etc/grid-security/rsv/rsvkey.pem=
-      * =setup_for_apache= , change the =%(disable)s= to =%(enable)s=
+      * Set =group= to OSG for a production site (choose OSG-ITB if if is a test or you are not interested in being accounted)
+      * Set =resource_group= to your facility's name (e.g. GC1).
+      * Set =resource= to your site's name (e.g. GC1_CE). *This has to be unique in OSG!*
+      * =sponsor= Is the VO sponsoring your site, use 'osg' if none.
+      * =site_policy= is a URL to your site's usage policy. A document like: http://www.mwt2.org/policy.html
+      * =contact=, set this to your name. 
+      * Set =email= if different from the one entered above.
+      * =city= to the city that the cluster is located in.
+      * =country= to the country that the cluster is located in.
+      * =latitude= to the latitude of the cluster. Use the city given in the =city= option, see [http://www.mapsofworld.com/lat_long/][this page]] for a list, or [[http://www.realestate3d.com/gps/latlong.htm][here]] is a list of cities in the USA. You can set this to 0 if you do not know your latitude.
+      * =longitude= to the longitude of the cluster.
+   * In the =[Condor]= section set
+      * =enabled= to =%(enable)s=
+      * =condor_location= to =/usr= or =/opt/condor= depending on what you assigned to VDTSETUP_CONDOR_LOCATION above
+      * =condor_config= to =/etc/condor/condor_config= or =/opt/condor/etc/condor_config= depending on whet you assigned to  VDTSETUP_CONDOR_CONFIG
+      * =wsgram= to =%(enable)s=
+   * In the =[ManagedFork]= section set 
+      * =enabled= to =%(enable)s=
+   * In the =[Misc Services]= section, set :
+      * =use_cert_updater= to =%(enable)s=
+      * If the CE is using gums, set:
+         * =authorization_method= to =xacml=
+         * =gums_host= to your GUMS server, e.g. =gc1-gums.yourdomain.org=
+      * If the CE is using a gridmap file, set:
+         * =authorization_method= to =gridmap=
+      * =enable_webpage_creation= to =%(enable)s=
+<!--
+   * In the  =[CEMon]= section, set the following options:
+      * =enabled= to =%(enable)s=
+      * =ress_servers= to =https://gs-ress.uchicago.edu:8443/ig/services/CEInfoCollector[OLD_CLASSAD]=
+      * =bdii_servers= to =http://gs-bdii.uchicago.edu:14001[RAW]=
+-->
+   * In the =[Storage]= section, set:
+      * =grid_dir= to =/osg/wn=
+      * =app_dir= to =/osg/app=
+      * =data_dir= to =/osg/data=
+      * =worker_node_temp= to =/tmp=
+<!--
+      * =site_read= to =/osg/data=
+      * =site_write= to =/osg/data=
+-->
+   * In the  =[GIP]= section, set:
+      * =batch= to =condor=
+   * In the  =[Subcluster CHANGEME]= section, set the following options:
+      * Change name of the section to =[Subcluster Main]=
+      * =name= to =Main=
+      * =node_count=  to the number of worker nodes your cluster has. At least =1=
+      * =ram_mb= to the amount of ram that worker nodes in your cluster have in MB (check: =cat /proc/meminfo=). Has to be >=500
+      * =cpu_model= to the model of your  cluster's CPUs.  You can get this information by running =cat /proc/cpuinfo=
+      * =cpu_vendor= to the vendor of your  cluster's CPUs (e.g. =Intel= or =AMD=)
+      * =cpu_speed_mhz= to the clock speed of your  cluster's CPUs in MHz. For example, a 2.83GHz CPU runs at 2830 MHz.
+      * =cpu_platform= to the CPU platform (e.g. =i686= or =x86_64=)
+      * =cpus_per_node= to number of chips per node (e.g. =1=)
+      * =cores_per_node= to the total number of cores in the node (e.g. =8= for a dual socket, quad core node)
+<!--
+   * In the  =[Gratia]= section, set the following options:
+      * =enabled= to =%(enable)s=
+      * =probes= to =jobmanager:gs-gratia.uchicago.edu:80, metric:rsv-itb.grid.iu.edu:8880=
+-->
+   * In the  =[SE CHANGEME]= section, set the following options:
+      * =enabled= to =%(disable)s=
+   * In the =[RSV]= section, set the following options:
+      * =enabled= to =%(enable)s=
+      * =rsv_user= to =rsvuser=
+      * =enable_ce_probes= to  =%(enable)s=
+      * =ce_hosts= to =%(localhost)s=
+      * =enable_gridftp_probes= to =%(enable)s=
+      * =gridftp_hosts= to =%(localhost)s=
+<!-- to run RSV as user, instead of service entries
+      * =proxy_file= to =/tmp/rsv_proxy=
+-->
+      * =use_service_cert= to =%(enable)s=
+      * =rsv_cert_file= to =/etc/grid-security/rsv/rsvcert.pem=
+      * =rsv_key_file= to =/etc/grid-security/rsv/rsvkey.pem=
+      * =setup_for_apache= to  =%(enable)s=
 
----++++ Run configure-osg
-   * Verify configuration
-<pre class="screen">
-[root@uct3-edge5 osg-1.2]# configure-osg -v
-Using /opt/osg-1.2/osg/etc/config.ini for configuration information
-Configuration verified successfully
+Verify configuration with =configure-osg -v=, fix eventual error or missing entries, then configure the system: <pre class="screen">
+configure-osg -c
 </pre>
-   * Configure system
-<pre class="screen">
-[root@uct3-edge5 osg-1.2]# configure-osg -c
-Using /opt/osg-1.2/osg/etc/config.ini for configuration information
-running 'vdt-register-service --name fetch-crl --enable'... ok
-Running /opt/osg-1.2/fetch-crl/share/doc/fetch-crl-2.6.6/fetch-crl.cron, this process make take some time to fetch all the crl updates
-running 'vdt-register-service --name vdt-update-certs --enable'... ok
-running 'vdt-register-service --name edg-mkgridmap --enable'... ok
-running 'vdt-register-service --name gums-host-cron --disable'... ok
-PRIMA for GT4 web services has been disabled
-You will now be using a grid-mapfile for authorization.
-Modifications to the /etc/sudoers file are still required.
-You will need to restart the /etc/init.d/globus-ws container
-to effect the changes.
-Running /opt/osg-1.2/edg/sbin/edg-mkgridmap, this process make take some time to query vo and gums servers
-The following consumer subscription has been installed:
-	HOST:    https://osg-ress-4.fnal.gov:8443/ig/services/CEInfoCollector
-	TOPIC:   OSG_CE
-	DIALECT: OLD_CLASSAD
-
-running 'vdt-register-service --name tomcat-55 --enable'... ok
-The following consumer subscription has been installed:
-	HOST:    http://is-itb.grid.iu.edu:14001
-	TOPIC:   OSG_CE
-	DIALECT: RAW
-
-running 'vdt-register-service --name tomcat-55 --enable'... ok
-running 'vdt-register-service --name mysql5 --enable'... ok
-running 'vdt-register-service --name gsiftp --enable'... ok
-Not defined: PER_JOB_HISTORY_DIR
-running 'vdt-register-service --name gratia-condor --enable'... ok
-INFO: Attempting to install latest RSV package from release repository. 
-INFO: Attempting to install RSV consumers. 
-INFO: Attempting to install RSV probes on appropriate URI(s). 
-INFO: Creating .sub files for RSV probes of type OSG-Local-Monitor
-	 for URI: uct3-edge5.uchicago.edu (host: uct3-edge5.uchicago.edu)
-INFO: Creating .sub files for RSV probes of type OSG-CE
-	 for URI: uct3-edge5.uchicago.edu (host: uct3-edge5.uchicago.edu)
-INFO: Re-using metrics config file for uct3-edge5.uchicago.edu
- /opt/osg-1.2/osg-rsv/config/uct3-edge5.uchicago.edu_metrics.conf
- Existing settings like on/off and metric intervals will be re-used.
- Any new metrics found in probe set will be added with their default settings.
-
-INFO: Creating .sub files for RSV probes of type OSG-GridFTP
-	 for URI: uct3-edge5.uchicago.edu (host: uct3-edge5.uchicago.edu)
-INFO: Re-using metrics config file for uct3-edge5.uchicago.edu
- /opt/osg-1.2/osg-rsv/config/uct3-edge5.uchicago.edu_metrics.conf
- Existing settings like on/off and metric intervals will be re-used.
- Any new metrics found in probe set will be added with their default settings.
-
-running 'vdt-register-service --name condor-cron --enable'... ok
-running 'vdt-register-service --name condor --enable'... ok
-running 'vdt-register-service --name vdt-rotate-logs --enable'... ok
-running 'vdt-register-service --name apache --enable'... ok
-running 'vdt-register-service --name globus-gatekeeper --enable'... ok
-running 'vdt-register-service --name globus-ws --enable'... ok
-Configure-osg completed successfully
-
-</pre>
+<!--
    * Add your grid certificate DN to =/etc/grid-security/gridmap= if it's not there. E.g.
 <pre class="screen">
 [root@uct3-edge5 var]# echo "/DC=org/DC=doegrids/OU=People/CN=Suchandra Thapa 757586" sthapa > /etc/grid-security/gridmap
 </pre>
+-->
 
-----+++ Turn on software
-   * Run vdt-control
-<pre class="screen">
-[root@uct3-edge5 osg-1.2]# vdt-control --on
-enabling cron service fetch-crl... ok
-enabling cron service vdt-rotate-logs... ok
-enabling cron service vdt-update-certs... ok
-skipping init service 'gris' -- marked as disabled
-enabling inetd service globus-gatekeeper... ok
-enabling inetd service gsiftp... ok
-enabling init service mysql5... ok
-enabling init service globus-ws... ok
-skipping cron service 'gums-host-cron' -- marked as disabled
-skipping init service 'MLD' -- marked as disabled
-enabling init service condor-cron... ok
-enabling init service apache... ok
-enabling init service tomcat-55... ok
-enabling init service condor... ok
-enabling cron service gratia-condor... ok
-enabling cron service edg-mkgridmap... ok
-enabling init service osg-rsv... ok
+----++ Start/stop the CE
+To start the CE (ten will remain on also after a reboot): <pre class="screen">
+source /opt/osgce/setup.sh
+vdt-control --on
 </pre>
 
-----+++ Verification
+To stop a CE: <pre class="screen">
+source /opt/osgce/setup.sh
+vdt-control --off
+</pre>
+
+----++ Verification
    * Run site_verify
 <pre class="screen">
 [sthapa@uct3-edge5 ~]$ cd /opt/osg-1.2/verify
@@ -429,6 +367,7 @@ Info: Site verification completed at Wed Aug  5 20:23:11 2009 GMT.
 ---++References
 
    1 [[WebHome][Release Documentation]]
+   1 
 
 %BR%
 
