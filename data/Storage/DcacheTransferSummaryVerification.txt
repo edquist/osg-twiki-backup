@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianBockelman" date="1275065156" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="BrianBockelman" date="1275078566" format="1.1" version="1.2"}%
 ---+ Verifying the Summarization of the DCache Transfer Probe 
 
 *NOTE*: This page is an internal note for the OSG-Storage team.  It is not meant for the external sysadmin
@@ -18,10 +18,42 @@ dd if=/dev/zero of=/tmp/testfile bs=1MB count=1
 Copy this file into dCache 10 times.  Because there's only one pool online, each should go to the same pool.
 
 ---++ Start probe
-Edit the ProbeConfig to verify your settings.  The following lines should be set:
+Edit the !ProbeConfig to verify your settings.  The following lines should be set:
 
 <pre class="screen">
 CollectorHost="http://gratia-osg-itb-reports.opensciencegrid.org:80"
+Summarize="1"
 </pre>
 
----++ 
+Summarize likely isn't in the !ProbeConfig by default
+
+Start the probe with the init:
+<pre class="screen">
+/etc/init.d/gratia-dcache-transfer start
+</pre>
+
+---++ Wait
+
+The probe will only send records for complete hours, and it waits some amount of time (15 minutes) after the end of the hour before attempting to send any.
+
+So, the probe will summarize records from 1:00PM to 2:00PM starting at 2:15PM.
+
+So, you probably need to wait at this point.  Watch the probe's logs (/opt/d-cache/gratia/var/logs/[DATE].log) and wait for at least one non-handshake record to be sent.
+
+---++ Verify records 
+
+Navigate to this link:
+http://gratia-osg-itb-reports.opensciencegrid.org/gratia-reporting/showQuery.jsp?ReportTitle=Go%20Go%20Gadget%20dCache-transfer-probe&displayReport=false&__title
+
+This will allow you to query the DB for records.  Try this query:
+<pre class="screen">
+select JUR.dbid, LocalJobID, VOName, WallDuration, Njobs, StartTime, EndTime, ResourceType from JobUsageRecord JUR join JobUsageRecord_Meta JURM on JUR.dbid=JURM.dbid where ProbeName like "dcache-transfer:%" limit 10;
+</pre>
+Look for a records which have Njobs > 1.  These are summarized records.  If you copied the file in 10 times, it should have Njobs=10.
+
+Take the dbid from one of the previous summarized records.  Verify the data transferred is correct.
+<pre class="screen">
+select IF(`Value` > 0, `Value`, 0) as TransferSize from JobUsageRecord JUR join Network N on (JUR.dbid = N.dbid) where JUR.dbid=INSERT_DBID_HERE limit 1;
+</pre>
+
+The data volume should be the file size times the number of times you transferred the file.
