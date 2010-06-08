@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TedHesselroth" date="1276015166" format="1.1" reprev="1.16" version="1.16"}%
+%META:TOPICINFO{author="TedHesselroth" date="1276026483" format="1.1" reprev="1.17" version="1.17"}%
 %META:TOPICPARENT{name="OpportunisticStorage"}%
 ---+*%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -144,7 +144,21 @@ Available blackboard objects are listed for each rule.
 21) acPostProcForRmColl - Scollection and SuserAndConn 
 </pre>
 
----+++ OSG iRODS Program of Work for Shadow Storage Option
+---+++ OSG iRODS Program of Work for Discovery
+
+   1. Install OSG Discovery Tools on iRODS server.
+   1. Install and run Pidgeon access checker for Engage VO or collect results from VO-run Pidgeon.
+   1. Identify Storage Elements on which the VO can store data.
+   1. Write a rule to be triggered in the post-processing after the creation of a collection.
+      1. Find a Storage Element with sufficient available space. It would be good have have an option for mkdir in which one can specify the expected size of the collection.
+         1. Or, as shadow files are added (see below) compute the space used and move the collection to another storage resource if necessary.
+      1. Add a user-defined Attribute-Value-Unit triplet to the collection metadata specifying the storage resource.
+         1. Add attributes for the TURL or SURL.
+   1. If the user has additional storage or compute profile requirements, they are added as metadata values.
+      1. A rule for acPostProcForModifyCollMeta is invoked to rediscover and change the storage resource as needed.
+      1. Add attributes for the compute element endpoint.
+
+---+++ OSG iRODS Program of Work for Data Transfer
 
 A plan sketch would be the following. The work starts with the Data Transfer function.
 
@@ -173,7 +187,7 @@ A plan sketch would be the following. The work starts with the Data Transfer fun
    1. Write and test rules using the msiExecCmd microservices for Discovery, Catalog, and Management functions.
 
 
----+++ Component Design for Shadow Storage Option
+---+++ Component Design for Data Transfer
 
 How the scripts that invoke specific operations can be written such that iRODS and currently available tools can work together and support the requirements of the model.
 
@@ -208,15 +222,19 @@ The complete list of file operations is: univMSSFileCreate, univMSSFileOpen, uni
    1. postprocessing
          1. OSG Storage Federation accounting.
 
+---++++ Results for Data Transfer.
 
----+++ OSG iRODS Program of Work for iCAT-only Option
+Python scripts have been written for client and server for a test function, and a file transfer was done using the above model.
+
+
+---+++ OSG iRODS Program of Work for Catalog
 
    1. Decide on Catalog and Management capability requirements.
    1. Determine what iRODS functionality is available that does not involve data operations.
    1. Sketch a framework that would use available functionality and possible supplemental tools to meet requirements.
    1. Assess complexity/effort/risk if creating/acquiring the framework.
 
----++++ Results for iCAT-only Option
+---++++ Results for iCatalog
 
 There are four user commands available for accessing iCAT.
 
@@ -241,7 +259,30 @@ imeta
 For defining a dataset, one could
 
    1. Register zero-length files in a collection. It would be good to be able to use DATA_STATUS to show the file has not been uploaded. One could also use DATA_STATUS to show if a file upload is in progress. A useful option that could be added to ireg would be a "force", which would not check for the existence of a file and perhaps the ability to specify the file size.
+      1. A collection is created.
+      1. The members of the dataset are put as zero-length files with the name being the VO-portion of the logical filename (and path).
+      1. A status attribute of DEFINED is set in each files user-specified metadata.
    1. Add the dataset filenames as metadata in a collection with value as status, DEFINED, UPLOADING, etc. Use imeta ls or iquest to find dataset info.
+      1. A collection is created.
+      1. The names of the files in the dataset are added as name-value pairs with the name being the VO-portion of the logical filename (and path) and the value being DEFINED.
+      1. An Attribute-Value-Unit triplet is created with the dataset name and value ALL_DEFINED.
+      1. Push model: when the iRODS server orchestrates a file put, it
+         1. Assigns a storage resource (via discovery) to the collection if it is empty. Sets the dataset AVU to PROCESSING.
+         1. Parses the logical filename to find out if the file is part of a dataset. If so, the status is changed to UPLOADING.
+         1. Gets the return status from the client.
+         1. Sets the value to either UPLOADED or FAILED depending on the return status.
+         1. Checks whether all files in the dataset have status UPLOADED.
+         1. If so, sets the dataset value to ALL_UPLOADED.
+      1. Pull model: when a job starts to run on a resource, it
+         1. Queries the grid iCAT to see if there are collections on the associated storage resource with dataset AVU of ALL_DEFINED, ALL_UPLOADED, or PROCESSING.
+         1. If so, sets the dataset AVU to PROCESSING.
+         1. Queries iCAT to find a file with status of DEFINED or UPLOADED.
+         1. If the status is DEFINED, transfers the file from the user to the storage resource or worker node.
+         1. If the status is UPLOADED, accesses the file from the storage resource.
+         1. Sets the status to IN_USE and begins processing.
+         1. When processing is finished, sets the status to PROCESSED.
+         1. Checks whether all files in the dataset have status PROCESSED.
+         1. If so, sets the dataset value to ALL_PROCESSED.
   
 ---+++Directing a collection to a resource
 
@@ -442,6 +483,13 @@ META_COLL_ATTR_VALUE = DEFINED
 ------------------------------------------------------------
 COLL_NAME = /GridWorksZone/home/tdh/dataset1
 META_COLL_ATTR_VALUE = UPLOADING
+------------------------------------------------------------
+iquest "SELECT COLL_NAME, META_COLL_ATTR_NAME WHERE META_COLL_ATTR_VALUE like 'DEFINED'"
+COLL_NAME = /GridWorksZone/home/tdh/dataset1
+META_COLL_ATTR_NAME = OurVOName/dataset/file8A1
+------------------------------------------------------------
+COLL_NAME = /GridWorksZone/home/tdh/dataset1
+META_COLL_ATTR_NAME = OurVOName/dataset/file8A3
 ------------------------------------------------------------
 </pre>
 
