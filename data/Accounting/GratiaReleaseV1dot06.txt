@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="PhilippeCanal" date="1276007381" format="1.1" reprev="1.11" version="1.11"}%
+%META:TOPICINFO{author="PhilippeCanal" date="1276012003" format="1.1" reprev="1.12" version="1.12"}%
 %META:TOPICPARENT{name="WebHome"}%
 <!--
 These are general in nature and should be changed in the this template if the location changes:
@@ -18,9 +18,6 @@ These are specific to a release and require changing:
 
    * Set BUILD_DIRECTORY = /home/weigand/cdcvs/gratia-%CURRENT_RELEASE%
 
-
-
-
 -->
 ---+!! Gratia Release %CURRENT_RELEASE% (%RELEASE_DATE%)%BR% 
 
@@ -34,111 +31,79 @@ These are specific to a release and require changing:
 
 ---++Main Features:
    * Maintenance release.
-   * See previous patch release [[GratiaReleaseV1dot06dot14][v1.06.14]]
-   * Enable summarization of full DN.
-   * Enable fully new records types (!ComputeElement, !ComputeElementRecord, Cluster, etc.)
-   * Performance and robustness improvements. 
-   * Security fixes to administration pages.
-   * Collector-collector replication protects against bundles being too large to send.
+   * See previous patch release [[GratiaReleaseV1dot06dot14][v1.06.14]] for changes since v1.04.
+
+   * Implement cutoff date.
+   * Speed up housekeeping deletion (and remove use of temporary table).
+   * Additional housekeeping logging.
 
 ---++ Probe Improvements:
 
-   * Properly enforce the limitation of the number of outstanding records on the probe side.
-   * Improve the recovery in case of large backlog and in the case of the long running probe (dCache probe for example).
-   * Protect against bundles being too large to send.
-   * "Emergency" cleanup when disk space is tight.
-   * Condor probe copes with composite ~X509USERPROXYSUBJECT in 7.3.2 and 7.4.0.
-   * SGE probe copes with incomplete log lines.
-   * PBS / LSF probe fixes handling of multi-processor job records.
+   * Add summarization capability to the dCache probe.
+   * Separate the !JobUsageRecord support form the main library which is now !GratiaCore.py
 
 ---+++ Details
 
-Pending files are now stored in a separate directory for each probes, still under the gratiafiles directory.
+   * Tweak !ProbeConfig extra items for dCache-transfer probe.
+   * Reorganize !GridFtpLogDir config item insertion..
+   * Sleep and configurable DB name for dCache-transfer probe.
+   * Core updates for HTTP timeout waiting for acknowledgement from collector.
+   * Improve connection timeout mesage to avoid confusion.
+   * Improvements to xrootd probe.
+   * Fix for staticmethod (make it work in 2.3).
+   * Fix mechanism intended to avoid corruption caused by reading in-progress log.
+   * Robustness fix to !GetNodeData function in Gratia.py.
+   * Fix for exception in debug statements in Gratia.py.
+   * Increase default !BundleSize to 100 in !ProbeConfigTemplate and Gratia.py.
+   * Remove unecessary dependencies from dCache-storage probe.
+   * !EGEE-provided probe is now version-controlled instead of unpackaged and patched from source.
+   * Unused !GridftpTransfer.sh script removed prior to final packaging.
+   * Condor probe security fixes from Wisconsin.
+   * Add gratia-probe-services as a dependency to the xrootd-storage probe
+   * Fix to cron scripts for !WorkingFolder discovery in dCache-storage and gridftp-transfer cron scripts.
+   * Remove erroneous ITB tag for services API package.
+   * Better use of lock files in *_cron.sh.
+   * Fixes and updates to dCache-storage probe, including addition of !README file to package.
+   * Added redesigned xrootd-transfer probe
+   * Minor updates for the xrootd-storage probe found in testing.
+   * Fix to condor probe for standalone (non-VDT) operation.
 
-The directory is named subir.[ProbeName].[CollectorHost] with the : and / replaced with _
-
-The pending files are placed in a subdirectory of this probe specific directory named 'outbox'.
-
-Introduced the concept of staging of records:
-
-When the outbox is full (i.e. number of files greater or equal to
-MaxPendingFiles) instead of stopping the processing, we now
-tar and bzip2 the content of outbox and place it in a subdirectory
-named 'staged/stored'.   The archive is a simple bzip2 tar file
-of the record without any pathname included.
-
-When reprocessing file, we decompress each tar file (one at a time)
-into the subdirectory 'staged/outbox'
-
-The maximum number of tar file is limited by get_MaxStagedArchives.
-When this maximum is reach, new record are rejected.
-
-So the maximum number of physical files for each probes is
-    2 * MaxPendingFiles + MaxStagedArchives
-
-The maximum of outstanding records is
-    2 * MaxPendingFiles + MaxStagedArchices*MaxPendingFiles
 
 ---++ Collector Improvements:
 
-   * Fix generation of !CommonName from DN when one of the CN names contains a /
+   * Add a publicly available summary of the replication 
 
-   * References to "listener" and "ListenerThread" in code, configurations
-  and documentation replaced by less confusing recordProcessor and
-  !RecordProcessor respectively. Old configuration entries still
-  supported if new ones are not present.
+   * In addition to the expiration date, when there is a limited retention of the records,
+we also reject the records that are in the future.  For now, the rejection is set to
+the same duration as the expiration.  For example if the service.lifetime.JobUsageRecord is
+set to 3 months, we reject all !JobUsageRecord that are either set more than 3 months in
+the past or more than 3 months in the future.
 
-   * Improvements to !ComputeElement, !ComputeElementRecord, !StorageElement,
-  !StorageElementRecord and !ClusterRecord handling from Brian B.
+   * Increase the default batch size for row deletion from 200 to 1000.
+   * Change the default fault batch size for _Xml row deletion to 100000.
 
-   * Major improvements to handling of exception conditions during record
-  handling, especially transient DB lock failures and outages.
+   * Introduce the 2 customizable parameters:
 
-   * Major performance improvements for record handling. Peak sustainable
-  record processing speed while not running housekeeping or backups
-  exceeds 180K/h.
+      * service.lifetimeManagement.BatchSize and service.lifetimeManagement.XmlBatchSize
 
-   * Initial states of recordProcessor, servlets, replication and
-  housekeeping may now be set in the configuration file.
+   * Add an index to quickly find empty !ExtraXml
 
-   * XML fields expanded to MEDIUMTEXT to cope with largeer record sizes.
+   * Rework the row deletion from !RecordType_Xml.
 
-   * Suspect files are now quarantined in gratia/data/quarantine.
+      a. We no longer keep the row when the !EndTime is greater than the !ServerDate (and !EndTime was greater than the cutoff date).
+      a. We no longer use a temporary table.
+      a. Improve the 'limited' delete query by using a dbid range to restrict the searches.
+         1. We find the maximum plausible dbid by searching in !RecordType_Meta for the dbid clause to or equal to the limit date
+         1. We find the minimum plausible dbid by searching in !RecordType_Xml for the first dbid with !ExtraXml==""
+         1.  the delete query where clause is:
+   !ExtraXml = "" and !ServerDate < :dateLimit and :mindbid <= X.dbid and X.dbid < :maxdbid
 
-   * Incoming data are staged in gratia/data/stage before being moved to
-  gratia/data/thread0. This requires everything under gratia/data to be
-  on the same filesystem.
+   * On gr8x0 the current (typical rate) are (for a Transfer record database):
+      * !JobUsageRecord_Xml 10000 rows per second (so for a typical transaction time of 10s).
+      * !JobUsageRecord_Meta  120 rows per second (so for a typical transaction time of  9s).
+      * The other deletion are more than 1000 rows per seconds such that the total time is completely dominated by _Meta.
 
-   * Other improvements to data input to prevent race problems.
-
-   * New item in the batch job summary table: !DistinguishedName.
-
-   * Cut down log file chatter for less verbose levels. Generally improve
-  usefulness of log entries.
-
-   * Improve handling of overlarge values for DB fields.
-
-   * Fix authorization issues with POST functionality on some admin pages.
-
-   * Replace all interaction between admin pages and DB using input data
-  with prepared statements to prevent even the slightest possibility of
-  SQL injection.
-
-   * Improve flexibility of !VONameCorrection admin page.
-
-   * Update hibernate and other third-party libraries.
-
-   * Summary views now include Grid column.
-
-   * Improvements to handling of reports with missing data for long
-  periods.
-
-   * Some old and very complicated schema update code has been removed. If
-  you need to upgrade from a *very* old version of the collector (0.32
-  or older) you will need to install v1.02 and use it to upgrade the
-  schema prior to upgrading to v1.06.
-
-   * Glexec !ResourceType is corrected to !BatchPilot as appropriate.
+   * Add index !ComputeElement(!UniqueID, !Timestamp)
 
 ---+++ Pending explicit request from Stakeholders.
    * Improve response time of Status page.
@@ -149,7 +114,7 @@ The maximum of outstanding records is
 
    * Web Services *must* be improved to pass the cert info along to the Gratia Accounting Probes.
 
----++ Additional Features:
+<!--  ---++ Additional Features:  -->
 
 <!--   -------------------------------------------- -->
 ---+ Anticipated downtime
