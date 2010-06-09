@@ -1,46 +1,46 @@
-%META:TOPICINFO{author="RobGardner" date="1273672535" format="1.1" version="1.35"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1276104618" format="1.1" reprev="1.36" version="1.36"}%
 %META:TOPICPARENT{name="WebHome"}%
----+!! *<nop> Xrootd Installation*
+---+!! <nop>%SPACEOUT{%TOPIC%}%
 %TOC%
 
 ---++ Introduction
-Xrootd is a high performance network storage system widely used in high energy physics experiments such as ATLAS and ALICE. The underlying Xroot data transfer protocol provides highly efficient access to ROOT based data files.  This page provides instructions for creating a simple Xrootd storage system consisting of:
-   * One redirector node
-   * One or more data server node(s)
+Xrootd is a high performance network storage system widely used in high energy physics experiments such as ATLAS and ALICE. The underlying Xroot data transfer protocol provides highly efficient access to ROOT based data files.  This page provides instructions for creating a simple Xrootd storage system consisting of one redirector node and one or more data server nodes.  
 
+For usage instructions check XrootdClient.
 
 ---++ Getting Started
 
----+++ Identify hosts and roles
-   * Identify the redirector node
-   * Identify the data server(s)
+---+++ Hosts: Roles & Firewalls (Cluster Administrator)
+Identify hosts for the redirector, data server(s) and an interactive-user node which will mount the Xrootd file system (using !XrootdFS).  We recommend not running a data server on the same host as the redirector.  Check the firewall configuration on these hosts following guidelines below.  If all hosts are on the public network that is easiest.  
 
----+++ Check firewall rules
-It is important to make sure your firewall (if any) isn't blocking the ports that Xrootd uses for communication.  Otherwise, it becomes difficult to diagnose errors and failures may occur.  Xrootd uses the following ports:
 
-| *Host* | *Port Number* | *Protocol* |
-|!Xrootd data server| random ports selected by the OS |tcp|
-|!Xrootd redirector|1094|tcp|
-||2094|tcp|
-||1213|tcp|
-
-Check the firewall rules with =/etc/init.d/iptables status=.   See below for more information on firewall configuration settings for Xrootd.
-
----+++ Create the xrootd user account
-You need a non privileged Xrootd user account on the redirector and all data servers, and that user *must have a login shell*.    If you manage your accounts by hand (rather than using a service such as LDAP) you would, on your management node:
+---+++ Create the Xrootd administrative account (Cluster Administrator)
+You need a non-privileged Xrootd administrative Unix account (e.g. =xrdadmin=) on the redirector and all data servers, and that Unix account *must have a login shell*.    If you manage your accounts by hand (rather than using a service such as LDAP) you would, on your management node:
 <pre class="screen">
-/usr/sbin/groupadd xrootd 
-/usr/sbin/useradd --gid xrootd xrootd
+/usr/sbin/groupadd xdradmin 
+/usr/sbin/useradd --gid xrdadmin xrdadmin
 </pre>
 and copy =/etc/passwd, /etc/shadow, /etc/group,= and =/etc/gshadow= to each of the xrootd nodes.
 
----+++ Install Pacman
-Pacman is a package management program used to install OSG software.
-ReleaseDocumentation.PacmanInstall describes how to install Pacman.
-You may select  =/opt/pacman= as the installation directory.<br>
+
+---+++ Prepare the storage directories (Cluster Administrator)
+We recommend using the same pathnames for all data server nodes.  For larger data servers we recommend creating a separate partition (from the system partition) for these directories (see below).  The directories have the following roles:
+   * _/storage/path_ : a directory containing internal Xrootd references to files in the system. 
+   * _/storage/cache_: where physical files are stored
+On each data server, prepare the directories and give ownership to the *xrdadmin* account which will be used by the Xrootd administrator.
+<pre class="screen">
+mkdir -p /storage/path
+mkdir -p /storage/cache
+chown xrdadmin:xrdadmin /storage/path
+chown xrdadmin:xrdadmin /storage/cache
+</pre>
+
+
+---+++ Install Pacman 
+Pacman is a package management program used to install OSG software.   ReleaseDocumentation.PacmanInstall describes how to install Pacman which can be installed by either the cluster administrator or the (non-privileged) Xrootd administration account.  For example the cluster administrator might install this in  =/opt/pacman= such as in the following
 %TWISTY{
 mode="div"
-showlink="Show an example of how to install Pacman..."
+showlink="Pacman installation example."
 hidelink="Hide"
 showimgleft="%ICONURLPATH{toggleopen-small}%"
 hideimgleft="%ICONURLPATH{toggleclose-small}%"
@@ -54,26 +54,20 @@ source setup.sh
 cd ..
 ln -s pacman-3.29 pacman
 </pre>
-%ENDTWISTY%
-Once Pacman is installed do: =source /opt/pacman/setup.sh=.  You are ready to install Xrootd.
+%ENDTWISTY% Once installed setup its environment with for example =source /opt/pacman/setup.sh=.  
 
----++ Installing and configuring the redirector
-Two areas need to be setup: _storage_path_ and _storage_cache_. You may use  separate disk partitions for these but for the redirector we recommend simply creating two directories:
-   * /storage/cache is a service directory for the redirector. 
-   * /storage/path is a directory containing internal Xrootd references to files in the system.  Xrootd clients access files using _storage_path_. 
+
+---++ Installing and configuring the redirector 
+From the Xrootd administrative account (=xrdadmin=), create an installation directory and assign its path to $INSTALL_DIR. 
 <pre class="screen">
-mkdir -p /storage/path
-mkdir -p /storage/cache
+export INSTALL_DIR=/path_to_xrootd_installation_directory
+mkdir -p $INSTALL_DIR
+cd $INSTALL_DIR
 </pre>
 
-Next create and change to an installation directory. <pre class="screen">
-mkdir -p /opt/xrootd/
-cd /opt/xrootd/
-</pre>
-
-Install the !Xrootd package from the %CACHE% cache.  Pacman will ask whether you want to trust the cache (answer =yall=).
+Install the !Xrootd package from a VDT software cache.  Pacman will ask whether you want to trust the cache (answer =yall=).
 <pre class="screen">
-pacman -get %CACHE%:Xrootd
+pacman -get http://vdt.cs.wisc.edu/vdt_200_cache:Xrootd  
 </pre>
 
 Update the environment and run the post installation script:
@@ -86,17 +80,18 @@ You can verify that the version installed is the version you expected by invokin
 vdt-version
 </pre>
 
-This completes the installation part of the Xrootd redirector. The next step is to configure the Xrootd redirector.
-   * $VDT_LOCATION is the installation directory of the Xrootd redirector (=/opt/xrootd=)
-   * =xrootd= is the non-privileged user that runs the Xrootd redirector service 
-   * =/storage/cache= and =/storage/path= are the directories discussed above
-   * =--public-cache-size 1= is a configuration option necessary for historical reasons (it will be removed from future releases).
-
+The next step is to configure the Xrootd redirector. A full list of configuration options are documented by =man configure_xrootd=.
 <pre class="screen">
-cd /opt/xrootd
+cd $INSTALL_DIR
 source setup.sh
-$VDT_LOCATION/vdt/setup/configure_xrootd  --server y  --user xrootd  --this-is-xrdr --xrdr-storage-path /storage/path   --xrdr-storage-cache /storage/cache --public-cache-size 1
-</pre>
+$VDT_LOCATION/vdt/setup/configure_xrootd --server y --this-is-xrdr  --storage-path /storage/path --storage-cache /storage/cache  --enable-security --set-data-server-xrd-port 1093</pre>
+Note:
+   * $VDT_LOCATION is the installation directory (same as $INSTALL_DIR, a standard variable put into the shell environment by the VDT setup script)
+   * =/storage/cache= and =/storage/path= are the directories discussed above
+   * =--enable-security= is a configuration option necessary to enable security (user ownership on directories)
+   * By default client access is permitted to any host in your domain.  To restrict access or allow client access from hosts outside your local domain, use the option =--set-security-binding=  followed by the domain from which the clients can contact the data server nodes.  A wildcard is accepted.  Multiple domains can be specified by supplying a comma separated list. The default is your domain (same as =--set-security-binding *.yourdomain.edu=).
+   * See the Access Control Lists section in Advanced Topics below for information about file access defaults and customization.
+   * =--set-data-server-xrd-port 1093= sets the port used by the xrd daemon on the data servers. If 1093 is busy choose a different port and change accordingly the Firewall configuration (see the advanced section below). If you do not specify this option Xrootd uses a random available port (ephemeral port) and that may conflict with Firewall restrictions on the data servers.
 
 Now =vdt-control -list= shows the Xrootd service is installed:
 <pre class="screen">
@@ -108,173 +103,187 @@ xrootd                  | init   | enable
 
 Startup the redirector:
 <pre class="screen">
-vdt-control --on
+vdt-control --non-root --on
 </pre>
 
-Here is an example of running Xrootd redirector services (=xrootd= is the Xrootd user):
+Here is an example of running Xrootd redirector services (=xrdadmin= is the Xrootd administrator):
 <pre  class="screen">
 ps -fu xrootd
 UID        PID  PPID  C STIME TTY          TIME CMD
-xrootd    2852     1  0 Apr20 ?        00:00:00 /opt/xrootd/xrootd/bin//xrootd -l /opt/xrootd/xrootd/var/logs/xrdlog -c /opt/xrootd/xrootd/etc/xrootd.cfg
-xrootd    2913     1  0 Apr20 ?        00:00:00 /opt/xrootd/xrootd/bin//xrootd -n xrootd_cnd -l /opt/xrootd/xrootd/var/logs/xrdlog -c /opt/xrootd/xrootd/e
-xrootd    2985     1  0 Apr20 ?        00:00:00 /opt/xrootd/xrootd/bin//cmsd -l /opt/xrootd/xrootd/var/logs/cmslog -c /opt/xrootd/xrootd/etc/xrootd.cfg
-<!--
-ps ax | grep xrootd
-13479 pts/2    Sl     0:00 /opt/xrootd/xrootd/bin//xrootd -l /opt/xrootd/xrootd/var/logs/xrdlog -c /opt/xrootd/xrootd/etc/xrootd.cfg
-13537 pts/2    Sl     0:00 /opt/xrootd/xrootd/bin//xrootd -n xrootd_cnd -l /opt/xrootd/xrootd/var/logs/xrdlog -c /opt/xrootd/xrootd/etc/xrootd_cnd.cfg
-13601 pts/2    Sl     0:00 /opt/xrootd/xrootd/bin//cmsd -l /opt/xrootd/xrootd/var/logs/cmslog -c /opt/xrootd/xrootd/etc/xrootd.cfg
--->
+xrdadmin    1510     1  0 17:09 pts/1    00:00:00 /opt/xrd-install-dir/xrootd/bin//xrootd -l /opt/xrd-install-dir/xrootd/var/logs/xrdlog -c /opt/xro
+xrdadmin    1551     1  0 17:09 pts/1    00:00:00 /opt/xrd-install-dir/xrootd/bin//cmsd -l /opt/xrd-install-dir/xrootd/var/logs/cmslog -c /opt/xroot
 </pre>
 
----++ Installing and configuring the data server(s)
-These instruction must be executed on each of the data servers.
 
-Two areas need to be setup: _storage_path_ and _storage_cache_.  In the simplest case two directories will suffice,  e.g =/storage/path= and =/storage/cache=.  For larger data servers we recommend creating separate disk partitions (see below).  Note on Xrootd data servers: 
-   * =/storage/path= is a directory containing symbolic links to files in _storage_cache_.  
-   * =/storage/cache= contains actual data files
 
-Next create and change to an installation directory:
+---++ Installing and configuring a data server 
+From the Xrootd administrative account (=xrdadmin=), install Xrootd following the same instructions as for the redirector host.   Then configure the data server with the same arguments as the redirector, but replacing the option =--this-is-xrdr= with =--xrdr-host redirector.yourdomain.edu=:
 <pre class="screen">
-mkdir -p /opt/xrootd/
-cd /opt/xrootd/
-</pre>
-
-Install the !Xrootd package from the %CACHE% cache.  Pacman will ask whether you want to trust the cache (answer =yall=).
-<pre class="screen">
-pacman -get %CACHE%:Xrootd
-</pre>
-
-Update the environment and run the post installation script:
-<pre class="screen">
+cd $INSTALL_DIR
 source setup.sh
-vdt-post-install
+$VDT_LOCATION/vdt/setup/configure_xrootd --server y --xrdr-host redirector.yourdomain.edu --storage-path  /storage/path --storage-cache /storage/cache --enable-security  --set-data-server-xrd-port 1093
 </pre>
 
-Verify the version installed is the one you expected by invoking =vdt-version= (=man vdt-version= to get more info). 
-<pre class="screen">
-vdt-version
+Now =vdt-control -list= and =vdt-control --non-root --on= work as before.  Here is an example showing running Xrootd data services (=xrootd= is the Xrootd user):
+<pre  class="screen">
+ps -fu xrootd
+UID        PID  PPID  C STIME TTY          TIME CMD
+xrdadmin    2774     1  0 12:44 pts/0    00:00:00 /opt/xrd-install-dir/xrootd/bin//xrootd -l /opt/xrd-install-dir/xrootd/var/logs/xrdlog -c /opt/xro
+xrdadmin    2819     1  0 12:44 pts/0    00:00:00 /opt/xrd-install-dir/xrootd/bin//cmsd -l /opt/xrd-install-dir/xrootd/var/logs/cmslog -c /opt/xroot
 </pre>
 
-This completes the installation of an Xrootd data server. The next step is to configure it.  The command below uses the defaults chosen in these instructions which you may need to change to match your specific choices:
-   * $VDT_LOCATION is the Xrootd installation directory (=/opt/xrootd=)
-   * xrootd is the non-privileged user that runs the Xrootd data service 
+---++ Installing the !XrootdFS file system
+
+[[http://wt2.slac.stanford.edu/xrootdfs/xrootdfs.html][XrootdFS]] is a POSIX file system for an Xrootd storage cluster based on [[http://en.wikipedia.org/wiki/Filesystem_in_Userspace][FUSE]] (Filesystem in Userspace). !FUSE is a kernel module that intercepts and services requests to non-privileged user space file systems like !XrootdFS.    Install !XrootdFS on nodes where you want a single Xrootd file system to appear, e.g. on an *interactive user node*.  
+%NOTE% For [[http://xrootd.slac.stanford.edu/doc/cvshead/updates.html][releases]] older than _xrootdfs 3.0rcX_ , !XrootdFS require CNS.
+FUSE installation requires root privileges but FUSE is normally already installed. !XrootdFS can be installed by the Xrootd Administrator (=xrdadmin=).
+
+---+++!! Install FUSE (Cluster Admnistrator)
+Three rpm packages must be installed:
+   * fuse
+   * fuse-libs
+   * kernel-module-fuse (patched Kernel module, only on RHEL 4 based OS, not on RHEL 5)
+
+This can be checked by using rpm (e.g. =rpm -q [package-name]=) and verifying that the package name and version are returned.  If the package is not installed, rpm will print a message saying that the package is not installed.  This can be done via the *yum* utility (e.g. =yum install fuse fuse-libs=) or rpm commands directly.  Using yum is preferable since it will bring in any dependencies that fuse or the fuse-libs requires and automatically install the correct versions of the fuse kernel modules. Alternatively (for those familiar with building kernels) FUSE can be  downloaded from http://sourceforge.net/projects/fuse/ and built according to instructions provided there.  Note that root privileges are required.  It is essential that the FUSE version ( &gt; 2.7.3) and flavor match your kernel. 
+
+---+++!! Install !XrootdFS 
+Setup Pacman, make an installation directory and assign its path to $INSTALL_DIR.  Install !XrootdFS from the %CACHE% cache. The installation described here is done as the Xrootd administrative account (=xrdadmin=).  Pacman will ask whether you want to trust the cache (answer =yall=).
+<pre class="screen">export INSTALL_DIR=/path_to_xrootdfs_installation_directory
+mkdir -p $INSTALL_DIR
+cd $INSTALL_DIR
+pacman -get %CACHE%:XrootdFS 
+</pre> 
+
+Configure !XrootdFS with the following command where:
+   * =$VDT_LOCATION= is the installation directory of the !XrootdFS package (=/opt/xrootdfs=)
+   * =xrdadmin= is the non-privileged user that runs the !XrootdFS service (it must have a login shell)
    * FQDN of the redirector host, e.g.  =redirector.yourdomain.org= 
-   * =/storage/cache= and =/storage/path= are the directories created above
-   * =--public-cache-size 1= is an option needed for historical reasons. It will be removed from future versions.
-
+   * =/xrootd= is the mount point for the file system
+   * =/storage/path= is the _storage_path_ directory on the redirector host, as discussed above
 <pre class="screen">
-cd /opt/xrootd
+cd $INSTALL_DIR
 source setup.sh
-$VDT_LOCATION/vdt/setup/configure_xrootd  --server y  --user xrootd  --xrdr-host  redirector.yourdomain.org  --xrdr-storage-path /storage/path   --xrdr-storage-cache /storage/cache  --public-cache-size 1
+$VDT_LOCATION/vdt/setup/configure_xrootdfs \
+ --user xrdadmin \
+ --cache /xrootd \
+ --xrdr-host redirector.yourdomain.org  \
+ --xrdr-storage-path /storage/path
 </pre>
 
-Now =vdt-control -list= shows the Xrootd service is installed:
-<pre class="screen">
-#vdt-control --list
-Service                 | Type   | Desired State
-------------------------+--------+--------------
-xrootd                  | init   | enable
-</pre>
-
-
-Startup the data server:
-<pre class="screen">
-vdt-control --on
-</pre>
-
-Here is an example showing running Xrootd data services (=xrootd= is the Xrootd user):
-<pre  class="screen">
-ps -fu xrootd
-UID        PID  PPID  C STIME TTY          TIME CMD
-xrootd   26443     1  0 10:29 ?        00:00:00 /opt/xrootd/xrootd/bin//xrootd -l /opt/xrootd/xrootd/var/logs/xrdlog -c /opt/xrootd/xrootd/etc/xrootd.cfg
-xrootd   26494     1  0 10:29 ?        00:00:00 /opt/xrootd/xrootd/bin//cmsd -l /opt/xrootd/xrootd/var/logs/cmslog -c /opt/xrootd/xrootd/etc/xrootd.cfg
-xrootd   26515 26443  0 10:29 ?        00:00:00 /opt/xrootd/xrootd/bin/XrdCnsd -d -l /opt/xrootd/xrootd/var/logs/cnsd.log root://gc1-xrdr.uchicago.edu:209
 <!--
-ps a | grep xrootd
-16072 pts/1    Sl     0:00 /opt/xrootd/xrootd/bin//xrootd -l /opt/xrootd/xrootd/var/logs/xrdlog -c /opt/xrootd/xrootd/etc/xrootd.cfg
-16091 pts/1    Sl     0:00 /opt/xrootd/xrootd/bin/XrdCnsd -d -l /opt/xrootd/xrootd/var/logs/cnsd.log root://itb2.uchicago.edu:2094
-16144 pts/1    Sl     0:00 /opt/xrootd/xrootd/bin//cmsd -l /opt/xrootd/xrootd/var/logs/cmslog -c /opt/xrootd/xrootd/etc/xrootd.cfg
+%NOTE% !XrootdFS will be started automatically with server reboots. 
 -->
-</pre>
 
-
----++ Start/Stop !Xrootd
-On each node where  !Xrootd is installed (redirector or data server) to start/stop Xrtood use the following. 
+---++ Start/Stop !Xrootd or !XrootdFS
+Go to the Xrootd installation directory $INSTALL_DIR on the redirector, data server or client nodes, as appropriate.
 
 To start: <pre class="screen">
-cd /opt/xrootd
+cd $INSTALL_DIR
 source setup.sh
-vdt-control --on
+vdt-control --non-root --on
 </pre>
 
 To stop: <pre class="screen">
-cd /opt/xrootd
+cd $INSTALL_DIR
 source setup.sh
-vdt-control --off
+vdt-control --non-root --off
 </pre>
 
----++ Testing your system
- Login on the redirector node (e.g. =redirector.yourdomain.org=) as an ordinary user.
+---++ Testing and Using the System 
 
-<pre class="screen">cd /opt/xrootd 
-source setup.sh 
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$VDT_LOCATION/xrootd/lib 
-export LD_PRELOAD=$VDT_LOCATION/xrootd/lib/libXrdPosixPreload.so 
+---+++!! Simple copy tests
+Login on the redirector node (e.g. =redirector.yourdomain.org=) and:
+<pre class="screen">source $INSTALL_DIR/setup.sh 
 echo &ldquo;This is a test&rdquo; &gt;/tmp/test 
-cp /tmp/test xroot://redirector.yourdomain.org:1094///storage/path/test 
-cp xroot://redirector.yourdomain.org:1094///storage/path/test /tmp/test1 
+xrdcp /tmp/test xroot://redirector.yourdomain.org:1094//storage/path/test 
+xrdcp xroot://redirector.yourdomain.org:1094//storage/path/test /tmp/test1 
 diff /tmp/test1 /tmp/test 
+</pre>
+Users can write in their own space. E.g. a user with Unix account name  =myuser= (the account must exist, eg. in =/etc/passwd=, etc,  on the redirector and on all the data servers) could save a file in Xrootd: <pre class="screen">source $INSTALL_DIR/setup.sh 
+echo &ldquo;This is a user test&rdquo; &gt;/tmp/test 
+xrdcp /tmp/test xroot://redirector.yourdomain.org:1094//storage/path/myuser/test 
+</pre>
+Note that =xrdcp= creates missing directories.
+
+
+---+++!! Testing the !Xrootd file system !XrootdFS
+
+With !XrootdFS installed on an interactive node one has full POSIX access to the data in the Xrootd storage system.   One can use all the normal Unix commands to list (=ls=), copy (=cp=), make directories (=mkdir=), delete files (=rm=), etc.  Log into your interactive (client) node and try it out.
+
+
+---+++!! Tests using the !libXrdPosixPreload library
+
+On one of the machines with Xrootd installed (redirector or data server) you can use the Xrootd POSIX preload library to test creating directories, copying files, etc:
+
+<pre class="screen">source $INSTALL_DIR/setup.sh
+export LD_PRELOAD=$VDT_LOCATION/xrootd/lib/libXrdPosixPreload.so 
+echo &ldquo;This is a new test&rdquo; &gt;/tmp/test 
+mkdir xroot://redirector.yourdomain.org:1094//storage/path/subdir
+cp /tmp/test xroot://redirector.yourdomain.org:1094//storage/path/subdir/test 
+cp xroot://redirector.yourdomain.org:1094//storage/path/subdir/test /tmp/test1 
+diff /tmp/test1 /tmp/test 
+rm xroot://redirector.yourdomain.org:1094//storage/path/subdir/test 
+rmdir xroot://redirector.yourdomain.org:1094//storage/path/subdir
 </pre>
 
 ---++ Advanced installation options and issues
 
----+++ Disabling !Xrootd's CNS
-CNS (Composite Name Space) is an Xrootd service (*XrdCnsd*) that runs on data server nodes to provide a unified name space for all the data in the system.  With this service a client on the redirector can have a composite view of files from each of the data servers.  There have been some reports of problems/issues with  *XrdCnsd* and its use no longer recommended by the Xrootd developers (it will be removed in future releases). 
+---+++ Access Control Lists
+Xrootd implements Access Control Lists that define user permissions on Xrootd files.  ACLs are defined in the file =$VDT_LOCATION/xrootd/etc/auth_file=.  The default configuration allows:
+   * full read/write access to the Xrootd administrator =xrdadmin= 
+   * full read/write access to user files in directories named by the Unix user account name
+   * read access to all files for all users
+For more authorization options see the [[http://xrootd.slac.stanford.edu/doc/prod/sec_config.htm#_Toc211067862][this section]] in the _Scalla: Extended Features Supplement Authentication & Access Control Configuration Reference_. 
+E.g. to give a Unix group (=our_group=) read/write permissions to a directory called =workdir=, add the following line to =$VDT_LOCATION/xrootd/etc/auth_file=:<pre class="file">
+g our_group /storage/path/workdir a
+</pre>
+This file must be synchronized across all servers in the Xrootd cluster.  You must restart Xrootd (=vdt-control --non-root --off, vdt-control --non-root --on=) to load the new configuration, again the redirector and on each data server. 
 
-To disable CNS do the following:
-   1. Login to the *redirector* host and stop xrootd: <pre class="screen">
-cd /opt/xrootd 
-source setup.sh
-vdt-control --off
-</pre>
-   1. Modify =$VDT_LOCATION/post-install/xrootd= deleteing the following lines: <pre class="file">
- if test "`hostname`" = $XRDR_HOST;then
-            $XROOTD_HOME/etc/StartXRD -c $XROOTD_HOME/etc/xrootd_cnd.cfg -n xrootd_cnd
- fi
-</pre>
-   1. Modify Xrootd's configuration (=$VDT_LOCATION/xrootd/etc/xrootd.cfg=) commenting the following line:<pre class="file">
-#ofs.forward 3way $(xrdr):2094 mv rm rmdir trunc
-</pre>
-   1. Restart xrootd: <pre class="screen">
-cd /opt/xrootd 
-. setup.sh
-vdt-control --on
-</pre>
-   1. Login to each *data server* and stop xrootd::<pre class="screen">
-cd /opt/xrootd 
-source setup.sh
-vdt-control --off
-</pre>
-   1. Modify Xrootd's configuration (=$VDT_LOCATION/xrootd/etc/xrootd.cfg=) commenting the following line:<pre class="file">
-#ofs.notify create closew mkdir | ${xrootdlocation}/bin/XrdCnsd -d -l ${xrootdlocation}/var/logs/cnsd.log root://$(xrdr):2094
-</pre>
-   1. Restart xrootd: <pre class="screen">
-cd /opt/xrootd 
-source setup.sh
-vdt-control --on
-</pre>
 
----+++ Optimizing disk partitions for performance
-To maximize the performance of your Xrootd installation, you should place the _storage_cache_ and _storage_path_  on separate disk partitions.  The partition used for the storage cache should be optimized for the kinds of files anticipated by the application.  In general, you can use the defaults for the  =mke2fs= program since that will tend to optimize for large files. 
+---+++ Firewalls and Xrootd port usage (Cluster Admnistrator)
+It is important to make sure firewalls (if any) are not blocking Xrootd communication ports.  Xrootd uses the following ports (this description is consistent with the configuration above and the option =--set-data-server-xrd-port 1093=):
+| *Host* | *Port Number* | *Protocol* |
+|!Xrootd data server| 1093 |tcp|
+|!Xrootd redirector|1094|tcp|
+||1213|tcp|
 
-The partition used for the _storage_path_ should be optimized to hold a large number of inodes and files.  Since the _storage_path_ is used to hold symlinks to the actual data files, the file system should have a large number of inodes since each symlink will require an inode to hold an entry for the symlink.  In addition, the size of the data blocks used by the file system on the partition should be made as small as possible since symlinks will typically consume an entire block regardless of the size of data block; a small data block size results in less space being wasted.  For an [[http://en.wikipedia.org/wiki/Ext3][ext3 file system]], passing =-b 1024= to =mke2fs= will set the block size to 1024 bytes which is the smallest allowed block size.
+<!-- ||2094 (CNSd) |tcp| -->
 
-Sometimes =mke2fs= is invoked using the wrapper =mkfs -t ext3 ...= that passes the options along. Use =man mke2fs= to see all the options.
+*Firewall configuration for the Xrootd redirector*
 
-%NOTE% Xrootd inherits the characteristics of the underlying file system.  E.g. if you use and ext3 file system you are limited to 31998 subdirectories per one directory, stemming from its limit of 32000 links per inode.  
+Edit the =/etc/sysconfig/iptables= file to add these lines *ahead* of the REJECT line (if your host has reject rules in its [[http://en.wikipedia.org/wiki/Iptables][iptables]] configuration):
+<pre class="file"># begin xrootd-rdr # Xrootd connections  (from anywhere) 
+-A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1094 -j ACCEPT 
+-A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1213 -j ACCEPT 
+# end xrootd-rdr #</pre>
+<!--
+-A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2094 -j ACCEPT  # Only if CNSd is used
+-A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1093 -j ACCEPT  # Only if data server runs on the redirector as well
+-->
 
----+++ Creating disk partitions for the data servers
-Here is a general example (there are many approaches taken in practice):
+Check the status of iptables: <pre class="screen">
+/etc/init.d/iptables status</pre> 
+Restart iptables: <pre class="screen">
+/etc/init.d/iptables restart</pre> 
+Check the status of the iptables to see the changes: <pre class="screen">
+/etc/init.d/iptables status</pre>
+
+
+
+*Firewall configuration for an Xrootd data server*
+
+Check the firewall rules with =/etc/init.d/iptables status=.   To change the configuration, edit  =/etc/sysconfig/iptables= and add the following lines ahead of the REJECT line:
+<pre class="file"># begin xrootd-ds # Xrootd connections  (from anywhere) 
+-A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1093 -j ACCEPT 
+# end xrootd-ds #</pre>
+Check the status of iptables, resart, and check again: <pre class="screen">
+/etc/init.d/iptables status
+/etc/init.d/iptables restart
+/etc/init.d/iptables status</pre> 
+
+---+++ Creating a separate disk partition for the data cache (Cluster Administrator)
+Instead of storing the Xrootd data on the system partition you can have it on a separate one.
+Here is a simple example (many approaches taken in practice):
    * Choose your disk or RAID array
    * Create a partition of type Linux using =fdisk= (answer prompts as appropriate): <pre class="screen">
 /sbin/fdisk /dev/sda
@@ -283,24 +292,64 @@ Here is a general example (there are many approaches taken in practice):
 mkfs -t ext3 /dev/sda1
 </pre>
    * Mount the disk in your root file system, e.g. by adding to =/etc/fstab= a line like:<pre class="file">
-/dev/sda1               /storage                ext3    defaults        1 2
-</pre>
+/dev/sda1               /storage/cache/pool1                ext3    defaults        1 2
+</pre> followed by the command =mount -a=.
    * Create the needed Xrootd directories as usual:<pre class="screen">
 mkdir -p /storage/path
 mkdir -p /storage/cache
+mkdir -p /storage/cache/pool1
 </pre>
 
----+++ Increasing the maximum number of file descriptors
+
+---+++ Multiple partitions on a data server (Cluster Administrator)
+You can have multiple partitions on the data server, and you can add new partitions without having to reconfigure Xrootd if the partitions and directories are named appropriately.  If Xrootd was configured with the option =--storage-cache /storage/cache= (as above) any directory mounted or linked under =/storage/cache= will be used as pool.
+
+E.g. if the original =/etc/fstab= contained:
+<pre class="file">
+/dev/sda1               /storage/cache/pool1          ext3    defaults        1 2
+</pre>
+with directory (mount point) created with:
+<pre classe="screen">
+mkdir -p /storage/cache/pool1
+</pre>
+then new partitions can be added using direct mounts, bind mounts or symbolic links. Edit as appropriate =/etc/fstab=:
+<pre class="file">
+/dev/sda1               /storage/cache/pool1          ext3    defaults        1 2
+/dev/sda2               /storage/cache/pool2          ext3    defaults        1 2
+/dev/sdb1               /bind_example_mount           ext3    defaults        1 2
+/dev/sdb2               /link_example_mount           ext3    defaults        1 2
+/bind_example_mount     /storage/cache/pool3          none    bind            1 2
+</pre> 
+and mount or link by:<pre class="screen">
+mkdir -p /storage/cache/pool2
+mkdir -p /storage/cache/pool3
+ln -s /link_example_mount /storage/cache/pool4
+mount -a
+</pre>
+Restart Xrootd when new partitions are added.
+
+
+---+++ Optimizing disk partitions for performance (Cluster Administrator)
+To maximize the performance of your Xrootd installation, you should place the _storage_cache_ and _storage_path_  on separate disk partitions.  The partition used for the storage cache should be optimized for the kinds of files anticipated by the application.  In general, you can use the defaults for the  =mke2fs= program since that will tend to optimize for large files. 
+
+The partition used for the _storage_path_ should be optimized to hold a large number of inodes and files.  Since the _storage_path_ is used to hold symlinks to the actual data files, the file system should have a large number of inodes since each symlink will require an inode to hold an entry for the symlink.  In addition, the size of the data blocks used by the file system on the partition should be made as small as possible since symlinks will typically consume an entire block regardless of the size of data block; a small data block size results in less space being wasted.  For an [[http://en.wikipedia.org/wiki/Ext3][ext3 file system]], passing =-b 1024= to =mke2fs= will set the block size to 1024 bytes which is the smallest allowed block size.
+
+Sometimes =mke2fs= is invoked using the wrapper =mkfs -t ext3 ...= that passes the options along. Use =man mke2fs= to see all the options.
+
+%NOTE% Xrootd inherits the characteristics of the underlying file system.  E.g. if you use and ext3 file system you are limited to 31998 subdirectories per one directory, stemming from its limit of 32000 links per inode.  
+
+---+++ Increasing the maximum number of file descriptors (Cluster Administrator)
 For bigger systems the default number of file descriptors (=ulimit -n=, 1024) is insufficient to assure access by many clients simultaneously
-The limit should be increased to 65500 descriptors on the redirector and all data servers, for root and for the user under which xrootd is running (=xrootd=).
-The procedure below is valid for RHEL 4/5 based Linux distributions (SL[C/F], !CentOS, ...):
+The limit should be increased to 65500 descriptors on the redirector and all data servers, for root and for the user under which Xrootd is running (=xrdadmin=). The procedure below is valid for RHEL 4/5 based Linux distributions such as Scientific Linux.
 
 Configure the system to accept the desired value for maximum number of open files. Check the value in =/proc/sys/fs/file-max= (=cat /proc/sys/fs/file-max=)to see if it is larger than the value needed for the maximum number of open files.
-To increase to 65500 the number of file descriptors:<pre class="screen">echo 65500 > /proc/sys/fs/file-max</pre>
+To increase the number of file descriptors to 65500 run:<pre class="screen">echo 65500 > /proc/sys/fs/file-max</pre>
 and, to make it persistent across reboots, edit =/etc/sysctl.conf=  to include the line: <pre class="file">fs.file-max = 65500</pre>
 
 Set the value for maximum number of open files (both hard and soft limit) in the file =/etc/security/limits.conf=. To do that add the following line below the commented line that should already be there:<pre class="file"># domain type item value
-* - nofile 65500</pre>
+root - nofile 65500
+xrdadmin - nofile 65500
+</pre>
 <!-- Explanation, not necessary --
 This line sets the default number of open file descriptors for every user on the system to 65500. Note that the "nofile" item has two possible limit values under the header: hard and soft. Both types of limits must be set before the change in the maximum number of open files will take effect. By using the "-" character, both hard and soft limits are set simultaneously. The hard limit represents the maximum value a soft limit may have and the soft limit represents the limit being actively enforced on the system at that time. Hard limits can be lowered by normal users, but not raised and soft limits cannot be set higher than hard limits. Only root may raise hard limits.
 -->
@@ -319,78 +368,15 @@ For the change to take effect, you'll need to restart the SSH service:
 After making this change, when users log in via SSH they will automatically have the maximum number of open files that was set in =/etc/security/limits.conf=. No additional work is necessary.
 -->
 
----+++ Firewall configuration for the Xrootd redirector
+---+++ !GridFTP: transfer files between Xrootd and the Grid/WAN
+A !GridFTP server allows efficient file transfers on the Grid or to remote hosts on the Wide Area Network (WAN). 
 
-Edit the =/etc/sysconfig/iptables= file to add these lines *ahead* of the REJECT line (if your host has reject rules in its [[http://en.wikipedia.org/wiki/Iptables][iptables]] configuration):
-<pre class="file"># begin xrootd-rdr # Xrootd connections  (from anywhere) 
--A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1094 -j ACCEPT 
--A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 1213 -j ACCEPT 
--A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2094 -j ACCEPT 
--A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2525 -j ACCEPT 
-# end xrootd-rdr #</pre>
-
-Check the status of iptables: <pre class="screen">
-/etc/init.d/iptables status</pre> 
-Restart iptables: <pre class="screen">
-/etc/init.d/iptables restart</pre> 
-Check the status of the iptables to see the changes: <pre class="screen">
-/etc/init.d/iptables status</pre>
-
-
----+++ Firewall configuration for an Xrootd data server
-
-Edit the =/etc/sysconfig/iptables= file and add these lines ahead of the REJECT line:
-<pre class="file"># begin xrootd-ds # Xrootd connections  (from anywhere) 
--A RH-Firewall-1-INPUT -m state --state NEW,ESTABLISHED -p tcp -m tcp --dport 2525 -j ACCEPT 
-# end xrootd-ds #</pre>
-
-Check the status of iptables: <pre class="screen">/etc/init.d/iptables status</pre> 
-Restart iptables: <pre class="screen">/etc/init.d/iptables restart </pre> 
-Check the status of the iptables to see the changes:  <pre class="screen">/etc/init.d/iptables status</pre>
-Now edit the file =$VDT_LOCATION/xrootd/etc/xrootd.cfg= and change =xrd.port any= to =xrd.port 2525=.
+ReleaseDocumentation.GridFTPXrootd describes the installation of a !GridFTP server optimized to be used in conjunction with Xrootd.
  
----+++ !XrootdFS - a POSIX file system for Xrootd
-[[http://wt2.slac.stanford.edu/xrootdfs/xrootdfs.html][XrootdFS]] is a POSIX file system for an Xrootd storage cluster based on [[http://en.wikipedia.org/wiki/Filesystem_in_Userspace][FUSE]] (Filesystem in Userspace). !FUSE is a kernel module that intercepts and services requests to non-privileged user space file systems like !XrootdFS.    Install !XrootdFS on nodes where you want a single Xrootd file system to appear, e.g. on an *interactive user node* or a !GridFTP server connected to an Xrootd system.  
-%NOTE% For [[http://xrootd.slac.stanford.edu/doc/cvshead/updates.html][releases]] older than _xrootdfs 3.0rcX_ , !XrootdFS requires CNS.
+---+++ !BeStMan Gateway: transfer files and manage the Xrootd storage
+!BeStMan Gateway, beside allowing efficient file transfers via !GridFTP, allows also space management (e.g. space reservation and space tokens). It is a complete Storage Element implementing SRM v2 protocol.
 
-
----++++!! Install FUSE 
-Three rpm packages must be installed:
-   * fuse
-   * fuse-libs
-   * kernel-module-fuse
-
-This can be checked by using rpm (e.g. =rpm -q [package-name]=) and verifying that the package name and version are returned.  If the package is not installed, rpm will print a message saying that the package is not installed.  This can be done via the *yum* utility (e.g. =yum install fuse fuse-libs=) or rpm commands directly.  Using yum is preferable since it will bring in any dependencies that fuse or the fuse-libs requires and automatically install the correct versions of the fuse kernel modules. Alternatively (for those familiar with building kernels) FUSE can be  downloaded from http://sourceforge.net/projects/fuse/ and built according to instructions provided there.  Note that root privileges are required.  It is essential that the FUSE version ( &gt; 2.7.3) and flavor match your kernel. 
-
----++++!! Install !XrootdFS 
-Setup Pacman and make an installation directory (e.g. =/opt/xrootdfs=).  Install !XrootdFS from the %CACHE% cache. The installation described here is done as root even though services do not  run as root.  Pacman will ask whether you want to trust the cache (answer =yall=).
-<pre class="screen">cd /opt/xrootdfs
-pacman -get %CACHE%:XrootdFS 
-</pre> 
-
-Configure !XrootdFS with the following command where:
-   * =$VDT_LOCATION= is the installation directory of the !XrootdFS package (=/opt/xrootdfs=)
-   * =xrootd= is the non-privileged user that runs the !XrootdFS service (it must have a login shell)
-   * FQDN of the redirector host, e.g.  =redirector.yourdomain.org= 
-   * =/xrootd= is the mount point for the file system
-   * =/storage/path= is the _storage_path_ directory on the redirector host, as discussed above
-<pre class="screen">
-cd /opt/xrootdfs
-source setup.sh
-$VDT_LOCATION/vdt/setup/configure_xrootdfs \
- --user xrootd \
- --cache /xrootd \
- --xrdr-host redirector.yourdomain.org  \
- --xrdr-storage-path /storage/path
-</pre>
- 
-Start !XrootdFS: <pre class="screen">
-cd /opt/xrootdfs
-source setup.sh
-vdt-control --on
-</pre>
-
-%NOTE% !XrootdFS will be started automatically with server reboots. 
+ReleaseDocumentation.BestmanGatewayXrootd describes the installation of a !BeStMan Gateway server optimized to be used in conjunction with Xrootd (it includes also a !GridFTPXrootd server). 
 
 ---++ Troubleshooting
 This section lists troubleshooting information and the solutions to some possible errors.
@@ -398,8 +384,8 @@ This section lists troubleshooting information and the solutions to some possibl
 ---+++ Log and configuration file locations 
  If any of the tests described above have failed or you are just curious to see what’s going on,  you can find log and configuration files in the following locations:
 |*Host*|*Configuration files*| *Log files*| 
-|Xrootd – redirector |$VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/xrootd_2.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf  <br/>|$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog  <br/>$VDT_LOCATION/xrootd/var/logs/xrootd_cnd/xrdlog |
-|Xrootd – data server| $VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf |$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog |
+|Xrootd – redirector |$VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/auth_file  <br/>$VDT_LOCATION/xrootd/etc/xrootd_2.cfg  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf  <br/>|$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog  <br/>$VDT_LOCATION/xrootd/var/logs/xrootd_cnd/xrdlog |
+|Xrootd – data server| $VDT_LOCATION/xrootd/etc/xrootd.cfg  <br/>$VDT_LOCATION/xrootd/etc/auth_file  <br/>$VDT_LOCATION/xrootd/etc/StartXRD.cf |$VDT_LOCATION/xrootd/var/logs/xrdlog  <br/>$VDT_LOCATION/xrootd/var/logs/cmslog |
 
 
 ---+++ Network problems
@@ -412,11 +398,13 @@ The error message:
 <pre class="screen">(cp to xrootd) cp: cannot create regular file `xroot://gc1-xrdr.uchicago.edu:1094///storage/path/test-xrootd': Unknown error 4294967295</pre> is a generic error message from Xrootd.  One possible cause is if the free space on a data server is less that the minimum space configured in (11 GB by default).  When this happens =$VDT_LOCATION/xrootd/var/logs/cmslog= on the data server will have a line: <pre class="file">100421 00:05:55 23723 Meter: Insufficient space;  6GB available < 11GB high watermark</pre>
 To fix this add to =$VDT_LOCATION/xrootd/etc/xrootd.cfg= a line with smaller minimum space:<pre class="file">cms.space linger 0 recalc 15 min 2% 3g 5% 5g</pre>
 
+
 ---++ References
 *Scalla Xrootd:*
    * [[http://xrootd.slac.stanford.edu/][Scalla home]] and [[http://xrootd.slac.stanford.edu/papers/Scalla-Intro.htm][Scalla introduction]]
-   * http://xrootd.slac.stanford.edu/doc/dev/ - references from the development release
-   * [[http://xrootd.slac.stanford.edu/doc/dev/xrd_config.pdf][Configuration reference]] (PDF), [[http://xrootd.slac.stanford.edu/doc/dev/xrd_config.htm][html]]
+   * http://xrootd.slac.stanford.edu/doc/prod/ - references from the production release
+   * http://xrootd.slac.stanford.edu/doc/dev/ - references from the development release (only some documents)
+   * [[http://xrootd.slac.stanford.edu/doc/dev/xrd_config.pdf][Configuration reference]] (PDF),  [[http://xrootd.slac.stanford.edu/doc/dev/xrd_config.htm][html]]
    * Update notes to CVS, http://xrootd.slac.stanford.edu/doc/cvshead/updates.html
    * [[http://project-arda-dev.web.cern.ch/project-arda-dev/xrootd/site/index.html][Xrootd/Scalla @ CERN (ARDA)]]
 
@@ -425,14 +413,16 @@ To fix this add to =$VDT_LOCATION/xrootd/etc/xrootd.cfg= a line with smaller min
    * Using Xrootd with SRM: ReleaseDocumentation.BestmanGatewayXrootd or with just !GridFTP, ReleaseDocumentation.GridFTPXrootd
 
 
+---++ Working Notes for These Instructions
+   * Production release instructions are located [[XrootdInstall][here]].
+   * A separate pages collects notes about feature requests and open issues: XrootdInstallNotes
+
+
+
 %BR%
 
 ---++ *Comments*
 %COMMENT{type="tableappend"}%
-
-%COMPLETE3% %BR%
-%RESPONSIBLE% Main.MarcoMambelli - 22 Apr 2010 %BR%
-%REVIEW%
 
 <!-- CONTENT MANAGEMENT PROJECT
 ############################################################################################################ 
@@ -467,7 +457,7 @@ To fix this add to =$VDT_LOCATION/xrootd/etc/xrootd.cfg= a line with smaller min
    * Local TEST_READY     = %YES%
 
    change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
-   * Local RELEASE_READY  = %NO%
+   * Local RELEASE_READY  = %YES%
 
 
    DEAR DOCUMENT REVIEWER
@@ -477,7 +467,7 @@ To fix this add to =$VDT_LOCATION/xrootd/etc/xrootd.cfg= a line with smaller min
    * Local REVIEWER       = RobGardner
   
    Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local REVIEW_PASSED  = %IN_PROGRESS%
+   * Local REVIEW_PASSED  = %YES%
 
 
    DEAR DOCUMENT TESTER
@@ -487,6 +477,6 @@ To fix this add to =$VDT_LOCATION/xrootd/etc/xrootd.cfg= a line with smaller min
    * Local TESTER         = SuchandraThapa
   
    Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local TEST_PASSED    = %IN_PROGRESS%
+   * Local TEST_PASSED    = %YES%
 ############################################################################################################ 
 -->
