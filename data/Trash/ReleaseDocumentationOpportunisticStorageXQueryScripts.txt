@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1275574137" format="1.1" version="1.6"}%
+%META:TOPICINFO{author="TedHesselroth" date="1276095289" format="1.1" version="1.7"}%
 %META:TOPICPARENT{name="Storage.OpportunisticStorage"}%
 %DOC_STATUS_TABLE%
 https://twiki.grid.iu.edu/twiki/pub/Storage/WebHome/images.jpg
@@ -6,311 +6,62 @@ https://twiki.grid.iu.edu/twiki/pub/Storage/WebHome/images.jpg
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
 
----++++ Composition of Commands
+The Discovery Tool uses XQuery scripts to search the LDAP directory. All scripts supplied with the tool include wrapper scripts that allow easy execution from the command line. See the page [[OpportunisticStorageSearchScripts][Opportunistic Storage Search Scripts]] for documentation on all the scripts.
 
-The commands to be composed are first described abstractly, the variables coming from either user inputs of XPath expressions. The definitions here will later be expressed as XQuery scripts, runnable against the information service. 
-
-Endpoints are the same regardless of SRM client used. Different client implementations use different argument lists, hence a different xquery script for each implementation.
-
----+++++ Space Reservation
-
-SRM_SERVICE_ENDPOINT is the value of <nop>GlueSEUniqueID in the <nop>GlueSE element of a site's BDII information.
-
----++++++ srm-reserve-space  
-<verbatim>
-srm-reserve-space -space_description=$DESCRIPTION -desired_size=$REQUESTED_SIZE -guaranteed_size=$GUARANTEED_SIZE -lifetime=$LIFETIME $SRM_SERVICE_ENDPOINT
-</verbatim>
-
----++++++ srm-sp-reserve  
-<verbatim>
-srm-sp-reserve -serviceurl $SRM_SERVICE_ENDPOINT -size $REQUESTED_SIZE -gsize $GUARANTEED_SIZE -lifetime $LIFETIME
-</verbatim>
-
-
----+++++ SRM Copy
-
-The commands use the service URL, defined as
-
----++++++ SURL
-<verbatim>
-$SRM_SERVICE_ENDPOINT?SFN=$VO_PATH/filename
-</verbatim>
-
-SRM_SERVICE_ENDPOINT and VO_PATH are as defined in previous sections. Additional directory levels may be placed between VO_PATH and filename. They are created on the storage element if they do not exist.
-
----++++++ srmcp  
-<verbatim>
-srmcp -srm_protocol_version=2 -space_token=$SPACE_TOKEN file:////path/to/file $SURL
-</verbatim>
-
-SPACE_TOKEN is that returned by the above space reservation command. It is optional but should be used for SCEC production.
-
----++++++ srm-copy  
-<verbatim>
-srm-copy file:////path/to/file $SURL -spacetoken $SPACE_TOKEN
-</verbatim>
+This page shows how to run XQuery scripts directly. It is intended to support development and custom use of the Discovery Tool. Links to the project development pages can be found at [[http://cd-97177.fnal.gov:8088/wiki/xpathsearch][XPathSearch Development Site]].
 
 ---++++ XQuery Scripts
 
-These scripts define the composition of storage-related commands based on Glue Schema. The scripts can be run on the OSG BDII service using the OSG Storage Discovery tool. Links to the project development pages can be found at [[http://cd-97177.fnal.gov:8088/wiki/xpathsearch][XPathSearch Development Site]]. For example, the xquery for SURL based on VO name can be run by invoking
+The XQuery scripts are by default run against the OSG BDII service. The endpoint can be changed by altering conf/xpathsearch.rc, see the [[OSGStorageDiscoveryTool][OSG Discovery Tool main page]] for details.
 
-<verbatim>
-xquerybase ../osg-discovery-0.5-r217/bin/find_surls_for_vo.xq vo=engage
-</verbatim>
+This section shows how to run an XQuery directly by use of the "xquerybase" command supplied with the Discovery Tool. For example, the XQuery for obtaining SURLs from storage elements authorizing the engage VO can be run by invoking "get_surl --vo engage". It can also be run by the following
 
-or more conveniently by the supplied wrapper script
+<pre>
+bin/xquerybase bin/surl.xq --vo engage --storage_element_id "" --free_online_size 0 --show_storage_element_id false
+</pre>
 
-<verbatim>
-find_surls_for_vo vo=engage
-</verbatim>
+It can be seen below that the script takes the "vo" parameter as an external variable. Notice that the script also takes storage_element_id, free_online_size, and show_storage_element_id as external variables. These parameters are optional in running the get_surl wrapper script, but they are not optional in running the xquery directly. The get_surl wrapper script supplies default values as shown above.
 
----+++++ srm-reserve-space
-
-*Script Name*
-
-srm_reserve_space.xq
-
-*Parameters*
-%TABLE{ headerbg="#eeeeee" headercolor="#000000" databg="#ffffff" tableborder="1" columnwidths="120," cellpadding="2" cellspacing="1" dataalign="left" valign="top" sort="off"}%
-| *name* | *definition* | *required* |
-|  vo | VO Name | yes |
-| description | user-supplied description | no |
-| requested_size | Size of reservation in bytes | yes |
-| guaranteed_size | Size to be guaranteed in bytes | no |
-| lifetime | Time to expiration | no |
-| storage_element_id | <nop>GlueSEUniqueID | no |
-Non-required parameters should be supplied with a value of "".
-
-*Script*
-<verbatim>
+<pre>
 xquery version "1.0";
+(: Finds the Storage Elements for which the vo or role is authorized and constructs an example SURL with the appropriate root path. :)
 
+import module namespace osg="http://opensciencegrid.org" at "functions.xq";
+
+declare variable $vo as xs:string external;
+declare variable $fqan := osg:clean_fqan($vo);
 declare variable $storage_element_id as xs:string external;
-declare variable $vo as xs:string external;
-declare variable $description as xs:string external;
-declare variable $requested_size as xs:string external;
-declare variable $guaranteed_size as xs:string external;
-declare variable $lifetime as xs:string external;
+declare variable $free_online_size as xs:decimal external;
+declare variable $free_online_size_arg as xs:decimal:= if ($free_online_size=0) then 0 else $free_online_size;
+declare variable $show_storage_element_id as xs:string external;
 
-declare variable $description_arg := if ($description="") then '' else concat(" -space_description=", $description);
-declare variable $requested_size_arg := if ($requested_size="") then '' else concat(" -desired_size=", $requested_size);
-declare variable $guaranteed_size_arg := if ($guaranteed_size="") then '' else concat(" -guaranteed_size=", $guaranteed_size);
-declare variable $lifetime_arg := if ($lifetime="") then '' else concat(" -lifetime=", $lifetime);
+declare variable $header_str := concat("&#x22;", "STORAGE ELEMENT ID", "&#x22;", "&#x20;", "&#x22;", "SURL", "&#x22;", "&#xA;");
+declare variable $header := if ($show_storage_element_id='') then $header_str else "";
 
-if ($storage_element_id="") then
+concat($header,
 string-join(
-for $voinfo in //GlueSE/GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/../GlueSA/GlueVOInfo[@GlueVOInfoAccessControlBaseRule=$vo]
-  let $endpoint := $voinfo/../../GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/@GlueSEControlProtocolEndpoint
-  return
-  concat("srm-reserve-space", $description_arg, $requested_size_arg, $guaranteed_size_arg, $lifetime_arg, " srm", substring($endpoint, 6), "&#xA;"), 
-"")
-else
-string-join(
-for $voinfo in //GlueSE[@GlueSEUniqueID=$storage_element_id]/GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/../GlueSA/GlueVOInfo[@GlueVOInfoAccessControlBaseRule=$vo]
-  let $endpoint := $voinfo/../../GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/@GlueSEControlProtocolEndpoint
-  return
-  concat("srm-reserve-space", $description_arg, $requested_size_arg, $guaranteed_size_arg, $lifetime_arg, " srm", substring($endpoint, 6), "&#xA;"), 
-"")
-</verbatim>
+for $acbr in (//GlueSE[@GlueSEUniqueID]/GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0'][@GlueSEControlProtocolEndpoint]/../GlueSA[@GlueSAFreeOnlineSize>=$free_online_size_arg][@GlueSAPath]/(@GlueSAAccessControlBaseRule | GlueVOInfo[@GlueVOInfoPath]/@GlueVOInfoAccessControlBaseRule))
+  let $child_acbrs := $acbr/../GlueVOInfo[@GlueVOInfoPath]/@GlueVOInfoAccessControlBaseRule
+  let $rootpath := $acbr/../(@GlueSAPath|@GlueVOInfoPath)
+  let $endpoint := $acbr/(.|..)/../../GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/@GlueSEControlProtocolEndpoint
+  let $seid := $acbr/(.|..)/../../@GlueSEUniqueID  
+  return    
+    if ($storage_element_id="" or $storage_element_id=$seid) then
+      if(osg:acbr_match($acbr, $fqan)) then
+        if($acbr/..[@GlueVOInfoPath] or ($acbr/..[@GlueSAPath] and fn:not(osg:acbr_nodes_match($child_acbrs, $fqan)))) then
+          if($show_storage_element_id='') then                  
+            concat("&#x22;", $seid, "&#x22;", "&#x20;", "&#x22;", "srm", substring($endpoint[1], 6), "?SFN=", $rootpath,  "/TESTFILE", "&#x22;", "&#xA;")
+          else
+            concat("&#x22;", "srm", substring($endpoint[1], 6), "?SFN=", $rootpath,  "/TESTFILE", "&#x22;", "&#xA;") 
+        else()
+      else() 
+    else() 
+,""))
+</pre>
 
-*Example Output*
-<verbatim>
-[tdh@camp5 xquery]$ ../osg-discovery-0.5-r225/bin/srm_reserve_space vo=engage description=mydesc requested_size=3000 guaranteed_size=2000 lifetime=1000
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://abitibi.sbgrid.org:8443/srm/managerv2
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://sigmorgh.hpcc.ttu.edu:49443/srm/v2/server.
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://se01.cmsaf.mit.edu:8443/srm/managerv2
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://cit-se.ultralight.org:8443/srm/managerv2
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://cit-se.ultralight.org:8443/srm/managerv2
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://cit-se2.ultralight.org:8443/srm/v2/server
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://ff-se.unl.edu:8443/srm/v2/server
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://fndca1.fnal.gov:8443/srm/managerv2
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://srm.unl.edu:8443/srm/managerv2
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://srm.ihepa.ufl.edu:8443/srm/managerv2
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://osg-east.hms.harvard.edu:10443/srm/v2/server
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://osg.hpcc.nd.edu:8443/srm/managerv2
-srm-reserve-space -space_description=mydesc -desired_size=3000 -guaranteed_size=2000 -lifetime=1000 srm://dcache07.unl.edu:8443/srm/v2/server
-</verbatim>
+Notice that the script does some formatting of the output. More complete formatting, such as producing columnar output, is done by passing the result through the "formatting" script (supplied with the Discovery Tool) and would therefore not be seen when running an XQuery directly.
 
----+++++ srm-sp-reserve
 
-*Script Name*
-
-srm_sp_reserve.xq
-
-*Parameters*
-%TABLE{ headerbg="#eeeeee" headercolor="#000000" databg="#ffffff" tableborder="1" columnwidths="120," cellpadding="2" cellspacing="1" dataalign="left" valign="top" sort="off"}%
-| *name* | *definition* | *required* |
-|  vo | VO Name | yes |
-| description | user-supplied description | no |
-| requested_size | Size of reservation in bytes | yes |
-| guaranteed_size | Size to be guaranteed in bytes | no |
-| lifetime | Time to expiration | no |
-| storage_element_id | <nop>GlueSEUniqueID | no |
-Non-required parameters should be supplied with a value of "".
-
-*Script*
-<verbatim>
-xquery version "1.0";
-
-declare variable $storage_element_id as xs:string external;
-declare variable $vo as xs:string external;
-declare variable $description as xs:string external;
-declare variable $requested_size as xs:string external;
-declare variable $guaranteed_size as xs:string external;
-declare variable $lifetime as xs:string external;
-
-declare variable $description_arg := if ($description="") then '' else concat(" -userdesc ", $description);
-declare variable $requested_size_arg := if ($requested_size="") then '' else concat(" -size ", $requested_size);
-declare variable $guaranteed_size_arg := if ($guaranteed_size="") then '' else concat(" -gsize ", $guaranteed_size);
-declare variable $lifetime_arg := if ($lifetime="") then '' else concat(" -lifetime ", $lifetime);
-
-if ($storage_element_id="") then
-string-join(
-for $voinfo in //GlueSE/GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/../GlueSA/GlueVOInfo[@GlueVOInfoAccessControlBaseRule=$vo]
-  let $endpoint := $voinfo/../../GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/@GlueSEControlProtocolEndpoint
-  return
-  concat("srm-sp-reserve", " -serviceurl", " srm", substring($endpoint, 6), $requested_size_arg, $guaranteed_size_arg, $lifetime_arg, $description_arg, "&#xA;"), 
-"")
-else
-string-join(
-for $voinfo in //GlueSE[@GlueSEUniqueID=$storage_element_id]/GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/../GlueSA/GlueVOInfo[@GlueVOInfoAccessControlBaseRule=$vo]
-  let $endpoint := $voinfo/../../GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/@GlueSEControlProtocolEndpoint
-  return
-  concat("srm-sp-reserve", " -serviceurl", " srm", substring($endpoint, 6), $requested_size_arg, $guaranteed_size_arg, $lifetime_arg, $description_arg, "&#xA;"), 
-"")
-</verbatim>
-
-*Example Output*
-<verbatim>
-[tdh@camp5 xquery]$ ../osg-discovery-0.5-r225/bin/srm_sp_reserve vo=engage description=mydesc requested_size=3000 guaranteed_size=2000 lifetime=1000
-srm-sp-reserve -serviceurl srm://abitibi.sbgrid.org:8443/srm/managerv2 -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-srm-sp-reserve -serviceurl srm://sigmorgh.hpcc.ttu.edu:49443/srm/v2/server. -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-srm-sp-reserve -serviceurl srm://se01.cmsaf.mit.edu:8443/srm/managerv2 -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-srm-sp-reserve -serviceurl srm://cit-se.ultralight.org:8443/srm/managerv2 -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-srm-sp-reserve -serviceurl srm://cit-se.ultralight.org:8443/srm/managerv2 -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-srm-sp-reserve -serviceurl srm://cit-se2.ultralight.org:8443/srm/v2/server -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-srm-sp-reserve -serviceurl srm://ff-se.unl.edu:8443/srm/v2/server -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-srm-sp-reserve -serviceurl srm://fndca1.fnal.gov:8443/srm/managerv2 -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-srm-sp-reserve -serviceurl srm://srm.unl.edu:8443/srm/managerv2 -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-srm-sp-reserve -serviceurl srm://srm.ihepa.ufl.edu:8443/srm/managerv2 -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-srm-sp-reserve -serviceurl srm://osg.hpcc.nd.edu:8443/srm/managerv2 -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-srm-sp-reserve -serviceurl srm://dcache07.unl.edu:8443/srm/v2/server -size 3000 -gsize 2000 -lifetime 1000 -userdesc mydesc
-</verbatim>
-
----+++++ SURL
-
-*Script Name*
-
-find_surls_for_vo.xq
-
-*Parameters*
-%TABLE{ headerbg="#eeeeee" headercolor="#000000" databg="#ffffff" tableborder="1" columnwidths="120," cellpadding="2" cellspacing="1" dataalign="left" valign="top" sort="off"}%
-| *name* | *definition* | *required* |
-| vo | VO name | yes |
-
-*Script*
-<verbatim>
-xquery version "1.0";
-declare variable $vo as xs:string external;
-string-join(
-for $voinfo in //GlueSE/GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/../GlueSA[@GlueSAFreeOnlineSize!=0]/GlueVOInfo[@GlueVOInfoAccessControlBaseRule=$vo][@GlueVOInfoPath]
-  let $rootpath := $voinfo/@GlueVOInfoPath
-  let $endpoint := $voinfo/../../GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/@GlueSEControlProtocolEndpoint
-    return concat("srm", substring($endpoint, 6), "?SFN=", $rootpath,  "/TESTFILE", "&#xA;"), 
-"")
-</verbatim>
-
-*Example Output*
-<verbatim>
-[tdh@camp5 xquery]$ ../osg-discovery-0.5-r217/bin/find_surls_for_vo engage
-srm://abitibi.sbgrid.org:8443/srm/managerv2?SFN=/opt/osg-shared/se/data/vo/vo/engage/TESTFILE
-srm://sigmorgh.hpcc.ttu.edu:49443/srm/v2/server.?SFN=/mnt/hep/TESTFILE
-srm://cit-se2.ultralight.org:8443/srm/v2/server?SFN=/mnt/hadoop/osg/TESTFILE
-srm://ff-se.unl.edu:8443/srm/v2/server?SFN=/panfs/panasas/CMS/data/engage/TESTFILE
-srm://fndca1.fnal.gov:8443/srm/managerv2?SFN=/pnfs/fnal.gov/usr/fermigrid/volatile/engage/TESTFILE
-srm://osg-east.hms.harvard.edu:10443/srm/v2/server?SFN=/osg/storage/data/engage/TESTFILE
-srm://dcache07.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/user/engage/TESTFILE
-</verbatim>
-
----+++++ srmcp
-
-*Script Name*
-
-find_srmcp.xq
-
-*Parameters*
-%TABLE{ headerbg="#eeeeee" headercolor="#000000" databg="#ffffff" tableborder="1" columnwidths="120," cellpadding="2" cellspacing="1" dataalign="left" valign="top" sort="off"}%
-| *name* | *definition* | *required* |
-| vo | VO name | yes |
-| space_token | Token from space reservation | no |
-
-*Script*
-<verbatim>
-xquery version "1.0";
-declare variable $vo as xs:string external;
-declare variable $space_token as xs:string external;
-
-declare variable $space_token_arg := if ($space_token="") then '' else concat(" -space_token=", $space_token);
-declare variable $cmd := concat("srmcp -srm_protocol_version=2", $space_token_arg, " file:////path/to/file");
-
-string-join(
-for $voinfo in //GlueSE/GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/../GlueSA[@GlueSAFreeOnlineSize!=0]/GlueVOInfo[@GlueVOInfoAccessControlBaseRule=$vo][@GlueVOInfoPath]
-  let $rootpath := $voinfo/@GlueVOInfoPath
-  let $endpoint := $voinfo/../../GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/@GlueSEControlProtocolEndpoint
-    return concat($cmd, " srm", substring($endpoint, 6), "?SFN=", $rootpath,  "/TESTFILE", "&#xA;"), 
-"")
-</verbatim>
-
-*Example Output*
-<verbatim>
-[tdh@camp5 xquery]$ ../osg-discovery-0.5-r217/bin/find_srmcp vo=engage space_token=12345
-srmcp -srm_protocol_version=2 -space_token=12345 file:////path/to/file srm://abitibi.sbgrid.org:8443/srm/managerv2?SFN=/opt/osg-shared/se/data/vo/vo/engage/TESTFILE
-srmcp -srm_protocol_version=2 -space_token=12345 file:////path/to/file srm://sigmorgh.hpcc.ttu.edu:49443/srm/v2/server.?SFN=/mnt/hep/TESTFILE
-srmcp -srm_protocol_version=2 -space_token=12345 file:////path/to/file srm://cit-se2.ultralight.org:8443/srm/v2/server?SFN=/mnt/hadoop/osg/TESTFILE
-srmcp -srm_protocol_version=2 -space_token=12345 file:////path/to/file srm://ff-se.unl.edu:8443/srm/v2/server?SFN=/panfs/panasas/CMS/data/engage/TESTFILE
-srmcp -srm_protocol_version=2 -space_token=12345 file:////path/to/file srm://fndca1.fnal.gov:8443/srm/managerv2?SFN=/pnfs/fnal.gov/usr/fermigrid/volatile/engage/TESTFILE
-srmcp -srm_protocol_version=2 -space_token=12345 file:////path/to/file srm://osg-east.hms.harvard.edu:10443/srm/v2/server?SFN=/osg/storage/data/engage/TESTFILE
-srmcp -srm_protocol_version=2 -space_token=12345 file:////path/to/file srm://dcache07.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/user/engage/TESTFILE
-</verbatim>
-
----+++++ srm-copy
-
-*Script Name*
-
-find_srm_copy.xq
-
-*Parameters*
-%TABLE{ headerbg="#eeeeee" headercolor="#000000" databg="#ffffff" tableborder="1" columnwidths="120," cellpadding="2" cellspacing="1" dataalign="left" valign="top" sort="off"}%
-| *name* | *definition* | *required* |
-| vo | VO name | yes |
-| space_token | Token from space reservation | no |
-
-*Script*
-<verbatim>
-xquery version "1.0";
-declare variable $vo as xs:string external;
-declare variable $space_token as xs:string external;
-
-declare variable $space_token_arg := if ($space_token="") then '' else concat(" -spacetoken ", $space_token);
-
-string-join(
-for $voinfo in //GlueSE/GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/../GlueSA[@GlueSAFreeOnlineSize!=0]/GlueVOInfo[@GlueVOInfoAccessControlBaseRule=$vo][@GlueVOInfoPath]
-  let $rootpath := $voinfo/@GlueVOInfoPath
-  let $endpoint := $voinfo/../../GlueSEControlProtocol[@GlueSEControlProtocolVersion='2.2.0']/@GlueSEControlProtocolEndpoint
-    return concat("srm-copy file:////path/to/file", " srm", substring($endpoint, 6), "?SFN=", $rootpath,  "/TESTFILE", $space_token_arg, "&#xA;"), 
-"")
-</verbatim>
-
-*Example Output*
-<verbatim>
-[tdh@camp5 xquery]$ ../osg-discovery-0.5-r217/bin/find_srm_copy vo=engage space_token=12345
-srm-copy file:////path/to/file srm://abitibi.sbgrid.org:8443/srm/managerv2?SFN=/opt/osg-shared/se/data/vo/vo/engage/TESTFILE -spacetoken 12345
-srm-copy file:////path/to/file srm://sigmorgh.hpcc.ttu.edu:49443/srm/v2/server.?SFN=/mnt/hep/TESTFILE -spacetoken 12345
-srm-copy file:////path/to/file srm://cit-se2.ultralight.org:8443/srm/v2/server?SFN=/mnt/hadoop/osg/TESTFILE -spacetoken 12345
-srm-copy file:////path/to/file srm://ff-se.unl.edu:8443/srm/v2/server?SFN=/panfs/panasas/CMS/data/engage/TESTFILE -spacetoken 12345
-srm-copy file:////path/to/file srm://fndca1.fnal.gov:8443/srm/managerv2?SFN=/pnfs/fnal.gov/usr/fermigrid/volatile/engage/TESTFILE -spacetoken 12345
-srm-copy file:////path/to/file srm://dcache07.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/user/engage/TESTFILE -spacetoken 12345
-</verbatim>
 -- Main.TedHesselroth - 29 Jul 2009
 
 <!-- CONTENT MANAGEMENT PROJECT
