@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TedHesselroth" date="1276026483" format="1.1" reprev="1.17" version="1.17"}%
+%META:TOPICINFO{author="TedHesselroth" date="1276538015" format="1.1" reprev="1.18" version="1.18"}%
 %META:TOPICPARENT{name="OpportunisticStorage"}%
 ---+*%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -32,16 +32,18 @@ Minimize the disparity between this approach and what would be done for direct s
 Provide for automatic selection of storage element. Support data-driven computation.
 
    * On directory creation, assign a storage element to it
-      * Schema requires it to be stored in a data object
+      * Store as collection metadata
       * Should include the expected size of the directory
          * May need to move the files to another storage element
       * Space reservation option
       * Storage profile option
-   * Use the discovery service to return the TURL or SURL to the user.
+   * Use the discovery service to populate iCAT with the SE availability for the user's VO
+      * Return the corresponding TURL or SURL to the user
    * Associate a compute element with a storage element via data objects
       * Computation profile option
          * Influences where the data is placed
-   * Use RSV probe to identify authorized sites
+   * Associate with other data collections.
+   * Use Pidgeon SE availability checker to identify authorized sites
    * Allow for operation with OSGMM
 
 #OSGiRODSDataTransfer
@@ -97,7 +99,9 @@ No option here is recommended, for the specified reasons.
       * Can administrative commands based on catalog-only functionality meet the capability requirements for Catalog and Management, below?
          * To what degree will a new framework need to be written?
          * To what degree would use of a full iRODS server still fall short of the capability requirements?
-      * *Evaluation of complexity/effort/risk is necessary before recommendation can be made.*            
+      * *Evaluation of complexity/effort/risk is necessary before recommendation can be made.*
+
+Might use globus-url-sync to copy whole collections and relocate data.            
 
 ---++++Catalog
 
@@ -144,21 +148,90 @@ Available blackboard objects are listed for each rule.
 21) acPostProcForRmColl - Scollection and SuserAndConn 
 </pre>
 
----+++ OSG iRODS Program of Work for Discovery
+---+++ OSG iRODS Program of Work for Discovery Capability
 
-   1. Install OSG Discovery Tools on iRODS server.
-   1. Install and run Pidgeon access checker for Engage VO or collect results from VO-run Pidgeon.
-   1. Identify Storage Elements on which the VO can store data.
-   1. Write a rule to be triggered in the post-processing after the creation of a collection.
-      1. Find a Storage Element with sufficient available space. It would be good have have an option for mkdir in which one can specify the expected size of the collection.
-         1. Or, as shadow files are added (see below) compute the space used and move the collection to another storage resource if necessary.
-      1. Add a user-defined Attribute-Value-Unit triplet to the collection metadata specifying the storage resource.
-         1. Add attributes for the TURL or SURL.
-   1. If the user has additional storage or compute profile requirements, they are added as metadata values.
-      1. A rule for acPostProcForModifyCollMeta is invoked to rediscover and change the storage resource as needed.
-      1. Add attributes for the compute element endpoint.
+Development needed for using a collection is less than that needed for making a collection.
 
----+++ OSG iRODS Program of Work for Data Transfer
+---++++ Using a collection
+
+iRODS has a default storage resource which can be overridden by rules or the user's environment.
+
+   1. Study means of ensuring that a file written to a collection is stored on the resource associated with that collection.
+      1. Possibly use acSetRescSchemeForCreate. See below.
+         1. Write a rule based on database lookup associating path with resource.
+         1. Understand where this is in relation to the storage driver. Invoked as part of iput and available to server side of driver as session variable?
+         1. Default would be to write to a resource group. Is that possible?
+   1. Refinement: write custom command to query for available space remaining in reservation, expiration, etc.
+
+---++++ Directing a collection to a resource
+
+One can use iclient commands to specify the resource to which a file should go. According to the default iCAT schema, a resource may be associated with a file, but not for a collection. This allows a collection to be spread over several resources. One can use rules, such as these from ARGO, to guide an iput to a resource according to the destination collection.
+
+<pre>
+1	#ARGO rules
+2	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/*/ARGO/*"|msiSetDefaultResc(emii.resource.tpac.org.au,preferred)|nop
+3	
+4	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/SOOP/*"|msiSetDefaultResc(emii.resource.tpac.org.au,preferred)|nop
+5	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/SOTS/*"|msiSetDefaultResc(emii.resource.tpac.org.au,preferred)|nop
+6	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/ANFOG/*"|msiSetDefaultResc(arcs-df.ivec.org,preferred)|nop
+7	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/AUV/*"|msiSetDefaultResc(arcs-df.vpac.org,preferred)|nop
+8	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/ANMN/*"|msiSetDefaultResc(emii.resource.tpac.org.au,preferred)|nop
+9	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/ACORN/*"|msiSetDefaultResc(arcs-df.vpac.org,preferred)|nop
+10	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/AATAMS/*"|msiSetDefaultResc(arcs-df.vpac.org,preferred)|nop
+11	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/FAIMMS/*"|msiSetDefaultResc(arcs-df.vpac.org,preferred)|nop
+12	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/eMII/*"|msiSetDefaultResc(emii.resource.tpac.org.au,preferred)|nop
+13	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/SRS/*"|msiSetDefaultResc(arcs-df.ivec.org,preferred)|nop
+</pre> 
+
+Several significant iRODS functions are involved. Refinements such as the space reservation functions are optional and may be done in a second version.
+
+---++++ Making a collection
+   1. Devise schema and method of populating iCAT with SE authz/availability info from Pidgeon VO Storage Checker.
+      1. Need schema for storage resource metadata; endpoint, path, etc info, to be used for transfers.
+      1. Devise regular update mechanism.
+   1. Test loading of iCAT with SE availability population for various VOs.
+   1. Configure test iRODS for GSI authorization.
+      1. Test rule for obtaining DN. It would be good if iRODS could handle roles.
+      1. Obtain way of ascertaining the user's VO in a rules-based environment.
+   1. Write acPreprocForCollCreate rule
+      1. Check if the VO has any available Storage Elements.
+         1. Return notification if not.
+      1. Write microservice-based lookup of SE assignment for the VO.
+         1. Parent collection match strategy.
+         1. Random-selection strategy.
+         1. Storage Element reliability score strategy.
+         1. VO SE-preference strategy.
+            1. Include hard user-specified SE. 
+         1. SE VO-preference strategy.
+         1. Space reservation match strategy.
+      1. Refine lookup based on expected size of collection.
+         1. It would be good if mkdir had a parameter for that.
+         1. Link to space reservation.
+            1. It would be good if mkdir had an option to request that a space reservation be made.
+            1. Direct the user via the client-server channel to make a space reservation.
+               1. The space token should be sent from the client back to the iRODS server for recording.
+            1. Generate a request for the space to be reserved by the administrator.
+               1. Leave mkdir status as PENDING. It would be good to have a status defined for the collection object.
+         1. Possible post-mkdir custom command to ensure space is available.
+            1. Could change the assigned SE based on size.
+            1. Devise a way to relocate a collection based on size increase.
+      1. Refine lookup based on an associated collection.
+   1. Test client-server model of orchestrating directory creation on the Storage Element by the user.
+      1. SRM has mkdir.
+      1. gridftp write test file or leave state as ready.
+   1. Write acPostprocForCollCreate rule
+      1. Store in iCAT the SE info for the collection.
+      1. Store default lifetime.
+      1. Refinement of storing any space reservation information. Need space reservation schema.
+         1. Space token would be used for transfers.
+   1. Refine lookup applying of job and storage profile information to selection of Storage Element.
+      1. Availability of SE mount on worker node.
+      1. Number and size of files, etc.
+
+
+
+
+---+++ OSG iRODS Program of Work for Shadow Storage Option
 
 A plan sketch would be the following. The work starts with the Data Transfer function.
 
@@ -187,7 +260,7 @@ A plan sketch would be the following. The work starts with the Data Transfer fun
    1. Write and test rules using the msiExecCmd microservices for Discovery, Catalog, and Management functions.
 
 
----+++ Component Design for Data Transfer
+---+++ Component Design for Shadow Storage Option
 
 How the scripts that invoke specific operations can be written such that iRODS and currently available tools can work together and support the requirements of the model.
 
@@ -222,19 +295,15 @@ The complete list of file operations is: univMSSFileCreate, univMSSFileOpen, uni
    1. postprocessing
          1. OSG Storage Federation accounting.
 
----++++ Results for Data Transfer.
 
-Python scripts have been written for client and server for a test function, and a file transfer was done using the above model.
-
-
----+++ OSG iRODS Program of Work for Catalog
+---+++ OSG iRODS Program of Work for iCAT-only Option
 
    1. Decide on Catalog and Management capability requirements.
    1. Determine what iRODS functionality is available that does not involve data operations.
    1. Sketch a framework that would use available functionality and possible supplemental tools to meet requirements.
    1. Assess complexity/effort/risk if creating/acquiring the framework.
 
----++++ Results for iCatalog
+---++++ Results for iCAT-only Option
 
 There are four user commands available for accessing iCAT.
 
@@ -284,26 +353,6 @@ For defining a dataset, one could
          1. Checks whether all files in the dataset have status PROCESSED.
          1. If so, sets the dataset value to ALL_PROCESSED.
   
----+++Directing a collection to a resource
-
-One can use iclient commands to specify the resource to which a file should go. According to the default iCAT schema, a resource may be associated with a file, but not for a collection. This allows a collection to be spread over several resources. One can use rules, such as these from ARGO, to guide an iput to a resource according to the destination collection.
-
-<pre>
-1	#ARGO rules
-2	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/*/ARGO/*"|msiSetDefaultResc(emii.resource.tpac.org.au,preferred)|nop
-3	
-4	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/SOOP/*"|msiSetDefaultResc(emii.resource.tpac.org.au,preferred)|nop
-5	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/SOTS/*"|msiSetDefaultResc(emii.resource.tpac.org.au,preferred)|nop
-6	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/ANFOG/*"|msiSetDefaultResc(arcs-df.ivec.org,preferred)|nop
-7	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/AUV/*"|msiSetDefaultResc(arcs-df.vpac.org,preferred)|nop
-8	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/ANMN/*"|msiSetDefaultResc(emii.resource.tpac.org.au,preferred)|nop
-9	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/ACORN/*"|msiSetDefaultResc(arcs-df.vpac.org,preferred)|nop
-10	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/AATAMS/*"|msiSetDefaultResc(arcs-df.vpac.org,preferred)|nop
-11	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/FAIMMS/*"|msiSetDefaultResc(arcs-df.vpac.org,preferred)|nop
-12	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/eMII/*"|msiSetDefaultResc(emii.resource.tpac.org.au,preferred)|nop
-13	acSetRescSchemeForCreate|"$objPath" like "/ARCS/projects/IMOS/staging/SRS/*"|msiSetDefaultResc(arcs-df.ivec.org,preferred)|nop
-</pre> 
-
 ---+++ A distributed iRODS zone of gridftp storage resources
 
 ---++++ Start iRODS.
@@ -512,6 +561,43 @@ META_COLL_ATTR_NAME = OurVOName/dataset/file8A3
 
 <pre>
 </pre>
+
+---+++ iRODS deployment guidelines
+
+---++++ Platform
+
+---++++ Maintenance
+
+   * Database backup
+   * Database vacuuming
+   * Monitoring
+
+---++++ Authorization
+
+   * GSI deployment
+   * Cert update procedure
+   * Security alert procedure
+
+---++++ SLA-like goals
+ 
+   * Uptime target
+   * Security alert policy
+      * Incident reporting policy
+   * Maintenance notices
+   * Support hours
+
+---++++ Support
+
+   * Ticketing
+   * Assignees
+   * Escalation
+      * Other OSG staff
+      * Rules for escalation to iRODS
+
+---++++ Troubleshooting Help
+
+
+ 
 ---++globus.org
 
 ---++FTS
