@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TedHesselroth" date="1276617352" format="1.1" version="1.19"}%
+%META:TOPICINFO{author="TedHesselroth" date="1276635727" format="1.1" version="1.20"}%
 %META:TOPICPARENT{name="OpportunisticStorage"}%
 ---+*%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -161,6 +161,13 @@ iRODS has a default storage resource which can be overridden by rules or the use
          1. Write a rule based on database lookup associating path with resource.
          1. Understand where this is in relation to the storage driver.
             1. Invoked as part of iput and available to server side of driver as session variable?
+               1. Is invoked just before data object creation. Dummy file may need to be made on iRODS server.
+               1. Object is created and registered before driver fileWrite is called, so selected storage resource should be in the database (committed?).
+               1. fileWrite gets only the file descriptor of the open file. It would be good if it got the whole file input structure.
+                  1. Its path is unknown to the driver, so it cannot query the database for the storage resource at that point.
+                  1. Somehow use unix file descriptor table and open files table to recover the path.
+                  1. Or, if the driver is in its own thread, could get open file path unambiguously from the open files table.
+                  1. Or, ask the client through the socket what the path is (could use open files table as a check). 
             1. How to get session variables in UMSD?
          1. Default would be to write to a resource group.
    1. Refinement: write custom command to query for available space remaining in reservation, expiration, etc.
@@ -546,14 +553,23 @@ META_COLL_ATTR_NAME = OurVOName/dataset/file8A3
 ------------------------------------------------------------
 </pre>
 
----++++ 
+---++++ Register resources that use the "clientside" driver
+
+The new resource group "gw" is automatically created.
 
 <pre>
+  623  iadmin mkresc cascade "clientside" cache  cascade.fnal.gov /pnfs/fnal.gov/data
+  624  iadmin mkresc cd-97177 "clientside" cache  cd-97177.fnal.gov /pnfs/fnal.gov/data
+  625  iadmin atrg gw cascade
+  626  iadmin atrg gw cd-97177
 </pre>
 
----++++ 
+---++++ Create aliases so that requests to remote registered resources are handled by the local server.  
 
 <pre>
+$ tail -2 server/config/irodsHost
+localhost cascade.fnal.gov cascade 
+localhost cd-97177.fnal.gov cd-97177
 </pre>
 
 ---++++ 
