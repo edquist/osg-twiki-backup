@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DerekWeitzel" date="1276647306" format="1.1" reprev="1.14" version="1.14"}%
+%META:TOPICINFO{author="DerekWeitzel" date="1276709680" format="1.1" reprev="1.15" version="1.15"}%
 %META:TOPICPARENT{name="UsingTheGrid"}%
 %LINKCSS%
 
@@ -64,7 +64,7 @@ Rank              = (TARGET.Rank) - &#92;
                     ((TARGET.Name =?= LastMatchName3) * 1000)
 </pre>
 
-Although this statement will still work with !GlideinWMS, it will not have the same effect that it did in OSGMM.  In !GlideinWMS, =TARGET.Name= referrers to the specific worker node rather than a entire site as it did in OSGMM.  There is no equivalent statement in !GlideinWMS to demote the rank of a site.
+For the OSG MM, this statement discourages the scheduler to resubmit a failed job to the same cluster (referred to as TARGET.Name). For GlideinWMS, TARGET.Name refers to a specific worker node rather than an entire site; therefore, this statement discourages the scheduler to resubmit the job to the same worker node. Because GlideinWMS runs a pilot job before running a user job, the environment is considered less error-prone than with OSG MM. Therefore this statement is not very useful and it is recommended that it is removed.
 
 ---+++ Example !GlideinWMS Condor submission
 %TWISTY{
@@ -212,6 +212,101 @@ Verification of a worker node can be done before the glidein starts jobs.  A ver
 ...
 </pre>
 More documentation on custom scripts can be found on the  [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.v2/manual/factory/custom_scripts.html][GlideinWMS pages]].
+
+---++ Large Examples
+The following examples are from the LSST workflow that was adapted to GlideinWMS by Gabriele Garzoglio.
+%TWISTY{
+mode="div"
+showlink="Show OSG MM submission file"
+hidelink="Hide OSG MM submission file"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+
+<pre class="file">
+####################################
+# Job destination parameters.
+####################################
+# In general universe should be, "grid."
+universe = grid
+# This is the destination of the job.
+grid_resource = gt2 $$(GlueCEInfoContactString)
+
+####################################
+# Executable specification
+####################################
+# Specify the exec here.
+executable = /opt/LSST/LSST/submit/runLSSTsim
+# ... and its args.
+arguments = -v -s 26740 0
+# ... and whether to transfer it or find it on the system.
+transfer_executable = true
+
+####################################
+# Log and output
+####################################
+# In general, transfer_output and transfer_error should be true.
+transfer_output = true
+transfer_error = true
+# In general, stream_output and stream_error should be false.
+stream_output = false
+stream_error = false
+# Specify log, out and error files. Not the use of macros.
+log = /opt/LSST/jdl/runs/LSSTsim_20100608_131223/LSSTsim.log
+output = /opt/LSST/jdl/runs/LSSTsim_20100608_131223/logs/LSSTsim_000.out
+error = /opt/LSST/jdl/runs/LSSTsim_20100608_131223/logs/LSSTsim_000.err
+# Whether and under what circumstances to notify by email.
+notification = NEVER
+# When to transfer output
+WhenToTransferOutput = ON_EXIT
+transfer_output_files = LSSTsim_000.tar.bz2
+
+####################################
+# Job-handling boiler plate
+####################################
+# Extra specifications to be passed through. This says single (non-MPI)
+# job and max execution time of 1440min (1 day).
+globusrsl = (jobType = \"single\")(maxWallTime = 1440 )
+# Any things to add to the environment
+environment = JOB_OUTPUT_TAR=LSSTsim_000.tar.bz2;CLUSTER_ID=$(Cluster)
+requirements    = ( (TARGET.GlueCEInfoContactString =!= UNDEFINED) && &#92;
+                    (TARGET.Rank > 300) && &#92;
+                    (TARGET.LSST_VERSION_LSSTsim =?= "2010-02-04") )
+
+########################################################################
+# No user-serviceable parts below.
+########################################################################
+
+# when retrying, remember the last 4 resources tried. With the OSG MM, this
+# statement effectively prevents the job to rematch a cluster where it failed. 
+match_list_length = 4
+Rank              = (TARGET.Rank) - &#92;
+                    ((TARGET.Name =?= LastMatchName0) * 1000) - &#92;
+                    ((TARGET.Name =?= LastMatchName1) * 1000) - &#92;
+                    ((TARGET.Name =?= LastMatchName2) * 1000) - &#92;
+                    ((TARGET.Name =?= LastMatchName3) * 1000)
+
+# make sure the job is being retried and rematched
+periodic_release = (NumGlobusSubmits &lt; 5)
+globusresubmit = (NumSystemHolds >= NumJobMatches)
+# rematch = True
+globus_rematch = True
+
+# only allow for the job to be queued at a site for a while, then try to move it.
+#  GlobusStatus==16 is suspended
+#  JobStatus==1 is pending
+#  JobStatus==2 is running
+periodic_hold = ( (GlobusStatus==16) || &#92;
+                  ((JobStatus==1) && ((CurrentTime - EnteredCurrentStatus) > (1*60*60))) || &#92;
+                  ((JobStatus==2) && ((CurrentTime - EnteredCurrentStatus) > (5*60*60))) )
+
+# stay in queue on failures
+on_exit_remove = (ExitBySignal == False) && (ExitCode == 0)
+
+queue
+</pre>
+%ENDTWISTY%
+
 ---++ *Comments*
 %COMMENT{type="tableappend"}%
 
