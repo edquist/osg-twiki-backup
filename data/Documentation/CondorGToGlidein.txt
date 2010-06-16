@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DerekWeitzel" date="1276709680" format="1.1" reprev="1.15" version="1.15"}%
+%META:TOPICINFO{author="DerekWeitzel" date="1276710413" format="1.1" reprev="1.16" version="1.16"}%
 %META:TOPICPARENT{name="UsingTheGrid"}%
 %LINKCSS%
 
@@ -65,6 +65,27 @@ Rank              = (TARGET.Rank) - &#92;
 </pre>
 
 For the OSG MM, this statement discourages the scheduler to resubmit a failed job to the same cluster (referred to as TARGET.Name). For GlideinWMS, TARGET.Name refers to a specific worker node rather than an entire site; therefore, this statement discourages the scheduler to resubmit the job to the same worker node. Because GlideinWMS runs a pilot job before running a user job, the environment is considered less error-prone than with OSG MM. Therefore this statement is not very useful and it is recommended that it is removed.
+
+---+++ Idle job timeout
+It is common in OSGMM to have a timeout statement similiar to:
+<pre class="file">
+# make sure the job is being retried and rematched
+periodic_release = (NumGlobusSubmits &lt; 5)
+globusresubmit = (NumSystemHolds >= NumJobMatches)
+# rematch = True
+globus_rematch = True
+
+# only allow for the job to be queued at a site for a while, then try to move it.
+#  GlobusStatus==16 is suspended
+#  JobStatus==1 is pending
+#  JobStatus==2 is running
+periodic_hold = ( (GlobusStatus==16) || &#92;
+                  ((JobStatus==1) && ((CurrentTime - EnteredCurrentStatus) > (1*60*60))) || &#92;
+                  ((JobStatus==2) && ((CurrentTime - EnteredCurrentStatus) > (5*60*60))) )
+
+</pre>
+OSGMM has the periodic hold in order to redistribute jobs if a site has become too busy and has not started the job yet.  !GlideinWMS does not need this redistribution because when a slot opens, the job moves from the local queue directly to running, without being submitted to the remote site's queue.
+
 
 ---+++ Example !GlideinWMS Condor submission
 %TWISTY{
@@ -214,7 +235,9 @@ Verification of a worker node can be done before the glidein starts jobs.  A ver
 More documentation on custom scripts can be found on the  [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.v2/manual/factory/custom_scripts.html][GlideinWMS pages]].
 
 ---++ Large Examples
-The following examples are from the LSST workflow that was adapted to GlideinWMS by Gabriele Garzoglio.
+The following examples are from the LSST workflow that was adapted to !GlideinWMS by Gabriele Garzoglio.
+
+
 %TWISTY{
 mode="div"
 showlink="Show OSG MM submission file"
@@ -305,7 +328,88 @@ on_exit_remove = (ExitBySignal == False) && (ExitCode == 0)
 
 queue
 </pre>
+
 %ENDTWISTY%
+
+
+
+%TWISTY{
+mode="div"
+showlink="Show !GlideinWMS submission file"
+hidelink="Hide !GlideinWMS submission file"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+
+<pre class="file">
+#NOTE: the macro chip_id is defined in the DAG as a number from 0 to 189
+
+
+####################################
+# Job destination parameters.
+####################################
+# In general universe should be, "vanilla" for glidein submissions
+universe = vanilla
+
+####################################
+# Executable specification
+####################################
+# Specify the exec here.
+executable = /opt/LSST/LSST/submit/runLSSTsim
+
+# ... and its args.
++seed = 26740 + $(chip_id)
+arguments = -v -t -s $$([seed]) $(chip_id)
+
+# ... and whether to transfer it or find it on the system.
+transfer_executable = true
+
+####################################
+# Log, input and output
+####################################
+# In general, transfer_output and transfer_error should be true.
+transfer_output = true
+transfer_error = true
+# In general, stream_output and stream_error should be false.
+stream_output = false
+stream_error = false
+
+# Specify log, out and error files. Not the use of macros.
+log = /opt/LSST/jdl/runs/LSSTsim_20100608_131223/LSSTsim.log
+output = /opt/LSST/jdl/runs/LSSTsim_20100608_131223/logs/LSSTsim_$(chip_id)_gg.out
+error = /opt/LSST/jdl/runs/LSSTsim_20100608_131223/logs/LSSTsim_$(chip_id)_gg.err
+
+# Whether and under what circumstances to notify by email.
+notification = NEVER
+
+# Transfer the input file
+should_transfer_files = YES
+transfer_input_files = /opt/LSST/jdl/runs/LSSTsim_20100608_131223/input/trim$(chip_id).cat.bz2
+
+# When to transfer output
+When_To_Transfer_Output = ON_EXIT
+transfer_output_files = LSSTsim_$(chip_id)_gg.tar.bz2
+
+####################################
+# Job-handling boiler plate
+####################################
+# Any things to add to the environment
+environment = JOB_OUTPUT_TAR=$(transfer_output_files);CLUSTER_ID=$(Cluster)
+# Requires nodes with the LSST software pre-installed
+requirements    = ( TARGET.LSST_VERSION_LSSTsim =?= "2010-02-04" )
+
+########################################################################
+# No user-serviceable parts below.
+########################################################################
+
+# Added for glidein WMS for sites with gLExec
+X509UserProxy = /tmp/x509up_u1801
+
+queue 1
+
+</pre>
+%ENDTWISTY%
+
 
 ---++ *Comments*
 %COMMENT{type="tableappend"}%
