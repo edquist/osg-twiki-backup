@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1276804460" format="1.1" version="1.55"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1276813069" format="1.1" reprev="1.56" version="1.56"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %DOC_STATUS_TABLE%
 %TOC{depth="2"}%
@@ -27,7 +27,7 @@ This document covers the installation of the OSG Client Tools for grid users.  T
 %NOTE%This page does not cover the usage of the client tools! For user documentation check Documentation.UsingTheGrid
 
 %TWISTY{%TWISTY_OPTS_REVIEW%}%
-   * ALL DONE 
+   * ALL DONE - some links do not work
    * * link to Globus Toolkit
 * link to Condor or the Glossary term Condor
 * link to SRM Glossary term
@@ -152,6 +152,38 @@ vdt-post-install
 
 You can verify that the version installed is the version you expected by invoking =vdt-version=.
 
+Now install the Certification Authorities (CA) certificates and Certificates Revocation Lists (CRLs) (CA installation):<pre>source $INSTALL_DIR/setup.sh
+vdt-ca-manage setupca --location local --url osg
+</pre>
+
+Enable a service to maintain updated your certificates and CRLs and to rotate log files:<pre>vdt-control --enable fetch-crl  vdt-rotate-logs vdt-update-certs
+</pre>
+There are more optional services available: for Condor-G submissions =condor= is needed. Never run or enable =globus-ws=: it is an legacy artifact of the VDT install process. <pre>vdt-control --enable condor
+</pre>
+To start the the service as regular user:<pre>vdt-control --non-root --on
+</pre>
+or as root:<pre>vdt-control --on
+</pre>
+
+This gives you self-contained installation with standard OSG certificates with services to maintain all updated. 
+CA certificates need to be maintained because CRLs expire frequently (with expired CAs or CRLs your authentications will fail). 
+Services are not mandatory.
+No running services is fine for testing and local casual, but the certificates will not be automatically updated. You can update them manually by re-invoking =vdt-ca-manage= or by running =vdt-update-certs=, but requires labor and is not reliable because you may forget. 
+Therefore the services above are recommended. 
+
+For more options on the type and location of the certificates (e.g. to install the certificates in the system directory =/etc/grid-security=) see the [[#Alternatives_for_CA_certificates][section on alternatives for CA and CRLs]] below.
+
+For Condor-G submissions =condor= are needed. Never run or enable =globus-ws=; it is an legacy artifact of the VDT install process.  Turning on all enabled services is done by, ==vdt-contol --on==.
+
+%TWISTY{%TWISTY_OPTS_REVIEW%}%
+   * NA - moved below as requested
+   * * how do I know that it works? Validation?
+%ENDTWISTY%
+
+
+---++ Advanced installation options
+These sections present special configurations, explain concepts in detail or describe special use case.
+
 ---+++ CA Certificate Configuration
 
 %TWISTY{%TWISTY_OPTS_REVIEW%}%
@@ -174,12 +206,29 @@ source $INSTALL_DIR/setup.sh
 vdt-ca-manage setupca --location local --url osg
 </pre>
 
-You have now configured and installed the client. Some tests are below.
+---+++ Alternatives for CA certificates and CRLs
+=vdt-ca-manage= allows to pick the desired CA certificates and install them in an arbitrary location, private or shared with other grid softwares.
+A complete reference on available certificate sets and where to put the certificates, including an arbitrary location, is available [[http://vdt.cs.wisc.edu/releases/2.0.0/man/vdt-ca-manage.html][on the VDT site]].
+The default installation above is self contained. This section covers two other common options to install the OSG CA certificates. You can use one of these instead of the CA installation in the  instructions above.
 
-%TWISTY{%TWISTY_OPTS_REVIEW%}%
-   * NA - moved below as requested
-   * * how do I know that it works? Validation?
-%ENDTWISTY%
+---++++!! Install in /etc/grid-security/certificates
+You must install as root to use this system directory:<pre>source /opt/wlcg-client/setup.sh
+vdt-ca-manage setupca --location root --url osg
+vdt-post-install
+</pre>
+This installation by default enables the periodic update of certificates and CRLs.
+
+---++++!! Link an existing CA installation
+You can use an existing CA installation (owned by an other package) on the host or mounted in a shared directory (e.g. via NSF). 
+If several grid softwares share the same CA installation it is important that one is the owner and runs the services to update it and all the other only link to it (without changing the content).
+Let's assume that  =$CACERTDIR= contains the path of the certificate directory, e.g. =/your/cacertdir= or =/etc/grid-security/certificates=.
+To link to the existing CA installation:<pre>source /opt/wlcg-client/setup.sh
+ln -s $CACERTDIR $VDT_LOCATION/globus/TRUSTED_CA
+ln -s $CACERTDIR $VDT_LOCATION/globus/share/certificates
+</pre>
+If you don't make the links above your wlcg-client may work only partially.
+<!-- It is important to  link correctly the certificate directory even if they are already available on the host. The default system wide location in Globus and VDT is =/etc/grid-security/certificates= but you may have a different one (an arbitrary =/your/cacertdir=). 
+-->
 
 ---+++  Firewall Considerations
 
@@ -199,7 +248,25 @@ HIGHPORT = 22000
 LOWPORT  = 20000
 </pre>
 
----++ Service Configuration/Startup/Shutdown
+---+++ Install 32bit on 64bit OS (Full 32bit installation and Python 32bit)
+wlcg-client and !DQ2Client are fully compatible with both 64 or 32 bit Operation Systems. 
+<!--
+Older !DQ2Client included only the 32bit version of some libraries (!MySQL python bindings) therefore there may be 'library not found' errors with a 64bit Python if the binding is not installed in the system. The newer !DQ2Client is not using !MySQL access to the catalogs anymore. 
+-->
+Normally wlcg-client matches the platform (OS) in the installation host. In mixed environments:
+   * A 64 bit OS can support both 64 and 32 bit applications and libraries
+   * A 32 bit OS supports only 32 bit applications and libraries
+   * Python compiled libraries (e.g. LFC binding included in wlcg-client) have to match the interpreter. E.g. 64bit Python requires 64bit bindings, 32bit Python requires 32bit bindings (therefore 32bit wlcg-client).
+If one of the above is violated you get errors often difficult to identify. 
+The simple solution for mixed environments (32/64bit OSes with a single shared wlcg-client installation) is to install everything in 32bit version:
+   * You need to install 32bit compatibility libraries on 64bit OSes (e.g. [[https://twiki.cern.ch/twiki/bin/view/Atlas/RPMcompatSLC4][Here]] is a list for SLC4) 
+   * During each Pacman installation  add the option =-pretend-arch i686= (e.g. =pacman -pretend-arch i686 -get wlcg-client=) to force a 32bit installation. Pacman is actually caching this setting, so it is important you use =-pretend-arch i686= the first time you install something in that directory (Pacman cache). [[http://vdt.cs.wisc.edu/releases/2.0.0/installation_advanced.html#pretend_32][Here]] is VDT documentation about =-pretend-arch i686=.
+   * NOTE: the environment variable: =export VDT_PRETEND_32=1= (that was set before the VDT installation) is not working anymore.
+   * If you need Python 32 bit you can install on your own or use: <tt>pacman -get http://www.mwt2.org/caches/:Python32bit</tt>. The Python delivered is Python 2.4 (C API 1012 required by =_lfc.so=) and it is compiled on a SL4.7. The Pacman installation can be in its own directory or on top of WLCG-Client (recommended if you installed it 32 bit and you will need Python 32 bit only for it). If you wonder, no =-pretend-arch i686= is needed because this package is only 32 bit, anyway it is fine if you added the option.
+
+
+
+---++ Service Startup/Shutdown
 
 %TWISTY{%TWISTY_OPTS_REVIEW%}%
    * DONE
@@ -212,14 +279,28 @@ Even though this is the client package, some services remain, such as:
    * Hourly CRL updates
    * Hourly log rotation
    * Nightly CA updates
-   * Condor daemons for workflow management
+   * Condor daemons for workflow management (only for root installations)
 The tool for starting and stopping the services is =vdt-control=.  To run these services, login as root and source the setup script:
-<pre class="screen">
-source <i>$VDT_LOCATION</i>/setup.[c]sh
+
+
+To startt/stop the services as root: <pre class="screen">source $INSTALL_DIR/setup.sh
+vdt-control --on
+vdt-control --off
 </pre>
 
-You can determine which services are configured by running *vdt-control --list*. (For a more detailed review of turning VDT services on and off, consult [[http://vdt.cs.wisc.edu/releases/2.0.0/man/vdt-control.html][vdt-control]] and OSG StartingServices documentation written for the Compute Element).  You should find the output looks like this:
+To startt/stop the services as non root user you must own the installation and add the =--non-root= option: <pre class="screen">source $INSTALL_DIR/setup.sh
+vdt-control --non-root --on
+vdt-control --non-root --off
+</pre>
 
+You can determine which services are configured by running =vdt-control --list=. 
+%TWISTY{
+mode="div"
+showlink="Show vdt-control --list output..."
+hidelink="Hide screen output"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
 <pre class="screen">
 # vdt-control --list
 Service            | Type   | Desired State
@@ -231,13 +312,13 @@ condor             | init   | enable
 globus-ws          | init   | do not enable
 
 </pre>
+%ENDTWISTY%
 
-For Condor-G submissions, fetch-crl, vdt-update-certs, and =condor= are needed. Never run or enable =globus-ws=; it is an legacy artifact of the VDT install process.  Turning on all enabled services is done by, ==vdt-contol --on==.
+For a more detailed review of turning VDT services on and off, consult [[http://vdt.cs.wisc.edu/releases/2.0.0/man/vdt-control.html][vdt-control]].  You should find the output looks like this:
+
 
 ---++ Testing the Client
-
-To validate OSG Client package you must use the executable provided.
-Follow the instructions and examples in Documentation.UsingTheGrid . 
+Follow the instructions and examples in Documentation.UsingTheGrid to use the commands in OSG client and test them. 
 
 In short you can follow these steps:
    * have your grid user certificate certificate ready
