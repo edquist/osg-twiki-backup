@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RobertEngel" date="1277342811" format="1.1" reprev="1.60" version="1.60"}%
+%META:TOPICINFO{author="RobertEngel" date="1277412224" format="1.1" reprev="1.61" version="1.61"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %DOC_STATUS_TABLE%
 %TOC{depth="3"}%
@@ -63,7 +63,8 @@ The installation procedure consists of the following steps:
 
    1 create an empty installation directory
    1 use %LINK_PACMAN% to install the OSG Client Tools Package
-   1 install the the [[Documentation/GlossaryC#DefsCA][CA Certificates] and the %LINK_GLOSSARY_CRL%
+   1 install the [[Documentation/GlossaryC#DefsCA][CA Certificates]] and the %LINK_GLOSSARY_CRL%
+   1 configure logfile rotation and automatic updates of [[Documentation/GlossaryC#DefsCA][CA Certificates]] and the %LINK_GLOSSARY_CRL%
 
 ---+++ Create the Installation Directory
 
@@ -179,17 +180,74 @@ Type 'man vdt-version' for more information.
 
 The OSG distributes a number of root certificates of [[Documentation/GlossaryC#DefsCA][Certificate Authorities]] that issue certificates to their members. By installing these certificates you establish a chain of trust with each of the certificate authorities and allow their members to access your resource. The %LINK_GLOSSARY_CRL% is used to inform your resource about individual certificates that have been revoked.
 
-We will use the =vdt-ca-manage= command to download the CA Certificates and the Certificate Revocation List. The command line option =--location local= copies the CA Certificates into the current directory. 
+We will use the =vdt-ca-manage= command to download the CA Certificates and the Certificate Revocation List. The command line option =--location local= copies the CA certificates into the subdirectory =%INSTALL_DIR%/globus/share/certificates=. 
 
 <pre class="screen">
-[root@osg-se osg-ctp]# vdt-ca-manage setupca --location %RED%local%ENDCOLOR% --url %RED%osg%ENDCOLOR%
+[root@osg-se osg-ctp]# vdt-ca-manage setupca --url %RED%osg%ENDCOLOR% --location %RED%local%ENDCOLOR%
 Setting CA Certificates for VDT installation at '/opt/osg-ctp'
 
 Setup completed successfully.
 </pre>
 
-Enable a service to maintain updated your certificates and CRLs and to rotate log files:<pre class="screen">vdt-control --enable fetch-crl  vdt-rotate-logs vdt-update-certs
+---+++ Configure Logfile Rotation and Automatic Updates
+
+To keep your [[Documentation/GlossaryC#DefsCA][CA Certificates]] and the %LINK_GLOSSARY_CRL% current we will add an entry to =cron= requesting periodic updates. We also recommend to setup logfile rotation using =vdt-control= at the command line:
+
+<pre class="screen">
+[root@osg-se osg-ctp]# vdt-control --enable %RED%fetch-crl vdt-update-certs vdt-rotate-logs%ENDCOLOR% 
+running 'vdt-register-service --name fetch-crl --enable'... %GREEN%ok%ENDCOLOR%
+running 'vdt-register-service --name vdt-update-certs --enable'... %GREEN%ok%ENDCOLOR%
+running 'vdt-register-service --name vdt-rotate-logs --enable'... %GREEN%ok%ENDCOLOR%
 </pre>
+
+=vdt-control= will only _register the services_ requested to be run by =cron=. To see a list of services registered use:
+
+<pre class="screen">
+[root@osg-se osg-ctp]# vdt-control %RED%-list%ENDCOLOR%
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+fetch-crl               | cron   | %GREEN%enable%ENDCOLOR%
+vdt-rotate-logs         | cron   | %GREEN%enable%ENDCOLOR%
+vdt-update-certs        | cron   | %GREEN%enable%ENDCOLOR%
+condor                  | init   | do not enable
+globus-ws               | init   | do not enable
+</pre>
+
+Finally add the necessary entries to =cron= by executing =vdt-control=:
+
+<pre class="screen">
+[root@osg-se osg-ctp]# vdt-control %RED%-on%ENDCOLOR%
+enabling cron service fetch-crl... %GREEN%ok%ENDCOLOR%
+enabling cron service vdt-rotate-logs... %GREEN%ok%ENDCOLOR%
+enabling cron service vdt-update-certs... %GREEN%ok%ENDCOLOR%
+skipping init service 'condor' -- marked as disabled
+skipping init service 'globus-ws' -- marked as disabled
+</pre>
+
+You may use =crontab= to verify that the necessary entries have been add to cron. The times are _randomized_ in order to avoid all grid resources contacting the server at the same time.
+
+%TWISTY{%TWISTY_OPTS_OUTPUT%}%
+<pre class="screen">
+[root@osg-se osg-ctp]# crontab -l
+59 3,9,15,21 * * * /opt/osg-ctp/fetch-crl/share/doc/fetch-crl-2.6.6/fetch-crl.cron
+0 0 * * * /opt/osg-ctp/vdt/bin/vdt-rotate-logs
+14 * * * * /opt/osg-ctp/vdt/sbin/vdt-update-certs-wrapper --vdt-install /opt/osg-ctp --called-from-cron
+</pre>
+%ENDTWISTY%
+
+When necessary use =vdt-control= to remove all registered entries from =cron=:
+
+<pre class="screen">
+[root@osg-se osg-ctp]# vdt-control %RED%-off%ENDCOLOR%
+disabling init service globus-ws... ok
+disabling init service condor... ok
+disabling cron service vdt-update-certs... %GREEN%ok%ENDCOLOR%
+disabling cron service vdt-rotate-logs... %GREEN%ok%ENDCOLOR%
+disabling cron service fetch-crl... %GREEN%ok%ENDCOLOR%
+</pre>
+
+---+++ Enable Condor to support Condor-G Job Submissions
+
 There are more optional services available: for Condor-G submissions =condor= is needed. Never run or enable =globus-ws=: it is an legacy artifact of the VDT install process. <pre class="screen">vdt-control --enable condor
 </pre>
 To start the the service as regular user:<pre class="screen">vdt-control --non-root --on
