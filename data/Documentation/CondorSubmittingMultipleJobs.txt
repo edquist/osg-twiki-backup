@@ -1,18 +1,20 @@
-%META:TOPICINFO{author="DerekWeitzel" date="1274912703" format="1.1" version="1.12"}%
+%META:TOPICINFO{author="AlainRoy" date="1277419437" format="1.1" reprev="1.13" version="1.13"}%
 %META:TOPICPARENT{name="GridUsersGuide"}%
 %LINKCSS%
 ---+ %SPACEOUT{ "%TOPIC%" }%
 %DOC_STATUS_TABLE%
----+ Submitting Multiple Jobs with Condor-G
 
 In this section, we will demonstrate how to submit multiple jobs to the OSG using Condor-G.
 
 You will need to know the endpoint you are submitting to, as was covered in the [[FindAvailableResource][finding available resources]] section.
 
+We assume that you've already worked through [[CondorSubmittingSingleJob][how to submit a single Condor job]].
+
 %STARTINCLUDE%
 
 Let's see how we would submit four jobs at once, all slightly different.  Use the following script:
 
+Create a file named =mytest2.sh= with the following text in it:
 <pre class="file">
 #!/bin/sh
 echo "Hello World!"
@@ -20,25 +22,30 @@ echo "I am Condor job $1"
 
 hostname
 printenv
-source $OSG_GRID/setup.sh
+. $OSG_GRID/setup.sh
 voms-proxy-info -all
 </pre>
-Name it =mytest2.sh= and set it executable.
 
-<pre class="file">
-  universe=grid
-  grid_resource=gt2 osg-gw-2.t2.ucsd.edu:/jobmanager-condor
-  executable=mytest2.sh
-  arguments=$(Cluster).$(Process)
-  output = test.$(Cluster).$(Process).out
-  error  = test.$(Cluster).$(Process).err
-  log    = test.log
-  queue 4
+Make mytest2.sh executable. That is:
 
-  arguments="Alternate $(Cluster).$(Process)"
-  queue 2
+<pre>
+chmod +x mytest2.sh
 </pre>
-Name it =condorg_test2.submit=.  
+
+Make another file named =condorg_test2.submit= with the following text in it:
+<pre class="file">
+universe=grid
+grid_resource=gt2 <span style="background-color:yellow">osg-gw-2.t2.ucsd.edu:/jobmanager-condor</span> %RED% Change the the endpoint! %ENDCOLOR% 
+executable=mytest2.sh
+arguments=$(Cluster).$(Process)
+output = test.$(Cluster).$(Process).out
+error  = test.$(Cluster).$(Process).err
+log    = test.log
+queue 4
+
+arguments="Alternate $(Cluster).$(Process)"
+queue 2
+</pre>
 
 We'll discuss the new portions below after we submit the job.
 <ol>
@@ -48,7 +55,7 @@ We'll discuss the new portions below after we submit the job.
 <userinput>voms-proxy-init --voms cms:/cms</userinput>
 </pre>
 As before, replace =cms:/cms= with the proper name/group of your VO.
-   <li>Submit the =test.cmd= job just as you did with the single job:
+   <li>Submit this job just as you did with the single job:
 <pre class="screen">
 <userinput>condor_submit condorg_test2.submit</userinput>
 </pre>
@@ -59,15 +66,15 @@ As before, replace =cms:/cms= with the proper name/group of your VO.
 
 ---++ Changes to the Condor submit file.
 
-Let's walk through the new things in the Condor submit file:
+Let's walk through the new things in the Condor submit file: (New as compared to the previous example of [[CondorSubmittingSingleJob][submitting a single job]].
 <pre class="file">
-  arguments=$(Cluster).$(Process)
+arguments=$(Cluster).$(Process)
 </pre>
-Condor has an extremely flexible description language called !ClassAds.  This illustrates a simple expansion for the job; $(Cluster) and $(Process) will be expanded to the Condor job cluster and process ID, respectively.  Roughly, the cluster and process numbers are the "job number" most other batch systems use.  
+This illustrates a simple expansion for the job; $(Cluster) and $(Process) are _macros_ which will be expanded to the Condor job cluster and process ID, respectively. Roughly, the cluster and process numbers are the "job number" most other batch systems use.  
 
 The Arguments key will set the arguments passed to the script when the job is executed.  By setting the arguments to the process and cluster, we will run a slightly different job each time the submit file is done.  This is very useful if you need to have unique output or input.  The unique output can be named:
 <pre class="file">
-  output = test.$(Cluster).$(Process).out
+output = test.$(Cluster).$(Process).out
 </pre>
 Each time you run the job, you will get a different output file; this is useful to re-run the same job over and over without having to worry about file handling.  Between =arguments= and =output=, without modifying the submit file, we can run a range of jobs and record the output in different files without having to ever edit the submit file.
 
@@ -75,14 +82,20 @@ The next new command is =queue=:
 <pre class="file">
 queue 4
 </pre>
-This instructs condor to submit 4 identical jobs except for the process number.  The output of condor_q will look something like this:
-%TWISTY{
-mode="div"
-showlink="Show output..."
-hidelink="Hide output"
-showimgleft="%ICONURLPATH{toggleopen-small}%"
-hideimgleft="%ICONURLPATH{toggleclose-small}%"
-}%
+This instructs condor to submit 4 identical jobs except for the process number. Process numbers are useful for managing a group of similar jobs.  It's also useful for writing scripts that need to know what "job number" it is in a group of jobs.
+
+For example, let's say we have 1,000 different files to process.  If we had a sorted list of file names known to every job, we could simply use =queue 1000= and pass $(Process) as the argument to the job; the script would then be able to determine precisely what file it is assigned to process by looking at the corresponding entry in the list.  By having a unique, zero-based counter in our jobs, we don't have to do a lot of the coordination and "plumbing" that we would have to implement for our jobs otherwise.
+
+Finally, this example demonstrates that one submit file can submit many, very different jobs.  After any =queue= command, you can start describing a new job which begins as a copy as a previous.  So, in our submit file, after =queue 4=, we have the following lines:
+
+<pre class="file">
+arguments=Alternate $(Cluster).$(Process)
+queue 2
+</pre>
+
+This creates a new job, complete identical to the previously submitted one above the =queue 4=, except for the arguments passed to the script.  This provides a mechanism for again creating similar jobs that must differ more than the =$(Process)= trick allows. 
+
+Once you submit this job, the output of condor_q will look something like: (pay attention to the ID column):
 <pre class="file">
 [bbockelm@glidein testjob]$ condor_submit condorg_test.submit 
 Submitting job(s)......
@@ -90,38 +103,28 @@ Logging submit event(s)......
 6 job(s) submitted to cluster 23078.
 [bbockelm@glidein testjob]$ condor_q 23078
 
-
 -- Submitter: glidein.unl.edu : <129.93.229.144:54854> : glidein.unl.edu
  ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
-23078.0   bbockelm        2/19 16:57   0+00:00:00 I  0   0.0  mytest.sh 23078.0
+23078.0   bbockelm        2/19 16:57   0+00:00:00 I  0   0.0  mytest.sh 23078.0  %RED% # Cluster is 23078 & Process is 0. The Job ID is 23078.0 %ENDCOLOR%
 23078.1   bbockelm        2/19 16:57   0+00:00:00 I  0   0.0  mytest.sh 23078.1
 23078.2   bbockelm        2/19 16:57   0+00:00:00 I  0   0.0  mytest.sh 23078.2
 23078.3   bbockelm        2/19 16:57   0+00:00:00 I  0   0.0  mytest.sh 23078.3
-23078.4   bbockelm        2/19 16:57   0+00:00:00 I  0   0.0  mytest.sh 23078.4
-23078.5   bbockelm        2/19 16:57   0+00:00:00 I  0   0.0  mytest.sh 23078.5
+23078.4   bbockelm        2/19 16:57   0+00:00:00 I  0   0.0  mytest.sh Alterna  %RED% # Arguments were cut off, but Process did increment to 4 %ENDCOLOR%
+23078.5   bbockelm        2/19 16:57   0+00:00:00 I  0   0.0  mytest.sh Alterna
 </pre>
-%ENDTWISTY%
-Process numbers are useful for managing a group of similar jobs.  It's also useful for writing scripts that need to know what "job number" it is in a group of jobs.
-
-For example, let's say we have 1,000 different files to process.  If we had an sorted list of filenames known to every job, we could simply use =queue 1000= and pass $(Process) as the argument to the job; the script would then be able to determine precisely what file it is assigned to process by looking at the corresponding entry in the list.  By having a unique, zero-based counter in our jobs, we don't have to do a lot of the coordination and "plumbing" that we would have to implement for our jobs otherwise.
-
-Finally, this example demonstrates that one submit file can submit many, very different jobs.  After any =queue= command, you can start describing a new job which begins as a copy as a previous.  So, in our submit file, after =queue 6=, we have the following lines:
-
-<pre class="file">
-  arguments=Alternate $(Cluster).$(Process)
-  queue 2
-</pre>
-
-This creates a new job, complete identical to the previously submitted one above the =queue 6=, except for the arguments passed to the script.  This provides a mechanism for again creating similar jobs that must differ more than the =$(Process)= trick allows.
 
 ---++ Conclusion
 In this section, we started a more complex Condor example.  The four key concepts are:
-   * Condor submit files are more than simple key=values; it's a language called !ClassAds, which we barely scratched upon
+   * Condor submit files are more than simple key/values pairs; you can include some special _macros_ which are dynamic and change for each job.
    * Job clusters and processes provide an easy way for structuring and bookkeeping very similar jobs without the need to write many scripts to do this for you.  The "plumbing" is built in.
    * The =queue= command gives you the ability to submit many nearly-identical jobs from one config file.
    * Multiple jobs can be specified per submit file, and only the differences between each set of jobs needs to be described.
 
 So far, the only files we move about are the executable, stderr, and stdout.  We have not tackled jobs which perform more complex data handling - processing input or handling output, or moving files in general.  This will be done in the next section.
+
+---++ Further Reading
+   * The [[http://www.cs.wisc.edu/condor/manual/v7.4/condor_submit.html][documentation for condor_submit]] will show you many more options you can include in your submit file.
+   * The [[http://www.cs.wisc.edu/condor/manual/v7.4/condor_q.html][documentation for condor_q]] will show you a lot more you can do with condor_q. Note, for example, the =-globus= option.
 
 %STOPINCLUDE%
 
@@ -157,7 +160,7 @@ So far, the only files we move about are the executable, stderr, and stdout.  We
    * Local REVIEW_READY   = %YES%
 
  change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
-   * Local TEST_READY     = %NO%
+   * Local TEST_READY     = %YES%
 
  change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
    * Local RELEASE_READY  = %NO%
@@ -169,7 +172,7 @@ So far, the only files we move about are the executable, stderr, and stdout.  We
  Thank for reviewing this document! Please fill in your FirstLast name here:
    * Local REVIEWER       = AlainRoy
  Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local REVIEW_PASSED  = %IN_PROGRESS%
+   * Local REVIEW_PASSED  = %YES%
 
 
  DEAR DOCUMENT TESTER
@@ -178,6 +181,6 @@ So far, the only files we move about are the executable, stderr, and stdout.  We
  Thank for testing this document! Please fill in your FirstLast name here:
    * Local TESTER         = AlainRoy
  Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local TEST_PASSED    = %IN_PROGRESS%
+   * Local TEST_PASSED    = %YES%
 ############################################################################################################
 -->
