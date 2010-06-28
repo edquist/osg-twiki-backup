@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RobertEngel" date="1277412224" format="1.1" reprev="1.61" version="1.61"}%
+%META:TOPICINFO{author="RobertEngel" date="1277758219" format="1.1" reprev="1.62" version="1.62"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %DOC_STATUS_TABLE%
 %TOC{depth="3"}%
@@ -189,6 +189,8 @@ Setting CA Certificates for VDT installation at '/opt/osg-ctp'
 Setup completed successfully.
 </pre>
 
+%NOTE% The default location for the CA Certificates and the CRL is below =/etc/grid-security=. Use =--location root= 
+
 ---+++ Configure Logfile Rotation and Automatic Updates
 
 To keep your [[Documentation/GlossaryC#DefsCA][CA Certificates]] and the %LINK_GLOSSARY_CRL% current we will add an entry to =cron= requesting periodic updates. We also recommend to setup logfile rotation using =vdt-control= at the command line:
@@ -200,7 +202,20 @@ running 'vdt-register-service --name vdt-update-certs --enable'... %GREEN%ok%END
 running 'vdt-register-service --name vdt-rotate-logs --enable'... %GREEN%ok%ENDCOLOR%
 </pre>
 
-=vdt-control= will only _register the services_ requested to be run by =cron=. To see a list of services registered use:
+=vdt-control= will only _register the services_ requested to be run by =cron=. 
+
+---+++ Enable Condor to support Condor-G Job Submissions
+
+Large scale production job submissions require a capable scheduler submitting jobs to grid resources and monitoring their status. Enabling support for %LINK_GLOSSARY_CONDOR% on the submission host is all that is required to create a local grid queue on your submission host: 
+
+<pre class="screen">
+[root@osg-se osg-ctp]# vdt-control -enable condor
+running 'vdt-register-service --name condor --enable'... ok
+</pre>
+
+---+++ Service Installation
+
+The %LINK_GLOSSARY_VDT% provides two types of services. Services that will be started periodically using =cron= and services that will be started using the =init.d= daemon. To see a list of services registered by the OSG client package use =vdt-control=:
 
 <pre class="screen">
 [root@osg-se osg-ctp]# vdt-control %RED%-list%ENDCOLOR%
@@ -209,22 +224,22 @@ Service                 | Type   | Desired State
 fetch-crl               | cron   | %GREEN%enable%ENDCOLOR%
 vdt-rotate-logs         | cron   | %GREEN%enable%ENDCOLOR%
 vdt-update-certs        | cron   | %GREEN%enable%ENDCOLOR%
-condor                  | init   | do not enable
+condor                  | init   | %GREEN%enable%ENDCOLOR%
 globus-ws               | init   | do not enable
 </pre>
 
-Finally add the necessary entries to =cron= by executing =vdt-control=:
+Use =vdt-control= to add the registered services to =cron= and =init.d=: 
 
 <pre class="screen">
 [root@osg-se osg-ctp]# vdt-control %RED%-on%ENDCOLOR%
 enabling cron service fetch-crl... %GREEN%ok%ENDCOLOR%
 enabling cron service vdt-rotate-logs... %GREEN%ok%ENDCOLOR%
 enabling cron service vdt-update-certs... %GREEN%ok%ENDCOLOR%
-skipping init service 'condor' -- marked as disabled
+enabling init service condor... %GREEN%ok%ENDCOLOR%
 skipping init service 'globus-ws' -- marked as disabled
 </pre>
 
-You may use =crontab= to verify that the necessary entries have been add to cron. The times are _randomized_ in order to avoid all grid resources contacting the server at the same time.
+You can use =crontab= to verify that the necessary entries have been add to cron. The start times will be _randomized_ in order to avoid all grid resources contacting the server at the same time.
 
 %TWISTY{%TWISTY_OPTS_OUTPUT%}%
 <pre class="screen">
@@ -235,76 +250,63 @@ You may use =crontab= to verify that the necessary entries have been add to cron
 </pre>
 %ENDTWISTY%
 
-When necessary use =vdt-control= to remove all registered entries from =cron=:
+To remove all registered services from =cron= and =init.d=:
 
 <pre class="screen">
 [root@osg-se osg-ctp]# vdt-control %RED%-off%ENDCOLOR%
 disabling init service globus-ws... ok
-disabling init service condor... ok
+disabling init service condor... %GREEN%ok%ENDCOLOR%
 disabling cron service vdt-update-certs... %GREEN%ok%ENDCOLOR%
 disabling cron service vdt-rotate-logs... %GREEN%ok%ENDCOLOR%
 disabling cron service fetch-crl... %GREEN%ok%ENDCOLOR%
 </pre>
 
----+++ Enable Condor to support Condor-G Job Submissions
-
-There are more optional services available: for Condor-G submissions =condor= is needed. Never run or enable =globus-ws=: it is an legacy artifact of the VDT install process. <pre class="screen">vdt-control --enable condor
-</pre>
-To start the the service as regular user:<pre class="screen">vdt-control --non-root --on
-</pre>
-or as root:<pre class="screen">vdt-control --on
-</pre>
-
-This gives you self-contained installation with standard OSG certificates with services to maintain all updated. 
-
-CA certificates and CRL are necessary to verify the validity of your certificate as explained in CertificateWhatIs.
-CA certificates need to be maintained because CRLs expire frequently (with expired CAs or CRLs your authentications will fail). 
+<!--
 Services are not mandatory, you could disable them, anyway no running services is fine for testing and local casual, but the certificates will not be automatically updated. You can update them manually by re-invoking =vdt-ca-manage= or by running =vdt-update-certs=, but requires labor and is not reliable because you may forget. 
 Therefore the services above are recommended. 
-
-For more options on the type and location of the certificates (e.g. to install the certificates in the system directory =/etc/grid-security=) see the 
-[[#Alternatives_for_CA_certificates][section on alternatives for CA and CRLs]] below.
-
-%TWISTY{%TWISTY_OPTS_REVIEW%}%
-   * DONE
-   * * remind me what a CA certificate is and why this is important
-* the vdt-ca-manage command needs a help page. An explaining would also be nice about what it does.
-%ENDTWISTY%
-
-%TWISTY{%TWISTY_OPTS_REVIEW%}%
-   * NA - moved below as requested
-   * * how do I know that it works? Validation?
-%ENDTWISTY%
-
-
----++ Advanced installation options
-These sections present special configurations, explain concepts in detail or describe special use case.
-
----+++ Alternatives for CA certificates and CRLs
-=vdt-ca-manage= allows to pick the desired CA certificates and install them in an arbitrary location, private or shared with other grid softwares.
-The default installation above is self contained. This section covers two other common options to install the OSG CA certificates and a third option showing the flexibility of =vdt-ca-manage=. You can use one of these instead of the CA installation in the  instructions above.
-A complete reference on available certificate sets and where to put the certificates, including an arbitrary location, is available [[http://vdt.cs.wisc.edu/releases/2.0.0/man/vdt-ca-manage.html][on the VDT site]].
-
----++++!! Install in /etc/grid-security/certificates
-You must install as root to use this system directory:<pre class="screen">source /opt/wlcg-client/setup.sh
-vdt-ca-manage setupca --location root --url osg
-</pre>
-This installation by default enables the periodic update of certificates and CRLs.
-
----++++!! Link an existing CA installation
-You can use an existing CA installation (owned by an other package) on the host or mounted in a shared directory, e.g. via NSF. 
-If several grid softwares share the same CA installation it is important that one is the owner and runs the services to update it and all the other only link to it without changing the content.
-Let's assume that  =$CACERTDIR= contains the path of the certificate directory, e.g. =/your/cacertdir= or =/etc/grid-security/certificates=.
-To link to the existing CA installation keeping all update services disabled:<pre class="screen">source $INSTALL_DIR/setup.sh
-vdt-ca-manage setupca --location $CACERTDIR --no-update 
-<!-- actions taken by vdt-ca-manage: 
-ln -s  $VDT_LOCATION/globus/TRUSTED_CA
-ln -s $CACERTDIR $VDT_LOCATION/globus/share/certificates
 -->
+
+---++ Advanced Configuration Options
+
+Completing the steps outlined above will install a fully functional OSG Client. The following section discusses optional and advanced configuration options.   
+
+---+++ CA Certificates and CRL
+
+The program =vdt-ca-manage= provides convenient options to configure which [[Documentation/GlossaryC#DefsCA][Certificate Authority]] to trust and how to install the CA Certificates on your resource.
+
+---++++!! System-wide Installation
+
+The default location for CA Certificates is =/etc/grid-security/certificates= and should preferably be used to make the certificates system-wide available:
+
+<pre class="screen">
+[root@osg-se osg-ctp]# vdt-ca-manage setupca %RED%--location root%ENDCOLOR% --url osg
+Setting CA Certificates for VDT installation at '/opt/osg-ctp'
+
+Setup completed successfully.
 </pre>
 
----++++!! Install arbitrary certificates on an arbitrary location
-You must have write privilege in the chosen directory (=/full/path/to/your/desired/CAinstallation =) and the URL must point to a valid CA distribution:<pre class="screen">source $INSTALL_DIR/setup.sh
+---++++!! Use an existing CA Installation
+
+It is often practical to reuse an existing %LINK_GLOSSARY_CA% Installation instead of creating a new installation using =vdt-ca-manage=:
+
+<pre class="screen">
+[root@osg-se osg-ctp]# source setup.sh
+[root@osg-se osg-ctp]# vdt-ca-manage setupca %RED%--location /etc/grid-security/certificates%ENDCOLOR% --no-update
+Setting CA Certificates for VDT installation at '/opt/osg-ctp'
+
+Setup completed successfully.
+</pre>
+
+%ICON{hand}% The command line option =--location= points to the existing installation. The command creates a softlink from =%INSTALL_DIR%/globus/TRUSTED_CA= to =/etc/grid-security/certificates=.
+
+---++++!! Provide and Install a custom CA Package
+
+If a custom %LINK_GLOSSARY_CA% certificates package was made available on a web server, it can be used to be installed instead of the OSG specific CA package using the =--url= option on the command line to =vdt-ca-manage=:
+
+<pre class="screen">
+[root@osg-se osg-ctp]# source setup.sh
+
+source $INSTALL_DIR/setup.sh
 vdt-ca-manage setupca --location /full/path/to//CAinstallation --url http://server/path/of_CA_distribution
 </pre>
 This installation by default enables the periodic update of certificates and CRLs.
@@ -346,11 +348,6 @@ Follow these step to change the installation procedure described in the page:
 
 
 ---++ Service Startup/Shutdown
-
-%TWISTY{%TWISTY_OPTS_REVIEW%}%
-   * DONE
-   * * this section must move up before the verification
-%ENDTWISTY%
 
 This section applies only to clients installed as root.
 
