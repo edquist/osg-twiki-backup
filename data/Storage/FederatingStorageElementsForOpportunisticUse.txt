@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TedHesselroth" date="1276880959" format="1.1" version="1.24"}%
+%META:TOPICINFO{author="TedHesselroth" date="1277743752" format="1.1" version="1.25"}%
 %META:TOPICPARENT{name="OpportunisticStorage"}%
 ---+*%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -270,6 +270,7 @@ A plan sketch would be the following. The work starts with the Data Transfer fun
    1. Write and test rules using the msiExecCmd microservices for Discovery, Catalog, and Management functions.
 
 
+
 ---+++ Component Design for Shadow Storage Option
 
 How the scripts that invoke specific operations can be written such that iRODS and currently available tools can work together and support the requirements of the model.
@@ -280,7 +281,7 @@ The complete list of file operations is: univMSSFileCreate, univMSSFileOpen, uni
     univMSSFileClosedir, univMSSFileReaddir, univMSSFileStage, univMSSFileRename,
     univMSSFileGetFsFreeSpace, univMSSFileTruncate, univMSSStageToCache, univMSSSyncToArch. Some of the operations may not be possible with gridftp or SRM.
 
----++++univMSSFileRead
+---++++clientsideFileRead
 
    1. preprocessing
    1. fileRead function
@@ -305,6 +306,32 @@ The complete list of file operations is: univMSSFileCreate, univMSSFileOpen, uni
    1. postprocessing
          1. OSG Storage Federation accounting.
 
+---++++clientsideFileWrite
+
+The following is based on a alternative model to that described for clientsideFileRead. The model is meant to be more asynchronous and service-based than the client-server approach. The sequence is as follows.
+
+   1. The user creates a VOMS proxy.
+   1. The write utility contacts an OSG orchestration server with a write request function.
+   1. (Optional) Authorization is checked.
+   1. The user's VO is obtained from the proxy or an iRODS username from a GUMS service.
+   1. If new, the user's DN is added as a DN for the iRODS user representing the VO.
+   1. Delegation of the user's credentials is done to the orchestration server.
+   1. A write request ID is returned to the utility and the connection is closed.
+   1. The write utility requests the URL of the write request by ID.
+      1. This could be a separate process, asking for the URL of the "next" write request.
+   1. The orchestration server makes an put request via Jargon code to the OSG iRODS server.
+   1. From the user's DN, iRODS GSI code finds the iRODS user representing the VO.
+   1. The OSG fileWrite driver posts the URL with a write request ID to the orchestration service.
+   1. The driver requests the status of the write request by ID.
+      1. It would be good for asynchronicity if the put could exit here, setting the data_status to PENDING.
+   1. The write utility gets the URL from the orchestration server.
+   1. The write utility does the transfer.
+   1. The write utility posts an update to the orchestration server, to set the write request status to UPLOADED or FAILED.
+   1. The orchestration server updates the write request status and responds to the driver's request for status.
+   1. The driver unblocks and returns the file length to iRODS, or -1 if the status request timed out or returned FAILED.
+   1. (Optional) In acPostProcForPut, an action is set to post the data_id to the orchestration service.
+   1. iRODS forwards that to the orchestration server as the return value of the Jargon put call.
+   1. The orchestration server checks that the return code is in accordance with the write request status.
 
 ---+++ OSG iRODS Program of Work for iCAT-only Option
 
