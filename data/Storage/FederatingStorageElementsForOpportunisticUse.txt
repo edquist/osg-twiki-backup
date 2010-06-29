@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TedHesselroth" date="1277760570" format="1.1" reprev="1.28" version="1.28"}%
+%META:TOPICINFO{author="TedHesselroth" date="1277830417" format="1.1" reprev="1.29" version="1.29"}%
 %META:TOPICPARENT{name="OpportunisticStorage"}%
 ---+*%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -239,7 +239,7 @@ Several significant iRODS functions are involved. Refinements such as the space 
       1. Number and size of files, etc.
 
 
-
+<img src="%ATTACHURLPATH%/ResourceRegCollectionCreation.png" alt="ResourceRegCollectionCreation.png" width='900' height='600' /> 
 
 ---+++ OSG iRODS Program of Work for Shadow Storage Option
 
@@ -306,16 +306,38 @@ The complete list of file operations is: univMSSFileCreate, univMSSFileOpen, uni
    1. postprocessing
          1. OSG Storage Federation accounting.
 
+---++++clientsideFileWrite client-server model
+
+Has the client connect directly to the file driver.
+
+   1. A utility are provided to the user for puts. At an early stage, the utility forks, one thread calling the iRODS client comand iput or iget in the usual fashion and the other starts trying to connect on a socket.
+   1. On the iRODS server side, the fileCreate driver is invoked, which is to return a file descriptor to be used by the fileWrite function. The custom fileCreate driver is written to call _rsExecCmd, a supplied iRODS function for doing system calls. This allows the driver to be written in shell script, python, etc. The driver script adds a row to the fd_info table. The only information it adds is the path of the file. The table has a serial ID column, which provides a unique integer for each row. This integer is obtained and returned as the file descriptor.
+   1. On the iRODS server side, the fileWrite driver is invoked, given the file descriptor integer from the fileCreate function. The fileWrite driver script queries the fd_info table and obtains the path of the file to be written.
+   1. The fileWrite script parses the file path and obtains the destination storage resource. The storage resource will later be present in a column of the database object for the file, but at this point the file has not been registered in the database.
+   1. The fileWrite script queries the metadata of the storage resource entry in the database for the endpoint and path of the Storage Element and composes an SURL or TURL for the file.
+   1. The fileWrite script starts listening on a socket, and the client connects.
+   1. The URL is communicated to the client through the socket.
+   1. The client uses the URL to write the file to the Storage Element.
+   1. The client reports success or failure to the fileWrite script. If success, the fileWrite driver returns zero to iRODS and the file is subsequently registered in iCAT. If failure, an error code is generated and returned to the iput fork of the client script.
+
+
+<img src="%ATTACHURLPATH%/FilePutClientServer.png" alt="FilePutClientServer.png" width='900' height='600' /> 
+
 ---++++clientsideFileWrite
 
-The following is based on a alternative model to that described for clientsideFileRead. The model is meant to be more asynchronous and service-based than the client-server approach. The sequence is as follows.
+The following is based on a alternative model to that described for clientsideFileRead. The model is meant to be more asynchronous and service-based than the client-server approach. The client and the file driver each connect to a transfer coordination service. The sequence is as follows.
 
    1. The user creates a VOMS proxy.
    1. The write utility contacts an OSG transfer coordination service with a write request function and waits.
    1. (Optional) Authorization is checked.
    1. The user's VO is obtained from the proxy or an iRODS username from a GUMS service.
    1. Delegation of the user's credentials is done to the transfer coordination service.
+   1. The transfer coordination service creates a contextually unique integer and associates it with the file path.
    1. The transfer coordination service makes an put request via Jargon code to the OSG iRODS service.
+   1. The OSG fileOpen driver gets the file descriptor integer from the transfer coordination service using the file path.
+   1. iRODS code calls the OSG fileWrite driver with the file descriptor as an argument (not the file path).
+   1. The OSG fileWrite driver gets the file path from the transfer coordination service using the file descriptor integer.
+   1. The OSG fileWrite driver obtains the storage resource handle from the file path and constructs the URL from the resource metadata.
    1. The OSG fileWrite driver posts the URL with a status of PENDING to the transfer coordination service.
    1. The OSG fileWrite driver requests the status of the write request by URL and waits for the reply.
       1. It would be good for asynchronicity if the put could exit here, setting the data_status to PENDING.
@@ -329,7 +351,7 @@ The following is based on a alternative model to that described for clientsideFi
    1. iRODS forwards the fileWrite return code to the transfer coordination service in response to the Jargon put call.
    1. (Optional) On failure, the transfer coordination service performs a compensatory action such as marking the storage resource as questionable.
 
-    <img src="%ATTACHURLPATH%/FilePutSOA.png" alt="FilePutSOA.png" width='900' height='600' />
+    <img src="%ATTACHURLPATH%/FilePutSOA2.png" alt="FilePutSOA.png" width='900' height='600' />
 
 ---+++ OSG iRODS Program of Work for iCAT-only Option
 
@@ -651,5 +673,9 @@ globus.org might be used as the transfer orchestration component of an iRODS cus
 ---++FTS
 
 -- Main.TedHesselroth - 19 May 2010
+      
 
 %META:FILEATTACHMENT{name="FilePutSOA.png" attachment="FilePutSOA.png" attr="h" comment="BPMN for file put with transfer coordination" date="1277760286" path="FilePutSOA.png" size="107072" stream="FilePutSOA.png" tmpFilename="/usr/tmp/CGItemp51401" user="TedHesselroth" version="1"}%
+%META:FILEATTACHMENT{name="ResourceRegCollectionCreation.png" attachment="ResourceRegCollectionCreation.png" attr="h" comment="Design for resource and collection updates" date="1277823370" path="ResourceRegCollectionCreation.png" size="98191" stream="ResourceRegCollectionCreation.png" tmpFilename="/usr/tmp/CGItemp51355" user="TedHesselroth" version="1"}%
+%META:FILEATTACHMENT{name="FilePutClientServer.png" attachment="FilePutClientServer.png" attr="h" comment="BPMN of file put using client server model" date="1277826577" path="FilePutClientServer.png" size="88856" stream="FilePutClientServer.png" tmpFilename="/usr/tmp/CGItemp51386" user="TedHesselroth" version="1"}%
+%META:FILEATTACHMENT{name="FilePutSOA2.png" attachment="FilePutSOA2.png" attr="h" comment="SOA file put with drive annotation" date="1277829720" path="FilePutSOA2.png" size="119935" stream="FilePutSOA2.png" tmpFilename="/usr/tmp/CGItemp29765" user="TedHesselroth" version="1"}%
