@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnwarMamat" date="1277929949" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="AnwarMamat" date="1278002052" format="1.1" reprev="1.8" version="1.8"}%
 -- Main.AnwarMamat - 16 Jun 2010
 ---+ Linux Condor Pool on Windows Lab Machines
 ---++Project Description
@@ -16,7 +16,7 @@ In this project, we build a Linux Condor Pool out of Windows lab machines. The s
    * Guest OS: CentOS 5.5
 ---++ Installing the Head Node
 
-In this tutorial, we only introduce the necessary steps. For the details, please read the “Installation” section in Condor Manual.
+For the Head node, we install Condor 7.4 on the CentOS 5.5. In this tutorial, we only introduce the necessary steps. For the details, please read the “Installation” section in Condor Manual.
 
 Change/Add the Head Node hostname  into  “/etc/sysconfig/network”:
 <pre class="screen">
@@ -177,7 +177,15 @@ NUM_CPUS = 1
 CCB_ADDRESS=$(CONDOR_HOST)
 </pre>
 
----++++ Create the Virtual Machine
+Let's explain above items:
+   * DAEMON_LIST = MASTER  STARTD KBDD: The Condor on Windows Host works as a Watchdog, which starts the Virtual machine when the Windows host is idle and kill the virtual machine when user activity is detected. Therefore, only the Condor Master and Condor STARTD are running. 
+   * use_visible_desktop=true: This is for debug purposes. The jobs that submitted from head node to the Windows Host run in background, as condor-reuse-slotXXX user. With 'use_visible_desktop=true', we can bring the background condor job to the desktop to see what is happening in background. This is very useful when you need to press the "OK" button to confirm the EULA etc.
+   * NUM_CPUS = 1: As we said, condor on the Windows Host only executes the jobs that START/STOP the virtual machine. For a DUO/QUAD core machines, actually we only need one slot to execute START/STOP jobs.
+   * CCB_ADDRESS=$(CONDOR_HOST): If the Windows Host is behind NAT, we need to configure Condor Connection Broker.
+ 
+
+
+---++++ Create the Virtual Machine and Install the Guest OS
 
  We install VMware WorkStation into C:\VMware. If it is installed in different directory, the "virtual machine start script" must be correspondingly modified. 
 As we have tested, the free version of VMware Player 3.0 also worked. Because department has the license, here we used VMware Workstation.
@@ -190,6 +198,12 @@ Choose "I will install OS later". If you choose "Installer Disc from DVD", easy 
 
    * InstallLater: <br />
      <img src="%ATTACHURLPATH%/InstallLater.png" alt="InstallLater.png" width='940' height='718' />    
+
+   * NewVirtualMachine.png: <br />
+     <img src="%ATTACHURLPATH%/NewVirtualMachine.png" alt="NewVirtualMachine.png" width='938' height='594' />    
+
+   * VirtualMachinePath.png: <br />
+     <img src="%ATTACHURLPATH%/VirtualMachinePath.png" alt="VirtualMachinePath.png" width='946' height='596' />    
 
 
    * CentOS: <br />
@@ -205,6 +219,7 @@ Choose "I will install OS later". If you choose "Installer Disc from DVD", easy 
 
 "Finish" and insert the "CentOS Installation DVD" into the DVD drive. It will bring you to the Guest OS installation. Please refer specific Guest OS installation guide.
 
+---++++ Install Condor on the Guest OS
 Now, we install the Condor on the guest OS.
 
 Set the worker node host name in /etc/sysconfig/network
@@ -268,15 +283,156 @@ condor_config_val CONDOR_HOST
 </pre>
 
     
-Now, you should be able to see the worker node slots in your head node condor pool.
+Now, restart your Windows Host, start VMware Workstation, power on the virtual machine. After few minutes, you should be able to see the worker node slots in your head node condor pool. For example: If you execute:
+<pre class="screen">
+condor_status
+</pre>
+You should be able to see:
+<pre class="screen">
+Name               OpSys      Arch   State     Activity LoadAv Mem   ActvtyTime
+
+slot1@PC2 LINUX      X86_64 Unclaimed Idle     0.000   501  0+01:17:25
+slot2@PC2 LINUX      X86_64 Unclaimed Idle     0.000   501  0+01:17:26
+slot1@PC1 LINUX      X86_64 Unclaimed Idle     0.000   250  0+01:17:21
+slot2@PC1 LINUX      X86_64 Unclaimed Idle     0.000   250  0+01:17:21
+slot3@PC1 LINUX      X86_64 Unclaimed Idle     0.000   250  0+01:17:22
+slot4@PC1 LINUX      X86_64 Unclaimed Idle     0.000   250  0+01:17:24
+PC2    	  WINNT61    INTEL  Claimed   Busy     0.000  2043  0+18:31:59
+PC1	  WINNT61    INTEL  Claimed   Busy     0.080  4094  0+18:35:57
+                     Total Owner Claimed Unclaimed Matched Preempting Backfill
+
+       INTEL/WINNT61     2     0       2         0       0          0        0
+        X86_64/LINUX     6     0       0         6       0          0        0
+
+               Total     8     0       2         6       0          0        0
+
+</pre>
+
+If you do not see the correct machines list, please check the "Collerctor.log" on the head node and the "StartLog" and "StarterLog" on the worker nodes. 
+
+So far, we have installed and configured the head node and worker nodes. In next step, we discuss how we START/STOP worker node virtual machine from head node.
+
+---++++ Job Submission Examples
+
+1. Submit a job to Windows Host
+<pre class="screen">
+Universe=vanilla
+executable=dir.bat
+requirements=(Arch == "INTEL" && OpSYS == "WINNT61" && name == "PC1")
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+output=results.output.$(Cluster)
+error=results.error.$(Cluster)
+log=results.log.$(Cluster)
+notification=never
+queue
+</pre>
+The execution file dir.bat is:
+<pre class="screen">
+dir C:\condor
+</pre>
+This will return the list of files in the "C:\condor" folder on the Windows Host. If the Windows Host shows up in your pool, but never executes the job, check the Condor Connection Broker configuration. 
+
+2. Submit a job to the Linux Guest
+<pre class="screen">
+executable=m.sh
+arguments=TestJob 15
+output=results.output.$(Cluster)
+error=results.error.$(Cluster)
+log=results.log.$(Cluster)
+notification=never
+universe=vanilla
+when_to_transfer_output = ON_EXIT
+queue 100
+</pre>
+
+The execution file m.sh:
+
+<pre class="screen">
+#! /bin/sh
+echo "I'm process id $$ on" `hostname`
+echo "This is sent to standard error" 1>&2
+date
+echo "Running as binary $0" "$@"
+echo "My name (argument 1) is $1"
+echo "My sleep duration (argument 2) is $2"
+sleep $2
+echo "Sleep of $2 seconds finished.  Exiting"
+echo "RESULT: 0 SUCCESS"
+</pre>
+If the jobs completes, the result.out.XXX is:
+<pre class="screen">
+I'm process id 9901 on PC1
+Thu Jul  1 08:46:31 CDT 2010
+Running as binary /var/lib/condor/execute/dir_9889/condor_exec.exe TestJob 15
+My name (argument 1) is TestJob
+My sleep duration (argument 2) is 15
+Sleep of 15 seconds finished.  Exiting
+RESULT: 0 SUCCESS
+</pre>
+---++ Start the Virtual machine
+
+We submit this script to START the virtual machine on Windows Host PC1.
+<pre class="screen">
+Universe=vanilla
+executable=VMPlay_AutoRun.bat
+requirements=(Arch == "INTEL" && OpSYS == "WINNT61" && name == "PC1")
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+output=results.output.$(Cluster)
+error=results.error.$(Cluster)
+log=results.log.$(Cluster)
+notification=never
+transfer_input_files = set_vm_preferences.pl
+queue
+</pre>
+
+The execution file VMPlay_AutoRun.bat is:
+<pre class="screen">
+set_vm_preferences.pl
+C:\VMware\vmware -x C:\VirtualMachines\v-node\v-node.vmx
+</pre>
+
+This file set_vm_preferences.pl is:
+<pre class="screen">
+use Win32;
+
+my $name;
+$name=Win32::LoginName();
+print "Process launched by user : $name\n";
+
+use File::Path;
+use File::Copy;
+
+my $target_path = "C:/Users/$name/AppData/Roaming/VMware";
+$file = "preferences.ini";
+my $source_path = "C:/VirtualMachines/v-node/$file";
+
+if (! -d $target_path)
+{
+  mkpath($target_path) or die "Failed to create $path: $!\n";
+}
+copy($source_path,$target_path) or die "Failed to copy $file: $!\n";
+#$cmd = "copy $file c:/Users/$name/$file";
+#print "$cmd\n";
+#system($cmd);
+</pre>
+
+When a new user starts VMware Workstation, it asks for the End User License Agreement. The condor job running in background has to respond to the EULA too. To overpass this, wen can copy the  "preferences.ini" file of an old user to the new user. If you start the VMware workstation as the user "XXX", then you can find the "preferences.ini"  at "C:/Users/XXX/AppData/Roaming/VMware. Copy the file into the folder "C:\virtualMachines\v-node". When condor job starts the virtual machine, it first copies the "preferences.ini" to the condor submit user's folder. Doing so, we can overpass the background message asking you to answer the EULA.
+
+
+After few minutes, you can see the process "vmware.exe" or "vmware-vmx.exe" on the Windows Host Processes list. 
+
+---++ Stop the Virtual machine
+To Stop the virtual machine, you can simply kill the running job "VMPlay_AutoRun.bat"
 
 %META:FILEATTACHMENT{name="Condor_head.png" attachment="Condor_head.png" attr="" comment="structure" date="1277309936" path="Condor_head.png" size="31191" stream="Condor_head.png" tmpFilename="/usr/tmp/CGItemp24606" user="AnwarMamat" version="1"}%
 %META:FILEATTACHMENT{name="VM_typical.png" attachment="VM_typical.png" attr="" comment="VM_typical" date="1277750815" path="VM_typical.png" size="145205" stream="VM_typical.png" tmpFilename="/usr/tmp/CGItemp56080" user="AnwarMamat" version="2"}%
 %META:FILEATTACHMENT{name="CentOS.png" attachment="CentOS.png" attr="" comment="CentOS" date="1277750675" path="CentOS.png" size="111916" stream="CentOS.png" tmpFilename="/usr/tmp/CGItemp56103" user="AnwarMamat" version="1"}%
 %META:FILEATTACHMENT{name="InstallLater.png" attachment="InstallLater.png" attr="" comment="InstallLater" date="1277750702" path="InstallLater.png" size="109439" stream="InstallLater.png" tmpFilename="/usr/tmp/CGItemp56053" user="AnwarMamat" version="1"}%
-%META:FILEATTACHMENT{name="NewVirtualMachine.png" attachment="NewVirtualMachine.png" attr="" comment="NewVM" date="1277750730" path="NewVirtualMachine.png" size="114577" stream="NewVirtualMachine.png" tmpFilename="/usr/tmp/CGItemp56002" user="AnwarMamat" version="1"}%
+%META:FILEATTACHMENT{name="NewVirtualMachine.png" attachment="NewVirtualMachine.png" attr="" comment="" date="1277999525" path="NewVirtualMachine.png" size="114577" stream="NewVirtualMachine.png" tmpFilename="/usr/tmp/CGItemp55705" user="AnwarMamat" version="1"}%
 %META:FILEATTACHMENT{name="VirtualMachineDiskSize.png" attachment="VirtualMachineDiskSize.png" attr="" comment="DiskSIze" date="1277750746" path="VirtualMachineDiskSize.png" size="127124" stream="VirtualMachineDiskSize.png" tmpFilename="/usr/tmp/CGItemp56038" user="AnwarMamat" version="1"}%
-%META:FILEATTACHMENT{name="VirtualMachinePath.png" attachment="VirtualMachinePath.png" attr="" comment="VM_Path" date="1277750766" path="VirtualMachinePath.png" size="119996" stream="VirtualMachinePath.png" tmpFilename="/usr/tmp/CGItemp56040" user="AnwarMamat" version="1"}%
+%META:FILEATTACHMENT{name="VirtualMachinePath.png" attachment="VirtualMachinePath.png" attr="" comment="" date="1277999538" path="VirtualMachinePath.png" size="119996" stream="VirtualMachinePath.png" tmpFilename="/usr/tmp/CGItemp55712" user="AnwarMamat" version="1"}%
 %META:FILEATTACHMENT{name="VirtualMachinePowerOn.png" attachment="VirtualMachinePowerOn.png" attr="" comment="PowerOn" date="1277750789" path="VirtualMachinePowerOn.png" size="133244" stream="VirtualMachinePowerOn.png" tmpFilename="/usr/tmp/CGItemp56099" user="AnwarMamat" version="1"}%
 %META:FILEATTACHMENT{name="1.png" attachment="1.png" attr="" comment="Condor Host" date="1277759188" path="1.png" size="22795" stream="1.png" tmpFilename="/usr/tmp/CGItemp23339" user="AnwarMamat" version="1"}%
 %META:FILEATTACHMENT{name="2.png" attachment="2.png" attr="" comment="Condor Behavior" date="1277759229" path="2.png" size="31374" stream="2.png" tmpFilename="/usr/tmp/CGItemp23498" user="AnwarMamat" version="1"}%
