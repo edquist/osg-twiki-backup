@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnwarMamat" date="1278002052" format="1.1" reprev="1.8" version="1.8"}%
+%META:TOPICINFO{author="AnwarMamat" date="1278018288" format="1.1" reprev="1.9" version="1.9"}%
 -- Main.AnwarMamat - 16 Jun 2010
 ---+ Linux Condor Pool on Windows Lab Machines
 ---++Project Description
@@ -425,6 +425,153 @@ After few minutes, you can see the process "vmware.exe" or "vmware-vmx.exe" on t
 
 ---++ Stop the Virtual machine
 To Stop the virtual machine, you can simply kill the running job "VMPlay_AutoRun.bat"
+
+
+---++ Debug Condor Jobs Running on Windows Host
+
+If the "vmware.exe" process shows up in Windows processes list, but the Linux Condor slots never show up in your pool, then we have a problem.
+Most likely, the virtual machine is stuck and waiting for the user response. We have to debug the condor job that running in background.
+
+We explain how to enable the USE_VISIBLE_DESKTOP on Windows 7 to bring the background condor job to the foreground desktop.
+
+
+---+++Services Management Console
+
+Open the Services Management Console:
+
+   1. Click on the Start Menu
+   2. Open the Control Panel
+   3. Select Administrative Tools
+   4. Select Services 
+
+If the Services option is missing, then use the following steps to access it:
+
+   1. Depress WinKey+R to bring up the Run window
+   2. Type services.msc and press Enter or click OK 
+
+
+---+++ Enable interactive services
+
+In the Services Management Console:
+
+   1. Find the Interactive Services Detection service
+   2. Bring up its properties by double-clicking on it
+   3. Change the Statup type to Automatic
+   4. Click on the Start button bellow the "Service status" label
+   5. Click OK 
+
+
+---+++Make the Condor service interactive
+
+In the same Services Management Console:
+
+   1. Find the Condor service
+   2. Bring up its properties by double-clicking on it
+   3. Switch to the Log On page
+   4. Put a check mark beside the Allow service to interact with desktop option
+   5. Click OK 
+
+After you have above steps, when you submit a job to the Condor on the Windows Host, the "Interactive Service" icon will flash on the Windows desktop toolbar. Click open the interactive service desktop to see what is really happening to to your job. Common cases are that VMware workstation asks for EULA, hardware updates etc.
+
+
+---++ How to Change Guest OS Host Name
+
+For computer lab machines,we can copy the virtual machine images. When you do that, all Linux Guest OS slots will show up in your pool with same Guest OS hostname, like "slotXX@v-node". For accounting, or debugging purposes, we would like to map the Host OS hostname to Guest OS hostname. 
+There are the steps:
+
+   * Send a job to the condor on Windows Host
+   * That job reads the Winodws hostname and sends the string to the Guest OS
+   * A script inside the Guest OS is executed and the script changes the Guest OS hostname based on the given string.
+
+Here is how we do that.
+
+Submit this job to the Windows Host:
+<pre class="screen">
+Universe=vanilla
+executable=setHostname.bat
+requirements=(Arch == "INTEL" && OpSYS == "WINNT61" && name == "PC1")
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+output=results.output.$(Cluster)
+error=results.error.$(Cluster)
+log=results.log.$(Cluster)
+notification=never
+transfer_input_files = set_vm_preferences.pl,setHostname.pl
+queue
+</pre>
+
+The file set_vm_preferences.pl is given above. The file setHostname.bat is:
+<pre class="screen">
+set_vm_preferences.pl
+setHostname.pl
+</pre>
+
+The file setHostname.pl is:
+<pre class="screen">
+#!/usr/bin/perl
+use Net::Domain qw(hostname hostfqdn hostdomain);
+my $host = hostname();
+system "C:\\VMware\\vmrun start C:\\VirtualMachines\\v-node\\v-node.vmx";
+system "C:\\VMware\\vmrun -T ws -gu root -gp "guets OS root password" runProgramInGuest c:\\VirtualMachines\\v-node\\v-node.vmx /usr/bin/perl /home/condor/change_hostname.pl $host";
+</pre>
+
+You also need to copy the "change_hostname.pl"  into your Guest OS folder "/home/condor"
+
+The content of the file "change_hostname.pl" is:
+<pre class="screen">
+#!/usr/bin/perl
+#Specify the file
+$file = "/etc/sysconfig/network";
+#Open the file and read data
+#Die with grace if it fails
+open (FILE, "<$file") or die "Can't open $file: $!\n";
+@lines = <FILE>;
+close FILE;
+
+#Open same file for writing, reusing STDOUT
+open (STDOUT, ">$file") or die "Can't open $file: $!\n";
+
+#Walk through lines, putting into $_, and substitute 2nd away
+for ( @lines ) {
+    #s/(.*?away.*?)away/$1yellow/;
+    s/HOSTNAME=(.+)/HOSTNAME=$ARGV[0]/;
+    print;
+}
+#print "HOSTNAME=";
+#print "$ARGV[0]\n";
+
+#Finish up
+close STDOUT;
+
+
+#Specify the file
+$file = "/etc/hosts";
+
+#Open the file and read data
+#Die with grace if it fails
+open (FILE, "<$file") or die "Can't open $file: $!\n";
+@lines = <FILE>;
+close FILE;
+
+#Open same file for writing, reusing STDOUT
+open (STDOUT, ">$file") or die "Can't open $file: $!\n";
+
+#Walk through lines, putting into $_, and substitute 2nd away
+for ( @lines ) {
+    #s/(.*?away.*?)away/$1yellow/;
+    s/127.0.0.1(.+)/127.0.0.1   $ARGV[0]/;
+    print;
+}
+
+#print "127.0.0.1       ";
+#print "$ARGV[0]\n";
+
+#Finish up
+close STDOUT;
+
+system("hostname $ARGV[0]");
+</pre>
+Now, you will see your Guest OS condor slots will show up with the same hostname as their hosting machines hostnames.
 
 %META:FILEATTACHMENT{name="Condor_head.png" attachment="Condor_head.png" attr="" comment="structure" date="1277309936" path="Condor_head.png" size="31191" stream="Condor_head.png" tmpFilename="/usr/tmp/CGItemp24606" user="AnwarMamat" version="1"}%
 %META:FILEATTACHMENT{name="VM_typical.png" attachment="VM_typical.png" attr="" comment="VM_typical" date="1277750815" path="VM_typical.png" size="145205" stream="VM_typical.png" tmpFilename="/usr/tmp/CGItemp56080" user="AnwarMamat" version="2"}%
