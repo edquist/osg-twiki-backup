@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1278714989" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1278803826" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{%TOPIC%}%*
 %DOC_STATUS_TABLE%
@@ -31,32 +31,338 @@ If you cannot resolve the problem, the best way to get help is by following this
 An in-line numbered list of items assumed to have been already performed
 E.g.:
    1. [[ReleaseDocumentation/PacmanInstall][pacman]] version >= %PACMAN_VERSION% is required
-   1. A Storage Element has been installed on this node.
+   1. The !CEMon/GIP will be run on a machine with the same type of access to an SE that a CE normally would have.
    1. If you  use GUMS for authorization, you should be able to access existing GUMS server  or install it yourself on a different node, following [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS][GUMS Server Installation Guide ]]. If you choose to use grid-mapfile for authorization you may generate it during the installation.  
    1. Ports 8080 and 8443 are not in use by any server on that node(apache is configured to use this ports)
    1. The server must have a fully qualified domain name and a valid [[ReleaseDocumentation/GetGridCertificates][grid host certificate]] installed in =/etc/grid-security/=
    1. !Tomcat server needs to have a valid service certificate. The certificate should be own by a user login that is running tomcat server.The right permission (600) should be set on those files. 
-   
----++ First Time Install
-A link to document containing information and install steps that only need to be performed if this a first time install.
 
 ---++ Installation Procedure
-The description of the steps of this Install procedure (including the commands and options required) that will have to be performed each time this is installed.
-
-Each step that requires commands should show the commands in a green box using 
-<verbatim><pre class="screen">
-command parameters
-</pre></verbatim> tag which will look like this.
+---+++ CEMon-Server and GIP installation
+Login as root and check if pacman version >=%PACMAN_VERSION% is installed:
 <pre class="screen">
-command parameters
+<verbatim>
+su root
+cd &lt;PACMAN3.28_LOCATION&gt;
+. setup.sh
+pacman -version
+</verbatim>
 </pre>
-%BR%
-%NOTE% Standard variables (such as $VDT_LOCATION) should be used where they exist
-%NOTE% The terminal interaction must be verbatim with no extra characters so that a user can copy and paste the command lines.
 
-This procedure covers the success legs only 
+Next create and change to an installation directory. This directory will later be used to get the !CEMon-Server package  from the VDT test cache.
+<pre class="screen">
+mkdir /opt/vdt_cemon
+cd /opt/vdt_cemon
+</pre>
 
----++ Service Configuration/Startup/Shutdown
+Finally execute pacman to get the !CEMon-Server package from the VDT test  cache. Pacman will ask whether you want to trust the cache (=yall=) and whether you want to accept the license (=y=).
+<pre class="screen">
+pacman -get http://vdt.cs.wisc.edu/test-cache/se-info:CEMon-Server
+</pre>
+The install procedure will print out a warning:
+<verbatim>
+Do you want to add [http://vdt.cs.wisc.edu/test-cache/se-info] to [trusted.caches]? (y/n/yall): yall
+Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check...           
+
+The VDT installs a variety of software, each with its own license.
+In order to continue, you must agree to the licenses.
+You can view the licenses online at:
+
+    http://vdt.cs.wisc.edu/licenses/
+
+After the installation has completed, you will also be able to
+view the licenses in the "licenses" directory.
+
+Do you agree to the licenses? [y/n]
+y
+All prerequisite checks are satisfied.
+</verbatim>
+Please setup the CA certificates in the following way instead:
+<pre class="screen">
+source setup.sh
+$VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local -url osg
+</pre>
+This command will download certificates distributed by the OSG to =$VDT_LOCATION/globus/share/certificates= and create a symlink from =$VDT_LOCATION/globus/TRUSTED_CA= to that location. [[VDTCAManage][Other options]] are also available.
+
+To reflect the changes update the environment and run the post installation script:
+<pre class="screen">
+vdt-post-install
+</pre>
+---+++ Configuring CEMon-Server 
+In order to configure CEMon-Server you have to run ==vdt_cemon_configure script and specified what servers should receive information from !CEMon and in what format:
+<pre class="screen">
+ $VDT_LOCATION/vdt/setup/configure_cemon --server y --consumer http://is-itb1.grid.iu.edu:14001 --topic OSG_CE --dialect RAW
+The following consumer subscription has been installed:
+        HOST:    http://is-itb1.grid.iu.edu:14001
+        TOPIC:   OSG_CE
+        DIALECT: RAW
+$VDT_LOCATION/vdt/setup/configure_cemon --server y --consumer http://is-itb2.grid.iu.edu:14001 --topic OSG_CE --dialect RAW
+The following consumer subscription has been installed:
+        HOST:    http://is-itb2.grid.iu.edu:14001
+        TOPIC:   OSG_CE
+        DIALECT: RAW
+</pre>
+
+Now, you have to edit ==$VDT_LOCATION/glite/etc/glite-ce-ce-plugin/glite-ce-info== that will be periodically executed by !CEMon server.  This is a wrapper script for collecting GIP data.
+The file contains:
+<pre class='file'>
+#!/bin/sh
+sleep 1
+</pre>
+
+This should be replaced with the following content:
+<pre class='file'>
+#!/bin/sh
+/opt/vdt_cemon/gip/bin/run_gip.sh  2> /dev/null
+</pre>
+
+---+++Configuring GIP 
+Now, you have to configure GIP. Several manual steps are required to do so:
+   1. Create ==gip.conf== file.
+<pre class="screen">
+cd $VDT_LOCATION/gip/etc
+cp  gip.se_only.example.conf  gip.conf
+</pre>
+   2. Edit ==gip.conf== file and modify this content:
+<pre class="file">
+[gip]
+override = False
+check_osg = False
+osg_config = /put/your/path/here/gip/etc/config.ini
+
+[vo]
+user_vo_map = /put/your/path/here/gip/etc/osg-user-vo-map.txt
+</pre>
+
+the following way:
+<pre class="file">
+[gip]
+override = False
+check_osg = False
+osg_config = /opt/vdt_cemon/gip/etc/config.ini
+
+[vo]
+user_vo_map = /opt/vdt_cemon/monitoring/osg-user-vo-map.txt
+</pre>
+   3. Fill out a config.ini for the SE only site.  The known minimum sections are: DEFAULT, Site Information, Storage, GIP, and SE <name>. See the OSG twiki for specific help on each of the sections.
+   * the Storage section only needs:
+<pre class="file">
+<verbatim>
+        se_available = %(enable)s
+        default_se = <se fqdn>
+</verbatim>
+</pre>
+
+   * the GIP section only needs:
+<pre class="file">
+<verbatim> 
+        advertise_gsiftp = %(disable)s
+</verbatim>
+</pre>
+In order to modify the file you will need first to copy ==config.ini.se_only.example== to ==config.ini== first.
+<pre class="screen">
+cp config.ini.se_only.example config.ini
+vi config.ini.se
+</pre>
+
+You will need to modify ==config,ini== accordingly following the instruction given above. Here are two examples for !dCache  installation: 
+
+%TWISTY%
+<pre class="file">
+[DEFAULT]
+unavailable = UNAVAILABLE
+default = UNAVAILABLE
+disable = False
+enable = True
+localhost = fg0x5.fnal.gov
+admin_email = tlevshin@fnal.gov
+osg_location = /opt/vdt_cemon
+
+[Site Information]
+resource =  FNAL-ITB-GIP-TEST1
+resource_group =  FNAL-ITB-GIP-TEST1
+sponsor = cms:100
+site_policy = http://www.uscms.org/SoftwareComputing/Grid/Policy/OSG_VO.html
+contact = cms-t1@fnal.gov
+city = Batavia, IL
+country = USA
+longitude = -88.2546
+latitude = 41.8412
+group = OSG-ITB
+email = %(admin_email)s
+host_name = %(localhost)s
+
+[Storage]
+se_available = %(enable)s
+default_se = cmssrm.fnal.gov
+
+[GIP]
+advertise_gsiftp = %(disable)s
+advertise_accesspoints = False
+
+[SE dCache]
+enabled = True
+name = cmssrm.fnal.gov
+srm_endpoint = httpg://gwdca04.fnal.gov:8443/srm/managerv2
+provider_implementation = dcache19
+implementation = dcache
+version = 1.9.5-19
+default_path = /
+infoprovider_endpoint = http://gwdca06.fnal.gov/site/info
+spaces = flushPools,ResilientPools,LFSOnlyPools,ReadOnlyPools,stagePools
+space_stagePools_vos = cms,mis
+space_ReadOnlyPools_vos = cms,mis
+space_LFSOnlyPools_vos = cms,mis
+space_ResilientPools_vos = cms,mis
+space_flushPools_vos = cms,mis
+space_flushPools_path = mis:/NotWrittenToTape,ops:/NotWrittenToTape
+space_ResilientPools_path = mis:/NotWrittenToTape,ops:/NotWrittenToTape
+space_LFSOnlyPools_path = mis:/NotWrittenToTape,ops:/NotWrittenToTape
+space_ReadOnlyPools_path = mis:/NotWrittenToTape,ops:/NotWrittenToTape
+space_stagePools_path = mis:/NotWrittenToTape,ops:/NotWrittenToTape
+</pre>
+%ENDTWISTY%
+
+or  !BeStMan installation:
+
+%TWISTY%
+<pre class="file">
+[DEFAULT]
+unavailable = UNAVAILABLE
+default = UNAVAILABLE
+disable = False
+enable = True
+localhost = fg0x5.fnal.gov
+admin_email = tlevshin@fnal.gov
+osg_location = /opt/vdt_cemon
+
+[Site Information]
+resource = FNAL-ITB-GIP-TEST1
+resource_group = FNAL-ITB-GIP-TEST1
+sponsor = cms:100
+site_policy = http://www.uscms.org/SoftwareComputing/Grid/Policy/OSG_VO.html
+contact = tlevshin@fnal.gov
+city = Batavia, IL
+country = USA
+longitude = -88.2546
+latitude = 41.8412
+group = OSG-ITB
+email = %(admin_email)s
+host_name = %(localhost)s
+
+[Storage]
+se_available = %(enable)s
+default_se = fg0x5.fnal.gov
+
+[GIP]
+advertise_gsiftp = %(disable)s
+advertise_accesspoints = False
+
+[SE BeStMan]
+enabled = True
+name = fg0x5.fnal.gov
+srm_endpoint = httpg://fg0x5.fnal.gov:10443/srm/v2/server
+provider_implementation = BeStMan
+implementation = BeStMan
+version = 2.2.2.0.0
+default_path = /cache
+</pre>
+%ENDTWISTY%
+   4. Prepare ==run_gip.sh== script:
+<pre class="screen">
+cd $VDT_LOCATION/gip/bin
+cp  run_gip.sh.se_only.example  run_gip.sh
+vi run_gip.sh
+</pre>
+
+modify ==run_gip.sh== accordingly:
+<pre class="file">
+export VDT_LOCATION=/opt/vdt_cemon
+export GIP_LOCATION=/opt/vdt_cemon/gip
+$GIP_LOCATION/bin/gip_info
+</pre>
+%NOTE% The initial file has a typo. Please follow this example!
+
+   5. You will need to set right permission on ==$VDT_LOCATION/gip/var== directory. It should belong to the user that is running tomcat service (==daemon==).
+<pre class="screen">
+cd $VDT_LOCATION/gip
+chown daemon.daemon var
+ </pre>
+
+---+++ Installation of   OSG User-VO Mapping 
+
+Please read  [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/OsgSupportedVos][this page]] about files that are required to accurately collect grid resource usage and metrics by VO for transfer submitted using grid proxies or where voms proxy information is not available. 
+
+
+You may choose to  install VO-Map-Utilities from VDT in the same directory you have installed !CEMon. If you choose to install it in the other directory you will need to modify ==user_vo_map== in  the ==$VDT_LOCATION/gip/etc/gip.conf== file.
+
+You have to decide if you are going to use gridmap-file or GUMS for user-vo mapping and answer appropriately questions asked during package installation. 
+
+If you are using GUMS, setup VDT_GUMS_HOST:
+<pre class="screen">
+<verbatim>
+export VDT_GUMS_HOST=<GUMS hostname>  
+</verbatim>
+</pre>
+
+The next step is to install vo-map-utilities:
+
+<pre class="screen">
+cd $VDT_LOCATION
+pacman -get  %CACHE%:VO-Map-Utilities
+. setup.sh
+</pre>
+
+ Pacman will ask whether you want to trust the cache and updater. (=yall=).
+
+The install procedure will print out a warning:
+<verbatim>
+Do you want to add [http://software.grid.iu.edu/osg-1.2] to [trusted.caches]? (y/n/yall): yall
+OK to overwrite [/opt/vdt_cemon/vdt/update/vdt-updater] untarring [/opt/vdt_cemon/vdt-updater-2.0.0p18-2.tar.gz]? (y/n/yall): yall
+WARNING: Untarring tarball [/opt/vdt_cemon/vdt-updater-2.0.0p18-2.tar.gz] will overwrite [/opt/vdt_cemon/vdt/update/vdt-updater]...
+
+</verbatim>
+
+To reflect the changes update the environment and run the post installation script:
+<pre class="screen">
+vdt-post-install
+</pre>
+
+You will have to enable and start all the services related to user-vo mapping:
+
+   * if you are using GUMS
+<pre class="screen">
+vdt-control -enable gums-host-cron
+vdt-control -on gums-host-cron
+touch $VDT_LOCATION/monitoring/osg-attributes.conf
+$VDT_LOCATION/gums/scripts/gums-host-cron
+</pre>
+
+   * if you are using edg-grid-map file
+<pre class="screen">
+vdt-control -enable edg-mkgridmap
+vdt-control -on edg-mkgridmap
+</pre>
+
+
+Check that osg-user-vo-map.txt is present and not empty, eg:
+<pre class="screen">
+ls -l   $VDT_LOCATION/monitoring/osg-user-vo-map.txt
+-rw-r--r--  1 root root 6224 Apr 14 14:23 /opt/vdt_vomap/monitoring/osg-user-vo-map.txt
+</pre>
+
+
+
+---++ Services /Startup/Shutdown
+
+
+To enable and start crl download , certificate update do the following:
+
+<pre class="screen">
+vdt-control -enable vdt-update-certs fetch-crl
+vdt-control -on vdt-update-certs fetch-crl
+</pre>
+
 Description of the steps (including the commands/options) to startup and shutdown the service.
 This often requires, the reader to edit lines in a config file.
 If this is necessary, put the lines in a screen box with a yellow background 
