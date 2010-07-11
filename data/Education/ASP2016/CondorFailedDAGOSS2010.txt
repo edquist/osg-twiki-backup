@@ -1,0 +1,434 @@
+%META:TOPICINFO{author="AlainRoy" date="1278887093" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="CondorMorningOSS2010"}%
+---+ Handling a DAG that fails
+
+DAGMan can handle a situation where some of the nodes in a DAG fails. DAGMan will run as many nodes as possible, then create a rescue DAG making it easy to continue when the problem is fixed.
+
+Recall that DAGMan decides that a jobs fails if it's exit code is non-zero. 
+
+Let's create an alternate program that fails. Work in the same directory where you did the last DAG. Copy simple.c to simplefail.c, and change the last line from "return failure" to "return 1". In real-life, of course, we wouldn't have a job that is coded to always fail, but it would just happen on occasion. Your job will look like this:
+
+<pre style="margin-left:4em" class="screen">
+#include <stdio.h>
+
+main(int argc, char **argv)
+{
+    int sleep_time;
+    int input;
+    int failure;
+
+    if (argc != 3) {
+        printf("Usage: simple <sleep-time> <integer>\n");
+        failure = 1;
+    } else {
+        sleep_time = atoi(argv[1]);
+        input      = atoi(argv[2]);
+
+        printf("Thinking really hard for %d seconds...\n",
+        sleep_time);
+        sleep(sleep_time);
+        printf("We calculated: %d\n", input * 2);
+        failure = 0;
+    }
+    printf("Catastrophic unexpected failure has occurred! Ring the klaxons!\n");
+    return 1;
+}
+
+% gcc -m32 -static -o simplefail simplefail.c
+</pre>
+
+Modify job.work2.submit to run simplefail instead of simple: 
+
+<pre style="margin-left:4em" class="screen">
+Universe = vanilla
+Executable = simplefail
+Arguments = 4 12
+Log = simple.log
+Output = results.work2.out
+Error  = results.work2.err
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+Queue
+</pre>
+
+Submit the DAG again: 
+
+<pre style="margin-left:4em" class="screen">
+% condor_submit_dag simple.dag
+
+-----------------------------------------------------------------------
+File for submitting this DAG to Condor           : simple.dag.condor.sub
+Log of DAGMan debugging messages                 : simple.dag.dagman.out
+Log of Condor library output                     : simple.dag.lib.out
+Log of Condor library error messages             : simple.dag.lib.err
+Log of the life of condor_dagman itself          : simple.dag.dagman.log
+
+Submitting job(s).
+Logging submit event(s).
+1 job(s) submitted to cluster 61144.
+-----------------------------------------------------------------------
+</pre>
+
+
+Use watch to watch the jobs until they finish.
+
+In a separate window, use tail --lines=500 -f simple.dag.dagman.out to watch what DAGMan does. 
+
+<pre style="margin-left:4em" class="screen">
+07/11 17:05:47 ******************************************************
+07/11 17:05:47 ** condor_scheduniv_exec.61157.0 (CONDOR_DAGMAN) STARTING UP
+07/11 17:05:47 ** /usr/bin/condor_dagman
+07/11 17:05:47 ** SubsystemInfo: name=DAGMAN type=DAGMAN(10) class=DAEMON(1)
+07/11 17:05:47 ** Configuration: subsystem:DAGMAN local:<NONE> class:DAEMON
+07/11 17:05:47 ** $CondorVersion: 7.4.2 Mar 29 2010 BuildID: 227044 $
+07/11 17:05:47 ** $CondorPlatform: X86_64-LINUX_RHEL5 $
+07/11 17:05:47 ** PID = 11282
+07/11 17:05:47 ** Log last touched time unavailable (No such file or directory)
+07/11 17:05:47 ******************************************************
+07/11 17:05:47 Using config source: /etc/condor/condor_config
+07/11 17:05:47 Using local config sources: 
+07/11 17:05:47    /etc/condor/condor_config.local
+07/11 17:05:47    /home/osgmm/installs/condor_config.osgmm
+07/11 17:05:47 DaemonCore: Command Socket at <198.51.254.90:48235>
+07/11 17:05:47 DAGMAN_DEBUG_CACHE_SIZE setting: 5242880
+07/11 17:05:47 DAGMAN_DEBUG_CACHE_ENABLE setting: False
+07/11 17:05:47 DAGMAN_SUBMIT_DELAY setting: 0
+07/11 17:05:47 DAGMAN_MAX_SUBMIT_ATTEMPTS setting: 6
+07/11 17:05:47 DAGMAN_STARTUP_CYCLE_DETECT setting: 0
+07/11 17:05:47 DAGMAN_MAX_SUBMITS_PER_INTERVAL setting: 5
+07/11 17:05:47 DAGMAN_USER_LOG_SCAN_INTERVAL setting: 5
+07/11 17:05:47 allow_events (DAGMAN_IGNORE_DUPLICATE_JOB_EXECUTION, DAGMAN_ALLOW_EVENTS) setting: 114
+07/11 17:05:47 DAGMAN_RETRY_SUBMIT_FIRST setting: 1
+07/11 17:05:47 DAGMAN_RETRY_NODE_FIRST setting: 0
+07/11 17:05:47 DAGMAN_MAX_JOBS_IDLE setting: 0
+07/11 17:05:47 DAGMAN_MAX_JOBS_SUBMITTED setting: 0
+07/11 17:05:47 DAGMAN_MUNGE_NODE_NAMES setting: 1
+07/11 17:05:47 DAGMAN_PROHIBIT_MULTI_JOBS setting: 0
+07/11 17:05:47 DAGMAN_SUBMIT_DEPTH_FIRST setting: 0
+07/11 17:05:47 DAGMAN_ABORT_DUPLICATES setting: 1
+07/11 17:05:47 DAGMAN_ABORT_ON_SCARY_SUBMIT setting: 1
+07/11 17:05:47 DAGMAN_PENDING_REPORT_INTERVAL setting: 600
+07/11 17:05:47 DAGMAN_AUTO_RESCUE setting: 1
+07/11 17:05:47 DAGMAN_MAX_RESCUE_NUM setting: 100
+07/11 17:05:47 DAGMAN_DEFAULT_NODE_LOG setting: null
+07/11 17:05:47 ALL_DEBUG setting: 
+07/11 17:05:47 DAGMAN_DEBUG setting: 
+07/11 17:05:47 argv[0] == "condor_scheduniv_exec.61157.0"
+07/11 17:05:47 argv[1] == "-Debug"
+07/11 17:05:47 argv[2] == "3"
+07/11 17:05:47 argv[3] == "-Lockfile"
+07/11 17:05:47 argv[4] == "simple.dag.lock"
+07/11 17:05:47 argv[5] == "-AutoRescue"
+07/11 17:05:47 argv[6] == "1"
+07/11 17:05:47 argv[7] == "-DoRescueFrom"
+07/11 17:05:47 argv[8] == "0"
+07/11 17:05:47 argv[9] == "-Dag"
+07/11 17:05:47 argv[10] == "simple.dag"
+07/11 17:05:47 argv[11] == "-CsdVersion"
+07/11 17:05:47 argv[12] == "$CondorVersion: 7.4.2 Mar 29 2010 BuildID: 227044 $"
+07/11 17:05:47 Default node log file is: </home/roy/exercises/simple.dag.nodes.log>
+07/11 17:05:47 DAG Lockfile will be written to simple.dag.lock
+07/11 17:05:47 DAG Input file is simple.dag
+07/11 17:05:47 Parsing 1 dagfiles
+07/11 17:05:47 Parsing simple.dag ...
+07/11 17:05:47 Dag contains 4 total jobs
+07/11 17:05:47 Sleeping for 12 seconds to ensure ProcessId uniqueness
+07/11 17:05:59 Bootstrapping...
+07/11 17:05:59 Number of pre-completed nodes: 0
+07/11 17:05:59 Registering condor_event_timer...
+07/11 17:06:00 Sleeping for one second for log file consistency
+07/11 17:06:01 Submitting Condor Node Setup job(s)...
+07/11 17:06:01 submitting: condor_submit 
+     -a dag_node_name' '=' 'Setup 
+     -a +DAGManJobId' '=' '61157 
+     -a DAGManJobId' '=' '61157 
+     -a submit_event_notes' '=' 'DAG' 'Node:' 'Setup 
+     -a +DAGParentNodeNames' '=' '"" 
+     job.setup.submit
+07/11 17:06:01 From submit: Submitting job(s).
+07/11 17:06:01 From submit: Logging submit event(s).
+07/11 17:06:01 From submit: 1 job(s) submitted to cluster 61158.
+07/11 17:06:01 	assigned Condor ID (61158.0)
+07/11 17:06:01 Just submitted 1 job this cycle...
+07/11 17:06:01 Currently monitoring 1 Condor log file(s)
+07/11 17:06:01 Event: ULOG_SUBMIT for Condor Node Setup (61158.0)
+07/11 17:06:01 Number of idle job procs: 1
+07/11 17:06:01 Of 4 nodes total:
+07/11 17:06:01  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+07/11 17:06:01   ===     ===      ===     ===     ===        ===      ===
+07/11 17:06:01     0       0        1       0       0          3        0
+07/11 17:06:11 Currently monitoring 1 Condor log file(s)
+07/11 17:06:11 Event: ULOG_EXECUTE for Condor Node Setup (61158.0)
+07/11 17:06:11 Number of idle job procs: 0
+07/11 17:06:16 Currently monitoring 1 Condor log file(s)
+07/11 17:06:16 Event: ULOG_JOB_TERMINATED for Condor Node Setup (61158.0)
+07/11 17:06:16 Node Setup job proc (61158.0) completed successfully.
+07/11 17:06:16 Node Setup job completed
+07/11 17:06:16 Number of idle job procs: 0
+07/11 17:06:16 Of 4 nodes total:
+07/11 17:06:16  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+07/11 17:06:16   ===     ===      ===     ===     ===        ===      ===
+07/11 17:06:16     1       0        0       0       2          1        0
+07/11 17:06:21 Sleeping for one second for log file consistency
+07/11 17:06:22 Submitting Condor Node Work1 job(s)...
+07/11 17:06:22 submitting: condor_submit 
+     -a dag_node_name' '=' 'Work1 
+     -a +DAGManJobId' '=' '61157 
+     -a DAGManJobId' '=' '61157 
+     -a submit_event_notes' '=' 'DAG' 'Node:' 'Work1 
+     -a +DAGParentNodeNames' '=' '"Setup"
+      job.work1.submit
+07/11 17:06:22 From submit: Submitting job(s).
+07/11 17:06:22 From submit: Logging submit event(s).
+07/11 17:06:22 From submit: 1 job(s) submitted to cluster 61159.
+07/11 17:06:22 	assigned Condor ID (61159.0)
+07/11 17:06:22 Submitting Condor Node Work2 job(s)...
+07/11 17:06:22 submitting: condor_submit 
+     -a dag_node_name' '=' 'Work2 
+     -a +DAGManJobId' '=' '61157 
+     -a DAGManJobId' '=' '61157 
+     -a submit_event_notes' '=' 'DAG' 'Node:' 'Work2 
+     -a +DAGParentNodeNames' '=' '"Setup" 
+     job.work2.submit
+07/11 17:06:22 From submit: Submitting job(s).
+07/11 17:06:22 From submit: Logging submit event(s).
+07/11 17:06:22 From submit: 1 job(s) submitted to cluster 61160.
+07/11 17:06:22 	assigned Condor ID (61160.0)
+07/11 17:06:22 Just submitted 2 jobs this cycle...
+07/11 17:06:22 Currently monitoring 2 Condor log file(s)
+07/11 17:06:22 Event: ULOG_SUBMIT for Condor Node Work2 (61160.0)
+07/11 17:06:22 Number of idle job procs: 1
+07/11 17:06:22 Event: ULOG_SUBMIT for Condor Node Work1 (61159.0)
+07/11 17:06:22 Number of idle job procs: 2
+07/11 17:06:22 Of 4 nodes total:
+07/11 17:06:22  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+07/11 17:06:22   ===     ===      ===     ===     ===        ===      ===
+07/11 17:06:22     1       0        2       0       0          1        0
+07/11 17:06:32 Currently monitoring 2 Condor log file(s)
+07/11 17:06:32 Event: ULOG_EXECUTE for Condor Node Work2 (61160.0)
+07/11 17:06:32 Number of idle job procs: 1
+07/11 17:06:32 Event: ULOG_EXECUTE for Condor Node Work1 (61159.0)
+07/11 17:06:32 Number of idle job procs: 0
+07/11 17:06:37 Currently monitoring 2 Condor log file(s)
+07/11 17:06:37 Event: ULOG_JOB_TERMINATED for Condor Node Work2 (61160.0)
+%RED%07/11 17:06:37 Node Work2 job proc (61160.0) failed with status 1.
+07/11 17:06:37 Number of idle job procs: 0
+07/11 17:06:37 Event: ULOG_JOB_TERMINATED for Condor Node Work1 (61159.0)
+07/11 17:06:37 Node Work1 job proc (61159.0) completed successfully.
+07/11 17:06:37 Node Work1 job completed
+07/11 17:06:37 Number of idle job procs: 0
+07/11 17:06:37 Of 4 nodes total:
+07/11 17:06:37  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+07/11 17:06:37   ===     ===      ===     ===     ===        ===      ===
+07/11 17:06:37     2       0        0       0       0          1        1
+07/11 17:06:37 ERROR: the following job(s) failed:
+07/11 17:06:37 ---------------------- Job ----------------------
+07/11 17:06:37       Node Name: Work2
+07/11 17:06:37          NodeID: 2
+07/11 17:06:37     Node Status: STATUS_ERROR    
+07/11 17:06:37 Node return val: 1
+07/11 17:06:37           Error: Job proc (61160.0) failed with status 1
+07/11 17:06:37 Job Submit File: job.work2.submit
+07/11 17:06:37   Condor Job ID: (61160)
+07/11 17:06:37       Q_PARENTS: Setup, <END>
+07/11 17:06:37       Q_WAITING: <END>
+07/11 17:06:37      Q_CHILDREN: Final, <END>
+07/11 17:06:37 ---------------------------------------	<END>
+07/11 17:06:37 Aborting DAG...
+07/11 17:06:37 Writing Rescue DAG to simple.dag.rescue001...%ENDCOLOR%
+07/11 17:06:37 Note: 0 total job deferrals because of -MaxJobs limit (0)
+07/11 17:06:37 Note: 0 total job deferrals because of -MaxIdle limit (0)
+07/11 17:06:37 Note: 0 total job deferrals because of node category throttles
+07/11 17:06:37 Note: 0 total PRE script deferrals because of -MaxPre limit (0)
+07/11 17:06:37 Note: 0 total POST script deferrals because of -MaxPost limit (0)
+07/11 17:06:37 **** condor_scheduniv_exec.61157.0 (condor_DAGMAN) pid 11282 EXITING WITH STATUS 1
+</pre>
+
+DAGMan notices that one of the jobs failed because it's exit code was non-zero. DAGMan ran as much of the DAG as possible and logged enough information to continue the run when the situation is resolved.
+
+Look at the rescue DAG. It's the same structurally as your original DAG, but nodes that finished are marked DONE. (DAGMan also reorganized the file.) When you submit the rescue DAG, DONE nodes will be skipped. 
+
+<pre style="margin-left:4em" class="screen">
+% cat simple.dag.rescue001
+# Rescue DAG file, created after running
+#   the simple.dag DAG file
+# Created 7/11/2010 22:06:37 UTC
+#
+# Total number of Nodes: 4
+%RED%# Nodes premarked DONE: 2%ENDCOLOR%
+%RED# Nodes that failed: 1
+#   Work2,<ENDLIST>%ENDCOLOR
+
+JOB Setup job.setup.submit %RED%DONE%ENDCOLOR%
+
+JOB Work1 job.work1.submit %RED%DONE%ENDCOLOR%
+
+JOB Work2 job.work2.submit 
+
+JOB Final job.finalize.submit 
+
+
+PARENT Setup CHILD Work1 Work2
+PARENT Work1 CHILD Final
+PARENT Work2 CHILD Final
+</pre>
+
+From the comment near the top, we know that the Work2 node failed. Let's "fix" it. 
+
+<pre style="margin-left:4em" class="screen">
+% rm simplefail
+% cp simple simplefail
+</pre>
+
+(Note that this was just one way to fix it. For example, you also could have edited the submit file to use the simple executable instead of the simplefail executable.
+
+Now we can submit our rescue DAG and DAGMan will pick up where it left off. (If you didn't fix the problem, DAGMan would have generated another rescue DAG.) 
+
+<pre style="margin-left:4em" class="screen">
+% tail -f simple.dag.rescue001.dagman.out 
+07/11 17:12:49 ******************************************************
+07/11 17:12:49 ** condor_scheduniv_exec.61161.0 (CONDOR_DAGMAN) STARTING UP
+07/11 17:12:49 ** /usr/bin/condor_dagman
+07/11 17:12:49 ** SubsystemInfo: name=DAGMAN type=DAGMAN(10) class=DAEMON(1)
+07/11 17:12:49 ** Configuration: subsystem:DAGMAN local:<NONE> class:DAEMON
+07/11 17:12:49 ** $CondorVersion: 7.4.2 Mar 29 2010 BuildID: 227044 $
+07/11 17:12:49 ** $CondorPlatform: X86_64-LINUX_RHEL5 $
+07/11 17:12:49 ** PID = 12546
+07/11 17:12:49 ** Log last touched time unavailable (No such file or directory)
+07/11 17:12:49 ******************************************************
+07/11 17:12:49 Using config source: /etc/condor/condor_config
+07/11 17:12:49 Using local config sources: 
+07/11 17:12:49    /etc/condor/condor_config.local
+07/11 17:12:49    /home/osgmm/installs/condor_config.osgmm
+07/11 17:12:49 DaemonCore: Command Socket at <198.51.254.90:60610>
+07/11 17:12:49 DAGMAN_DEBUG_CACHE_SIZE setting: 5242880
+07/11 17:12:49 DAGMAN_DEBUG_CACHE_ENABLE setting: False
+07/11 17:12:49 DAGMAN_SUBMIT_DELAY setting: 0
+07/11 17:12:49 DAGMAN_MAX_SUBMIT_ATTEMPTS setting: 6
+07/11 17:12:49 DAGMAN_STARTUP_CYCLE_DETECT setting: 0
+07/11 17:12:49 DAGMAN_MAX_SUBMITS_PER_INTERVAL setting: 5
+07/11 17:12:49 DAGMAN_USER_LOG_SCAN_INTERVAL setting: 5
+07/11 17:12:49 allow_events (DAGMAN_IGNORE_DUPLICATE_JOB_EXECUTION, DAGMAN_ALLOW_EVENTS) setting: 114
+07/11 17:12:49 DAGMAN_RETRY_SUBMIT_FIRST setting: 1
+07/11 17:12:49 DAGMAN_RETRY_NODE_FIRST setting: 0
+07/11 17:12:49 DAGMAN_MAX_JOBS_IDLE setting: 0
+07/11 17:12:49 DAGMAN_MAX_JOBS_SUBMITTED setting: 0
+07/11 17:12:49 DAGMAN_MUNGE_NODE_NAMES setting: 1
+07/11 17:12:49 DAGMAN_PROHIBIT_MULTI_JOBS setting: 0
+07/11 17:12:49 DAGMAN_SUBMIT_DEPTH_FIRST setting: 0
+07/11 17:12:49 DAGMAN_ABORT_DUPLICATES setting: 1
+07/11 17:12:49 DAGMAN_ABORT_ON_SCARY_SUBMIT setting: 1
+07/11 17:12:49 DAGMAN_PENDING_REPORT_INTERVAL setting: 600
+07/11 17:12:49 DAGMAN_AUTO_RESCUE setting: 1
+07/11 17:12:49 DAGMAN_MAX_RESCUE_NUM setting: 100
+07/11 17:12:49 DAGMAN_DEFAULT_NODE_LOG setting: null
+07/11 17:12:49 ALL_DEBUG setting: 
+07/11 17:12:49 DAGMAN_DEBUG setting: 
+07/11 17:12:49 argv[0] == "condor_scheduniv_exec.61161.0"
+07/11 17:12:49 argv[1] == "-Debug"
+07/11 17:12:49 argv[2] == "3"
+07/11 17:12:49 argv[3] == "-Lockfile"
+07/11 17:12:49 argv[4] == "simple.dag.rescue001.lock"
+07/11 17:12:49 argv[5] == "-AutoRescue"
+07/11 17:12:49 argv[6] == "1"
+07/11 17:12:49 argv[7] == "-DoRescueFrom"
+07/11 17:12:49 argv[8] == "0"
+07/11 17:12:49 argv[9] == "-Dag"
+07/11 17:12:49 argv[10] == "simple.dag.rescue001"
+07/11 17:12:49 argv[11] == "-CsdVersion"
+07/11 17:12:49 argv[12] == "$CondorVersion: 7.4.2 Mar 29 2010 BuildID: 227044 $"
+07/11 17:12:49 Default node log file is: </home/roy/exercises/simple.dag.rescue001.nodes.log>
+07/11 17:12:49 DAG Lockfile will be written to simple.dag.rescue001.lock
+07/11 17:12:49 DAG Input file is simple.dag.rescue001
+07/11 17:12:49 Parsing 1 dagfiles
+07/11 17:12:49 Parsing simple.dag.rescue001 ...
+07/11 17:12:49 Dag contains 4 total jobs
+07/11 17:12:49 Sleeping for 12 seconds to ensure ProcessId uniqueness
+07/11 17:13:01 Bootstrapping...
+
+%RED%DAGMan notices that some nodes are already finished:%ENDCOLOR%
+07/11 17:13:01 Number of pre-completed nodes: 2
+07/11 17:13:01 Registering condor_event_timer...
+07/11 17:13:02 Sleeping for one second for log file consistency
+
+%RED%DAGMan starts with the previously failed node:%ENDCOLOR%
+07/11 17:13:03 Submitting Condor Node Work2 job(s)...
+07/11 17:13:03 submitting: condor_submit 
+     -a dag_node_name' '=' 'Work2 
+     -a +DAGManJobId' '=' '61161 
+     -a DAGManJobId' '=' '61161 
+     -a submit_event_notes' '=' 'DAG' 'Node:' 'Work2 
+     -a +DAGParentNodeNames' '=' '"Setup"
+      job.work2.submit
+07/11 17:13:03 From submit: Submitting job(s).
+07/11 17:13:03 From submit: Logging submit event(s).
+07/11 17:13:03 From submit: 1 job(s) submitted to cluster 61162.
+07/11 17:13:03 	assigned Condor ID (61162.0)
+07/11 17:13:03 Just submitted 1 job this cycle...
+07/11 17:13:03 Currently monitoring 1 Condor log file(s)
+07/11 17:13:03 Event: ULOG_SUBMIT for Condor Node Work2 (61162.0)
+07/11 17:13:03 Number of idle job procs: 1
+07/11 17:13:03 Of 4 nodes total:
+07/11 17:13:03  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+07/11 17:13:03   ===     ===      ===     ===     ===        ===      ===
+07/11 17:13:03     2       0        1       0       0          1        0
+07/11 17:15:58 Currently monitoring 1 Condor log file(s)
+07/11 17:15:58 Event: ULOG_EXECUTE for Condor Node Work2 (61162.0)
+07/11 17:15:58 Number of idle job procs: 0
+07/11 17:16:03 Currently monitoring 1 Condor log file(s)
+07/11 17:16:03 Event: ULOG_JOB_TERMINATED for Condor Node Work2 (61162.0)
+07/11 17:16:03 Node Work2 job proc (61162.0) completed successfully.
+07/11 17:16:03 Node Work2 job completed
+07/11 17:16:03 Number of idle job procs: 0
+07/11 17:16:03 Of 4 nodes total:
+07/11 17:16:03  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+07/11 17:16:03   ===     ===      ===     ===     ===        ===      ===
+07/11 17:16:03     3       0        0       0       1          0        0
+07/11 17:16:08 Sleeping for one second for log file consistency
+
+%RED%When it finishes, the final node is submitted:%ENDCOLOR%
+07/11 17:16:09 Submitting Condor Node Final job(s)...
+07/11 17:16:09 submitting: condor_submit \
+     -a dag_node_name' '=' 'Final 
+     -a +DAGManJobId' '=' '61161 
+     -a DAGManJobId' '=' '61161 
+     -a submit_event_notes' '=' 'DAG' 'Node:' 'Final 
+     -a +DAGParentNodeNames' '=' '"Work1,Work2" 
+     job.finalize.submit
+07/11 17:16:09 From submit: Submitting job(s).
+07/11 17:16:09 From submit: Logging submit event(s).
+07/11 17:16:09 From submit: 1 job(s) submitted to cluster 61163.
+07/11 17:16:09 	assigned Condor ID (61163.0)
+07/11 17:16:09 Just submitted 1 job this cycle...
+07/11 17:16:09 Currently monitoring 1 Condor log file(s)
+07/11 17:16:09 Event: ULOG_SUBMIT for Condor Node Final (61163.0)
+07/11 17:16:09 Number of idle job procs: 1
+07/11 17:16:09 Of 4 nodes total:
+07/11 17:16:09  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+07/11 17:16:09   ===     ===      ===     ===     ===        ===      ===
+07/11 17:16:09     3       0        1       0       0          0        0
+07/11 17:16:19 Currently monitoring 1 Condor log file(s)
+07/11 17:16:19 Event: ULOG_EXECUTE for Condor Node Final (61163.0)
+07/11 17:16:19 Number of idle job procs: 0
+07/11 17:16:24 Currently monitoring 1 Condor log file(s)
+07/11 17:16:24 Event: ULOG_JOB_TERMINATED for Condor Node Final (61163.0)
+07/11 17:16:24 Node Final job proc (61163.0) completed successfully.
+07/11 17:16:24 Node Final job completed
+07/11 17:16:24 Number of idle job procs: 0
+07/11 17:16:24 Of 4 nodes total:
+07/11 17:16:24  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+07/11 17:16:24   ===     ===      ===     ===     ===        ===      ===
+07/11 17:16:24     4       0        0       0       0          0        0
+07/11 17:16:24 All jobs Completed!
+07/11 17:16:24 Note: 0 total job deferrals because of -MaxJobs limit (0)
+07/11 17:16:24 Note: 0 total job deferrals because of -MaxIdle limit (0)
+07/11 17:16:24 Note: 0 total job deferrals because of node category throttles
+07/11 17:16:24 Note: 0 total PRE script deferrals because of -MaxPre limit (0)
+07/11 17:16:24 Note: 0 total POST script deferrals because of -MaxPost limit (0)
+07/11 17:16:24 **** condor_scheduniv_exec.61161.0 (condor_DAGMAN) pid 12546 EXITING WITH STATUS 0
+</pre>
+
+Success! Now go ahead and clean up. 
+
+---++ Challenge
+If you have time, go back to the original simplefail program, the one that fails. Let's pretend that if the program exits with 0 or 1, it's considered correct, and only if it fails with another value does it really fail. Write a POST script that checks the return value. Check [[http://www.cs.wisc.edu/condor/manual/v7.4/2_10DAGMan_Applications.html#dagman:SCRIPT][the Condor manual]] to see how to describe your post script. Make sure your post script works by having simplefail return 0, 1, or 2. 
