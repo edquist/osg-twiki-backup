@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1278984007" format="1.1" reprev="1.8" version="1.8"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1278992567" format="1.1" reprev="1.9" version="1.9"}%
 %META:TOPICPARENT{name="MaterialsOSS2010"}%
 ---+!!Data Management Exercises (Part I) 
 %TOC{depth="2"}%
@@ -38,32 +38,114 @@ OSG_DATA=/nfs/osg-data
    * Let's create your directory there<pre class="screen">
 globus-job-run osg-edu.cs.wisc.edu:/jobmanager-fork /bin/mkdir /nfs/osg-data/osgedu/${USER}
 </pre>
-   * We will use ==Complete-Prose-Works-by-Walt-Whitman.txt== located in ~/tanya. The file size is 1.4 MB and contain works by Walt Whitman.  The file is downloaded from [[http://fliiby.com/file/221825/jodjt2p6sb.html][this site]], see also [[http://gutenberg.net][information about Gutenberg Project ]].  Let's use ==globus-url-copy== to upload the file<pre class="screen">
+   * We will use ==Complete-Prose-Works-by-Walt-Whitman.txt== located in ==~/tanya==.  The file size is 1.4 MB and it contains works by Walt Whitman.  The file is downloaded from [[http://fliiby.com/file/221825/jodjt2p6sb.html][this site]], see also [[http://gutenberg.net][information about Gutenberg Project ]].  Let's use ==globus-url-copy== to upload the file<pre class="screen"> to your directory under ==$OSG_DATA/osgedu==:
 globus-url-copy file:///home/tanya/Complete-Prose-Works-by-Walt-Whitman.txt gsiftp://osg-edu.cs.wisc.edu:2811/nfs/osg-data/osgedu/${USER}/testfile
  globus-job-run osg-edu.cs.wisc.edu:/jobmanager-fork /bin/ls -l /nfs/osg-data/osgedu/${USER}
 total 1416
 -rw-r--r--  1 osgedu users 1445762 Jul 12 13:17 Complete-Prose-Works-by-Walt-Whitman.txt
 </pre>
-   * Run simple condor-g jobs that handle data file differently:
-    1. Transfer data with condor job. First, create a submission file ==test1==  <pre class="file">
+   * Copy the python script ==word_couner== into your directory from ==~/tanya==. This scripts calculates number of occurrences of  a specified word in a text file. The script looks like this<pre class=file>
+%TWISTY%
+#!/usr/bin/python
+import sys
+import re
+####################################################################################
+#                                                                                                                                                                   #
+# word_counter: Calculates number of occurrences of a specified word in a text file                                  #
+#               output goes to a log file, is not specified to stdout                                                                       #
+####################################################################################
+class Text:
+        def __init__(self,file,log):
+                self.text=[]
+                self.log=log
+                self.readFile(file)
+        def readFile(self,file):
+                text=""
+                try:
+                        fd=open(file,'r')
+                        for  line in fd.readlines():
+                                text="%s %s" % (text, re.sub(r'\W+',' ',line[:-1].lower()))
+                        self.text=re.split('\W+',text)
+                        self.text.sort()
+                except:
+                        log.write("Failed to read text from file %s: %s %s\n" % (file,sys.exc_type,sys.exc_value))
+                        raise "TextError"
+
+
+        def getCount(self,word):
+                counter=0
+                try:
+                        indx=self.text.index(word)
+                        for item in self.text[indx:]:
+                                if word==item:
+                                        counter=counter+1
+                                else:
+                                        break
+                except:
+                        log.write("Failed to find word %s: %s %s\n" % (word,sys.exc_type,sys.exc_value))
+                return counter
+
+if __name__=="__main__":
+        from optparse import OptionParser
+        log=sys.stdout
+        retVal=0
+        usage="Usage:%s <text_file_name> <word> [options]\n" % (sys.argv[0])
+        parser = OptionParser(usage=usage)
+        parser.add_option("-o", "--output",dest="logfile",help="script logfile")
+        (options, args) = parser.parse_args()
+        if options.logfile != None:
+                try:
+                        log=open(options.logfile,'w')
+                        log.write("Open logfile %s\n" % (options.logfile))
+                except:
+                        log=sys.stdout
+                        log.write("Failed to open logfile %s : %s %s\n" % (options.logfile,sys.exc_type,sys.exc_value))
+        if len(args) != 2:
+                log.write(usage)
+                retVal=1
+        else:
+                try:
+                        text=Text(sys.argv[1],log)
+                        log.write("Number of word \"%s\" encountered in %s is %s\n" % (sys.argv[2],sys.argv[1],text.getCount(sys.argv[2])))
+                except:
+                        log.write("Failed to parse text : %s %s\n" % (sys.exc_type,sys.exc_value))
+                        retVal=2
+        log.close()
+        sys.exit(retVal)
+
+%ENDTWISTY%
+</pre> Let's execute the script to verify that it is worker properly:<pre class="screen">
+./word_counter Complete-Prose-Works-by-Walt-Whitman.txt leaves  
+Number of word "leaves" encountered in Complete-Prose-Works-by-Walt-Whitman.txt is 71
+</pre>
+
+   * Create simple condor-g job submission files that access file for various sources :
+    1. Transfer data with condor job. First, create a submission file ==job_submission_1==  <pre class="file">
 universe=grid
-grid_resource = gt2 red.unl.edu:/jobmanager-fork
+grid_resource = gt2 osg-edu.cs.wisc.edu:/jobmanager-fork
 Executable=word_counter
 Log = /home/tanya/whitman_logs/wordcounter.$(Cluster).$(Process).log
 Output = /home/tanya/whitman_logs/wordcounter.$(Cluster).$(Process).out
 Error = /home/tanya/whitman_logs/wordcounter.$(Cluster).$(Process).err
-WhenToTransferOutput = ON_EXIT
-transfer_input_files =  Complete-Prose-Works-by-Walt-Whitman.txt
-transfer_output_files = wordcounter.out.$(Cluster).$(Process)
-Arguments =  Complete-Prose-Works-by-Walt-Whitman.txt grass
+WhenToTransferOutput = ON_EXIT_OR_EVICT
+transfer_input_files = Complete-Prose-Works-by-Walt-Whitman.txt
+transfer_output_files = wc.log.$(Cluster).$(Process)
+Arguments =  Complete-Prose-Works-by-Walt-Whitman.txt leaves --ouput=wc.log.$(Cluster).$(Process)
 queue
-</pre> This submission file requests to submit the python script ==word_counter== that counts the number of  encounters of the specified word in the text. The file will be  transferred with condor job. Now, we can submit job that is using file from ==$OSG_DATA/osgedu/${USER}== directory: <pre class="file">
+</pre> Submit job: <pre class="screen">
+condor_submit job_submission_1
+</pre>Check status of the job. Verify the content of the job log file after it is done. It should contain: <pre class="file">
+Open logfile wc.log.61545.0
+Number of word "leaves" encountered in Complete-Prose-Works-by-Walt-Whitman.txt is 71
+</pre> Now, we can submit job that is using file from ==$OSG_DATA/osgedu/${USER}== directory: <pre class="file">
 universe=grid
-grid_resource = gt2 red.unl.edu:/jobmanager-fork 
+grid_resource = gt2 osg-edu.cs.wisc.edu:/jobmanager-fork 
 Executable=word_counter
 Log = /home/tanya/whitman_logs/wordcounter.$(Cluster).$(Process).log
 Output = /home/tanya/whitman_logs/wordcounter.$(Cluster).$(Process).out
 Error = /home/tanya/whitman_logs/wordcounter.$(Cluster).$(Process).err
+WhenToTransferOutput = ON_EXIT_OR_EVICT
+transfer_output_files = wc.log.$(Cluster).$(Process)
 Arguments =  /nfs/osg-data/osgedu/tanya/Complete-Prose-Works-by-Walt-Whitman.txt grass
 queue
 </pre>
