@@ -1,10 +1,17 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1278992567" format="1.1" reprev="1.9" version="1.9"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1279035577" format="1.1" reprev="1.10" version="1.10"}%
 %META:TOPICPARENT{name="MaterialsOSS2010"}%
 ---+!!Data Management Exercises (Part I) 
-%TOC{depth="2"}%
+%TOC{depth="3"}%
 
 ---++ Introduction
-The goals of these exercises are...
+
+The storage and data management are an essential part of grid computing. Many applications running on the OSG sites are data-intensive and require high-throughput. The data scale of transfers varies from petabytes to gigabites scale. The middleware provided by the OSG can manage not only jobs but also transfers of input and output files associated with a job, as well as pre-staging of the data before launching jobs.
+The goals of these exercises are:
+   * to be able to pre-stage file using ==globus-url-copy== or ==srm-copy== commands
+   * to familiarize yourself with various srm commands that allow data management and movement on a Storage Element
+   * to submit condor_g job that accesses file that is stored at the SE
+
+
 ---++ Exercises 
 ---+++ Prerequisite 
    * Login on submission node <pre class="screen">
@@ -21,7 +28,7 @@ Enter GRID pass phrase:
 </pre>
 
 ---+++ Classic Storage
-A Classic Storage is represented by a stand-alone [[http://www.globus.org/toolkit/data/gridftp][!GridFTP]] server installed  on a Compute Element. It allows access to several specific data directories available on all OSG sites.    The storage space allocated under ==OSG_DATA== directory is intended as the space for applications to write input and output relatively small data files with persistency that must exceed the lifetime of the job which created it.
+A Classic Storage is represented by a stand-alone [[http://www.globus.org/toolkit/data/gridftp][GridFTP]] server installed  on a Compute Element. It allows access to several specific data directories available on all OSG sites.    The storage space allocated under ==OSG_DATA== directory is intended as the space for applications to write input and output relatively small data files with persistency that must exceed the lifetime of the job which created it.
 
 In order to upload data to ==OSG_DATA== you will need to use ==globus-url-copy== command. The basic syntax for globus-url-copy is:
 
@@ -38,7 +45,7 @@ OSG_DATA=/nfs/osg-data
    * Let's create your directory there<pre class="screen">
 globus-job-run osg-edu.cs.wisc.edu:/jobmanager-fork /bin/mkdir /nfs/osg-data/osgedu/${USER}
 </pre>
-   * We will use ==Complete-Prose-Works-by-Walt-Whitman.txt== located in ==~/tanya==.  The file size is 1.4 MB and it contains works by Walt Whitman.  The file is downloaded from [[http://fliiby.com/file/221825/jodjt2p6sb.html][this site]], see also [[http://gutenberg.net][information about Gutenberg Project ]].  Let's use ==globus-url-copy== to upload the file<pre class="screen"> to your directory under ==$OSG_DATA/osgedu==:
+   * We will use ==Complete-Prose-Works-by-Walt-Whitman.txt== located in ==~/tanya==.  The file size is 1.4 MB and it contains works by Walt Whitman.  The file is downloaded from [[http://fliiby.com/file/221825/jodjt2p6sb.html][this site]], see also [[http://gutenberg.net][information about Gutenberg Project ]].  Let's use ==globus-url-copy== to upload the file to your directory under ==$OSG_DATA/osgedu==:<pre class="screen"> 
 globus-url-copy file:///home/tanya/Complete-Prose-Works-by-Walt-Whitman.txt gsiftp://osg-edu.cs.wisc.edu:2811/nfs/osg-data/osgedu/${USER}/testfile
  globus-job-run osg-edu.cs.wisc.edu:/jobmanager-fork /bin/ls -l /nfs/osg-data/osgedu/${USER}
 total 1416
@@ -114,13 +121,13 @@ if __name__=="__main__":
         sys.exit(retVal)
 
 %ENDTWISTY%
-</pre> Let's execute the script to verify that it is worker properly:<pre class="screen">
+</pre> Let's execute the script to verify that it is working properly:<pre class="screen">
 ./word_counter Complete-Prose-Works-by-Walt-Whitman.txt leaves  
 Number of word "leaves" encountered in Complete-Prose-Works-by-Walt-Whitman.txt is 71
 </pre>
 
-   * Create simple condor-g job submission files that access file for various sources :
-    1. Transfer data with condor job. First, create a submission file ==job_submission_1==  <pre class="file">
+   * Create simple condor-g job submission files that access file from various sources:
+      1. Transfer data with condor job. First, create a submission file ==job_submission_1==  <pre class="file">
 universe=grid
 grid_resource = gt2 osg-edu.cs.wisc.edu:/jobmanager-fork
 Executable=word_counter
@@ -134,10 +141,11 @@ Arguments =  Complete-Prose-Works-by-Walt-Whitman.txt leaves --ouput=wc.log.$(Cl
 queue
 </pre> Submit job: <pre class="screen">
 condor_submit job_submission_1
-</pre>Check status of the job. Verify the content of the job log file after it is done. It should contain: <pre class="file">
+</pre>Check status of the job. Verify the content of the job log file after it is done. It should contain something similar to that: <pre class="file">
 Open logfile wc.log.61545.0
 Number of word "leaves" encountered in Complete-Prose-Works-by-Walt-Whitman.txt is 71
-</pre> Now, we can submit job that is using file from ==$OSG_DATA/osgedu/${USER}== directory: <pre class="file">
+</pre> 
+      1. Now, we can submit job that is using file from ==$OSG_DATA/osgedu/${USER}== directory: <pre class="file">
 universe=grid
 grid_resource = gt2 osg-edu.cs.wisc.edu:/jobmanager-fork 
 Executable=word_counter
@@ -148,7 +156,9 @@ WhenToTransferOutput = ON_EXIT_OR_EVICT
 transfer_output_files = wc.log.$(Cluster).$(Process)
 Arguments =  /nfs/osg-data/osgedu/tanya/Complete-Prose-Works-by-Walt-Whitman.txt grass
 queue
-</pre>
+</pre>Submit job: <pre class="screen">
+condor_submit job_submission_2
+</pre>Check status of the job. Verify the content of the job log file after it is done.
 
   
 
@@ -159,14 +169,14 @@ queue
 An OSG site may offer a Storage Element (SE) - a physical storage system where data are stored and managed according authorization policies. A SE could be represented by a physical file system, disk caches or hierarchical mass storage system.  A Storage Resource Manager (SRM) is a component that is usually associated with a Storage Element. A SRM optimizes the use of a SE by providing file caching, staging of files from hierarchical storage, and/or allowing managing the space by using space reservation and lifetime of the file. Storage Elements manage storage and enforce authorization policies on who is allowed to create, delete and access physical files. See [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/Storage][this document]] for details.
 All OSG Storage Elements support the gsiftp protocol and the full or limited implementation of [[https://sdm.lbl.gov/srm-wg/doc/SRM.v2.2.html][ Storage Resource Manager (SRM) specification. In some cases the Storage Element and the shared file system may use the same underlying distributed file system, providing local access from the worker nodes and external access through the gsiftp protocol, or the SRM specification. 
 
-During this exercise we will pre-stage data on the specific SE and then run a job on worker node that access the file directly.
+During this exercise we will pre-stage data on the specific SE and then run a job on a worker node that accesses the file directly.
 
 What you have to know before you start:
    * Storage url (surl) of Storage Elements available for OSGEDU VO members:
-   1. Nebraska srm://red-srm1.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/public/osgedu (!BeStMan-gateway/HDFS; data available from the worker node with the path /mnt/hadoop/public/osgedu)
-   1. OSG_EDU  srm://osg-edu.cs.wisc.edu:10443/srm/v2/server?SFN=/srmcache/osgedu/ (!BeStMan-fullmode/disk)
+      1. Nebraska SE end point: ==srm://red-srm1.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/public/osgedu== (!BeStMan-gateway/HDFS; data available from the worker node with the path /mnt/hadoop/public/osgedu)
+      1. OSG_EDU SE end point:  ==srm://osg-edu.cs.wisc.edu:10443/srm/v2/server?SFN=/srmcache/osgedu/== (!BeStMan-fullmode/local disk)
 
-There are many [][implementations] of srm client. You can choose the one you like the most. Examples that are shown here are for [][srm-lbnl-client]].
+There are many [[][implementations] of srm client. You can choose the one you like the most. Examples that are shown here are for [[][srm-lbnl-client]].
 
 ---++++ First steps
    * Verify that you can access storage<pre class="screen">
@@ -254,7 +264,7 @@ SRM-CLIENT*FILE_STATUS[0]=SRM_SUCCESS
 SRM-CLIENT*EXPLANATION[0]=SRM-CLIENT: PutDone is called successfully
 %ENDTWISTY%
 </pre>
-   * Check the file is actually there: <pre class="screen">
+   * Check that the file is actually there: <pre class="screen">
 srm-ls  srm://red-srm1.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/public/osgedu/tanya/Complete-Prose-Works-by-Walt-Whitman.txt
 %TWISTY%
 srm-ls   2.2.1.3.12  Tue Apr 27 13:13:24 PDT 2010
