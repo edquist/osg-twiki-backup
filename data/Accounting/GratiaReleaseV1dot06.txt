@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ChrisGreen" date="1279057915" format="1.1" reprev="1.14" version="1.14"}%
+%META:TOPICINFO{author="ChrisGreen" date="1279128767" format="1.1" reprev="1.15" version="1.15"}%
 %META:TOPICPARENT{name="WebHome"}%
 <!--
 These are general in nature and should be changed in the this template if the location changes:
@@ -120,30 +120,207 @@ During this upgrade, the legacy redirectors dealing with probes sending to old a
 
 ---+ Upgrade procedure
 
-   1. Pre-load kernels on all VMs and dom0s.
-   1. Deactivate, disable, shut down and remove configs from /etc/xen/auto gr12x2 and gr13x2, the HA legacy redirector VMs.
-   1. Fail the reporting-DB IP over to the collector DB.
-   1. Stop slave on reporting DB. Check no open temporary tables. Stop reporting DB.
-   1. Institute IPtables rules on collector IPs to ignore SYNs on port 80/443.
-   1. Wait 15 minutes or until there are no remaining connections to 80/443.
-   1. Fail the reporting services over to the collector VMs (collector services will restart, reporting services will stop).
-   1. Temporarily remove SYN-blocking.
-   1. Reboot reporting dom0, ensuring heartbeat does not cause trouble as it comes back.
-   1. Fail reporting-DB IP back to reporting DB.
-   1. Stop slave on reporting DB. This will remain off until collector service is restored.
-   1. Re-institute SYN-blocking on collector IPs 80/443.
-   1. Upgrade reporting services *without* restarting.
-   1. Wait 15 minutes or until there are no remaining connections to 80/443.
-   1. Fail reporting services back to the reporting VMs, ensuring new reporting services start correctly.
-   1. Shut down collectors on collector VMs and upgrade *without* restarting.
-   1. Remove SYN-blocking.
-   1. Deactivate auto-start of collectors (chkconfig tomcat-gratia off).
-   1. Reboot collector dom0, ensuring heartbeat does not cause problems.
-   1. Ensure collectors are configured to come back in collector-only mode.
-   1. Start collectors.
-   1. When all collectors are responding to incoming data, fail reporting-DB IP over to collector DB.
-   1. Restart DB slave.
-   1. When seconds_behind_master -> 0 fail reporting-DB IP back to reporting DB. 
+<ol>
+<li>Pre-load kernels on all VMs and dom0s.
+<dl compact>
+<dt>%RED%08:40%ENDCOLOR%</dt>
+<dd><tt>yum upgrade</tt> in progress.</dd>
+<dt>%ORANGE%08:50%ENDCOLOR%</dt>
+<dd>Check grub configurations.</dd>
+<dt>%GREEN%08:56%ENDCOLOR%</dt>
+<dd>Complete.</dd>
+</dl>
+<li>Deactivate, disable, shut down and remove configs from /etc/xen/auto gr12x2 and gr13x2, the HA legacy redirector VMs.</li>
+<dl compact>
+<dt>%RED%09:00%ENDCOLOR%</dt>
+<dd>Remove <tt>gratia12:/etc/xen/auto/gr12x2</tt> and <tt>gratia13:/etc/xen/auto/gr13x2</tt>.</dd>
+<dt>%RED%09:12%ENDCOLOR%</dt>
+<dd>Shutdown and remove LVS on gr12x2 and gr13x2.</dd>
+<dt>%GREEN%09:15%ENDCOLOR%</dt>
+<dd>Shutdown gr12x2 and gr13x2.</dd>
+</dl>
+<li>Fail the reporting-DB IP over to the collector DB.</li>
+<dl compact>
+<dt>%RED%09:17%ENDCOLOR%</dt>
+<dd>Execute <tt>/usr/share/heartbeat/hb_takeover</tt> on gr10x5 and gr12x5.</dd>
+<dt>%ORANGE%09:18%ENDCOLOR%</dt>
+<dd>Verify IPs have switched and connections have gone on gr11x5 and gr13x5.</dd>
+<dt>%GREEN%09:21%ENDCOLOR%</dt>
+<dd>Complete.</dd>
+</dl>
+<li>Stop slave on reporting DB. Check no open temporary tables. Stop reporting DB.</li>
+<dl compact>
+<dt>%RED%09:22%ENDCOLOR%</dt>
+<dd>Execute <tt>slave stop;</tt> on gr11x5 and gr13x5.</dd>
+<dt>%ORANGE%09:22%ENDCOLOR%</dt>
+<dd>Verify no temporary tables open with <tt>SHOW STATUS LIKE '%tab%';</tt>.</dd>
+<dt>%GREEN%09:24%ENDCOLOR%</dt>
+<dd>Shut down DBs on gr11x5 and gr13x5.</dd>
+</dl>
+<li>Institute IPtables rules on collector IPs to ignore SYNs on port 80/443.</li>
+<dl compact>
+<dt>%RED%09:30%ENDCOLOR%</dt>
+<dd>Execute <tt>iptables -I INPUT 1 -p tcp --syn --destination-port 80 -j DROP; iptables -I INPUT 2 -p tcp --syn --destination-port 443 -j DROP</tt> on all collectors.</dd>
+<dt>%GREEN%09:32%ENDCOLOR%</dt>
+<dd>Complete.</dd>
+</dl>
+<li>Wait 15 minutes or until there are no remaining connections to 80/443.</li>
+<dl compact>
+<dt>%GREEN%09:35%ENDCOLOR%</dt>
+<dd>Verified no established connections on collectors.</dd>
+</dl>
+<li>Fail the reporting services over to the collector VMs (collector services will restart, reporting services will stop).</li>
+<dl compact>
+<dt>%RED%09:36%ENDCOLOR%</dt>
+<dd>Execute <tt>/usr/share/heartbeat/hb_takeover</tt> on all collectors.</dd>
+<dt>%RED%09:40%ENDCOLOR%</dt>
+<dd>Restart failed heartbeat on gr12x1, gr12x3. Shoot recalcitrant gr13x1 collector inna head.</dd>
+<dt>%ORANGE%09:55%ENDCOLOR%</dt>
+<dd>Verify correct transfer of operations.</dd>
+<dt>%GREEN%09:57%ENDCOLOR%</dt>
+<dd>Complete.</dd>
+</dl>
+<li>Temporarily remove SYN-blocking.</li>
+<dl compact>
+<dt>%GREEN%10:02%ENDCOLOR%</dt>
+<dd>Execute <tt>iptables -D INPUT 2; iptables -D INPUT 1</tt> on collectors.</dd>
+</dl>
+<li>Verify reporting URLs work as expected.</li>
+<dl compact>
+<dt>%GREEN%10:05%ENDCOLOR%</dt>
+<dd>Complete.</dd>
+</dl>
+<li>Reboot reporting dom0, ensuring heartbeat does not cause trouble as it comes back.</li>
+<dl compact>
+<dt>%RED%10:05%ENDCOLOR%</dt>
+<dd>Execute reboot.</dd>
+<dt>%ORANGE%10:25%ENDCOLOR%</dt>
+<dd>Verify all reporting dom0, VMs have restarted. gr11x5 (Fermi reporting DB) doing disk check.<br/>
+    Fermi collector heartbeats failed back to reporting VMs. Possibility of stuck probes, maybe. Will need to check after upgrade is complete.</dd>
+</dl>
+<dt>%GREEN%11:05%ENDCOLOR%</dt>
+<dd>gr11x5 returned.</dd>
+<li>Re-institute SYN-blocking on collector IPs 80/443.</li>
+<dl compact>
+<dt>%GREEN%10:40%ENDCOLOR%</dt>
+<dd>Executed <tt>iptables -I INPUT 1 -p tcp --syn --destination-port 80 -j DROP; iptables -I INPUT 2 -p tcp --syn --destination-port 443 -j DROP</tt> on all collectors.</dd>
+</dl>
+<li>Fail reporting-DB IP back to reporting DB.</li>
+<dl compact>
+<dt>%RED%10:45%ENDCOLOR%</dt>
+<dd>Execute takeover on gr13x5 ONLY (OSG); gr11x5 is still checking disk.</dd>
+<dt>%ORANGE%10:46%ENDCOLOR%</dt>
+<dd>Verified gr13x5 took over operations properly.</dd>
+<dt>%RED%11:10%ENDCOLOR%</dt>
+<dd>Execute takeover on gr11x5.</dd>
+<dt>%GREEN%11:14%ENDCOLOR%</dt>
+<dd>Verified gr11x5 took over operations properly.</dd>
+</dl>
+<li>Stop slave on reporting DB. This will remain off until collector service is restored.</li>
+<dl compact>
+<dt>%GREEN%10:50%ENDCOLOR%</dt>
+<dd>Slave stopped and verified no temporary tables open on gr13x5.</dd>
+<dt>%GREEN%11:13%ENDCOLOR%</dt>
+<dd>Slave stopped and verified no temporary tables open on gr11x5.</dd>
+</dl>
+<li>Upgrade reporting services *without* restarting.</li>
+<dl compact>
+<dt>%RED%10:50%ENDCOLOR%</dt>
+<dd>Execute <tt>gratia-ops/upgrade-osg-reporting</tt> (execution machine irrelevant).</dd>
+<dt>%GREEN%10:55%ENDCOLOR%</dt>
+<dd>Upgrades complete on gr13xN (OSG).</dd>
+<dt>%RED%11:15%ENDCOLOR%</dt>
+<dd>Fail reporting on gr11xN back to gr10xN (special step because heartbeat screwed up earlier).</dd>
+<dt>%ORANGE%11:20%ENDCOLOR%</dt>
+<dd>Complete.</dd>
+<dt>%RED%11:25%ENDCOLOR%</dt>
+<dd>Execute <tt>gratia-ops/upgrade-fermi-reporting</tt> (execution machine irrelevant).</dd>
+<dt>%GREEN%11:29%ENDCOLOR%</dt>
+<dd>Complete.</dd>
+</dl>
+<li>Wait 15 minutes or until there are no remaining connections to 80/443.</li>
+<dl compact>
+<dt>%GREEN%11:00%ENDCOLOR%</dt>
+<dd>Verified no established connections on collectors.</dd>
+</dl>
+<li>Fail reporting services back to the reporting VMs, ensuring new reporting services start correctly.</li>
+<dl compact>
+<dt>%RED%11:05%ENDCOLOR%</dt>
+<dd>Execute takeover on gr13xN (OSG).</dd>
+<dt>%GREEN%11:15%ENDCOLOR%</dt>
+<dd>Takeover on gr13xN complete.</li>
+<dt>%RED%11:30%ENDCOLOR%</dt>
+<dd>Execute takeover on gr11xN (Fermi).</dd>
+<dt>%GREEN%11:40%ENDCOLOR%</dt>
+<dd>Takeover on gr11xN complete.</li>
+</dl>
+<li>Shut down collectors on collector VMs and upgrade *without* restarting.</li>
+<dl compact>
+<dt>%RED%11:46%ENDCOLOR%</dt>
+<dd>Execute <tt>gratia-ops/upgrade-fermi-collectors</tt> (execution machine irrelevant).</dd>
+<dt>%RED%11:54%ENDCOLOR%</dt>
+<dd>Execute <tt>gratia-ops/upgrade-osg-collectors</tt> (execution machine irrelevant).</dd>
+<dt>%GREEN%11:58%ENDCOLOR%</dt>
+<dd>Upgrade complete on OSG collectors.</dd>
+<dt>%GREEN%12:04%ENDCOLOR%</dt>
+<dd>Upgrade complete on Fermi collectors.</dd>
+</dl>
+<li>Temporarily remove collectors from rcN.d until after reboot.</li>
+<dl compact>
+<dt>%GREEN%11:58%ENDCOLOR%</dt>
+<dd>Executed =chkconfig tomcat-gratia off= on gr12xN.</dd>
+<dt>%GREEN%12:04%ENDCOLOR%</dt>
+<dd>Executed =chkconfig tomcat-gratia off= on gr10xN.</dd>
+</dl>
+<li>Manually stop mysqld on collector DBs (may take a while).</li>
+<dl>
+<dt>%GREEN%12:01%ENDCOLOR%</dt>
+<dd>Complete on gr12x5.</dd>
+<dt>%GREEN%12:06%ENDCOLOR%</dt>
+<dd>Complete on gr10x5.</dd>
+<li>Reboot collector dom0, ensuring heartbeat does not cause problems.</li>
+<dl compact>
+<dt>%RED%12:02%ENDCOLOR%</dt>
+<dd>Reboot initiated on gratia12 (OSG).</dd>
+<dt>%RED%12:06%ENDCOLOR%</dt>
+<dd>Reboot initiated on gratia10 (OSG).</dd>
+<dt>%GREEN%12:12%ENDCOLOR%</dt>
+<dd>Complete for gratia12 and VMs.</dd>
+<dt>%GREEN%12:14%ENDCOLOR%</dt>
+<dd>Complete for gratia10 and VMs.</dd>
+</dl>
+<li>Ensure collectors are configured to come back in collector-only mode.</li>
+<dl compact>
+<dt>%GREEN%12:20%ENDCOLOR%</dt>
+<dd>Heartbeat and collector status verified as correct for all collectors and reporters. Heartbeat had to be chkconfigged on and restarted on gr12x1 and gr12x3.</dd>
+</dl>
+<li>Re-enable rcN.d scripts on collector VMs.</li>
+<dl compact>
+<dt>%GREEN%12:25%ENDCOLOR%</dt>
+<dd>Complete.</dd>
+</dl>
+<li>Start collectors.</li>
+<dl compact>
+<dt>%GREEN%12:28%ENDCOLOR%</dt>
+<dd>Collectors started on gr10xN and gr12xN.</dd>
+</dl>
+<li>When all collectors are responding to incoming data, fail reporting-DB IP over to collector DB.</li>
+<dl compact>
+<dt></dt>
+<dd></dd>
+</dl>
+<li>Restart DB slave.</li>
+<dl compact>
+<dt></dt>
+<dd></dd>
+</dl>
+<li>When seconds_behind_master -> 0 fail reporting-DB IP back to reporting DB.</li>
+<dl compact>
+<dt></dt>
+<dd></dd>
+</dl>
+</ol>
+
 
 %STOPINCLUDE%
 
