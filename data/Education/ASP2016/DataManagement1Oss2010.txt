@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1279124816" format="1.1" reprev="1.17" version="1.17"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1279145916" format="1.1" reprev="1.18" version="1.18"}%
 %META:TOPICPARENT{name="MaterialsOSS2010"}%
 ---+!!Data Management Exercises (Part I) 
 %TOC{depth="3"}%
@@ -50,8 +50,7 @@ total 1416
 -rw-r--r--  1 osgedu users 1445762 Jul 12 13:17 Complete-Prose-Works-by-Walt-Whitman.txt
 </pre>
    * Copy the python script ==word_coutner== into your directory from ==~/tanya/exercises/dm_1==. This script calculates number of occurrences of  a specified word in a text file. The script looks like this <pre class="file">
-more word_counter
-%TWISTY%
+more word_counterTWISTY%
 #!/usr/bin/python
 import sys
 import re
@@ -156,7 +155,7 @@ Output = %BLUE%/home/tanya/exercises/dm_1/condor_logs%ENDCOLOR%/wordcounter.$(Cl
 Error = %BLUE%/home/tanya/exercises/dm_1/condor_logs%ENDCOLOR%/wordcounter.$(Cluster).$(Process).err
 WhenToTransferOutput = ON_EXIT_OR_EVICT
 transfer_output_files = wordcounter.log.$(Cluster).$(Process)
-Arguments =  /nfs/osg-data/osgedu/tanya/Complete-Prose-Works-by-Walt-Whitman.txt grass  --output=wordcounter.log.$(Cluster).$(Process)
+Arguments =  /nfs/osg-data/osgedu/%BLUE%/tanya%ENDCOLOR%/Complete-Prose-Works-by-Walt-Whitman.txt grass  --output=wordcounter.log.$(Cluster).$(Process)
 queue
 </pre>Submit job: <pre class="screen">
 condor_submit test2.submit
@@ -357,39 +356,98 @@ should_transfer_files   = YES
 Arguments =  Complete-Prose-Works-by-Walt-Whitman.txt grass osg-edu.cs.wisc.edu:10443 /srmcache/osgedu/%BLUE%tanya%ENDCOLOR%  test3.log.$(Cluster).$(Process)
 queue
 </pre> Copy test3.sh script from ==/home/tanya/exercises/dm_1==.The script test3.sh will look like:<pre class="file">
+more test3.sh
 %TWISTY%
 #!/bin/bash
+############################################################
+#  test3 - download file from a particular Storage Element  #
+#          execute word_counter script                      #
+#          do cleanup                                       #
+#############################################################
+usage ()
+{
+     log "Usage: file_name word surl path logfile"
+}
+log ()
+{
+if [ x$logname == x ]
+then
+        echo $1
+else
+        echo $1 >>$logfile 
+fi
+}
+# test if we have four arguments on the command line
+if [ $# -lt  4 ]
+then
+    usage
+    exit 1
+fi
 file=$1
 word=$2
 surl=$3
 endpath=$4
-logfile=$5
-
-. $OSG_GRID/setup.sh 
-echo 'start'  
-chmod 755 word_counter
+logname=""
 cwd=`pwd`
-echo $cwd 
-echo $OSG_WN_SCRATCH 
-echo $OSG_WN_TMP   
+if [ $# -eq 5 ]
+then
+        logname=$5
+        logfile=$cwd/$logname
+        #just in case create a logfile
+        touch $logfile
+fi
+retVal=0
+log "Start test3.sh"   
+#setup grid enviroment
+. $OSG_GRID/setup.sh 
+#create temporary directory
+tmpDir=`mktemp -d -t osgedu.XXXXXX`
 export TMPDIR=$OSG_WN_TMP 
-tmpDir=`mktemp -d -t`
-echo $tmpDir 
-echo 'before cd'  
 cd $tmpDir
-echo "srm-copy srm://$surl/srm/v2/server\?SFN=$endpath/$file file:///$PWD/$file"  
-srm-copy srm://$surl/srm/v2/server\?SFN=$endpath/$file file:///$PWD/$file 
-echo "Starting the word_counter"  
-$cwd/word_counter $file  $word --output=$logfile
-echo 'after cd'   
+log "Current directory is $tmpDir"  
+#move and change the permission of the uploaded script
+mv $cwd/word_counter .
+chmod 755 word_counter
+option=""
+if [ x$logname == x ]
+then
+        option="-log $logfile"
+fi
+log "Executing: srm-copy srm://$surl/srm/v2/server\?SFN=$endpath/$file file:///$PWD/$file $option"   
+srm-copy srm://$surl/srm/v2/server\?SFN=$endpath/$file file:///$PWD/$file $option  
+retVal=$?
+log "Return value $retVal"
+if [ $retVal -eq 0 ]
+then
+        #move word_counter script
+        option=""
+        if [ x$logname == x ]
+        then
+                option="--output=$logfile"
+        fi
+        log "Executing: $cwd/word_counter $file  $word $option"
+        ./word_counter $file  $word --output=$logfile
+        retVal=$?
+        log "Return value $retVal"
+fi
 cd $OSG_WN_TMP
-echo $PWD  
 rm -rf $tmpDir
-echo 'end' 
-exit 0
+log "End test3.sh" 
+exit $retVal
 %ENDTWISTY%
 </pre>
-Submit condor_g job. Verify the results.
+Submit condor_g job. Verify the results. You should see something like the following in ==test3.log.%BLUE%XXXX.0%ENDCOLOR%==.<pre class="file">
+Start test3.sh
+Current directory is /var/lib/condor/execute/dir_7000/osgedu.rB7024
+Executing: srm-copy srm://osg-edu.cs.wisc.edu:10443/srm/v2/server\?SFN=/srmcache/osgedu/tanya/Complete-Prose-Works-by-Walt-Whitman.txt file:////var/lib/condor/execute/dir_7000/osgedu.rB7024/Complete-Prose-Wo
+rks-by-Walt-Whitman.txt
+Return value 0
+Executing: /nfs/osgedu/gram_scratch_RIvKrzTUCQ/word_counter Complete-Prose-Works-by-Walt-Whitman.txt grass
+Open logfile /nfs/osgedu/gram_scratch_RIvKrzTUCQ/test4.log.62385.0
+Number of word "grass" encountered in Complete-Prose-Works-by-Walt-Whitman.txt is 85
+Return value 0
+End test3.sh
+</pre>
    
 
 
