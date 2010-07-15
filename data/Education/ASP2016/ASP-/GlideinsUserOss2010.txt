@@ -1,0 +1,150 @@
+%META:TOPICINFO{author="IgorSfiligoi" date="1279155408" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="GlideinsOss2010"}%
+---+ Glidein for the users - Hands-on Session, Wednesday July 21st, 2010 
+
+<b><font size=+2 color=red>Work in progress</font></b>
+
+This session will give you hands-on experience in using the glideinWMS as a user.
+
+---++ Local setup
+
+As with all the other hands-on exercises, we will be using <br>
+<tt>vdt-itb.cs.wisc.edu</tt><br>
+to submit and monitor our jobs.
+
+However, we will use <b>a different Condor instance running on that same machine</b>.<br>
+The reason for having a different instance is due to the security requirements
+of having a Condor pool spread across the WAN (see also the [[%ATTACHURL%/pilots_and_glideinwms_lecture.pdf][lecture]]).
+Interested students can talk to me to get a more detailed information,
+for all the others, you just need to make sure you point to the right Condor installation.
+
+To use the proper Condor instance, please run:
+<pre>
+[sfiligoi@vdt-itb ~]$ source /opt/glidecondor/condor.sh 
+</pre>
+
+At any given point, you can check you are using the right one by using:
+<pre>
+[sfiligoi@vdt-itb ~]$ which condor_submit
+/opt/glidecondor/bin/condor_submit
+[sfiligoi@vdt-itb ~]$ echo $CONDOR_CONFIG
+/opt/glidecondor/etc/condor_config
+</pre>
+
+---++ The work environment
+
+As mentioned in the [[%ATTACHURL%/pilots_and_glideinwms_lecture.pdf][lecture]],
+the glideinWMS environment looks almost exactly like a regular, local Condor pool.
+
+It just does not have any resources attached unless you ask for them;
+try
+<pre>
+condor_status
+</pre>
+
+The glideinWMS will submit glideins on your behalf when you will need them.
+But you may need to tell it what are your needs (but more on this later on).
+
+---++ Generic jobs
+
+Let's start with a very generic job;<br>
+a variation of the basic Condor jobs Alain introduced you to.
+
+Let us [[http://www.stealthcopter.com/blog/2009/09/python-calculating-pi-using-random-numbers/][calculate Pi using the monte carlo method]];<br>
+create a file called
+<pre>
+pi.py
+</pre>
+containing
+<pre>
+#!/bin/env python
+from random import *  
+from math import sqrt,pi  
+from sys import argv
+inside=0  
+n=int(argv[1])
+for i in range(0,n):  
+    x=random()  
+    y=random()  
+    if sqrt(x*x+y*y)<=1:  
+        inside+=1  
+pi_prime=4.0*inside/n  
+print pi_prime, pi-pi_prime
+</pre>
+and make it executable.
+
+Try to run it:
+<pre>
+./pi.py 1000000
+</pre>
+The first number is the approximation of pi, while the second one is how far from the real Pi it is.
+
+Repeat a couple of times.
+As you can see, the result changes every time.
+
+Now, lets submit it as a Condor job;
+or better to say, as a bunch of Condor jobs.
+
+These jobs should run everywhere, so no need to specify any requirement:
+<pre>
+Universe   = vanilla
+Executable = pi.py
+Arguments  = 10000000
+Requirements = (Arch=!="")
+Log        = pi.$(Cluster).log
+Output   = pi.$(Cluster).$(Process).out
+Error      = pi.$(Cluster).$(Process).err
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+Queue 100
+</pre>
+
+Submit the above.
+
+Now sit back and relax... Condor+glideinWMS will take care of everything else... 
+after a few minutes we just look at the outputs and see who got the most precise Pi.
+
+Well... you would do that if you were a seasoned user.
+As a student, you are supposed to see what is going on.
+
+So run <tt>condor_q</tt> and <tt>condor_status</tt> from time to time, until the jobs are done.
+
+What do you see?
+
+---++ Understanding where jobs are running
+
+While your jobs can run everywhere, you may still want to know where they actually ran;
+either becuase you want to know who to thank for the CPUs you were consuming,
+or to debug problems you had with your program (unlikely in this case... but one never knows).
+
+So let us add a couple additional attributes to the submit file:
+<pre>
+Universe   = vanilla
+Executable = pi.py
+Arguments  = 10000000
+Requirements = (Arch=!="")
+Log        = pi.$(Cluster).log
+Output   = pi.$(Cluster).$(Process).out
+Error      = pi.$(Cluster).$(Process).err
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
++JOB_Site = "$$(GLIDEIN_Site:Unknown)"
++JOB_Gatekeeper = "$$(GLIDEIN_Gatekeeper:Unknown)"
+Queue 100
+</pre>
+
+Now submit the jobs.
+
+Now monitor the running jobs with
+<pre>
+condor_q `id -un` -const 'JobStatus==2' -format '%d.' ClusterId -format '%d ' ProcId -format '%s\n' MATCH_EXP_JOB_Site
+</pre>
+
+What do you see?
+
+For completed jobs, you can use
+<pre>
+condor_q JOB_ID -format '%d.' ClusterId -format '%d ' ProcId -format '%s\n' MATCH_EXP_JOB_Site
+</pre>
+
+-- Main.IgorSfiligoi - 14 Jul 2010
