@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AlainRoy" date="1279317728" format="1.1" reprev="1.8" version="1.8"}%
+%META:TOPICINFO{author="BrianBockelman" date="1279572150" format="1.1" reprev="1.9" version="1.9"}%
 %META:TOPICPARENT{name="MaterialsOSS2010"}%
 ---+ Condor-G Exercises
 
@@ -117,11 +117,13 @@ Tue Jul  6 20:49:08 CDT 2010
 
 We can submit it with the following simple Condor job:
 <pre class="file">
-Universe        = vanilla
-Executable      = mytest.sh
-Output          = job_test.output.$(Cluster).$(Process)
-Error           = job_test.error.$(Cluster).$(Process)
-Log             = job_test.log
+Universe                = vanilla
+Executable              = mytest.sh
+Output                  = job_test.output.$(Cluster).$(Process)
+Error                   = job_test.error.$(Cluster).$(Process)
+Log                     = job_test.log
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
 queue
 </pre>
 This is fairly unremarkable, and similar to the simple jobs you did yesterday.  See the command-line output below.
@@ -155,14 +157,16 @@ The job should eventually go into running state and finish locally.  Verify it r
 
 What changed in the environment between when you ran it through Condor and when you ran it by hand?
 
-Now, we'll take this job and change the universe and specify a grid resource to send it to.  Add the following two lines to the top of your submit file:
+Now, we'll take this job and change the universe and specify a grid resource to send it to.  Add the following two lines to the top of your submit file, =test.condor=:
 
 <pre class="file">
 universe=grid
 grid_resource = %RED%gt2 osg-edu.cs.wisc.edu:/jobmanager-condor%ENDCOLOR%
 </pre>
 
-Here, we specify to send the job to a GT2-style (Globus Toolkit 2) resource.  The job will go to CE osg-edu.cs.wisc.edu and use jobmanager-condor.  Always specify the jobmanager you want, and never use the default one called "jobmanager".
+Here, we specify to send the job to a GT2-style (Globus Toolkit 2) resource.  The job will go to CE =osg-edu.cs.wisc.edu= and use =jobmanager-condor=.
+
+Recall from our previous exercise GlobusToolsOss2010: *Always specify the jobmanager you want, and never use the default one called "jobmanager".*
 
 ---++ Job Submission and Management
 
@@ -174,13 +178,16 @@ As with vanilla or standard Condor jobs, there are three important tools you wan
 Let's run through each of these with grid universe jobs.  Use the following submit file:
 
 <pre class="file">
-universe        = grid
-grid_resource   = %RED%gt2 osg-edu.cs.wisc.edu:/jobmanager-condor%ENDCOLOR%
-Executable      = mytest.sh
-Output          = job_test.output.$(Cluster).$(Process)
-Error           = job_test.error.$(Cluster).$(Process)
-Log             = job_test.log
+Universe                = grid
+grid_resource           = %RED%gt2 osg-edu.cs.wisc.edu:/jobmanager-condor%ENDCOLOR%
+Executable              = mytest.sh
+Output                  = job_test.output.$(Cluster).$(Process)
+Error                   = job_test.error.$(Cluster).$(Process)
+Log                     = job_test.log
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
 queue
+
 </pre>
 
 Submit this job using =condor_submit=:
@@ -192,6 +199,16 @@ Submitting job(s).
 Logging submit event(s).
 1 job(s) submitted to cluster 61532.
 </pre>
+
+%NOTE% If you get an error message like this one:
+
+<pre class="screen">
+[bbockelm@vdt-itb gridx]$ condor_submit test.condor 
+Submitting job(s)
+ERROR: can't determine proxy filename
+x509 user proxy is required for gt2, gt4, nordugrid or cream jobs
+</pre>
+You have no valid proxy!  Create yourself a new proxy.
 
 Check the status of the queue using =condor_q=:
 
@@ -236,6 +253,17 @@ This should look just like the a normal job!  We get no grid information.  There
 %ENDTWISTY%
 </pre>
 
+If you recall, in order to implement the grid universe, Condor calls out to a specific gridmanager to do the heavy lifting of queue operations.  After you submit your job, you should see a gridmanager launched as your own user.  Use the unix command =ps= to see it running:
+<pre class="screen">
+[bbockelm@vdt-itb gridx]$ %BLUE%ps fux%ENDCOLOR%
+USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+bbockelm 12444  0.3  0.1  32112  4040 ?        S    15:21   0:00 condor_gridmanager -f -C (Owner=?="bbockelm"&&JobUniverse==9) -o bbockelm -S /tmp/condor_g_scratch.0x1e350fe0.28761
+bbockelm 12445  0.4  0.2  27608  4900 ?        S    15:21   0:00  \_ /usr/sbin/gahp_server
+bbockelm  4710  0.0  0.0  90136  1832 ?        S    12:00   0:00 sshd: bbockelm@pts/26
+bbockelm  4711  0.0  0.0  66132  1696 pts/26   Ss   12:00   0:00  \_ -bash
+bbockelm 12588  0.0  0.0  65572   904 pts/26   R+   15:21   0:00      \_ ps fux
+</pre>
+
 ---+++ Homework
 
 Try the following:
@@ -247,8 +275,8 @@ Ok, you've now submitted to the OSG-EDU resource.  Repeat the following exercise
    * ff-grid.unl.edu:/jobmanager-pbs
    * ff-grid2.unl.edu:/jobmanager-pbs
    * ff-grid3.unl.edu:/jobmanager-pbs
-   * red.unl.edu:/jobmanager-pbs
-   * gpn-husker.unl.edu:/jobmanager-pbs
+   * red.unl.edu:/jobmanager-condor
+   * gpn-husker.unl.edu:/jobmanager-condor
 
 What grid states do you see?  What is the fastest resource?  The slowest?
 
@@ -329,8 +357,8 @@ rm -rf $tmpDir
 ---++ Converting and Running our Science Application on the Grid
 
 Here's your homework/project for this module: convert the BLAST application from yesterday to Condor-G.  In order to do this, you need to know that:
-   * We have installed the BLAST databases into $OSG_DATA/osgedu/blast_dbs on OSG-EDU and Firefly.
-   * We have installed BLAST into $OSG_APP/osgedu/blast on OSG-EDU and Firefly.  You can add BLAST to your environment by runnning =source $OSG_APP/osgedu/blast/setup.sh=.
+   * We have installed the BLAST databases into =$OSG_DATA/osgedu/blast_dbs= on OSG-EDU and Firefly.
+   * We have installed BLAST into =$OSG_APP/osgedu/blast= on OSG-EDU and Firefly.  You can add BLAST to your environment by runnning =source $OSG_APP/osgedu/blast/setup.sh=.
 
 Make sure you do the following steps, one at a time:
    * Get a single execution working here at =osg-edu.cs.wisc.edu=
@@ -342,4 +370,4 @@ Make sure you do the following steps, one at a time:
 
 Run the BLAST application via the grid, then answer the following questions:
    * How much time does the grid/Condor-G version take versus the plain Condor version?
-   * What strategy did you use to split a single DAG between multiple sites?  What error 
+   * What strategy did you use to split a single DAG between multiple sites?  What errors did you encounter, if any?
