@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="GabrieleGarzoglio" date="1278014439" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="GabrieleGarzoglio" date="1279837719" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="EngageLSST"}%
 %TOC%
 
@@ -6,10 +6,7 @@
 
 ---++ Introduction.
 
-The Phase 2 is starting in Jun 2010 with the goal of simulating one entire night of data taking by LSST. This document includes several sections
-
-   * requirements for the LSST simulation
-   * architectural overview
+The Phase 2 is starting in Jun 2010 with the goal of simulating one entire night of data taking by LSST.
 
 This is the [[EngageLSST][documentation for the phase 1 of the project]]
 
@@ -100,20 +97,32 @@ Lifetime and access requirements
    * How much data will be moved per day?
 
 
+---++ Project Execution Plan
+
+This link shows an [[http://home.fnal.gov/~garzogli/LSST/LSST-on-OSG-Phase-2-plan/LSST-on-OSG-Phase-2-v1.2.html][outline of the project execution plan]], with timeline and associated resources. 
+
+Older versions of the plan are maintained in [[http://home.fnal.gov/~garzogli/LSST/LSST-on-OSG-Phase-2-plan/][the same directory]]
+
+
 ---++ Architecture
 
 ---+++ Simple Architecture
-     <img src="%ATTACHURLPATH%/LSST-Architecture.jpg" alt="LSST-Architecture.jpg" width="900" />    
+     <img src="%ATTACHURLPATH%/LSST-Architecture-Jul22-10.jpg" alt="LSST-Architecture-Jul22-10.jpg" width='960' height='720' />    
 
 In this architectural configuration, computing resources are allocated via the GlideIn WMS system (OSG Glidein Factory) and are accessible to the user through a submission node running a condor scheduler. Input data is organized "manually" by the user at the submission node (Hadoop disk in the fig) and it is transferred to the worker node with the job by condor. Output is also returned to the submission node by condor. Binaries and common input file (Galaxy files) are pre-installed at all sites using the OSG Match Maker. The bookkeeping of the computational tasks (what jobs have failed, what need to be resubmitted, what percentage of the jobs have produced output, etc.) is done manually through condor.
 
 More in detail, in reference to the figure
 
    1. The OSG Factory submit Glidein jobs to OSG clusters. When running, Glideins report the availability of computing resources (worker nodes) to the condor collector. As jobs are submitted to the user scheduler (step 3 below), the Glidein VO frontend adjusts the number of glidein submitted to OSG to respond dynamically to the demand for computing cycles. 
-   2. An LSST user logs into the Glidein submission machine (HCC at Nebraska). Using a command line user interface, she submits jobs with the granularity of a group of 189 jobs at the time. The user interface requires a seed, unique for the group of jobs (each job will then have its own unique seed), and a path to a directory containing the 189 input catalog files. In this model, these files can be organized in individual directories in the Hadoop file system 
-   3. The user interface generates a DAGMan description and one job description file for the 189 jobs in a unique local directory. It then submits the DAG and the jobs to the scheduler.
-   4. For each job, as a pre-processing step, DAGMan controls the transfer of the job input file to local disk, so that it can be transferred by condor to the worker node (step 5)
-   5. The scheduler interacts with the condor collector to find an appropriate resource match for each job. The input file and the job are then dispatched to the selected worker node. As opposed to other grid submission systems (e.g. OSG MM), user jobs submitted through the glidein WMS system start immediately i.e. without waiting in any remote batch system queue. The output is then transferred back using condor mechanisms.
+   2. An LSST user logs into the Glidein submission machine (HCC at Nebraska). Using a command line user interface, she submits jobs with the granularity of a group of 189 jobs at the time (1 simulated LSST image). The user interface requires a seed, unique for the group of jobs (each job will then have its own unique seed), and a path to a directory containing the 189 input catalog files. In this model, these files can be organized in individual directories in the Hadoop file system 
+   3. In a unique local directory, the user interface generates a DAGMan description, a job description file for the 189 jobs, and a post-completion evaluation job.  The user interface then submits the DAG and the jobs to the scheduler. 
+      The DAG consist of 
+      * an initial job that creates the context for the monitoring process
+      * the 189 simulation jobs
+      * a post-completion job that gather statistics, such as the distribution of job resubmission, total job duration, job duration when successful, condor "goodput", etc.</br>
+      * <img src="%ATTACHURLPATH%/LSST-DAG-Jul22-10.jpg" alt="LSST-DAG-Jul22-10.jpg" width='385' height='252' />    
+   4. The scheduler interacts with the condor collector to find an appropriate resource match for each job. The input file and the job are then dispatched directly from the hadoop storage to the selected worker node. As opposed to other grid submission systems (e.g. OSG MM), user jobs submitted through the glidein WMS system start immediately i.e. without waiting in any remote batch system queue. The output is then transferred back using condor mechanisms.
+   5. A periodic monitoring process publish on the web operationally-oriented characteristics of each job group, such as the number of completed output files, the link to post-completion statistics (see point 3), the related input and run directory, submission and modified time, etc. 
 
 The system is designed to be fault tolerant. If a job fails because of problems with the resource (e.g. network connection problems, job pre-emption, etc.) the job is automatically resubmitted by the system indefinitely. If the job fails because of application errors (missing binaries at the remote location, bug in the code, etc.), DAGMan resubmits the job up to 5 times. After this process, if the job did NOT succeed (exit with status 0), DAGMan creates a "rescue" DAG description file, which can be manually resubmitted to rerun only failed jobs. 
 
@@ -122,7 +131,7 @@ The system is designed to be fault tolerant. If a job fails because of problems 
 In parallel to the simple architecture describe above, we have considered the use of IRODS as a candidate OSG data handling solution. A data handling system would enable file cataloging, access of input and storage of output from / to multiple (redundant) storage elements, output file-oriented bookkeeping of the computation. At this time (Jul 1, 2010), it is unclear that IRODS will be deployed to OSG in time for the integration with the LSST Phase 2 project. 
 
 
----+++ Workload Management (possibly useful for Phase 3 and beyond)
+---+++ VO Workload Management (possibly useful for Phase 3 and beyond)
 Node requirements for GlideIn frontend
 
    * Frontend:
@@ -143,11 +152,20 @@ Examples of current production setups -
 
 For LSST, we recommend 1 machine with Frontend + User Pool Collector + User Schedd (16GB, 8CPU)
 
----++ Project Execution Plan
+---++ Commissioning
 
-This link shows an [[http://home.fnal.gov/~garzogli/LSST/LSST-on-OSG-Phase-2-v1.1.html][outline of the project execution plan]], with timeline and associated resources.
+---+++ Results from 61 job groups
 
+The infrastructure has been initially tested submitting 61 job group, corresponding to 61 simulated images. Each job group consists of 189 individual jobs, each simulating a CCD chip. Considering the upper limit of an individual job using 4 CPU hours (an over-estimate), 60 job groups made of 189 individual jobs is the computation available with 2000 nodes used 100% efficiently for 24 hours i.e. ~ 50,000 CPU hours.
 
--- Main.GabrieleGarzoglio - 01 Jul 2010
+   * 61jobs_on_2010-07-13.png: <br />
+     <img src="%ATTACHURLPATH%/61jobs_on_2010-07-13.png" alt="61jobs_on_2010-07-13.png" width='507' height='310' />    
+
+   * 61jobs_CPUhours_on_2010-07-13.png: <br />
+     <img src="%ATTACHURLPATH%/61jobs_CPUhours_on_2010-07-13.png" alt="61jobs_CPUhours_on_2010-07-13.png" width='1161' height='734' />    
 
 %META:FILEATTACHMENT{name="LSST-Architecture.jpg" attachment="LSST-Architecture.jpg" attr="h" comment="Simple Architecture" date="1277921754" path="LSST-Architecture.jpg" size="110770" stream="LSST-Architecture.jpg" tmpFilename="/usr/tmp/CGItemp18593" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="LSST-Architecture-Jul22-10.jpg" attachment="LSST-Architecture-Jul22-10.jpg" attr="" comment="" date="1279831240" path="LSST-Architecture-Jul22-10.jpg" size="77671" stream="LSST-Architecture-Jul22-10.jpg" tmpFilename="/usr/tmp/CGItemp18740" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="LSST-DAG-Jul22-10.jpg" attachment="LSST-DAG-Jul22-10.jpg" attr="" comment="" date="1279832593" path="LSST-DAG-Jul22-10.jpg" size="28669" stream="LSST-DAG-Jul22-10.jpg" tmpFilename="/usr/tmp/CGItemp18744" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="61jobs_on_2010-07-13.png" attachment="61jobs_on_2010-07-13.png" attr="" comment="" date="1279835838" path="61jobs on 2010-07-13.png" size="41321" stream="61jobs on 2010-07-13.png" tmpFilename="/usr/tmp/CGItemp18664" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="61jobs_CPUhours_on_2010-07-13.png" attachment="61jobs_CPUhours_on_2010-07-13.png" attr="" comment="" date="1279835864" path="61jobs CPUhours on 2010-07-13.png" size="97518" stream="61jobs CPUhours on 2010-07-13.png" tmpFilename="/usr/tmp/CGItemp18830" user="GabrieleGarzoglio" version="1"}%
