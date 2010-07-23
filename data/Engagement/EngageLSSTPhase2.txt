@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="GabrieleGarzoglio" date="1279837719" format="1.1" reprev="1.8" version="1.8"}%
+%META:TOPICINFO{author="GabrieleGarzoglio" date="1279918746" format="1.1" reprev="1.9" version="1.9"}%
 %META:TOPICPARENT{name="EngageLSST"}%
 %TOC%
 
@@ -32,7 +32,7 @@ The common OSG platforms considered are all combinations of {Scientific Linux sl
 
    * Simulation job duration on common OSG platforms = 2 - 4 hours / job (average over 189 jobs = 140 minutes)
    * Simulation job application = unix binaries
-   * Simulation job Memory requirement = 1 GB ?? (some jobs failed w/ out-of-memory)
+   * Simulation job Memory requirement = 1 GB (some jobs failed w/ out-of-memory)
    * Merging job duration = Estimate 15 minutes (uncompress 10 MB of input * 189 + concatenate the images) ??
    * Merging job application = MatLab (is there a unix binary for this?)
    * Memory requirement = 1 GB ??
@@ -156,16 +156,74 @@ For LSST, we recommend 1 machine with Frontend + User Pool Collector + User Sche
 
 ---+++ Results from 61 job groups
 
-The infrastructure has been initially tested submitting 61 job group, corresponding to 61 simulated images. Each job group consists of 189 individual jobs, each simulating a CCD chip. Considering the upper limit of an individual job using 4 CPU hours (an over-estimate), 60 job groups made of 189 individual jobs is the computation available with 2000 nodes used 100% efficiently for 24 hours i.e. ~ 50,000 CPU hours.
+The infrastructure has been initially tested submitting 61 job group, corresponding to 61 simulated images. Each job group consists of 189 individual jobs, each simulating a CCD chip. Considering 4 CPU hours as the CPU usage of an individual job (an over-estimate), 60 job groups (made of 189 individual jobs) can be processed in 24 hours with 2000 nodes used 100% efficiently i.e. ~ 50,000 CPU hours. For these and the following tests, the input files from the simulation of the image in Phase 1 was replicated 61 times in as many directories. 
 
-   * 61jobs_on_2010-07-13.png: <br />
-     <img src="%ATTACHURLPATH%/61jobs_on_2010-07-13.png" alt="61jobs_on_2010-07-13.png" width='507' height='310' />    
+The LSST jobs were run on Jul 13 using the Glidein WMS frontend at the Holland Computing Center (HCC) in Nebrasca. 
 
-   * 61jobs_CPUhours_on_2010-07-13.png: <br />
-     <img src="%ATTACHURLPATH%/61jobs_CPUhours_on_2010-07-13.png" alt="61jobs_CPUhours_on_2010-07-13.png" width='1161' height='734' />    
+The following plot shows various quantities related to the HCC Glidein frontend vs. time. The number of idle jobs (violet line) spikes up as the 61 jobs are submitted one after the other, then slowly decreases as the jobs move to running state. The number of running jobs (green area) increases with time as more pilot jobs are dynamically submitted by the OSG factory to the OSG resources to fulfill the computational needs of the frontend; the baseline of 1000 jobs is made of Einstein@home / boinc jobs running at Nebraska and pre-empted when the LSST jobs are submitted. The bulk of the jobs were completed in 10 hours.
+
+    <img src="%ATTACHURLPATH%/61jobs_on_2010-07-13.png" alt="61jobs_on_2010-07-13.png" height='400' />    
+
+The total amount of computation used in those two days was about 30,000 CPU hours, as shown in the plot belo. Note that a small fraction of this is due to Einstein@home:
+
+     <img src="%ATTACHURLPATH%/61jobs_CPUhours_on_2010-07-13.png" alt="61jobs_CPUhours_on_2010-07-13.png" height='500' />    
+
+For the job groups that successfully completed at the first submission, the following were typical statistics from the condor system for a representative job group. The distribution considers the values associated with the individual jobs (chips simulations) in the group (overall image simulation). 
+
+The following histogram shows the distribution of the number of automatic resubmissions per job. Automatic resubmissions are typically due to failures of the infrastructure at the worker nodes (e.g. condor deamon started by the pilot has crashed, failures in the authorization mapping due to problems with gLExec, etc.). Most jobs completed with only 1 submission, some with 2, a few more with 3. A job was resubmitted automatyically 19 times (the maximum number of resubmission that I have seen is 45 times). A resubmission value of 0 indicates that condor did not save the number of resubmissions.
+
+     <img src="%ATTACHURLPATH%/NumJobMatches.png" alt="NumJobMatches.png" width='480' height='480' />    
+
+The following histogram shows the distribution of the duration of the jobs, counting time from the first time they started running (i.e. resubmitted jobs have longer times) . Most jobs finish within a couple of hours, some take up to 6 hours.
+
+     <img src="%ATTACHURLPATH%/JobDuration.png" alt="JobDuration.png" width='480' height='480' />    
+
+The histogram below, instead, shows the distribution of the duration of the successful jobs, counting time from the last time they started running (i.e. of the resubmitted jobs, only the last successful job time is considered). The two histograms are very similar due to the small percentage of resubmitted jobs:
+
+     <img src="%ATTACHURLPATH%/SuccessfulJobDuration.png" alt="SuccessfulJobDuration.png" width='480' height='480' />    
+
+The following histogram shows the distribution of the amount of computation for the job group. It is centered around 2 CPU hours, with some input files requiring more processing:
+
+     <img src="%ATTACHURLPATH%/CPUUsageHoursHist.png" alt="CPUUsageHoursHist.png" width='480' height='480' />    
+
+The histogram below shows a distribution of the condor "goodput". This measurement is the percentage of allocated time used towards successful computation. In general, an application is prevented from using the allocated time when it is waiting for IO or when it must restart due to a failure. LSST jobs tend to have very good goodput (~100%) when there is no failure, because IO takes a negligible part of the job. In real-life conditions with a typical amount of failures, goodputs above 95% seem very common.
+
+     <img src="%ATTACHURLPATH%/Goodput.png" alt="Goodput.png" width='480' height='480' />    
+
+At the end of the run, we found and addressed the following problems:
+
+   1. 5344 jobs had failed and were automatically resubmitted, because of a configuration problem at the CMS MIT site (lsst application could not be found on the file system). Of these, 335 had failed more than 5 times and had to be manually resubmitted, using the automatically generated rescue dag. These 355 jobs were distributed across 47 job groups, thus alsmost 80% of the images could not be completed without this resubmission. The failures were tracked to a change in the mounting point of the OSG_APP area from the time that the LSST software was installed (the application hardcodes paths). A reconfiguration of the installation addressed the problem. The lesson learned is that configuration problems at one site may cause 80% of the jobs to be incomplete. As a result, we discussed mechanisms to penalize automatically sites that fail with user-level errors. A ticket was then opened with the Condor team.
+   2. Another problem was due to 29 input files missing from one input directory. 29 /189 jobs would not be submitted by condor. Error logs were very clear and pointed immediately to the cause of the problem. 
+
+---+++ Results from 183 job groups
+
+On Jul 22, 2010, the infrastructure was tested submitting 3 times 61 job groups in 24 hours. Submissions were done at 10 am, 5 pm, and 11 pm. After 6-7 hours of a submission, about 80% of the jobs were completed and 61 new job groups were submitted. All 34587 jobs finished without the need of human intervention. The bulk of the jobs were completed within 21 hours; the last job (belonging to the batch submitted at 11 pm) completed after 29 hours of the initial submission. This test produced the equivalent of 18% of the 1000 images targeted for phase 2 in one day. 
+
+The plot below shows the status of the HCC / Nebraska Glidein WMS frontend during these 24 hours. The violet line, representing idle jobs, spikes up for the three submission times and decreses each time as jobs start running on the grid. The green area, representing running jobs, shows that the system can run continuously an average of about 2,500 jobs, with peaks of more than 6,000 jobs at the same time. As for the test above, the baseline of 1000 jobs is made of Einstein@home / boinc jobs running at Nebraska and pre-empted when the LSST jobs are submitted. 
+
+     <img src="%ATTACHURLPATH%/183_Job_run-idle_2010-07-22.png" alt="183_Job_run-idle_2010-07-22.png" width='762' height='459' />    
+
+The plot below shows the location (sites) of the running jobs: USCMS at FNAL is the larger contributor, followed by Omaha, Nebraska, MIT, and UNESP.
+
+     <img src="%ATTACHURLPATH%/183_Job_CPUours_2010-07-22.png" alt="183_Job_CPUours_2010-07-22.png" height='500' />    
+
+As shown by the Gratia plot below, in these 24 hours, LSST could use about 80,000 CPU hours on the Open Science Grid (a small percentage of this was used by Einstein@home).
+
+     <img src="%ATTACHURLPATH%/183_Job_Sites_2010-07-22.png" alt="183_Job_Sites_2010-07-22.png" width='759' height='456' />    
+
+We recommend to try operations with other submission strategies. For example, we could explore the submission of fewer job groups (e.g. 30) more often (e.g. every 3 hours) as a way to provide a more constant "pressure" of idle jobs and a more constant number of available pilots in OSG. 
+
 
 %META:FILEATTACHMENT{name="LSST-Architecture.jpg" attachment="LSST-Architecture.jpg" attr="h" comment="Simple Architecture" date="1277921754" path="LSST-Architecture.jpg" size="110770" stream="LSST-Architecture.jpg" tmpFilename="/usr/tmp/CGItemp18593" user="GabrieleGarzoglio" version="1"}%
 %META:FILEATTACHMENT{name="LSST-Architecture-Jul22-10.jpg" attachment="LSST-Architecture-Jul22-10.jpg" attr="" comment="" date="1279831240" path="LSST-Architecture-Jul22-10.jpg" size="77671" stream="LSST-Architecture-Jul22-10.jpg" tmpFilename="/usr/tmp/CGItemp18740" user="GabrieleGarzoglio" version="1"}%
 %META:FILEATTACHMENT{name="LSST-DAG-Jul22-10.jpg" attachment="LSST-DAG-Jul22-10.jpg" attr="" comment="" date="1279832593" path="LSST-DAG-Jul22-10.jpg" size="28669" stream="LSST-DAG-Jul22-10.jpg" tmpFilename="/usr/tmp/CGItemp18744" user="GabrieleGarzoglio" version="1"}%
 %META:FILEATTACHMENT{name="61jobs_on_2010-07-13.png" attachment="61jobs_on_2010-07-13.png" attr="" comment="" date="1279835838" path="61jobs on 2010-07-13.png" size="41321" stream="61jobs on 2010-07-13.png" tmpFilename="/usr/tmp/CGItemp18664" user="GabrieleGarzoglio" version="1"}%
 %META:FILEATTACHMENT{name="61jobs_CPUhours_on_2010-07-13.png" attachment="61jobs_CPUhours_on_2010-07-13.png" attr="" comment="" date="1279835864" path="61jobs CPUhours on 2010-07-13.png" size="97518" stream="61jobs CPUhours on 2010-07-13.png" tmpFilename="/usr/tmp/CGItemp18830" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="CPUUsageHoursHist.png" attachment="CPUUsageHoursHist.png" attr="" comment="" date="1279913035" path="CPUUsageHoursHist.png" size="5480" stream="CPUUsageHoursHist.png" tmpFilename="/usr/tmp/CGItemp18707" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="Goodput.png" attachment="Goodput.png" attr="" comment="" date="1279913048" path="Goodput.png" size="17463" stream="Goodput.png" tmpFilename="/usr/tmp/CGItemp18696" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="JobDuration.png" attachment="JobDuration.png" attr="" comment="" date="1279913068" path="JobDuration.png" size="5884" stream="JobDuration.png" tmpFilename="/usr/tmp/CGItemp18788" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="SuccessfulJobDuration.png" attachment="SuccessfulJobDuration.png" attr="" comment="" date="1279913080" path="SuccessfulJobDuration.png" size="5867" stream="SuccessfulJobDuration.png" tmpFilename="/usr/tmp/CGItemp18659" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="NumJobMatches.png" attachment="NumJobMatches.png" attr="" comment="" date="1279913106" path="NumJobMatches.png" size="5692" stream="NumJobMatches.png" tmpFilename="/usr/tmp/CGItemp18605" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="183_Job_CPUours_2010-07-22.png" attachment="183_Job_CPUours_2010-07-22.png" attr="" comment="" date="1279915334" path="183 Job CPUours 2010-07-22.png" size="137518" stream="183 Job CPUours 2010-07-22.png" tmpFilename="/usr/tmp/CGItemp18738" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="183_Job_run-idle_2010-07-22.png" attachment="183_Job_run-idle_2010-07-22.png" attr="" comment="" date="1279915350" path="183 Job run-idle 2010-07-22.png" size="155201" stream="183 Job run-idle 2010-07-22.png" tmpFilename="/usr/tmp/CGItemp18776" user="GabrieleGarzoglio" version="1"}%
+%META:FILEATTACHMENT{name="183_Job_Sites_2010-07-22.png" attachment="183_Job_Sites_2010-07-22.png" attr="" comment="" date="1279915366" path="183 Job Sites 2010-07-22.png" size="128100" stream="183 Job Sites 2010-07-22.png" tmpFilename="/usr/tmp/CGItemp18786" user="GabrieleGarzoglio" version="1"}%
