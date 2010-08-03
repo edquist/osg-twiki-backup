@@ -1,11 +1,11 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1280851100" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1280875155" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="SiteAdminsWorkshopTutorialsAug10"}%
----+!! *<nop>%SPACEOUT{%TOPIC%}%*
+---+!! *<nop>BeStMan-gateway Hands-on Guide*
 %DOC_STATUS_TABLE%
 %TOC{depth="2"}%
 
 ---++ Introduction
-This tutorial will cover step by step !BeStman installation and gateway mode configuration. We will also provide tips some tips on  how to increase scalability and reliability of your !BeStMan installation for heavy load. We will explain how to enable and configure gratia !gridFTP transfer probe in case you would like to report transfer data to Gratia (the OSG accounting service).
+This tutorial covers step by step !BeStman installation and gateway mode configuration. We will also provide tips some tips on  how to increase scalability and reliability of your !BeStMan installation for heavy load. We will explain how to enable and configure gratia !gridFTP transfer probe in case you would like to report transfer data to Gratia (the OSG accounting service).
 
 ---+++!! Applicable Versions
 The applicable software versions for this document are 
@@ -20,54 +20,152 @@ The applicable software versions for this document are
 
 ---+++!!Engineering Considerations
 The [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/BestmanGateway][BeStMan Installation Guide]] provides detailed instructions and various configuration options. Please refer to this guide for more information.
-It is recommended to install !BeStMan on its own server though in principal it could be installed on CE node and configured to use !GridFTP server already installed with CE.  
-You can choose to run multiple GridFTP servers to achieve load balance and better performance if you are installing !BeStMan not on the local disk but on NFS or some other DFS. If you really expecting a heavy load on your SE you should acquire additional nodes for your !GRidFTP servers 
+It is recommended to install !BeStMan on its own server though, in principal, it could be installed on CE node and configured to use !GridFTP server  that have been already installed with CE.  
+
+You can choose to run multiple GridFTP servers to achieve load balance and better performance if you are installing !BeStMan not on the local disk but on NFS or some other DFS. If you really expecting a heavy load on your SE you should acquire additional nodes for your !GRidFTP servers and have a node for !BeStMan server.
 
 ---+++!!Help!
-If a problem occurs during installation or verification of the service, see [[#DebugInfo][Debugging Information]].
-%BR%
-If you cannot resolve the problem, the best way to get help is by following this ReleaseDocumentation.HelpProcedure.
+If you cannot resolve the problem, the best way to get help is by following this [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/BestmanGateway#Debugging_Information][debugging information]].
 
 ---++ Checklist
-An in-line numbered list of items assumed to have been already performed
-E.g.:
-   1. Installs that must be done before this one
-   1. Security environment in place
-   1. batch system in place
-   1. stop existing service
-   1. ports required
+   1. you have at least one node you can login as root
+   1. [[ReleaseDocumentation/PacmanInstall][pacman]] version >= %PACMAN_VERSION% is required
+   1. The server must have a fully qualified domain name and a valid [[ReleaseDocumentation/GetGridCertificates][grid host certificate]] installed in =/etc/grid-security/=
+   1. !BeStMan server needs to have a valid service certificate. The certificate should be own by a user login that is running !BeStMan server.The right permission (600) should be set on those files. By default !BeStMan is using a service certificate =/etc/grid-security/http/httpcert.pem= and certificate key =/etc/grid-security/http/httpkey.pem=. 
+%ICON{warning}%  !BeStMan should be configured with host certificate in order to be able to handle requests from !LCG-Utils tools. This is mandatory for at least all !BeStMan servers that support ATLAS experiment. Normally the OSG !BeStMan implementation uses a service certificate, not a host certificate. This causes lcg-cp to fail because the certificate name (which looks like http/hostname instead of just hostname or host/hostname) doesn't match the hostname. 
+   1. The firewall must allow incoming connection for two !BeStMan ports (defaults: 1080, 10443)
+   1. The firewall must allow incoming connections to the !GridFTP port (default 2811). Outgoing connections must be allowed from high ports ( typically in range 32769-65535 ). We recommend to consult the [[ReleaseDocumentation/ComputeElementFirewalls][Firewall Guide]] if you install the !GridFTP server for the first time.
+   1. A working GUMS server or a grid-mapfile is needed for authentication and authorization using grid certificates.
 
----++ First Time Install
-A link to document containing information and install steps that only need to be performed if this a first time install.
 
 ---++ Installation Procedure
-The description of the steps of this Install procedure (including the commands and options required) that will have to be performed each time this is installed.
 
-Each step that requires commands should show the commands in a green box using 
-<verbatim><pre class="screen">
-command parameters
-</pre></verbatim> tag which will look like this.
+Login on the node dedicated for !BeStMan as user ==root==. 
+
+If you have pacman installed on that node skip to the next step, otherwise:
 <pre class="screen">
-command parameters
+<verbatim>
+cd /opt
+wget http://physics.bu.edu/pacman/sample_cache/tarballs/pacman-latest.tar.gz
+tar xvfz pacman-latest.tar.gz 
+cd pacman-3.29
+. setup.sh
+</verbatim>
 </pre>
-%BR%
-%NOTE% Standard variables (such as $VDT_LOCATION) should be used where they exist
-%NOTE% The terminal interaction must be verbatim with no extra characters so that a user can copy and paste the command lines.
 
-This procedure covers the success legs only 
-
----++ Service Configuration/Startup/Shutdown
-Description of the steps (including the commands/options) to startup and shutdown the service.
-This often requires, the reader to edit lines in a config file.
-If this is necessary, put the lines in a screen box with a yellow background 
-(to distinguish from entering commands (green box).
-<pre class="file">
-Config file line a
-Config file line b
+If you have already installed pacman in <PACMAN_LOCATION> directory do:
+<pre class="screen">
+. %BLUE%<PACMAN_LOCATION>%ENDCOLOR%/setup,sh
 </pre>
+
+Create a directory with certificate and key files that belong to !BeStMan owner (default is ==daemon==):
+<pre class="screen">
+<verbatim>
+cd /etc/grid-security
+mkdir bestman_cert
+cp hostcert.pem bestman_cert/bestmancert.pem  
+cp hostkey.pem bestman_cert/bestmankey.pem
+chown -R daemon.daemon bestman_cert
+chmod 644 bestman_cert/bestmancert.pem  
+chmod 600 bestman_cert/bestmankey.pem
+</verbatim>
+</pre>
+
+If you are using GUMS for authorization, setup GUMS host, otherwise proceed to the next step:
+<pre class="screen">
+ export VDT_GUMS_HOST=%BLUE%your_gums_host%ENDCOLOR%
+</pre>
+Install !BeStMan from OSG:
+<pre class="screen">
+<verbatim>
+cd /opt
+mkdir osg-bestman
+cd osg-bestman
+pacman -get http://software.grid.iu.edu/osg-1.2:Bestman
+Do you want to add [http://software.grid.iu.edu/osg-1.2] to [trusted.caches]? (y/n/yall): yall
+</verbatim>
+</pre>
+
+---+++ Post-installation steps
+Perform required post-install actions:
+   1. setup environment <pre class="screen">
+<verbatim>
+cd /opt/osg-bestman
+. setup.sh
+</verbatim>
+</pre>
+   1. run post-install script<pre class="screen">
+<verbatim>
+vdt-post-install 
+Starting...
+Configuring PRIMA... Done.
+Configuring EDG-Make-Gridmap... Done.
+Done.
+</verbatim>
+</pre>
+   1. install CAs<pre class="screen">
+<verbatim>
+$VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local  --url osg
+ </verbatim>
+</pre>
+Skip these steps If you are installing !BeStMan on the CE node and have already configured !GridFTP server.
+   1. if you are using GUMS you will need to do the following actions:<pre class="screen">
+<verbatim>
+cp post-install/gsi-authz.conf  /etc/grid-security/gsi-authz.conf
+cp post-install/prima-authz.conf  /etc/grid-security/
+</verbatim>
+</pre>
+   1.  To configure the port range used by the server to transfer files, 
+      * add the following lines to $VDT_LOCATION/vdt/etc/vdt-local-setup.sh:<pre class="file">
+<verbatim>
+# This file is sourced by setup.sh.  Use it for any custom setup for this site.
+# This file will be preserved across VDT installations if OLD_VDT_LOCATION is set.
+export GLOBUS_TCP_SOURCE_RANGE=40000,49150
+export GLOBUS_TCP_PORT_RANGE=40000,49150
+</verbatim>
+</pre>
+      * add the following lines to $VDT_LOCATION/vdt/etc/vdt-local-setup.csh:<pre class="file">
+<verbatim>
+# This file is sourced by setup.sh.  Use it for any custom setup for this site.
+# This file will be preserved across VDT installations if OLD_VDT_LOCATION is set.
+setenv GLOBUS_TCP_SOURCE_RANGE=40000,49150
+setenv GLOBUS_TCP_PORT_RANGE=40000,49150
+</verbatim>
+</pre>
+
+---++ Service Configuration 
+---+++ Configure !BeStMan
+Change directory to !BeStMan installation and setup environment:
+<pre class="screen">
+<verbatim>
+#setup
+</verbatim>
+</pre>
+
+If you are using GUMS configure !BeStMan this way:
+<pre class="screen">
+<verbatim>
+#configure BeStMan-gateway with GUMS
+</verbatim>
+</pre>
+
+
+If you are using gridmapfile configure !BeStMan this way:
+<pre class="screen">
+<verbatim>
+#configure BeStMan-gateway with grid-map file
+</verbatim>
+</pre>
+
+
+---+++ Optional Configuration of  gratia !GridFTP probe
+
+---++ Enabling Services
+
+---++ Service Startup/Shutdown
 
 ---++ Validation of Service Operation
-Commands to be used to verify the service is working correctly.  This can be combined with the previous section if they are both short.
+
 
 #DebugInfo
 ---++ Debugging Information
@@ -105,11 +203,11 @@ complete screen dump of the install procedure
  ===================
 
  Thank you for claiming ownership for this document! Please fill in your FirstLast name here:
-   * Local OWNER = JamesWeichel
+   * Local OWNER = TanyaLevshina
 
  Please define the document area, choose one of the defined areas from the next line
  DOC_AREA = (ComputeElement|Storage|VO|Security|User|Monitoring|General|Integration|Operations|Tier3)
-   * Local DOC_AREA       = General
+   * Local DOC_AREA       = Storage
 
  define the primary role the document serves, choose one of the defined roles from the next line
  DOC_ROLE = (EndUser|Student|Developer|SysAdmin|VOManager)
@@ -125,20 +223,20 @@ complete screen dump of the install procedure
    * Local INCLUDE_TEST   = %YES%
 
  change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
-   * Local REVIEW_READY   = %YES%
+   * Local REVIEW_READY   = %NO%
 
  change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
-   * Local TEST_READY     = %YES%
+   * Local TEST_READY     = %NO%
 
  change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
-   * Local RELEASE_READY  = %YES%
+   * Local RELEASE_READY  = %NO%
 
 
  DEAR DOCUMENT REVIEWER
  ======================
 
  Thank for reviewing this document! Please fill in your FirstLast name here:
-   * Local REVIEWER       = RobertEngel
+   * Local REVIEWER       = MarcoMambelli
  Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local REVIEW_PASSED  = %YES%
 
@@ -147,7 +245,7 @@ complete screen dump of the install procedure
  ====================
 
  Thank for testing this document! Please fill in your FirstLast name here:
-   * Local TESTER         = IwonaSakrejda
+   * Local TESTER         = RobSnihur
  Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local TEST_PASSED    = %YES%
 ############################################################################################################
