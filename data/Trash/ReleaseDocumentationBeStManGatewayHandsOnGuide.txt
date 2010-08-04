@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1280950774" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1280962977" format="1.1" reprev="1.5" version="1.5"}%
 %META:TOPICPARENT{name="SiteAdminsWorkshopTutorialsAug10"}%
 ---+!! *<nop>BeStMan-gateway Hands-on Guide*
 %DOC_STATUS_TABLE%
@@ -35,10 +35,11 @@ If you cannot resolve the problem, the best way to get help is by following this
    1. The firewall must allow incoming connections for two !BeStMan ports (defaults: 1080, 10443)
    1. The firewall must allow incoming connections to the !GridFTP port (default 2811). Outgoing connections must be allowed from high ports ( typically in range 32769-65535 ). We recommend to consult the [[ReleaseDocumentation/ComputeElementFirewalls][Firewall Guide]] if you install the !GridFTP server for the first time.
    1. A working GUMS server or a grid-mapfile is needed for authentication and authorization using grid certificates.
-
+   1. A disk area that you want to export with !BeStMan ==/cache== in this document. This directory should have adequate permissions so users have read/write/execute access. 
+   1.  You will have to have all unix user names mapped in GUMS or grid-mapfile to be listed in /etc/passwd. These user do not need an account.
 
 ---++ Installation Procedure
-This installation procedure assumes that you have functional GUMS server and are installing !BeStMan on dedicated node.
+This installation procedure assumes that you have functional GUMS server and are installing !BeStMan on dedicated node. It also assumes that you don't have firewall on that node. 
 
 Login on the node dedicated for !BeStMan as user ==root==. 
 
@@ -55,7 +56,7 @@ cd pacman-3.29
 
 If you have already installed pacman in <PACMAN_LOCATION> directory do:
 <pre class="screen">
-. %BLUE%<PACMAN_LOCATION>%ENDCOLOR%/setup,sh
+. %BLUE%&lt;PACMAN_LOCATION&gt;%ENDCOLOR%/setup.sh
 </pre>
 
 Create a directory with certificate and key files that belong to !BeStMan owner (default is ==daemon==):
@@ -119,9 +120,15 @@ cp post-install/prima-authz.conf  /etc/grid-security/prima-authz.conf
 
 ---++ Service Configuration 
 ---+++ Configure !BeStMan
+Create a storage area that will be used by !BeStMan to store files:<pre class="screen">
+<verbatim>
+mkdir /cache
+chmod 777 /cache
+chown daemon.daemon /cache
+</verbatim>
+</pre>
 
-Configure !BeStMan with these options:
-<pre class="screen">
+Configure !BeStMan with these options:<pre class="screen">
 <verbatim>
 $VDT_LOCATION/vdt/setup/configure_bestman --server y --user daemon \
 --cert /etc/grid-security/bestman_cert/bestmancert.pem \
@@ -132,14 +139,95 @@ $VDT_LOCATION/vdt/setup/configure_bestman --server y --user daemon \
 --enable-gateway
 </verbatim>
 </pre>
+---++++Sudoers File Modification
+Please, make the appropriate modification to ==/etc/sudoers== described in the !BeStMan documentation, namely add the following lines to this file : 
+<pre class="file">
+<verbatim>
+# Comment out this line, if it is in your ==/etc/sudoers== file (RHEL5+)
+#Defaults    requiretty
+
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls 
+Runas_Alias SRM_USR = ALL, !root 
+daemon ALL=(SRM_USR) NOPASSWD: SRM_CMD 
+</verbatim>
+</pre>
+
+---+++ Configure Gratia !GridFTP Transfer Probe
+Configure transfer probe, replace ==your_site_name== with actual name of your sites:
+<pre class="screen">
+<vebratim>
+ $VDT_LOCATION/vdt/setup/configure_gratia --probe gridftp-transfer \
+--report-to gratia-osg-itb.opensciencegrid.org:8881 --probe-cron \
+--site-name your_site_name
+</verbatim>
+</pre>
+Run ==gums-host-cron== command to generate VO-user mapping file:
+<pre class="screen">
+<vebratim>
+$VDT_LOCATION/gums/scripts/gums-host-cron
+</verbatim>
+</pre>
 
 ---++ Enabling Services
+Check what services are need to be enabled:
+<pre class="screen">
+<vebratim>
+vdt-control -list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+fetch-crl               | cron   | do not enable
+vdt-rotate-logs         | cron   | do not enable
+vdt-update-certs        | cron   | do not enable
+gsiftp                  | inetd  | do not enable
+gratia-gridftp-transfer | cron   | enable
+gums-host-cron          | cron   | do not enable
+edg-mkgridmap           | cron   | do not enable
+bestman                 | init   | enable
+</verbatim>
+</pre>
+
 Enable the following services:
+<pre class="screen">
+<vebratim>
+ vdt-control -enable gsiftp vdt-update-certs vdt-rotate-logs fetch-crl gums-host-cron
+</verbatim>
+</pre>
 
 ---++ Service Startup/Shutdown
+Start all the services:<pre class="screen">
+<vebratim>
+ vdt-control -on
+enabling cron service fetch-crl... ok
+enabling cron service vdt-rotate-logs... ok
+enabling cron service vdt-update-certs... ok
+enabling inetd service gsiftp... ok
+enabling cron service gratia-gridftp-transfer... ok
+enabling cron service gums-host-cron... ok
+skipping cron service 'edg-mkgridmap' -- marked as disabled
+enabling init service bestman... ok
+</verbatim>
+</pre>
+Stop all the services: <pre class="screen">
+<vebratim>
+vdt-control -off
+disabling init service bestman... ok
+disabling cron service edg-mkgridmap... ok
+disabling cron service gums-host-cron... ok
+disabling cron service gratia-gridftp-transfer... ok
+disabling inetd service gsiftp... ok
+disabling cron service vdt-update-certs... ok
+disabling cron service vdt-rotate-logs... ok
+disabling cron service fetch-crl... ok
+</verbatim>
+</pre>
+
+Stop/start a specific service:<pre class="screen">
+vdt-control -off %BLUE%&lt;service_name&gt;%ENDCOLOR%
+vdt-control -on %BLUE%&lt;service_name&gt;%ENDCOLOR%
+</pre>
 
 ---++ Validation of Service Operation
-
+In order to verify that the service is working
 
 #DebugInfo
 ---++ Debugging Information
