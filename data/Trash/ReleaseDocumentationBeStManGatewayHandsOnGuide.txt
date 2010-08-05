@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1281017488" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1281022590" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="SiteAdminsWorkshopTutorialsAug10"}%
 ---+!! *<nop>BeStMan-gateway Hands-on Guide*
 %DOC_STATUS_TABLE%
@@ -344,9 +344,7 @@ Delete file:
 <pre class="screen">
 lcg-del -b -l -D srmv2  srm://fg0x1.fnal.gov:10443/srm/v2/server\?SFN=/cache/${USER}/test_dir/test
 </pre>
----++ References
-
----++ Screen Dump for !BeStMan with grid-mapfile authorization
+---++ Screen Dump for !BeStMan Installation with grid-mapfile authorization
 This installation procedure shows how to install and configure !BeStMan-gateway with grid-mapfile. First, you will need to do all the steps described in [[#PreInstall][Pre-Installation  section]]. Then proceed with !BeStMan installation and configuration:
 <pre class="screen">
 <verbatim>
@@ -357,7 +355,16 @@ Do you want to add [http://software.grid.iu.edu/osg-1.2] to [trusted.caches]? (y
 </verbatim>
 %TWISTY%
 <verbatim>
-. setup.sh                                             
+. setup.sh        
+
+vi /etc/sudoers                                     
+# Comment out this line, if it is in your ==/etc/sudoers== file (RHEL5+)
+#Defaults    requiretty
+
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls 
+Runas_Alias SRM_USR = ALL, !root 
+daemon ALL=(SRM_USR) NOPASSWD: SRM_CMD 
+
 
 vdt-post-install 
 Starting...
@@ -393,11 +400,89 @@ enabling init service bestman... ok
 </verbatim>
 %ENDTWISTY%
 </pre>
-After you have installed, configured and started !BeStMan-gateway with grid-mapfile  you may proceed to the [[#ServiceValidation][Service Validation section]]
+After you have installed, configured and started !BeStMan-gateway with grid-mapfile  you may proceed to the [[#ServiceValidation][Service Validation section]].
 
----++ Screen Dump for !BeStMan on CE installation
+---++ Screen Dump for !BeStMan Installation on Compute Element node
+This installation procedure shows how to install and configure !BeStMan-gateway with GUMS authorization on the same node where CE is installed. First, you will need to do all the steps described in [[#PreInstall][Pre-Installation  section]]. Then proceed with !BeStMan installation and configuration: <pre class="screen">
+mkdir  /opt/osg-bestman/
+%TWISTY%
+<verbatim>
+export VDT_GUMS_HOST=<your_GUMS_host>
+cd /opt/osg-bestman/
+pacman -get http://software.grid.iu.edu/osg-1.2:Bestman
+Do you want to add [http://software.grid.iu.edu/osg-1.2] to [trusted.caches]? (y/n/yall): yall
 
+. setup.sh                                         
 
+vdt-post-install
+Starting...
+Configuring PRIMA... Done.
+Configuring EDG-Make-Gridmap... Done.
+Done.
+
+$VDT_LOCATION/vdt/bin/vdt-ca-manage setupca --location local  --url osg
+Setting CA Certificates for VDT installation at '/opt/osg-bestman'
+
+Setup completed successfully.
+ $VDT_LOCATION/vdt/setup/configure_bestman --server y --user daemon --cert /etc/grid-security/bestman_cert/bestmancert.pem --key /etc/grid-security/bestman_cert/bestmankey.pem --with-allowed-paths /cache --gums-host cms-xen4.fnal.gov --gums-port 8443  --enable-gateway
+
+vi /etc/sudoers
+# Comment out this line, if it is in your ==/etc/sudoers== file (RHEL5+)
+#Defaults    requiretty
+
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls 
+Runas_Alias SRM_USR = ALL, !root 
+daemon ALL=(SRM_USR) NOPASSWD: SRM_CMD 
+
+$VDT_LOCATION/vdt/setup/configure_gratia --probe gridftp-transfer \
+ --report-to gratia-osg-itb.opensciencegrid.org:8881 --probe-cron \
+  --site-name <YOUR_SITE_NAME>
+
+cd gratia/probe/gridftp-transfer/
+
+# You will need to edit ProbeConfig file to specify location of osg-user mapfile and gridftp logs. You will need to know the path to your CE installation (replace <CE_VDT_LOCATION> with actual path)
+vi ProbeConfig
+...
+UserVOMapFile="<CE_VDT_LOCATION>/osg/etc/osg-user-vo-map.txt"
+GridftpLogDir="<CE_VDT_LOCATION>/globus/var/log"
+
+vdt-control --list
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+fetch-crl               | cron   | do not enable
+vdt-rotate-logs         | cron   | do not enable
+vdt-update-certs        | cron   | do not enable
+gsiftp                  | inetd  | do not enable
+gratia-gridftp-transfer | cron   | enable
+gums-host-cron          | cron   | do not enable
+edg-mkgridmap           | cron   | do not enable
+bestman                 | init   | enable
+
+vdt-control -enable fetch-crl  vdt-rotate-logs vdt-update-certs 
+running 'vdt-register-service --name fetch-crl --enable'... ok
+running 'vdt-register-service --name vdt-rotate-logs --enable'... ok
+running 'vdt-register-service --name vdt-update-certs --enable'... ok
+
+vdt-control -on
+enabling cron service fetch-crl... ok
+enabling cron service vdt-rotate-logs... ok
+enabling cron service vdt-update-certs... ok
+skipping inetd service 'gsiftp' -- marked as disabled
+enabling cron service gratia-gridftp-transfer... ok
+skipping cron service 'gums-host-cron' -- marked as disabled
+skipping cron service 'edg-mkgridmap' -- marked as disabled
+enabling init service bestman... ok
+</verbatim>
+%ENDTWISTY%
+</pre>
+After you have installed, configured and started !BeStMan-gateway with grid-mapfile  you may proceed to the [[#ServiceValidation][Service Validation section]].
+---++ References
+   * [[ReleaseDocumentation.BestmanGateway][OSG BeStMan Gateway Installation Guide]]
+   * [[ReleaseDocumentation.BestmanOnCE][OSG BeStMan Gateway Installation Guide]]
+   * [[ReleaseDocumentation.GratiaTransferProbe][OSG Gratia Transfer Probe page]]
+   * [[http://sdm.lbl.gov/bestman][BeStMan Home Page at LBNL]] - [[http://sdm.lbl.gov/bestman/docs/bestman-guide.html][BeStMan User guides]], [[http://sdm.lbl.gov/bestman/docs/bestman-faq.html][BeStMan FAQ]] and latest downloadable tar files available here. Latest downloadables should be the same version as in VDT.
+   * [[Storage.SRMv2Client][SRM v2.2 LBNL client command line examples]]
+   * [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/Storage][Data Storage and Management in the OSG]] - An overview of storage technologies used in the Open Science Grid. 
 
 
 <!-- CONTENT MANAGEMENT PROJECT
