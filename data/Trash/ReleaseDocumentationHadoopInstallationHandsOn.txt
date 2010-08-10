@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MichaelThomas" date="1281449588" format="1.1" reprev="1.5" version="1.5"}%
+%META:TOPICINFO{author="MichaelThomas" date="1281473438" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -33,8 +33,10 @@ Configure Hadoop on the Namenode by editting =/etc/sysconfig/hadoop=.  Configure
 
 <pre class="screen">
 HADOOP_NAMENODE
+HADOOP_REPLICATION_DEFAULT
 HADOOP_SECONDARY_NAMENODE
 HADOOP_CHECKPOINT_DIRS
+HADOOP_CHECKPOINT_INTERVAL
 HADOOP_DATADIR
 HADOOP_DATA
 </pre>
@@ -50,13 +52,21 @@ service hadoop start
 At this point you should be able to point your web browser at =http://namenode:9000/= and see your namenode status page and a single datanode.  You can also copy files into and out of HDFS using the native hadoop commands, such as:
 
 <pre class="screen">
-hadoop fs -copyFromLocal /etc/hosts /hosts.txt
+hadoop fs -mkdir /osg
+hadoop fs -chown 777 /osg
+hadoop fs -copyFromLocal /etc/hosts /osg/hosts.txt
 </pre>
 
 Verify that the file was copied with:
 
 <pre class="screen">
 hadoop fs -ls /
+</pre>
+
+Before you can use the POSIX fuse mount, you need to install the appropriate package:
+
+<pre class="screen">
+yum install hadoop-fuse
 </pre>
 
 Now you can try mounting the POSIX fuse mount for hadoop by adding the following to =/etc/fstab=
@@ -74,7 +84,7 @@ mount /mnt/hadoop
 
 At this point you should be able to ls, cat, cp, and rm files in =/mnt/hadoop=.  Verify that the file you copied earlier with the native hadoop commands appears in the POSIX fuse mount. 
 
----+++ Install !GridFTP on the !NameNode
+---+++ Install !GridFTP
 
 <pre class="screen">
 rpm -ivh http://vdt.cs.wisc.edu/hadoop/osg-hadoop-1-2.el5.noarch.rpm
@@ -88,15 +98,29 @@ service hadoop-firstboot start
 service xinetd restart
 </pre>
 
-At this point you should be able to use globus-url-copy to copy files into and out of HDFS.
+At this point you should be able to use globus-url-copy to copy files into and out of HDFS.  From a host with the osg client installed, run:
+
+<pre class="screen">
+globus-url-copy file:////etc/hosts gsiftp://your.srm.host:2811/osg/junk.txt
+</pre>
+
+Now use the hadoop commands on any of your hadoop nodes to verify the file:
+
+<pre class="screen">
+hadoop fs -ls /osg
+hadoop fs -cat /osg/junk.txt
+</pre>
 
 ---+++Install !BestMan SRM
 
-Since we are installing Bestman on the same node as GridFTP, we don't have to install the =osg-hadoop= setup package again and can proceed directly with the installation of bestman:
+Since we are installing Bestman on the same node as GridFTP, we don't have to install the =osg-hadoop= setup package again and can proceed directly with the installation of bestman.  Make sure to fix the ownership of your http cert/key pair after bestman is installed:
 
 <pre class="screen">
-yum install bestman
+yum install bestman hadoop-fuse
+chown -R bestman: /etc/grid-security/http
 </pre>
+
+Make sure the POSIX fuse mount is available, following the directions above.
 
 You should now modify your bestman configuration to point to your gridftp server, set the allowed list of paths that bestman can access, and point to your gums server:
 
@@ -121,6 +145,12 @@ service bestman start
 </pre>
 
 At this point you should be able to use srmcp and srm-copy to copy files into and out of Hadoop.
+
+<pre class="screen">
+srmls -2 srm://namenode.host:8443/srm/v2/server?SFN=/mnt/hadoop/osg
+srmcp -2 file:////etc/hosts srm://namenode.host:8443/srm/v2/server?SFN=/mnt/hadoop/osg/junk2.txt
+srm-copy file:////etc/hosts srm://osg-srm.ultralight.org:8443/srm/v2/server?SFN=/mnt/hadoop/osg/junk3.txt
+</pre>
 
 Congratulations!  You now have a working SE using Hadoop/HDFS and !BestMan Gateway.
 
