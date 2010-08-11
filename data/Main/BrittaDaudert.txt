@@ -1,5 +1,6 @@
-%META:TOPICINFO{author="BrittaDaudert" date="1177698573" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="RobertEngel" date="1281551360" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="TWikiUsers"}%
+%TOC%
 
 ---++ My Links
 
@@ -8,8 +9,6 @@
    * %TWIKIWEB%.TWikiUsersGuide - complete TWiki documentation, Quick Start to Reference
    * Sandbox.%HOMETOPIC% - try out TWiki on your own
    * Sandbox.%TOPIC%Sandbox - just for me
-   * 
-   * 
 
 ---++ My Personal Data
 
@@ -39,6 +38,117 @@ Uncomment preferences variables to activate them (remove the #-sign). Help and d
    * %MAINWEB%.%WIKIUSERSTOPIC% has a list of other TWiki users
    * %TWIKIWEB%.UserDocumentationCategory is a list of TWiki user documentation
    * %TWIKIWEB%.UserToolsCategory lists all TWiki user tools
+
+---++ Binary Inspiral Workflow
+
+<!-- some useful variable definitions
+   * Local LINK_LIGO = [[http://www.ligo.caltech.edu/][LIGO]]
+   * Local LINK_LIGO_DG = [[https://www.lsc-group.phys.uwm.edu/lscdatagrid/][LIGO Data Grid]]
+   * Local LINK_RLS = [[http://www.globus.org/toolkit/data/rls/][RLS]]
+   * Local LINK_PEGASUS = [[http://pegasus.isi.edu/][Pegasus]]
+   * Local LINK_MD5SUM = [[http://en.wikipedia.org/wiki/Md5sum][md5sum]]
+-->
+
+---+++ About this Document
+
+This document is written for %LINK_LIGO% users of the %LINK_OSG%. It contains instructions to transfer _gravitational wave files_ from the %LINK_LIGO_DG% to the Open Science Grid. 
+
+---+++ Introduction
+
+Data collected by the Gravitational Wave Observatories is partitioned into files of 16 MByte each. The files are hosted on the %LINK_LIGO_DG% and need to be transferred to the Open Science Grid for analysis. A %LINK_GLOSSARY_SE% provided by the Open Science Grid will be the destination for the transferred files.
+
+The integrity of the transferred data files is assured by comparing the %LINK_MD5SUM% of each file after the transfer completed with _its_ md5sum on the LIGO Data Grid. The new  address of the file is stored into the %LINK_RLS% catalog at Caltech after each successful transfer. The purpose of the RLS catalog is to serve the storage location of gravitational wave files on the Open Science Grid to the %LINK_PEGASUS% work flow once they are required.
+
+---+++ Requirements
+
+Before you proceed make sure to meet following requirements:
+
+   * possession of a [[ReleaseDocumentation/GetGridCertificates][Grid Certificate]] and a valid %LINK_GLOSSARY_VOMS_PROXY% on a _submission host_ of your choice
+   * ability to login via _gsissh_ to the %LINK_LIGO_DG%, such as =ldas-grid.ligo.caltech.edu= from the _submission host_
+   * =svn= to checkout the required software
+   * =python= to run the executables
+
+To check if you are authorized to login to the LIGO Data Grid, execute on your submission host:
+
+<pre class="screen">
+[robert@osg-job ~]$ gsissh -p 22 ldas-grid.ligo.caltech.edu
+Last login: Wed Aug 11 09:13:03 2010 from osg-job.ligo.caltech.edu
+Welcome to LIGO Caltech
+[rengel@ldas-grid ~]$
+</pre>
+
+---+++ Software Installation
+
+The required software is provided by a subversion repository at Caltech. Please follow the steps below to checkout the software on your submission host and the %LINK_LIGO_DG%.
+
+<pre class="screen"">
+[rengel@ldas-grid ~]$ svn co --username=anonymous --password="" svn://osg-vtb.ligo.caltech.edu/home/subversion/repos/BinaryInspiral/trunk BinaryInspiral
+Checked out revision 3550.
+</pre>
+
+%TWISTY{%TWISTY_OPTS_OUTPUT%}%
+<pre class="screen"">
+[rengel@ldas-grid ~]$ svn co --username=anonymous --password="" svn://osg-vtb.ligo.caltech.edu/home/subversion/repos/BinaryInspiral/trunk BinaryInspiral
+A    BinaryInspiral/python-scripts
+A    BinaryInspiral/python-scripts/file-transfer-dax-generator.py
+A    BinaryInspiral/python-scripts/populate-RLS.py
+A    BinaryInspiral/bin
+A    BinaryInspiral/bin/GUC-transfer.sh
+A    BinaryInspiral/bin/MD5SUM-check.sh
+A    BinaryInspiral/etc
+A    BinaryInspiral/etc/pegasus.properties
+A    BinaryInspiral/etc/site-local.xml
+A    BinaryInspiral/etc/site_dir_list
+A    BinaryInspiral/shell-scripts
+Checked out revision 3553.
+</pre>
+%ENDTWISTY%
+
+
+---+++ File Transfer Instructions
+
+This section requires that you completed the [[Main/BrittaDaudert#Software_Installation][software installation]] on the %LINK_LIGO_DG% and your submission host. The transfer process consists of three consecutive parts:
+
+   1 Generation of the input file for the %LINK_PEGASUS% work flow.
+   1 Transfer of the gravitational wave files from the %LINK_LIGO_DG% to the %LINK_OSG%.
+   1 Population of the %LINK_RLS% catalog with the new storage location for the files on the Open Science Grid.
+
+---++++ Input File Generation
+
+The %LINK_PEGASUS% work flow requires several input files:
+
+   * a list of the storage locations for required gravitational wave files on a %LINK_GLOSSARY_GRIDFTP% server
+   * a list of %LINK_MD5SUM%s for each gravitational wave file
+
+First, we will use the =ligo-data-find= command on the %LINK_LIGO_DG% to create a list of storage locations for gravitational wave files. The =ligo-data-find= command requires the name of the _observatory_ where the data was taken and a _range of [[http://en.wikipedia.org/wiki/International_Atomic_Time][GPS times]]_. For example:
+
+<pre class="screen">
+[rengel@ldas-grid data]$ ligo_data_find --server 10.14.20.73:80 --observatory %RED%H%ENDCOLOR% --type %RED%H1_LDAS_C02_L2%ENDCOLOR% --gps-start-time 940000000 --gps-end-time 940000200 --url-type gsiftp --match archive
+gsiftp://ldas-cit.ligo.caltech.edu:15000/archive/frames/S6/LDAShoftC02/LHO/H-H1_LDAS_C02_L2-9400/H-H1_LDAS_C02_L2-940000000-128.gwf
+gsiftp://ldas-cit.ligo.caltech.edu:15000/archive/frames/S6/LDAShoftC02/LHO/H-H1_LDAS_C02_L2-9400/H-H1_LDAS_C02_L2-940000128-128.gwf
+</pre>
+
+The =--show-observatories= command line option will print a list of available observatories. A _realistic_ analysis will require a larger GPS time range. We will first create a file for the *H* observatory:
+
+<pre class="screen">
+[rengel@ldas-grid BinaryInspiral]$ ligo_data_find --server 10.14.20.73:80 --observatory %RED%H%ENDCOLOR% --type %RED%H1_LDAS_C02_L2%ENDCOLOR% --gps-start-time 940000000 --gps-end-time 950000000 --url-type gsiftp --match archive > var/H1L1V1-940000000-950000000.in
+</pre>
+
+In the next step we will _append_ the results for the *L* and *V* observatories:
+
+<pre class="screen">
+[rengel@ldas-grid BinaryInspiral]$ ligo_data_find --server 10.14.20.73:80 --observatory %RED%L%ENDCOLOR% --type %RED%L1_LDAS_C02_L2%ENDCOLOR% --gps-start-time 940000000 --gps-end-time 950000000 --url-type gsiftp --match archive >> var/H1L1V1-940000000-950000000.in
+
+[rengel@ldas-grid BinaryInspiral]$ ligo_data_find --server 10.14.20.73:80 --observatory %RED%V%ENDCOLOR% --type %RED%HrecOnline%ENDCOLOR% --gps-start-time 940000000 --gps-end-time 950000000 --url-type gsiftp --match archive >> var/H1L1V1-940000000-950000000.in
+</pre>
+
+The resulting file =H1L1V1-940000000-950000000.in= should be roughly 20MByte in size:
+
+<pre class="screen">
+[rengel@ldas-grid BinaryInspiral]$ ls -alh var/H1L1V1-940000000-950000000.in 
+-rw-rw-r-- 1 rengel rengel 20M Aug 11 10:55 var/H1L1V1-940000000-950000000.in
+</pre>
+
 
 %META:FORM{name="%25MAINWEB%25.UserForm"}%
 %META:FIELD{name="FirstName" attributes="" title="<nop>FirstName" value="Britta"}%
