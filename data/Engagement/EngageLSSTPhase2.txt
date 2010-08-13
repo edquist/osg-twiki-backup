@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="GabrieleGarzoglio" date="1281652395" format="1.1" reprev="1.10" version="1.10"}%
+%META:TOPICINFO{author="GabrieleGarzoglio" date="1281665433" format="1.1" reprev="1.11" version="1.11"}%
 %META:TOPICPARENT{name="EngageLSST"}%
 %TOC%
 
@@ -215,24 +215,35 @@ We recommend to try operations with other submission strategies. For example, we
 
 ---++ Operational instructions
 
-The following are a set of recommended operational procedures and commands to manage the operations of the LSST production on OSG. The intended audience is the operator i.e. the person that will be responsible for running jobs, checking that they succeeded, etc. For the commissioning, this is user "garzoglio" as shown in the instructions below.
+The following are a set of recommended operational procedures and commands to manage the operations of the LSST production on OSG. The intended audience is the "operator" of the system i.e. the person that will be responsible for running jobs, checking that they succeeded, etc. For the commissioning, this user was "garzoglio". We assume this as the user name of the operator in the instructions below.
 
----+++ Locate the operational software and prepare the IO area
+---+++ Locate / Install the operational software
 
-* Login to the submit machine
+Login to the submit machine
 <verbatim>
 ssh garzoglio@glidein.unl.edu
 </verbatim>
 
-* Operational software is available at ~garzoglio/LSST/osg-lsst/ . 
-It can be obtained from the svn repository at svn+ssh://p-osg-lsst@cdcvs.fnal.gov/cvs/projects/osg-lsst/trunk
+Operational software is available at ~garzoglio/LSST/osg-lsst/ . 
+It can also be obtained from the svn repository at 
+<verbatim>
+svn+ssh://p-osg-lsst@cdcvs.fnal.gov/cvs/projects/osg-lsst/trunk
+</verbatim>
 
-* Prepare the area that holds input and output. 
-This area has been set up on an hadoop file system at /mnt/hadoop/user/garzoglio
+---+++ Prepare the IO disk area
+
+This area will hold input and output files for the computation. For the commissioning, it has been set up on an hadoop file system at /mnt/hadoop/user/garzoglio<br>
+The same area can be used for production.
 
 Create a directory for the input e.g. lsst-input/ , and one for the output e.g. lsst-output/
+<verbatim>
+$ mkdir -p /mnt/hadoop/user/garzoglio/lsst-input
+$ mkdir -p /mnt/hadoop/user/garzoglio/lsst-output
+</verbatim>
 
-** The input for each image (189 catalog files) is expected to be in a subdirectory of lsst-input/ e.g. lsst-input/20100121/catalog/ , lsst-input/20100121-dup1/catalog/ , etc.
+---++++ Input
+
+The input for each image (189 catalog files) is expected to be in a subdirectory of lsst-input/ e.g. lsst-input/20100121/catalog/ , lsst-input/20100121-dup1/catalog/ , etc.<br>
 Inside each input directory, each catalogue file is expected to be bzip2-compressed e.g.
 
 <verbatim>
@@ -243,8 +254,10 @@ trim101.cat.bz2
 ...
 </verbatim>
 
-** The output directory will contain one subdirectory for every job group. A job group produces a simulated image consisting of 189 simulated chips.
-The output for each chip will be bzip2-compressed:
+---++++ Output
+
+The output directory will contain one subdirectory for every job group. A job group produces a simulated image consisting of 189 simulated chips.<br>
+The output for each chip will be bzip2-compressed e.g.
 
 <verbatim>
 $ ls -1 lsst-output/20100708_170335/*
@@ -254,7 +267,7 @@ lsst-output/20100708_170335/LSSTsim_002.tar.bz2
 ...
 </verbatim>
 
----+++ Start the monitoring cron job
+---+++ Start the operational monitoring
 The osg-lsst software provides a tool to monitor the content of the output directory and create a summary web page. For every subdirectory (corresponding to the output of a job group i.e. a simulated image), the tool will show how many files have been produced at that time.
 
 The tool can be run periodically as a cron job as
@@ -268,17 +281,208 @@ The configuration file specifies an area visible by a web service. In the defaul
 The status page can be seen at
 http://glidein.unl.edu/osg-lsst/monitoring/stat_table.html
 
-This page shows a table with 6 columns. The table contains an entry for every output subdirectory i.e. job group. One can change the sorting of the table by clicking on a column header.
+See [[EngageLSSTPhase2#LSST_operations_on_OSG][Monitoring LSST Operations on OSG]] for a discussion on monitoring jobs.
 
-   1. Creation Time: the date of the creation of the output subdirectory for the job group. This time is essentially the time of submission of the jobs group.
-   1. Modify Time: the date of the last modification of the subdirectory. This is the last time that the directory received the output from a chip / single job. If the job is NOT completed AND this time is older than 24 hours, then there is likely a problem with this job group.
+---+++ Submit jobs
+
+During the commissioning, it was shown that OSG can provide enough resources to simulate about 180 images in 24 hours. 60 job groups were submitted 3 times a day (10 am, 5 pm, and 11 pm) with the goal of maintaining continuous "pressure" of idle jobs in the queue. In turn, this maintained a "high" number of available resources in the system (2500 nodes DC with peaks of 6000 nodes).  At the same time, submitting 60 job groups at one time produces a number of individual jobs that does not overwhelm the frontend system. We will have to tune how often and how many jobs to submit, as we gain operational experience.
+
+To submit a batch of 60 job groups do:
+
+* The first time, create a directory to hold all job submission and log files 
+<verbatim>
+mkdir -p ~garzoglio/LSST/jdl
+</verbatim>
+
+* In that directory, it is recommended to create a subdirectory to hold all submission and log files for the batch. This helps to contain the scope of troubleshooting activities. Go to that directory.
+<verbatim>
+mkdir -p ~garzoglio/LSST/jdl/runs-jul-20-05pm
+cd  ~garzoglio/LSST/jdl/runs-jul-20-05pm
+</verbatim>
+
+* Submit each job group individually, executing the following command 60 times with the appropriate input
+<verbatim>
+~garzoglio/LSST/osg-lsst/submit/submitLSSTsim --input-dir=/mnt/hadoop/user/garzoglio/lsst-input/20100121/catalog --output-dir=/mnt/hadoop/user/garzoglio/lsst-output/ --seed $RANDOM 0 188
+sleep 1
+</verbatim>
+
+This command submits 189 individual jobs to the system (<i>0 188</i>). 
+In this example, we use the shell-provided "$RANDOM" number as a seed (each individual job / chip will have, in turn, a different seed, as <i>$RANDOM + chip_number</i>). LSST should discuss internally the choice of the seed for each job group.
+
+NOTE: one can write a script to submit the 60 job groups with one command. In that case, wait at least 1 second between submissions ("sleep 1" command) to minimize the probability of directory naming conflicts.
+
+The system should show jobs in the queue
+<verbatim>
+$condor_q garzoglio
+</verbatim>
+
+---+++ Monitor jobs
+
+Various information sources help with the monitoring of the jobs.
+
+---++++ LSST operations on OSG
+
+* This page is generated periodically by a monitoring program. Instructions on how to start the monitoring program are discussed at [[EngageLSSTPhase2#Start_the_operational_monitoring][Start the Operational Monitoring]]
+
+The status page can be seen at
+http://glidein.unl.edu/osg-lsst/monitoring/stat_table.html
+
+This page shows a table that contains an entry for every output subdirectory i.e. job group. One can change the sorting of the table by clicking on a column header. The table has 6 columns:
+
+   1. Creation Time: the date of the creation of the output subdirectory for the job group. This is essentially the submission time of the job group.
+   1. Modify Time: the date of the last modification of the subdirectory. This is the last time that the directory received output from a chip / single job. If the job is NOT completed AND this time is older than 24 hours, then there is likely a problem with this job group.
    1. Output Dir: the name of the output subdirectory
    1. Num Out Files: the number of output files in the subdirectory. When the job is finished, this number is 189.
-   1. Run Dir: the name of the directory that holds the condor control files (dagman file, job dcescription files, log files, etc.). This is useful for debugging.
+   1. Run Dir: the name of the directory that holds the condor control files (DAGMan file, job description files, log files, etc.). This is useful for debugging.
    1. Input Dir: the name of the input directory used for the job group.
 
+When jobs are finished, the name of the output directory becomes a web link. This link contains statistical plots for the corresponding job group.
+See the paragraph above on the [[EngageLSSTPhase2#Results_from_61_job_groups][system commissioning with 61 job groups]] for a discussion on each plot.
 
-IN PROGRESS...
+* From the command line, one can generate a report of the total number of individual jobs completed for a batch of job groups with the
+count-output.sh tool
+
+<verbatim>
+$ ~garzoglio/LSST/osg-lsst/monitoring//count-output.sh -help
+count-output.sh: usage: count-output.sh -o <lsst-out-dir> -r <run_dir>
+  -o : the global lsst output directory
+  -r : the name of the global dir containing the condor job context directories
+  -h : this help
+Example usage:
+./count-output.sh -o /mnt/hadoop/user/garzoglio/lsst-output/ -r runs-jul22-10am
+</verbatim>
+
+---++++ Glidein monitoring
+
+* This page shows the status of user jobs in the queue at glidein.unl.edu and of available resource on the Grid.
+
+http://glidein.unl.edu/vofrontend/monitor/frontend_OSG_gWMSFrontend/frontendStatus.html
+
+* This page shows a summary of where the jobs are running on the OSG sites
+
+http://glidein.unl.edu/sites/
+
+---++++ Accounting 
+
+This page shows how many CPU hours have been spent by all completed jobs submitted by the frontend glidein.unl.edu.
+This number includes LSST jobs as well as jobs from other communities submitted from the frontend (e.g. Einstein@home).
+
+http://rcf-gratia.unl.edu/gratia/xml/glidein_hours_bar_smry
+
+---++++ Condor commands
+
+Display the number of resources per site that support LSST on the OSG
+<verbatim>
+$ condor_status -constraint 'LSST_VERSION_LSSTsim =!= UNDEFINED'  -format "%s\n" GLIDEIN_Entry_Name | sort | uniq -c
+    170 CMS_T1_US_FNAL_ce3
+     64 CMS_T2_US_Nebraska_Husker
+    426 CMS_T2_US_Purdue_osg
+    108 CMS_T2_US_UCSD_gw2
+    104 CMS_T2_US_UCSD_gw4
+     46 CMS_T2_US_Wisconsin_cms01
+    236 CMS_T3_US_Omaha_ff
+    282 CMS_T3_US_Omaha_ff3
+    120 HCC_BR_UNESP
+      2 HCC_US_Clemson-Palmetto
+    124 HCC_US_Nebraska_pf
+     14 HCC_US_Nebraska_Red
+    202 HCC_US_UConn_gluskap
+</verbatim>
+
+Display the number of jobs in the queue
+<verbatim>
+$condor_q garzoglio
+</verbatim>
+
+---+++ Resubmit failed jobs
+
+There are two types of job failures
+   1. Failures caused by problems in the infrastructure (network disconnects, job preemptions, etc.)
+   2. Failures caused by problems in the user job (missing input file, corrupted input file, bug in the application, etc.)
+
+The system will resubmit automatically jobs failed because of the infrastructure indefinitely. 
+
+The system (DAGMan) will resubmit 5 times jobs failed because of problems with the user job. At that point, the system writes a "rescue" DAG, named master.dag.rescue001.
+The operator should investigate these failures as discussed in [[EngageLSSTPhase2#Example_of_troubleshooting][Example of troubleshooting]]. When the problem are addressed, the failed job for the job group can be resubmitted as
+
+<verbatim>
+cd ~garzoglio/LSST/jdl/runs-jul-20-05pm/runs/LSSTsim_20100720_165254/
+condor_submit_dag master.dag.rescue001
+</verbatim>
+
+
+---+++ Example of troubleshooting
+
+The following is a list of useful commands used in a real troubleshooting session.
+It should be noted that DAGMan tries to resubmit failed jobs 5 times. At that point, the system writes a "rescue" DAG, named master.dag.rescue001.
+Also, when files are resubmitted, the system saves the output, error, and log files from the previous jobs appending the string "checked".
+
+Find all directories with rescue dags:
+<verbatim>
+$ find /home/bockelman/garzoglio/LSST/jdl/runs-jul-20-05pm/runs/* -name '*rescue*'  -exec dirname {} \; | sort | uniq
+/home/bockelman/garzoglio/LSST/jdl/runs-jul-20-05pm/runs/LSSTsim_20100720_165254
+/home/bockelman/garzoglio/LSST/jdl/runs-jul-20-05pm/runs/LSSTsim_20100720_165322
+/home/bockelman/garzoglio/LSST/jdl/runs-jul-20-05pm/runs/LSSTsim_20100720_165340
+/home/bockelman/garzoglio/LSST/jdl/runs-jul-20-05pm/runs/LSSTsim_20100720_165341
+</verbatim>
+
+Total jobs failed counting retrials
+<verbatim>
+$ find /home/bockelman/garzoglio/LSST/jdl/runs/LSSTsim_20100713_1* -name '*.out.checked*' | wc
+  13646
+</verbatim>
+
+Job failed without counting the retrials
+<verbatim>
+$ find /home/bockelman/garzoglio/LSST/jdl/runs/LSSTsim_20100713_1* -name '*.out.checked*' | awk 'BEGIN{FS="."}{print $1}' | sort | uniq -c | wc
+   5344
+</verbatim>
+
+Average resubmission times of failed jobs
+<verbatim>
+$ find /home/bockelman/garzoglio/LSST/jdl/runs/LSSTsim_20100713_1* -name '*.out.checked*' | awk 'BEGIN{FS="."}{print $1}' | sort | uniq -c | awk 'BEGIN{sum=0}{sum=sum+$1}END{print sum/NR}'
+2.55352
+</verbatim>
+
+Jobs failed too many times (saved rescue dag)
+<verbatim>
+$ find /home/bockelman/garzoglio/LSST/jdl/runs/LSSTsim_20100713_1* -name '*.out.checked*' | awk 'BEGIN{FS="."}{print $1}' | sort | uniq -c | egrep -e '^[ ]*6' | wc
+    335
+</verbatim>
+    
+Number of job groups with jobs permanetly failed
+<verbatim>
+$ find /home/bockelman/garzoglio/LSST/jdl/runs/LSSTsim_20100713_1* -name '*.out.checked*' | awk 'BEGIN{FS="."}{print $1}' | sort | uniq -c | egrep -e '^[ ]*6' | awk 'BEGIN{FS="/"}{print $8}' | sort | uniq -c | wc
+     47
+</verbatim>
+
+Number of jobs failed too many times (as above) AND Average number of jobs failed too many times per job group
+<verbatim>
+$ find /home/bockelman/garzoglio/LSST/jdl/runs/LSSTsim_20100713_1* -name '*.out.checked*' | awk 'BEGIN{FS="."}{print $1}' | sort | uniq -c | egrep -e '^[ ]*6' | awk 'BEGIN{FS="/"}{print $8}' | sort | uniq -c | awk 'BEGIN{sum=0}{sum=sum+$1}END{print sum, sum/NR}'
+335 7.12766
+</verbatim>
+
+Sites responsible for the failures (13617 ... not quite 13646 as above because 29 files were missing from input directory dup31)
+<verbatim>
+$ find /home/bockelman/garzoglio/LSST/jdl/runs/LSSTsim_20100713_1* -name '*.out.checked*' | awk 'BEGIN{FS="."}{print $1}' | sort | uniq | awk '{ system("cat "$0".err.checked.*") }' | awk '{print $4}' | sort | uniq -c
+  27234 MIT_CMS
+</verbatim>
+  
+Reason for failure  
+<verbatim>
+$ find /home/bockelman/garzoglio/LSST/jdl/runs/LSSTsim_20100713_1* -name '*.out.checked*' | awk 'BEGIN{FS="."}{print $1}' | sort | uniq | awk '{ system("cat "$0".err.checked.*") }' | awk '{for (i=6;i<NF+1;i++) {printf "%s ",$i};print ""}' |  sort | uniq -c
+  13617 ERROR: Could not locate underlying executable, /net/t2dsk0001/d00/osg/app/engage/LSST/LSSTsim-sl5-x86_64/raytrace/bin/lsst -- either application
+  13617 ERROR: is not configured correctly or format of bootstrap has changed.
+</verbatim>
+
+Full error message
+<verbatim>
+$ cat /home/bockelman/garzoglio/LSST/jdl/runs/LSSTsim_20100713_155555/logs/LSSTsim_158.err.checked.100713_2227
+2010-07-14 03:26:48 UTC MIT_CMS (hibat0070) ERROR: Could not locate underlying executable, /net/t2dsk0001/d00/osg/app/engage/LSST/LSSTsim-sl5-x86_64/raytrace/bin/lsst -- either application
+2010-07-14 03:26:48 UTC MIT_CMS (hibat0070) ERROR: is not configured correctly or format of bootstrap has changed.
+</verbatim>
+
+
 
 %META:FILEATTACHMENT{name="LSST-Architecture.jpg" attachment="LSST-Architecture.jpg" attr="h" comment="Simple Architecture" date="1277921754" path="LSST-Architecture.jpg" size="110770" stream="LSST-Architecture.jpg" tmpFilename="/usr/tmp/CGItemp18593" user="GabrieleGarzoglio" version="1"}%
 %META:FILEATTACHMENT{name="LSST-Architecture-Jul22-10.jpg" attachment="LSST-Architecture-Jul22-10.jpg" attr="" comment="" date="1279831240" path="LSST-Architecture-Jul22-10.jpg" size="77671" stream="LSST-Architecture-Jul22-10.jpg" tmpFilename="/usr/tmp/CGItemp18740" user="GabrieleGarzoglio" version="1"}%
