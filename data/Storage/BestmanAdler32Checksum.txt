@@ -1,37 +1,41 @@
-%META:TOPICINFO{author="HorstSeverini" date="1282156863" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1282160141" format="1.1" reprev="1.2" version="1.2"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
-%TOC%
+%DOC_STATUS_TABLE%
+%TOC{depth="2"}%
 
+---++ Introduction
 This page documents a hopefully quite generic way for Bestman-Gateway 
 to calculate adler32 checksums and store them as extended file attributes
 in a Lustre file system (and others, like GPFS, ext4, ...).
 
-It assumes a working Bestman-Gateway installation on top of 
+---++ Checklist
+This document assumes a working Bestman-Gateway installation on top of 
 a posix compliant file system which supports extended file attributes
 and commands like
 
-<pre>
-getfattr --only-values --absolute-names -n user.adler32 <file>
-setfattr -n user.adler32 -v <value> <file>
+<pre class="screen">
+<code>%UCL_PROMPT_SHORT%getfattr --only-values --absolute-names -n user.adler32 %RED%file%ENDCOLOR% </code>
+<code>%UCL_PROMPT_SHORT%setfattr -n user.adler32 -v %RED%value%ENDCOLOR%  %RED%file%ENDCOLOR% </code>
 </pre>
 
-The idea is to have Bestman call a python script adler32.py which checks
+---++ How to setup checksum calculation 
+The idea is to have Bestman call a python script ==adler32.py== which checks
 whether the checksum is already present as an attribute and uses that 
-if it is, otherwise call another python script calc_adler32.py which 
+if it is, otherwise call another python script ==calc_adler32.py== which 
 calculates it and then store it for the next access.
 
 In order for that to work, you also need to make modifications to
-bestman.rc, /etc/sudoers, and /etc/fstab. See below for the contents
+==bestman.rc==, ==/etc/sudoers==, and ==/etc/fstab==. See below for the contents
 of all these files, including the python scripts.
 
-adler32.py and calc_adler32.py need to be executable, of course.
+==adler32.py== and ==calc_adler32.py== need to be executable, of course.
 
 We also run an hourly cron job which finds files which have been added
-in the last hour, and then runs adler32.py on them to pre-calculate 
+in the last hour, and then runs ==adler32.py== on them to pre-calculate 
 and save the checksum.
 
 And Paul added a new feature in the Panda Pilot to check for the 
-env var SETADLER32 (set in /opt/osgwn/vdt/etc/vdt-local-setup.sh), 
+env var SETADLER32 (set in ==/opt/osgwn/vdt/etc/vdt-local-setup.sh==), 
 and if it exists, calls it to ensure the checksum is stored 
 immediately upon the storage of each output file, which will take 
 more load off the bestman system as well. See below for the value.
@@ -43,33 +47,37 @@ and others for all their help in getting this to work!
 Here are the changes to the various configuration files,
 as well as the scripts themselves:
 
-<pre>
-/opt/bestman/bestman/conf/bestman.rc
-------------------------------------
+Edit ==$VDT_LOCATION/bestman/conf/bestman.rc==
+<pre class="file">
 ##########################################################
 #  Add checksum code
 ##########################################################
 defaultChecksumType=adler32
 showChecksumWhenListingFile=true
 hexChecksumCommand=sudo /home/osg/bestman_apps/adler32/adler32.py
-----
+</pre>
 
-
-/etc/sudoers
-------------
+Edit ==/etc/sudoers==, add:
+<pre class="file">
 daemon     ALL=(root) NOPASSWD: /home/osg/bestman_apps/adler32/adler32.py
-----
+</pre>
 
 
-/etc/fstab (user_xattr is the important change here)
-----------
+Modify ==/etc/fstab==  by adding (%ICON{warning}% ==user_xattr== is the important change here)
+<pre class="file">
 10.173.10.15:/data /storage/data lustre _netdev,localflock,user_xattr 0 0
 10.173.10.15:/app /storage/app lustre _netdev,localflock,user_xattr 0 0
-----
+</pre>
+
+Edit ==/home/osg/osgwn/vdt/etc/vdt-local-setup.sh== script, add
+<pre class="file">
+export SETADLER32='setfattr -n user.adler32 -v '
+</pre>
 
 
-adler32.py
-----------
+---+++ Checksum scripts
+The content of ==adler32.py== script is shown below:
+<pre class="file">
 #!/usr/bin/env python
 #
 #   bestman callout adler32
@@ -120,11 +128,10 @@ else:
         else:
                 sys.stderr.write("error computing adler32 for "+path+'sys.argv,status,adler32:'+str(sys.argv)+'|'+str(status)+' | '+adler32+'\n')
                 sys.exit(1)
-----
+</pre>
 
-
-calc_adler32.py
----------------
+The content of ==calc_adler32.py== is shown below:
+<pre class="file">
 #!/usr/bin/env python
 BLOCKSIZE=32*1024*1024
 import sys
@@ -144,13 +151,65 @@ for f in sys.argv[1:]:
         if val < 0:
                 val += 2**32
         print hex(val)[2:10].zfill(8).lower()
-----
-
-
-/home/osg/osgwn/vdt/etc/vdt-local-setup.sh
-------------------------------------------
-export SETADLER32='setfattr -n user.adler32 -v '
-----
 </pre>
+
+
+
+---+++ *Comments*
+%COMMENT{type="tableappend"}%
+
+<!-- CONTENT MANAGEMENT PROJECT
+############################################################################################################
+ DEAR DOCUMENT OWNER
+ ===================
+
+ Thank you for claiming ownership for this document! Please fill in your FirstLast name here:
+   * Local OWNER = HorstSeverini
+
+ Please define the document area, choose one of the defined areas from the next line
+ DOC_AREA = (ComputeElement|General|Integration|Monitoring|Operations|Security|Storage|Tier3|User|VO)
+   * Local DOC_AREA       = Storage
+
+ define the primary role the document serves, choose one of the defined roles from the next line
+ DOC_ROLE = (Developer|Documenter|Scientist|Student|SysAdmin|VOManager)
+   * Local DOC_ROLE       = SysAdmin
+
+ Please define the document type, choose one of the defined types from the next line
+ DOC_TYPE = (HowTo|Installation|Knowledge|Navigation|Planning|Training|Troubleshooting)
+   * Local DOC_TYPE       = HowTo
+  Please define if this document in general needs to be reviewed before release ( %YES% | %NO% )
+   * Local INCLUDE_REVIEW = %YES%
+
+ Please define if this document in general needs to be tested before release ( %YES% | %NO% )
+   * Local INCLUDE_TEST   = %NO%
+
+ change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
+   * Local REVIEW_READY   = %YES%
+
+ change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
+   * Local TEST_READY     = %NO%
+
+ change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
+   * Local RELEASE_READY  = %NO%
+
+
+ DEAR DOCUMENT REVIEWER
+ ======================
+
+ Thank for reviewing this document! Please fill in your FirstLast name here:
+   * Local REVIEWER       =  TanyaLevshina
+ Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local REVIEW_PASSED  = %IN_PROGRESS%
+
+
+ DEAR DOCUMENT TESTER
+ ====================
+
+ Thank for testing this document! Please fill in your FirstLast name here:
+   * Local TESTER         = IwonaSakrejda
+ Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local TEST_PASSED    = %YES%
+############################################################################################################
+-->
 
 -- Main.HorstSeverini - 18 Aug 2010
