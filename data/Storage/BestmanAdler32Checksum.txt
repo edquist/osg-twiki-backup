@@ -1,0 +1,156 @@
+%META:TOPICINFO{author="HorstSeverini" date="1282156863" format="1.1" reprev="1.1" version="1.1"}%
+---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+This page documents a hopefully quite generic way for Bestman-Gateway 
+to calculate adler32 checksums and store them as extended file attributes
+in a Lustre file system (and others, like GPFS, ext4, ...).
+
+It assumes a working Bestman-Gateway installation on top of 
+a posix compliant file system which supports extended file attributes
+and commands like
+
+<pre>
+getfattr --only-values --absolute-names -n user.adler32 <file>
+setfattr -n user.adler32 -v <value> <file>
+</pre>
+
+The idea is to have Bestman call a python script adler32.py which checks
+whether the checksum is already present as an attribute and uses that 
+if it is, otherwise call another python script calc_adler32.py which 
+calculates it and then store it for the next access.
+
+In order for that to work, you also need to make modifications to
+bestman.rc, /etc/sudoers, and /etc/fstab. See below for the contents
+of all these files, including the python scripts.
+
+adler32.py and calc_adler32.py need to be executable, of course.
+
+We also run an hourly cron job which finds files which have been added
+in the last hour, and then runs adler32.py on them to pre-calculate 
+and save the checksum.
+
+And Paul added a new feature in the Panda Pilot to check for the 
+env var SETADLER32 (set in /opt/osgwn/vdt/etc/vdt-local-setup.sh), 
+and if it exists, calls it to ensure the checksum is stored 
+immediately upon the storage of each output file, which will take 
+more load off the bestman system as well. See below for the value.
+
+Many thanks to Alex, Junmin, Doug, Saul, Charles, Patrick, Paul, 
+and others for all their help in getting this to work!
+
+
+Here are the changes to the various configuration files,
+as well as the scripts themselves:
+
+<pre>
+/opt/bestman/bestman/conf/bestman.rc
+------------------------------------
+##########################################################
+#  Add checksum code
+##########################################################
+defaultChecksumType=adler32
+showChecksumWhenListingFile=true
+hexChecksumCommand=sudo /home/osg/bestman_apps/adler32/adler32.py
+----
+
+
+/etc/sudoers
+------------
+daemon     ALL=(root) NOPASSWD: /home/osg/bestman_apps/adler32/adler32.py
+----
+
+
+/etc/fstab (user_xattr is the important change here)
+----------
+10.173.10.15:/data /storage/data lustre _netdev,localflock,user_xattr 0 0
+10.173.10.15:/app /storage/app lustre _netdev,localflock,user_xattr 0 0
+----
+
+
+adler32.py
+----------
+#!/usr/bin/env python
+#
+#   bestman callout adler32
+#
+#   This reads or sets the extended attribute user.adler32 for files in Lustre
+#
+#   use:
+#
+#   adler32.py <full path to a file>
+#
+#   returns an error if the path is a directory
+
+adlercom = '/home/osg/bestman_apps/adler32/calc_adler32.py'
+
+import sys
+if len(sys.argv)==1: 
+        sys.stderr.write('No input path provided\n')
+        sys.exit(1)
+#
+#   get the path of the file to get adler32 of
+#
+path = sys.argv[1]
+
+#
+#    first see if adler32 is stored as an attribute
+#
+import commands
+
+com1 = 'getfattr --only-values --absolute-names -n user.adler32 '+path
+status,output = commands.getstatusoutput(com1)
+
+if status==0 and len(output)>0 and not ' ' in output:
+        sys.stdout.write(output+'\n')
+        sys.exit(0)
+else:
+        #-- compute adler32
+        com2 = adlercom+' '+path
+
+        status,adler32 = commands.getstatusoutput(com2)
+
+        if status==0 and len(adler32)>0:
+                #  attempt to save the answer as an attribute
+                com3 = 'setfattr -n user.adler32 -v '+adler32+' '+path
+                status,output = commands.getstatusoutput(com3)
+                if not status==0: sys.stderr.write("error setting adler32 for "+path+'\n')
+                sys.stdout.write(adler32+'\n')
+                sys.exit(0)
+        else:
+                sys.stderr.write("error computing adler32 for "+path+'sys.argv,status,adler32:'+str(sys.argv)+'|'+str(status)+' | '+adler32+'\n')
+                sys.exit(1)
+----
+
+
+calc_adler32.py
+---------------
+#!/usr/bin/env python
+BLOCKSIZE=32*1024*1024
+import sys
+from zlib import adler32
+
+for f in sys.argv[1:]:
+        val = 1
+        if f=='-':
+                fp=sys.stdin
+        else:   
+                fp=open(f)
+        while True:
+                data = fp.read(BLOCKSIZE)
+                if not data:
+                        break
+                val = adler32(data, val)
+        if val < 0:
+                val += 2**32
+        print hex(val)[2:10].zfill(8).lower()
+----
+
+
+/home/osg/osgwn/vdt/etc/vdt-local-setup.sh
+------------------------------------------
+export SETADLER32='setfattr -n user.adler32 -v '
+----
+</pre>
+
+-- Main.HorstSeverini - 18 Aug 2010
