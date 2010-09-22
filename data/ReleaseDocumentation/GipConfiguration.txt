@@ -1,78 +1,126 @@
-%META:TOPICINFO{author="StevenTimm" date="1283191226" format="1.1" reprev="1.20" version="1.20"}%
----+!! *%SPACEOUT{ "%TOPIC%" }%*
+%META:TOPICINFO{author="RobertEngel" date="1285193694" format="1.1" reprev="1.21" version="1.21"}%
 %DOC_STATUS_TABLE%
-%TOC{depth="2"}%
 
-%BR%
----+ _%INCLUDEHEADING%  %SPACEOUT{ "%TOPIC%" }%_
-%BR%
+---+!! Configuration of the Generic Information Provider
+%TOC%
+
+---+ About this Document
+<!-- conventions used in this document
+   * Local UCL_CWD  = /opt/osg-%VERSION%
+   * Local UCL_HOST = ce
+-->
+
+%ICON{hand}% This document is for System Administrators. It contains the procedure to configure the %LINK_GIP%.
 
 %STARTINCLUDE%
----++ Information services in the OSG.
-%EDITTHIS%
 
-One important aspect of your site being in the larger grid is the CE's ability to describe the site to external users.  In the OSG, the piece of software that generates the site information is called the "Generic Information Provider" (GIP); the GIP generates information in a schema called GLUE.
+---+ Information Services on the OSG
 
-Because the GIP advertises information about all aspects of your site including the batch system, cluster hardware composition, and associated storage, it is sensitive to config.ini errors.  The GIP reads config.ini directly; there is never any need to re-run configure-osg when making GIP-related changes.
+One important aspect of a site being part of the %LINK_OSG% is the ability of the %LINK_GLOSSARY_CE% to describe the site to external users. The %LINK_GIP% generates site information and provides it in the [[http://glueschema.forge.cnaf.infn.it/][GLUE]] schema.
 
-This section gives information about the options in the [GIP], [Subcluster*], and [SE*] sections of the configuration file.
+The GIP is collecting information about some aspects of your site including its hardware composition, the batch system and associated storage. It relies on the resource configuration file =%UCL_CWD%/osg/etc/config.ini= to collect the information.
 
+The following sections detail information about the options in the =[GIP]=, =[Subcluster]=, and =[SE]= sections of the configuration file.
+
+<!--
+Do we really still need the information below?
+ 
 _Note for seasoned admins_:  This section has undergone a *significant amount of revision*; the latest update has introduced a new way to configure subclusters and SEs.  The OSG 0.8.0 style configuration should still work, but is deprecated.  *We strongly recommend updating your config to the current style.*
+-->
 
----+++ Batch System Information
+---++ Information on Sites with Multiple Compute Elements
 
-The GIP will query your batch system for many pieces of information; it will determine which batch system to query by examining the [Condor], [LSF], [SGE], and [PBS] sections and look to see which is enabled.  You can manually specify the batch system by setting the _batch_ attribute in the [GIP] section to one of the batch system names.
+If you would like to properly advertise multiple %LINK_GLOSSARY_CE% per resource, make sure to:
 
----++++ Batch System Specific Notes
-
-   * *PBS*:  Globus allows users to submit to any queue listed in $VDT_LOCATION/globus/share/globus_gram_job_manager/pbs.rvf.  The GIP automatically reads this file and advertises all listed queues.  If any of the queues have acl_users or acl_groups set, the GIP will also try to map the user/group names to VOs and correctly advertise which VOs are allowed access to which queues.  This process is not perfect and sometimes fails to generate the right information; we have provided a manual override.  PBS sites may add the following attributes to the [PBS] section of config.ini.
-      * =&lt;queuename&gt;_blacklist= - Comma separated list of VO names to exclude from queue <queuename>; * to exclude all.
-         * To generate a list of supported VOs for a queue, first the queue's blacklist is generated, then the whitelist is applied.  This way, even if the blacklist is *, some VO might be allowed in it.
-      * =&lt;queuename&gt;_whitelist= - Comma separated list of VO names which are always allowed in this queue.
-      * =queue_exclude= - Local-user only queues which should not be advertised to the grid.
-   * *Condor*:  By default, owner VMs are not counted for the total CPU numbers published by GIP. According to Condor definition an Owner state implies "The machine is being used by the machine owner, and/or is not available to run Condor jobs".  In order to tell the GIP to count the CPUs in "Owner" state for the total CPU count a site administrator should add the following line
-   <pre>subtract_owner=False</pre> to config.ini in the [CONDOR] section.
-   * *SGE* (This note only applies to OSG 1.2.2 and above.).  The =home= attribute in the [SGE] section has been replaced with with =sge_root= and =sge_cell=, which should be set to the value of  of $SGE_ROOT and $SGE_CELL, respectively.  The GIP will assume that it can source =$SGE_ROOT/$SGE_CELL/common/settings.sh= and end up with a working SGE tools (such as qstat) in the environment.
-
----++++ Notes for multi-CE sites.
-
-If you would like to properly advertise multiple CEs per cluster, make sure that you:
-   * Set the value of cluster_name in the [GIP] section to be the same for each CE.
-   * Set the value of other_ces in the [GIP] section to be the hostname of the other CEs at your site; this should be comma separated.  So, if you have two CEs, ce1.example.com and ce2.example.com, the value of other_ces on ce1.example.com should be "ce2.example.com.  This assumes that the same queues are visible on each CE.
-   * Set the value of site_name in the "Site Information" section to be the same for each CE.  (for OSG >=1.2.4 shouldn't that be resource_group instead?! ST)
+   * set the value of =cluster_name= in the =[GIP]= section to be the same for each CE
+   * set the value of =other_ces= in the [GIP] section to be the hostname of the other CEs at your site; this should be comma separated.  So, if you have two CEs, ce1.example.com and ce2.example.com, the value of other_ces on ce1.example.com should be "ce2.example.com.  This assumes that the same queues are visible on each CE.
+   * set the value of =site_name= in the "Site Information" section to be the same for each CE.  (for OSG >=1.2.4 shouldn't that be resource_group instead?! ST)
    * Have the *exact* same configuration values for the GIP, SE*, and Subcluster* sections in each CE.
 
 It is good practice to run "diff" between the config.ini of the different CEs.  The only changes should be the value of localhost in the [DEFAULT] section and the value of other_ces in the [GIP] section.
 
----+++ Subcluster Configuration
+---++ Subcluster Configuration
 
-Another important aspect of the GIP is advertising the physical hardware jobs will encounter if they are submitted to your cluster.  This is done by describing the *subclusters* of your cluster.  A subcluster is defined to be a homogeneous set of worker node hardware.  For each subcluster in your cluster, fill in the information about the worker node hardware by creating a new Subcluster section with a unique name in the following format:  [Subcluster CHANGEME] where CHANGEME is the unique subcluster name.  *IMPORTANT*: for OSG 1.2.4 and below, this subcluster name must be unique for the entire OSG.  Do not pick something generic like *Subcluster Opterons*.
+Another aspect of the %LINK_GIP% is to advertise the physical hardware a job will encounter when submitted to your site.  This is information is provided to GIP in the =[Subcluster &lt;name&gt;]= section of the resource configuration file =%UCL_CWD%/osg/etc/config.ini=.
 
-At least *one* subcluster section *is required*; please populate the information for all your subclusters.  For WLCG sites, information filled in here will be advertised as part of your !MoU commitment, so please strive to make sure it is correct.  
+A _sub-cluster_ is defined to be a homogeneous set of worker node hardware. At least one Subcluster section _is required_. For WLCG sites, information filled in here will be advertised as part of your !MoU commitment, so please strive to make sure it is correct.  
 
-There is a lot of information needed for a subcluster; examples of working sections can be found at ConfigurationFileGIPExamples.  [[https://twiki.grid.iu.edu/bin/view/InformationServices/SubclusterMapping][This page shows the mapping from these attribute names to GLUE attribute names]].
+For each sub-cluster constituting your site, fill in the information about the worker node hardware by creating a new section choosing a unique name using the following format:  =[Subcluster &lt;name&gt;]= where &lt;name&gt; is the sub-cluster name.
+
+%IMPORTANT% for OSG 1.2.4 and below, this sub-cluster name must be unique for the entire OSG.  Do not pick something generic like =[Subcluster Opterons]=!
+
+Examples can be found [[ReleaseDocumentation/ConfigurationFileGIPExamples][here]]. [[InformationServices/SubclusterMapping][This page]] shows the mapping from attribute names in =config.ini= to [[http://glueschema.forge.cnaf.infn.it/][GLUE]] attribute names.
 
 The values for this section are relatively well-documented and self-explanatory and are given below:
-%TWISTY{
-mode="div"
-showlink="Show..."
-hidelink="Hide"
-showimgleft="%ICONURLPATH{toggleopen-small}%"
-hideimgleft="%ICONURLPATH{toggleclose-small}%"
-}%
-|Option|Values Accepted|Explanation |
-|*name*|string|This is the same name that is in the Section label.  It should be *globally unique*|
-|*node_count*|Positive Integer|This is the number of worker nodes in the subcluster|
-|*ram_mb*|Positive Integer|Megabytes of RAM per node.|
-|*cpu_model*|String|CPU model, as taken from /proc/cpuinfo.  Please, no abbreviations!|
-|*cpu_vendor*|String|Vendor's name: AMD, Intel, or ??|
-|*cpu_speed_mhz*|Positive Integer|Approximate speed, in MHZ, of the chips|
-|*cpus_per_node*|Positive Integer|Number of CPUs (physical chips) per node.  Usually 1 or 2|
-|*cores_per_node*|Positive Integer|Number of cores per node.  Usually 4 or 8|
-|*inbound_network*|True, False|Set to true or false depending on inbound connectivity.  That is, external hosts can contact the worker nodes in this subcluster based on their hostname.|
-|*outbound_network*|True, False|Set to true or false depending on outbound connectivity.  Set to true if the worker nodes in this subcluster can communicate with the external internet.|
-|*cpu_platform*| x86_64 or i686 | *NEW for OSG 1.2*.  Set according to your subcluster's processor architecture. |
+
+%TWISTY{%TWISTY_OPTS_MORE%}%
+%TABLE{ cellpadding="5,2,5,2" cellspacing="0" databg="#FFFFFF" headerbg="#8D929A" valign="middle" databg="#FFFFFF,#DDDDDD" tablewidth="100%" columnwidths="150,150," }%
+|*Option* | *Valid Values* | *Explanation* |
+|name|_String_|This is the same name that is in the Section label.  It should be globally unique!|
+|node_count|_Positive Integer_|This is the number of worker nodes in the sub-cluster|
+|ram_mb|_Positive Integer_|Megabytes of RAM per node.|
+|cpu_model|_String_|CPU model, as taken from =/proc/cpuinfo=.  Please, no abbreviations!|
+|cpu_vendor|_String_|Vendor's name: AMD, Intel, or any other.|
+|cpu_speed_mhz|_Positive Integer_|Approximate speed in MHZ of the CPU as taken from =/proc/cpuinfo=|
+|cpus_per_node|_Positive Integer_|Number of CPUs (physical chips) per node.|
+|cores_per_node|_Positive Integer_|Number of cores per node.|
+|inbound_network|_True_ or _False_|Set to true or false depending on inbound connectivity.  That is, external hosts can contact the worker nodes in this sub-cluster based on their hostname.|
+|outbound_network|_True_ or _False_|Set to true or false depending on outbound connectivity.  Set to true if the worker nodes in this sub-cluster can communicate with the internet.|
+|cpu_platform|_x86_64_ or _i686_|*NEW for OSG 1.2*.  Set according to your sub-cluster's processor architecture. |
 %ENDTWISTY%
+
+---++ Batch System Information
+
+The %LINK_GIP% queries the batch system specified and enabled in =%UCL_CWD%/osg/etc/config.ini=. Alternatively you may manually specify which batch system to query by setting the =batch= attribute in the =[GIP]= section.
+
+---+++ Information on PBS
+
+By default any authorized grid user may submit to every PBS queue listed in =$VDT_LOCATION/globus/share/globus_gram_job_manager/pbs.rvf=. In this case GIP automatically advertises all listed queues. 
+
+GIP will also detect if queues restrict access to certain users (=acl_users=) or certain groups (=acl_groups=). A reverse mapping from these users and groups to their associated %LINK_GLOSSARY_VO% provides access information of VOs to certain queues which will be advertised by the GIP instead.
+
+This process is not perfect and sometimes fails to generate the right information. In this case you may _manually_ blacklist and whitelist PBS queues for listed VOs in the =[PBS]= section of the resource configuration file =%UCL_CWD%/osg/etc/config.ini=:
+
+%CODE{"scheme"}%
+[PBS]
+
+; deny access to all VOs to the queue identified by <queuename>
+<queuename>_blacklist = *
+
+; then allow access for one or more VOs to the same queue
+<queuename>_whitelist = <a VO name>, <another VO name>
+
+%ENDCODE%
+
+%NOTE% To generate a list of supported VOs for a queue, the blacklist is evaluated before the whitelist.
+
+To _exclude_ queues from being advertised to the grid provide a comma-separated list of queue names to the =queue_exclude= attribute:
+
+%CODE{"scheme"}%
+[PBS]
+
+; exclude the queue specified by their names from being advertised to the grid
+queue_exclude = <a queue name>, <another queue name>
+%ENDCODE%
+
+---+++ Information on Condor
+
+By default, owner VMs are not accounted for the total CPU numbers published by GIP. According to Condor definition an Owner state implies <i>"The machine is 
+being used by the machine owner, and/or is not available to run Condor jobs"</i>.  In order to tell the GIP to count the CPUs in _"Owner"_ state for the total CPU count a site administrator should add the following line to the =[Condor]= section in the resource configuration file =%UCL_CWD%/osg/etc/config.ini=:
+
+%CODE{"scheme"}%
+[Condor]
+
+; Do no subtract CPUs provided by owner VMs:
+subtract_owner = False
+%ENDCODE%
+
+---+++ Information on SGE
+
+The =home= attribute in the =[SGE]= section of the resource configuration file =%UCL_CWD%/osg/etc/config.ini= has been replaced by =sge_root= and =sge_cell=, which should be set to the value of  of =$SGE_ROOT= and =$SGE_CELL=, respectively.  The GIP assumes that it can source =$SGE_ROOT/$SGE_CELL/common/settings.sh= to create a working SGE environment.
+
+
+
 
 #StorageElementConfiguration
 ---+++ Storage Element (SE) Configuration
