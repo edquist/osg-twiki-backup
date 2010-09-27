@@ -1,131 +1,127 @@
-%META:TOPICINFO{author="IwonaSakrejda" date="1283910466" format="1.1" version="1.55"}%
----+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
+%META:TOPICINFO{author="RobertEngel" date="1285619605" format="1.1" reprev="1.56" version="1.56"}%
 %DOC_STATUS_TABLE%
-%TOC{depth="2"}%
 
+---+!! Worker Node Client Installation
+%TOC%
 
----++What is the worker-node client and why do you need it?
+---+ About this Document
 
-The worker node client package contains a set of executables used by jobs running on the cluster.   It is a required package for OSG so that, for example, jobs requiring access to storage elements and the like have the necessary client tools available.    It must be installed on all the nodes where jobs may run: on the worker nodes and on the CE (because _fork jobs_ run on the CE).   No host certificate is required for the compute node, but an up-to-date list of certificate authority files and certificate revocation lists (CRLs) is required.
-
----++ Installation options
-There are three installation options:
-   1. _Suggested Installation:_ Install the wn-client package on a file server separate from the CE; for example, the one that serves $APP.  You will be installing the fetch-crl program onto this node, which requires root access, and adds a script into cron.  The updates require outgoing network access from the node it is installed on.  This directory should be accessible from the CE as well.    
-   2. _CE installation:_ Install the wn-client package on your CE and export it to all the nodes. While we do not suggest you do this, we provide instructions, and support this installation as an option.
-   3. _Local installation:_  Install the worker node client software on each node.  *%RED%This installation method is required if you plan to use gLexec software.%ENDCOLOR%*  With this setup we recommend to use Squid or rsync to manage the CA packages, as documented below and in bin CaCertificatesInstall. 
-
-In all cases you need to choose a path that is common to all worker nodes and the CE.  You will be prompted for this path when running the =configure-osg.py= script on the gatekeeper in order to set the =$OSG_GRID= variable. 
-
----++ How to install
-Install using: 
-<pre class="screen">
-pacman -get %CACHE%:wn-client
-source setup.sh
-vdt-post-install
-</pre>
-
----++ Full log of installation
-A full log of an installation is given [[WorkerNodeClientInstallLog]], followed by comments on why each choice is made.
-
----++ Comments on installation questions
----+++ !!Caches and licenses
-The installation will first ask if you trust the Pacman caches, and then if you agree to the VDT licenses.  Answer =y= to both.
-
-<!--
-   * Set DOC_TitleSubLevel=+
--->
-%INCLUDE{"CaCertificatesUpdatesConfig"}%
-
-This self contained installation is recommended for the _option 1_ in the installation options above.
-
-If, like in _option 2_, you can use the CE or some other CA installation, then you should follow the [[CaCertificatesInstall#Use_an_existing_CA_Installation][instructions to use an existing installation]].
-
-If, like in _option 3_, you have several installations, then you should always [[CaCertificatesInstall#Adding_a_Squid_proxy_to_download][use a squid proxy]] or [[CaCertificatesInstall#Rsync_for_CA_CRL_s][rsync]] to reduce the network load.
-
-
-<!--
----+++ !!CA's and CRL's
-New VDT versions don't install the CA's and CRL's. You have to explicitly decide what to do.
-
----++++!!Option 1 - Default install
-If you install this worker node client package on the file server that serves $APP, and you have no previous installation of the fetch-crl cron script, 
-enable and turn on the CA and CRL fetchers.
-<pre class="screen">
-vdt-ca-manage setupca --location local --url osg
-vdt-control --enable vdt-update-certs
-vdt-control --enable  fetch-crl
-vdt-control --on
-</pre>
-
----++++!!Option 2 - CE install
-If you are installing this worker node client on the OSG CE, just enable the CEs with
-<pre class="screen">
-vdt-ca-manage setupca --location local --url osg
-</pre>
-and do nothing else.
-
-You will change the symlink to point to the main VDT location, =$VDT_LOCATION/globus/share/certificates= once the OSG CE is installed.
-
----++++!!Option 3 - Suggested WN install
----+++++!!3a: Local installation plus squid for CA/CRL's
-For local installation on worker nodes, you should always use a squid proxy to reduce the network load.
-This is done 
-by creating the file /etc/sysconfig/fetch-crl with contents
-<pre class="file">
-export http_proxy=fermigrid4.fnal.gov:3128
-</pre>
-where fermigrid4.fnal.gov would be replaced with whatever the name of your
-site squid server is.  
-Then enable the CA and CRL fetching scripts:
-<pre class="screen">
-vdt-ca-manage setupca --location local --url osg
-vdt-control --enable vdt-update-certs
-vdt-control --enable  fetch-crl
-vdt-control --on
-</pre>
-
----+++++!!3b: Rsync for CA/CRL's
-If you want to centrally handle the CAs and CRLs, then just setup the CAs with
-<pre class="screen">
-vdt-ca-manage setupca --location local --url osg
-</pre>
-
-Then download
-the tarball at http://fermigrid.fnal.gov/files/csync/csync-0.9.0.tgz and follow
-the instructions on how to set up the rsync server and clients to 
-get your CA certs. This package has been contributed to the VDT and will 
-be part of the VDT in future versions.
+<!-- conventions used in this document
+   * Local UCL_CWD  = %URLPARAM{"INPUT_CWD" encode="quote" default="/opt/osg-%VERSION%"}%
+   * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="wn"}%
+   * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="user"}%
+   * Local UCL_DOMAIN = %URLPARAM{"INPUT_DOMAIN" encode="quote" default="opensciencegrid.org"}%
+   * Local UCL_CONFIG = =%UCL_CWD%/osg/etc/config.ini=
 -->
 
----+++  !!Log rotation
-Answer =n= to whether or not to rotate the VDT logs
+%ICON{hand}% This document is for System Administrators. It contains the instructions to install the Worker Node Client package.
 
----+++ !!Automation
-The Worker Node Client installation process can be automated for any 
-of the scenarios above, whether installing on the head node or on a bunch of worker nodes., so that you don't have to type in the letters.
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="Header"}%
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="CommandLine"}%
 
-<pre class="screen">
-VDTSETUP_AGREE_TO_LICENSES=y
-export VDTSETUP_AGREE_TO_LICENSES
-VDTSETUP_INSTALL_CERTS=l
-export VDTSETUP_INSTALL_CERTS
-VDTSETUP_EDG_CRL_UPDATE=y
-export VDTSETUP_EDG_CRL_UPDATE
-VDTSETUP_ENABLE_ROTATE=n
-export VDTSETUP_ENABLE_ROTATE
-pacman -trust-all-caches -get %CACHE%:wn-client
-</pre> 
+---+ What is the Worker Node Client and When do you need it?
 
----++ Enabling VDT services
-If you answered "y" to rotate the logs, or run the fetch-crl daemon, then you should
-enable it with the following command
-=vdt-control --on=
+The worker node client package contains grid tools used by jobs running on the worker nodes of a cluster. It must be installed on all worker nodes that may execute jobs associated with a %LINK_GLOSSARY_CE%. It is also required on the %LINK_GLOSSARY_GATEKEEPER% if grid users are allowed to submit jobs to %LINK_GLOSSARY_GRAM% using the =fork= job manager.
 
----++ Installing gLexec 
+%NOTE% A worker node does not require a grid certificate. It is not hosting grid services.
 
-gLexec is an optional package new to VDT 1.8.0 and greater which, if installed,
-should be installed with the software on the worker node client.  gLexec is designed
-for authentication of pilot jobs.  Several VO's submit pilot jobs under the DN of one user 
+
+---+ Requirements
+
+   1 new System Administrators should read the [[ReleaseDocumentation/SitePlanning][Site Planning Guide]]
+   1 verify that your Operating System is [[http://vdt.cs.wisc.edu/releases/2.0.0/requirements.html][supported]]
+   1 a %LINK_PACMAN% installation of version %PACMAN_VERSION% or later
+   1 allow outgoing network connection _from every worker node_ for a =local= installation
+   1 allow outgoing network connection _from the installation host_ for a =shared= installation only
+
+
+---+ How to get Help?
+
+To get assistance please use [[HelpProcedure][this page]]. 
+
+
+---+ Installation Procedure
+
+   1 choose between a =local= and a =shared= installation
+   1 create an installation directory
+   1 use %LINK_PACMAN% to install the Worker Node Client Package
+   1 install the [[Documentation/GlossaryC#DefsCA][CA Certificates]] and the %LINK_GLOSSARY_CRL%
+
+
+---++ Installation Options
+
+A =local= installation on every worker node is only recommended when support for *gLexec* is required. Otherwise a =shared= installation on a network file system should preferably be used:
+
+   * =local= installation if support for *gLexec* is required
+   * =shared= installation on a network file system serving a homogeneous set of worker nodes
+
+%NOTE% Choose a _common_ path on all worker nodes in case of a =local= installation! 
+
+
+---++ Create the Installation Directory
+
+Create an empty installation directory and change into it. Make sure the directory is world readable if the installation is to be shared by grid users: 
+
+<pre class="rootscreen">
+[root@%UCL_HOST% ~]$ mkdir -p %UCL_CWD%
+[root@%UCL_HOST% ~]$ cd %UCL_CWD%
+[root@%UCL_HOST% %UCL_CWD%]$ ln -s %UCL_CWD% %UCL_CWD%/../osg
+</pre>
+
+%WARNING% Please do not use a system directory like =/opt= or =/usr= here. The installation routine will create many sub-directories in the main directory.
+
+
+---++ Use Pacman to Install the Worker Node Client
+
+In the next step we will use the =pacman= command line tool to install the package from the OSG software cache. %LINK_PACMAN% will ask whether you want to "trust the caches and accept the license", answer =yall= and =y= to install Compute Element.
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% pacman -get %CACHE%:wn-client
+Do you want to add [%CACHE%] to [trusted.caches]? (y/n/yall): %RED%yall%ENDCOLOR%
+...
+</pre>
+
+%TWISTY{%TWISTY_OPTS_OUTPUT%}%
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% pacman -get %CACHE%:wn-client
+Do you want to add [%CACHE%] to [trusted.caches]? (y/n/yall): %RED%yall%ENDCOLOR%
+Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check...        
+
+All prerequisite checks are satisfied.
+                                                          
+========== IMPORTANT ==========
+Most of the software installed by the VDT *will not work* until you install
+certificates.  To complete your CA certificate installation, see the notes
+in the post-install/README file.
+                                           
+The OSG Worker Node Client package OSG version %VERSION% has been installed.
+</pre>
+%ENDTWISTY%
+
+%NOTE% Depending on your network connection and hardware capabilities the installation process will take between 5 and 30 minutes to complete. Meanwhile you can =tail= the main installation logfile =%UCL_CWD%/vdt-install.log=.
+
+%WARNING% Do not continue if the pacman command indicated an error! In this case review the main installation log file and consult the [[ReleaseDocumentation/HelpProcedure][help page]].
+
+---++ Update the Environment
+
+Depending on your shell update your environment by sourcing =%UCL_CWD%/setup.sh= or =%UCL_CWD%/setup.csh=:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% . %UCL_CWD%/setup.sh
+</pre>
+
+Depending on your preference you might want to optionally include the setup script in your system or user profile.
+
+
+<!-- How to install and handle CA Certificates and the CRL on storage and worker nodes -->
+%INCLUDE{"ReleaseDocumentation/CaCertificatesInstall" section="CACertificatesOnNodes" TOC_SHIFT="+"}%
+
+---++ Advanced Installation Options
+
+---+++ Installing gLexec 
+
+*gLexec* is an _optional_ package included with VDT version >= 1.8.0. It's purpose is to handle 
+authentication for pilot jobs.  Several VO's submit pilot jobs under the DN of one user 
 which then call back to the VO submit host, e.g. Panda or !GlideWMS, to get a job
 from a different user.  gLexec is designed to be installed on every worker node
 and authenticate the user who is submitting the real job. It does this by calling 
@@ -133,26 +129,49 @@ a configurable callout (either LCG's lcas/lcmaps or GUMS/PRIMA).
 
 %IMPORTANT% Instructions on how to install and configure gLexec can be found at [[GlexecInstall]]. 
 
----++ Post-install checks
-If the OSG WN client is installed along with some other VDT package on any given node, the CE for instance, as in option 2, you should do the following steps afterwards.
+%TWISTY{%TWISTY_OPTS_REVIEW%}%
+This whole sections on gLexec needs an update.
+%ENDTWISTY%
 
-Look at =crontab -l= for root, make sure that the fetch-crl that is there is running from the correct area. Make sure that it's sourcing the correct location.
 
-For example, if the OSG CE is installed in =/usr/local/vdt= , and the OSG WN Client is installed in =/usr/local/grid=
+---+++ Automation of the Installation Process
 
-Look at the =/usr/local/grid/globus/TRUSTED_CA= link. It should point to the real area where your certificates will live, in this example =/usr/local/vdt/globus/share/certificates= . If it doesn't, change it to that location.
-
+The Worker Node Client installation process can be automated for many installation scenarios by defining following environment variables on the command line before the =pacman= command will be involved:
 
 <pre class="screen">
-[root@fgtest3 globus]# <b>pwd </b>
-/usr/local/grid/globus
-[root@fgtest3 globus]# <b>ls -l TRUSTED_CA </b>
-lrwxrwxrwx  1 root root 41 Mar 16 15:44 TRUSTED_CA -> /usr/local/grid/globus/share/certificates
-[root@fgtest3 globus]# <b>rm TRUSTED_CA </b>
-[root@fgtest3 globus]# <b>ln -s /usr/local/vdt/globus/share/certificates TRUSTED_CA </b>
+%UCL_PROMPT_ROOT% export VDTSETUP_AGREE_TO_LICENSES=y
+%UCL_PROMPT_ROOT% export VDTSETUP_INSTALL_CERTS=l
+%UCL_PROMPT_ROOT% export VDTSETUP_EDG_CRL_UPDATE=y
+%UCL_PROMPT_ROOT% export VDTSETUP_ENABLE_ROTATE=n
+</pre> 
+
+
+---+ Activate and Deactivate Services
+
+%INCLUDE{"ReleaseDocumentation/StartingServices" section="About" TOC_SHIFT="+"}%
+%INCLUDE{"ReleaseDocumentation/StartingServices" section="List" TOC_SHIFT="+"}%
+%INCLUDE{"ReleaseDocumentation/StartingServices" section="Activate" TOC_SHIFT="+"}%
+%INCLUDE{"ReleaseDocumentation/StartingServices" section="Deactivate" TOC_SHIFT="+"}%
+
+
+---+ Post-installation Checks
+
+---++ For Multiple VDT Installations
+
+If more than one installation of the %LINK_VDT% exist on the same node, please ensure that =fetch-crl= is operating on the correct installation by using =crontab -l= for the _root_ user.
+
+If for example the OSG CE is installed in =/usr/local/vdt= , and the OSG WN Client is installed in =/usr/local/grid=, then check the =/usr/local/grid/globus/TRUSTED_CA= link. It should point to the location where your certificates have been installed. In this example =/usr/local/vdt/globus/share/certificates=. If it doesn't, change it to that location.
+
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% ls -l %UCL_CWD%/globus/TRUSTED_CA
+lrwxrwxrwx  1 root root 41 Mar 16 15:44 TRUSTED_CA -> %UCL_CWD%/globus/share/certificates
 </pre>
 
-%NOTE% If Condor is used as the job manager, you should also make a symlink from =/etc/grid-security/certificates= to =$VDT_LOCATION/globus/share/certificates= .
+
+---++ If Condor is being used
+
+If not present, create a symlink from =/etc/grid-security/certificates= to your installation of the CA Certificates.
 
 ---++ Notes
 %IMPORTANT% If you are installing this package on a head node / compute element where an OSG CE install will also be done afterwards, it is recommended that you log out and log back in before continuing with the main OSG CE Install, otherwise all the wn-client stuff will be in your path and confuse everything.
@@ -191,9 +210,7 @@ where =wn-cert-sync= is a soft link to your particular cluster's worker node cer
    * This issue deserves further discussion and repair in the current OSG releases.
 -->
 
-%BR%
-
----++ *Comments*
+---+ Comments
 %COMMENT{type="tableappend"}%
 
 <!-- CONTENT MANAGEMENT PROJECT
@@ -223,10 +240,10 @@ where =wn-cert-sync= is a soft link to your particular cluster's worker node cer
    * Local INCLUDE_TEST   = %YES%
 
    change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
-   * Local REVIEW_READY   = %NO%
+   * Local REVIEW_READY   = %YES%
 
    change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
-   * Local TEST_READY     = %NO%
+   * Local TEST_READY     = %YES%
 
    change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
    * Local RELEASE_READY  = %NO%
@@ -236,7 +253,7 @@ where =wn-cert-sync= is a soft link to your particular cluster's worker node cer
    ======================
 
    Thank for reviewing this document! Please fill in your FirstLast name here:
-   * Local REVIEWER       = IwonaSakrejda
+   * Local REVIEWER       = MarcoMambelli
   
    Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local REVIEW_PASSED  = %IN_PROGRESS%
@@ -246,7 +263,7 @@ where =wn-cert-sync= is a soft link to your particular cluster's worker node cer
    ====================
 
    Thank for testing this document! Please fill in your FirstLast name here:
-   * Local TESTER         = IgorSfiligoi
+   * Local TESTER         = IwonaSakrejda
   
    Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local TEST_PASSED    = %IN_PROGRESS%
