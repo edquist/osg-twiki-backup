@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1285878158" format="1.1" reprev="1.60" version="1.60"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1285907757" format="1.1" reprev="1.61" version="1.61"}%
 %META:TOPICPARENT{name="WebHome"}%
 %DOC_STATUS_TABLE%
 ---+!! %BESTMAN%-gateway on top of Xrootd FS Installation Guide 
@@ -124,41 +124,37 @@ If you cannot find answers, please send all your questions to: osg-storage@opens
 
    1. [[ReleaseDocumentation/PacmanInstall][pacman]] version >= %PACMAN_VERSION% is required
    1. The server must have a fully qualified domain name and a valid [[ReleaseDocumentation/GetGridCertificates][grid host certificate]] installed in =/etc/grid-security/=
-   1. %BESTMAN% server needs to have a valid service certificate. The certificate should be own by a user login that is running %BESTMAN%  server.The right permission (600) should be set on those files. By default %BESTMAN% is using a service certificate =/etc/grid-security/http/httpcert.pem= and certificate key =/etc/grid-security/http/httpkey.pem=.%ICON{warning}%  %BESTMAN% should be configured with host certificate in order to be able to handle requests from !LCG-Utils tools. This is mandatory for at least all %BESTMAN% servers that support ATLAS experiment. Normally the OSG %BESTMAN%  implementation uses a service certificate, not a host certificate. This causes lcg-cp to fail because the certificate service name (which looks like http/hostname instead of just hostname or host/hostname) doesn't match the hostname. There are two ways to solve this problem:
-      * copy hostcert.pem, hostkey.pem into /etc/grid-security/http and rename these two files to httpcert.pem, httpkey.pem respectively. Change ownership of these files and directory.
-      * create a directory  /etc/grid-security/bestmancert copy hostcert.pem, hostkey.pem into this directory and  these two files to bestmancert.pem, bestmankey.pem.respectively. Change ownership of these files and directory. You will need to use relevant options to specify certificate and certificate key while configuring %BESTMAN%.
+   1. %BESTMAN% server needs to have a valid service certificate. The certificate should be own by a user that is running %BESTMAN%  server.
+   1. A working GUMS server or a grid-mapfile are needed for authorization using grid certificates.
    1. The firewall must allow incoming connections to the %BESTMAN%-gateway ports (default:10080,10443)
    1. The firewall must allow incoming connections to the !GridFTP port (default 2811). Outgoing connections must be allowed from high ports ( typically in range 32769-65535 ). We recommend to consult the [[ReleaseDocumentation/ComputeElementFirewalls][Firewall Guide]] if you install the !GridFTP server for the first time.
-   1.  The firewall must allow multiple ports to be opened for Xrootd daemons on redirector and data server nodes. See detailed information [[#XrootdFirewall][here]].
-   1. A working GUMS server or a grid-mapfile are needed for authorization using grid certificates.
+   1. The firewall must allow multiple ports to be opened for Xrootd daemons on redirector and data server nodes. See detailed information [[#XrootdFirewall][here]].
    1. FUSE should be installed on the node where %BESTMAN%-gateway and !XrootdFS are installed.  
-%TWISTY%  FUSE is a kernel module that intercepts and services user requests to the !XrootdFS.  It has to be installed on the node where %BESTMAN%  and !XrootdFS will be installed. !FUSE can be installed via “yum install” or rpms. You will need two packages for SL5: 
-   * fuse
-   * fuse-libs
-and additional package kernel-module-fuse  if you are using SL4.
-To verify that you have fuse installed on your node do:
-<pre class="screen">
-yum list *fuse*
-Loaded plugins: kernel-module
-Available Packages
-fuse.i386                                                                                                5:2.6.3-1.SL                                                            sl-base       
-fuse-libs.i386                                                                                           5:2.6.3-1.SL                                                            sl-base       
-</pre>
-It is essential that FUSE version ( &gt; 2.7.3). Contact your sys admin if you have any questions.
-%ENDTWISTY%
+
 
 %TWISTY{%TWISTY_OPTS_REVIEW%}%
    * This section should be called 'Requirements'
-   * increase from simple (obvious) requirements to more specific requirements
-   * make sure you really list all requirements ( how many hardware nodes do I need?)
-   * link to the section in GetGridCertificates that explains how to install the certificate into =/etc/grid-security= (root install)
+   * increase from simple (obvious) requirements to more specific requirements 
+   * make sure you really list all requirements ( how many hardware nodes do I need?) 
+   * link to the section in GetGridCertificates that explains how to install the certificate into =/etc/grid-security= (root install) 
    * link to the section in GetGridCertificates that explains how to get a service certificate, skip the login details. This should be explained below in the instructions (chown if necessary)
    * the warning should go into the instructions below as well.
    * the instructions to copy certificates should go into instructions below. This here is not the place for instructions!
    * move authorization up right after certificates.
 %ENDTWISTY%
 
----+ %BESTMAN%/Xrootd-GridFTP/XrootdFS Installation Procedure 
+---+ %BESTMAN%-XrootdFS Installation Procedure 
+
+The installation procedure consists of the following steps:
+   * select the node where  %BESTMAN% will be installed
+   * verify fuse installation on that node
+   * verify existence and permission of a service certificate for %BESTMAN% server
+   *  create an installation directory
+   * use Pacman to install the !XrootdFS
+   * use Pacman to install %BESTMAN%
+   * install the CA Certificates and the Certificate Revocation List
+   * execute the post installation script 
+   * use Pacman to install  !GRridFTP-Xrootd
 
 %TWISTY{%TWISTY_OPTS_REVIEW%}%
    * ok, the installation procedure starts here
@@ -174,27 +170,66 @@ It is essential that FUSE version ( &gt; 2.7.3). Contact your sys admin if you h
    * use twiki variables for generating command line within the shown output (hostnames, usernames, installation directories)
 %ENDTWISTY%
 
-%BESTMAN%, !XrootdFS  and !FUSE have be installed on the same node. %BESTMAN% and !XrootdFS should be installed under the same directory. 
-Login as root and check if pacman version >=%PACMAN_VERSION% is installed:
+%BESTMAN%, !GRridFTP-Xrootd, !XrootdFS  and !FUSE have be installed on the same node. 
+---++ Verify FUSE Installation
+
+FUSE is a kernel module that intercepts and services user requests to the !XrootdFS. !FUSE can be installed via “yum install” or rpms. You will need two packages for SL5: 
+   * fuse
+   * fuse-libs
+and additional package kernel-module-fuse  if you are using SL4.
+To verify that you have fuse installed on your node do:
+<pre class="screen">
+yum list *fuse*
+Loaded plugins: kernel-module
+Available Packages
+fuse.i386                                                                                                5:2.6.3-1.SL                                                            sl-base       
+fuse-libs.i386                                                                                           5:2.6.3-1.SL                                                            sl-base       
+</pre>
+It is essential that FUSE version ( &gt; 2.7.3). Contact your sys admin if you have any questions.
+
+---++ Verify Service Certificate for %BESTMAN%
+By default %BESTMAN% is using a service certificate =/etc/grid-security/http/httpcert.pem= and certificate key =/etc/grid-security/http/httpkey.pem=.  
+
+%ICON{warning}% For the time being  %BESTMAN% should be configured with host certificate in order to be able to handle requests from !LCG-Utils tools. This is mandatory for at least all %BESTMAN% servers that support ATLAS experiment. Normally the OSG %BESTMAN%  implementation uses a service certificate, not a host certificate. This causes ==lcg-cp== command  to fail because the certificate service name (which looks like http/hostname instead of just hostname or host/hostname) doesn't match the hostname. 
+
+There are two ways to solve this problem:
+   * If you don't has a service certificate in the =/etc/grid-security/http== directory then  copy ==hostcert.pem==, ==hostkey.pem== into ==/etc/grid-security/http== and rename these two files to ==httpcert.pem==, ==httpkey.pem== respectively. Change ownership of these files and directory to ==600==.
 <pre class="rootscreen">
-su root
-cd &lt;PACMAN_LOCATION&gt;
-. setup.sh
-pacman -version
+cd /etc/grid-security
+mkdir  http
+cp hostcert.pem http/hostcert.pem
+cp hostkey.pem http/hostkey.pem
+chown -R http
+chmod 600 http/hostcert.pem http/hostkey.pem
+</pre>
+OR  
+   * if you already using service certificate for some other purpose then create a directory  ==/etc/grid-security/bestmancert== copy ==hostcert.pem==, ==hostkey.pem== into this directory under these names ==bestmancert.pem==, ==bestmankey.pem== respectively. Change ownership of these files and directory. You will need to use relevant options to specify certificate and certificate key while configuring %BESTMAN%.
+<pre class="rootscreen">
+cd /etc/grid-security
+mkdir  bestmancert
+cp hostcert.pem bestmancert/bestmancert.pem
+cp hostkey.pem bestmancert/bestmankey.pem
+chown -R bestmancert
+chmod 600 bestmancert/bestmancert.pem  bestmancert/bestmankey.pem
 </pre>
 
-Next,  create an installation directory and change to this directory. This directory will later be used to get the %BESTMAN%  package  from the %CACHE% cache.
+---++ Create the  Installation Directory
 
+Next,  create an installation directory and change to this directory.  This directory will be used for installation of all the packages described in this section.
 <pre class="rootscreen">
 mkdir -p /opt/osg_%OSG_VERSION%-bestman/
 cd /opt/osg_%OSG_VERSION%-bestman/
 </pre>
 
-Install !XrootdFS from %CACHE%. Pacman will ask whether you want to trust the cache (=yall=).
+---++ !XrootddFS Installation
+In the next step we will use the =pacman= command line tool to install the !XrootdFS package from the %CACHE%. %LINK_PACMAN% will ask whether you want to "trust the caches and accept the license", answer =yall= and =y= to install the !XrootdFS package. 
 <pre class="rootscreen">
 pacman -get %CACHE%:XrootdFS
 </pre>
-Next, you will need to install %BESTMAN%  in the same directory. If you are using GUMS authorization method, you will need to setup _VDT_GUMS_HOST_ environment variable. If you are using  grid-mapfile, please proceed to the next step.
+
+---++ %BESTMAN% Installation
+
+Next, you will need to install %BESTMAN%  in the same directory. If you are using GUMS authorization method, you will need to setup _VDT_GUMS_HOST_ environment variable first. If you are using  grid-mapfile, please proceed to [[#SkipThisStep1][the next step]].
 <pre class="rootscreen"> 
 cd /opt/osg_%OSG_VERSION%-bestman/
 export VDT_GUMS_HOST=&lt;GUMS hostname&gt;  
@@ -204,8 +239,8 @@ export VDT_GUMS_HOST=&lt;GUMS hostname&gt;
    * it doesn't serve well to explain something is needed right after the command is shown. Move the VDT_GUMS_HOST before the command line, so the user will read it before executing the command line.
 %ENDTWISTY%
 
-
-Next, execute pacman to get the %BESTMAN%  package from the %CACHE% cache. Pacman will ask whether you want to trust the cache (=yall=).
+#SkipThisStep1
+Next, execute %LINK_PACMAN% to get the %BESTMAN%  package from the %CACHE% cache. %LINK_PACMAN% will ask whether you want to "trust the caches and accept the license", answer =yall= and =y= to install the %BESTMAN% package. 
 <pre class="rootscreen">
 pacman -get %CACHE%:Bestman
 </pre>
@@ -227,7 +262,9 @@ vdt-post-install
    * if a command is shown, the output should be shown as well. If long, make it into Twisty.
 %ENDTWISTY%
 
-Generic !GridFTP server comes with  %BESTMAN% installation, but you will need to install additional package in order for !GridFTP to work with !Xrootd. This package should be installed in the same directory where %BESTMAN% is installed.  You can choose to have multiple !GridFTP servers for load balancing. Please follow [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GridFTPXrootd][these]] instruction to install additional !GridFTP servers.
+---++ !GridFTP-Xrootd Installation
+
+The generic !GridFTP server comes with  the %BESTMAN% package but you will need to install additional package in order for !GridFTP to work with !Xrootd. This package should be installed in the same directory where %BESTMAN% was installed.  You can choose to have multiple !GridFTP servers for load balancing. Please follow [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GridFTPXrootd][this]] instruction to install additional !GridFTP servers on other nodes.
 
 %TWISTY{%TWISTY_OPTS_REVIEW%}%
    * Be precise with your language. 
@@ -239,7 +276,6 @@ Generic !GridFTP server comes with  %BESTMAN% installation, but you will need to
 
 <pre class="rootscreen">
 pacman -get %CACHE%:Xrootd-GridFTP 
-. setup.sh
 </pre>
 
 
@@ -247,15 +283,7 @@ pacman -get %CACHE%:Xrootd-GridFTP
    * this instructions can be included from StartingServices
 %ENDTWISTY%
 
-You can verify that the version installed is the version you expected by executing =vdt-version=. To see all services available use =vdt-control -list=
-<pre class="rootscreen">
-vdt-version
-vdt-control --list
-</pre>
-
-
-This completes the installation of the %BESTMAN%/Xrootd-GridFTP/XrootdFS packages. Move to the next section to configure the %BESTMAN%, !Xrootd-GridFTP and !XrootdFS. You may also chose to configure Gratia transfer probe at this time.
-If you want to install additional !GridFTP servers on the different nodes, please, follow [[GsiFtpStandAlone][this document]]
+This completes the installation of the %BESTMAN%, Xrootd-GridFTP, XrootdFS packages. Move to the next section to configure the %BESTMAN%, !Xrootd-GridFTP and !XrootdFS.
 
 %TWISTY{%TWISTY_OPTS_REVIEW%}%
    * Why would I want to configure Gratia transfer probes. Please motivate that step.
@@ -265,7 +293,12 @@ If you want to install additional !GridFTP servers on the different nodes, pleas
    * how can I know that my installation went according to plan, if you do not include the output for each command? It is very un-convenient to sort through the mega output below,
 %ENDTWISTY%
 
----+ %BESTMAN%/Xrootd-GridFTP/XrootdFS Configuratation 
+---+ %BESTMAN%-XrootdFS Configuration 
+
+Now you will need to configure all the packages you have just installed. The configuration procedure consists of the following steps:
+   * configure !XrootdFS 
+   * configure %BeStMan%
+   * configure !GridFTP-Xrootd
 
 %TWISTY{%TWISTY_OPTS_REVIEW%}%
    * you assume the reader follows your instructions as you lay them out - this is most likely not so.
@@ -275,6 +308,7 @@ If you want to install additional !GridFTP servers on the different nodes, pleas
    * make table for the options below.
 %ENDTWISTY%
 
+---++ Configure !XrootdFS
 In order to configure !XrootdFS you will need to do the following: 
 <pre class="rootscreen">
 cd  /opt/osg_%OSG_VERSION%-bestman/
@@ -297,9 +331,16 @@ _storage_path_ is the name of  storage area (_storage_path_) on the !Xrootd redi
 %ICON{"warning"}%The _storage_path_ is used throughout this document, and it refers to the path that has to be provided while accessing %BESTMAN%-gateway, !GridFTP, !XrootdFS and Xrootd. For !XrootdFS, the _storage_path_ is a !XrootdFS mount point that is mapped to  _&lt;xrdr_host&gt;:&lt;xrdr_port&gt;:storage_path_. On the node where !XrootdFS is installed you can access data files directly. For !GridFTP the _storage_path_ is virtual mount point that allows to redirect user requests to  _&lt;xrdr_host&gt;:&lt;xrdr_port&gt;:storage_path_.  The  _storage_path_ should be the same for !GridFTP and !XrootdFS in order for %BESTMAN%  to operate correctly.
 For Xrootd the _storage_path_ is a directory that client (user , !XrootdFS, !GridFTP) can access using xroot protocol directly. This directory contains the symbolic links to the actual data files that is stored in _storage_cache_ area (Xrootd cache partition that should exist on every Xrootd node).   
 
+---++ Configure %BESTMAN%
+Next, you will need to configure %BESTMAN%-gateway.  You will need to specify ==use-xrootd== option in order for  %BESTMAN%  to work with !Xrootd.  
 
-Next, you will need to configure %BESTMAN%-gateway first in order to enable it as a service. You will need to specify "use-xrootd" option, so %BESTMAN%  could be configured in gateway-mode and be able to use xrootd as DFS. In gateway mode, %BESTMAN%  is not managing the storage disks, and relies on !Xrootd to do so. You have to choose what authorization mechanism to use. Also, you need to decide if you would like to use static space token reservation, and in this case to come up with a list of token 
-names, description and size of space allocated for each token. 
+%ICON{warning}% Remember  that %BESTMAN%   will run in ==gateway== mode and will  not manage the space and dynamic reservation. It will rely on !Xrootd to do manage space on the disks. 
+
+%ICON{warning}% You will need to use the same authorization mechanism you have selected during the installation procedure.
+
+At this time  you need to decide if you would like to use static space token reservation, and in this case to come up with a list of token  names, description and size of space allocated for each token. 
+
+Please re-read [[#EngineeringConsideration][this section]] if you don't know what option to choose.
 
 %TWISTY{%TWISTY_OPTS_REVIEW%}%
 These sentences are only comprehensible if one really really needs to understand them. Instructions that are essentially very simple become a task to decipher the language first. Why do you expect a reader to walk through that painful exercise?  It would take you only a few minutes to write instructions down clearly. Use bullet points for procedures, tables for options and observe causalities in sentences.  
@@ -361,26 +402,14 @@ If you don't have a firewall, do not specify the following options:<br>
   * Why do you expect every user to find the link for you?
 %ENDTWISTY%
 
-Please make the appropriate modification to _/etc/sudoers_ described in %BESTMAN% documentation, namely add the following lines to this file: 
-<pre class="file">
-<verbatim>
-# Comment out this line, if it is in your ==/etc/sudoers== file (RHEL5+)
-#Defaults    requiretty
-
-Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls 
-Runas_Alias SRM_USR = ALL, !root 
-<user_name> ALL=(SRM_USR) NOPASSWD: SRM_CMD 
-</verbatim>
-</pre>
-
-_user_name_ is the account running %BESTMAN% server process. %BR%
-Please keep in mind that this is just an example, you can choose more  be more restrictive policy for your site.
+%INCLUDE{"ReleaseDocumentation/BestmanGateway" section="SudoersFile"}%
 
 %TWISTY{%TWISTY_OPTS_REVIEW%}%
   * When would I want to choose a more restrictive policy?
 %ENDTWISTY%
+---++ Configure !GridFTP-Xrootd
 
-Now, you have to configure  !GridFTP to work with !Xrootd
+Now, you have to configure  !GridFTP to work with !Xrootd. Please see [[Engineering Considerations][this section]] for detailed explanation.
 
 %TWISTY{%TWISTY_OPTS_REVIEW%}%
   * Why do I have to do that? Please motivate that step!
@@ -419,8 +448,8 @@ export GLOBUS_TCP_PORT_RANGE
 Where _low_port,high_port_ - controls all outbound globus connections for gridftp (e.g GLOBUS_TCP_PORT_RANGE=40000,49150)
  
 ---++ Gratia !GridFTP Transfer Probe
-If you are using !GridFTP server installed during the %BESTMAN%  installation, you will need to enable and configure Gratia !GridFTP transfer probe, and perform the actions described in
- [[GratiaTransferProbe][Preparing, Installing and Validating Gratia transfer probe]]
+You may want to configure and enable Gratia !GridFTP transfer probe (see  [[Engineering Considerations][this section]] for detailed explanation). In order to so you will need to perform the actions described in
+ [[GratiaTransferProbe][Preparing, Installing and Validating Gratia transfer probe]].
 
 ---+ Xrootd Installation 
 
@@ -438,17 +467,8 @@ You will have to install Xrootd on the redirector node and each data server node
 </pre>
 and copy /etc/passwd, /etc/shadow, /etc/group, and /etc/gshadow to each of the xrootd nodes. 
 
-Login as root and check if pacman version >=3.28 is installed:
-<pre class="rootscreen">
-<verbatim>
-su root
-cd <PACMAN_LOCATION>
-. setup.sh
-pacman -version
-</verbatim>
-</pre>
 
-Next create and change to an installation directory. <pre class="rootscreen">
+Next, create and change to an installation directory. <pre class="rootscreen">
 mkdir -p /opt/osg_%OSG_VERSION%-xrootd
 cd /opt/osg_%OSG_VERSION%-xrootd
 </pre>
