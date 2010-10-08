@@ -1,11 +1,24 @@
-%META:TOPICINFO{author="RobertEngel" date="1285711712" format="1.1" version="1.38"}%
+%META:TOPICINFO{author="DaveDykstra" date="1286577294" format="1.1" reprev="1.39" version="1.39"}%
 %META:TOPICPARENT{name="WorkerNodeClient"}%
----+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %DOC_STATUS_TABLE%
+
+---+!! Glexec Installation Guide
+
 %TOC{depth="3"}%
 
+---+ About This Document
 
----++ Description
+%ICON{hand}% This document is intended for System Administrators that are installing the OSG version of glexec.
+
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="Header"}%
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="CommandLine"}%
+
+---+ Applicable Versions
+
+The applicable software versions for this document are %RED%OSG Version >= 1.2.14%ENDCOLOR%.  The version of glexec installed should be %RED%0.6.8.3-osg3%ENDCOLOR%.
+
+---+ About Glexec
+
 Glexec is commonly used for what are referred to as "pilot" or "glidein" jobs.  Normally  users submit their jobs directly to a remote site (or compute element gatekeeper).   The user job is authenticated/authorized to run at that site based on the user's proxy credentials and run under the local unix account assigned.
 
 In a pilot-based infrastructure, users submit their jobs to a centralized site (or queue).   The pilot/glidein software at the centralized site then recognizes there is a demand for computing resources.  It will then submit what is called a pilot/glidein job to a remote site.  This pilot job gets authenticated/authorized to run on a worker node in that site's cluster.  It will then "pull" down user jobs from the centralized queue and execute them.  Both the pilot and the user job are run under the pilot job's proxy certificate credentials and local unix account. This represents a security problem in pilot-based systems as there is no authentication/authorization of the individual user's proxy credentials and, thus, the user's jobs do not run using it's own local unix account.
@@ -23,70 +36,44 @@ Many worker node clusters use shared file systems like NFS for much of their sof
 
 For more information regarding pilot-based systems and glexec:
    1 <a href="http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.html">glideinWMS - The glidein based WMS</a>
-   1 <a href="http://iopscience.iop.org/1742-6596/119/5/052029/pdf/jpconf8_119_052029.pdf">Addressing the pilot security problem with gLexec (pdf)</a>
+   1 <a href="http://iopscience.iop.org/1742-6596/119/5/052029/pdf/jpconf8_119_052029.pdf">Addressing the pilot security problem with gLExec (pdf)</a>
 
----++ Installation
-This section describes any prerequisite software/considerations that must be taken into account before the gLexec software is performed.  It should be reviewed completely before starting the installation process.
+---+ Engineering Considerations
+This section describes any prerequisite software/considerations that must be taken into account before the glexec software installation is performed.  It should be reviewed completely before starting the installation process.
 
-The installation process described here is for a _pacman_ installation from the VDT.
+   1 The installation process described on this page is for a _pacman_ installation from the VDT.
+   1 An alternative, RPM distribution, is under development/test and is available here: http://vdt.cs.wisc.edu/glexec-rpm/ . Keep in mind that this RPM distribution is under development and evolving.  When released for production this section will contain both installation methods.
+   1 Glexec must be installed as root.  The =glexec= program is an =suid= program and thus must be installed on every single worker node individually.    It cannot and must not be exported over NFS and it is probably not a good idea to use any other shared filesystem either.  
+   1 Same location on all worker nodes.  It is recommended that the glexec package be installed within the OSG Worker Node Client area because most of its dependencies are the same  as those within the worker node client.   It must be installed in the *same*  location on all worker nodes managed by the same Compute Element.   The reason for this is that the location of the glexec executable is defined on the CE. Details are described in the [[GlexecInstall#Configuring_the_CE_node][Configuring the CE node section]] of this document.
 
-An alternative, RPM distribution, is under development/test and is available here: http://vdt.cs.wisc.edu/glexec-rpm/ . Keep in mind that this RPM distribution is under development and evolving.  When released for production this section will contain both installation methods.
+---+ How to get Help?
 
----+++ gLexec must be installed as root
-The =glexec= program is an =suid= program and thus must be installed on every single worker node individually. 
-It cannot and must not be exported over NFS and it is probably not a good idea to use any other shared filesystem either.  
+To get assistance please use [[HelpProcedure][this page]]. 
 
----+++ Same location on all worker nodes
-It is recommended that the gLexec package be installed within the OSG Worker Node Client area because most of its dependencies are the same 
+---+ Requirements
+
+These are the requirements that must be met before proceeding with the glexec installation:
+
+   1 Local user "glexec".  You must create a <b>"glexec" local user</b> before you attempt the installation.   Glexec uses it for privilege separation and the installation will fail without it.
+   1 Group ids for tracking purposes.  Glexec also requires a range of <b>group ids</b> for tracking purposes. 
+      * Define at least 4 group ids per batch slot per worker node.   A conservative way to handle this is to multiply the number of batch slots on the largest worker node by 6 and then share the group ids between all the worker nodes.
+      * They must be consecutive and in any range (default range is 65000-65049, configured in post-install section below).   
+      * The same group ids can be used on every worker node.
+   1 CA Certificates.  Remember to install the CA Certificates as for every VDT install.  Follow the instructions in CaCertificatesInstall.
+   1 A host cert or proxy on every node.  Each worker node which is executing =glexec= needs to have either a host certificate or a host proxy distributed from the gatekeeper.  If you don't have host certificates for the worker nodes, there is a host proxy distribution script located at  =http://fermigrid.fnal.gov/files/glexec/host_dist_latest.tgz= which can be installed on your gatekeeper and will automatically create a proxy from your gatekeeper's host certificate and push it out to =/etc/grid-security/hostproxy.pem= and =/etc/grid-security/hostproxykey.pem=.
+
+---+ Installation Procedure
+<b>Glexec must be installed as root</b>.
+
+It is recommended that the glexec package be installed within the OSG Worker Node Client area because most of its dependencies are the same 
 as those within the worker node client.   It must be installed in the *same*  location on all worker nodes managed by the same Compute Element.
-The reason for this is that the location of the gLexec executable is defined on the CE. Details are described in the [[GlexecInstall#Configuring_the_CE_node][Configuring the CE node section]] of this document.
-
----+++ Create local user "glexec"
-You must create a <b>"glexec" local user</b> before you attempt the installation. 
-gLexec uses it for privilege separation and the installation will fail without it.
-
----+++ Create group ids for tracking purposes
-Starting in OSG 1.0.0, gLexec also requires a range of <b>group ids</b> for tracking purposes. 
-   * Define at least 4 group ids per batch slot per worker node. 
-   * They must be consecutive and in any range (default range is 65000-65049, configured in post-install section below).   
-   * The same group ids can be used on every worker node.
-
-A good way to handle this is to multiply the number of batch slots on the largest worker node by 6
-and then share the group ids between all the worker nodes.
-
-For example to create group ids matching the default range (for 8 batch slots with a little extra):
-<pre class="screen">
-# groupadd -g 65000 glexec00
-# groupadd -g 65001 glexec01
-# groupadd -g 65002 glexec02
-     :
-     :
-# groupadd -g 65049 glexec49
-# useradd -c "gLexec user" -s /sbin/nologin glexec
-</pre>
-
-These group ids will be added to a gLexec configuration file during the post-installation configuration process.
-
----+++ Install CA Certificates
-Remember to install the CA Certificates as for every VDT install. A simple example for a self contained installation is in CaCertificatesInstall is a more complete reference about installation and maintenance of CA Certificates and CRLs.
-
----+++ Configure each node with host cert or proxy
-Each worker node which is executing =glexec= needs to have either a host certificate or a host proxy distributed from the gatekeeper.
-
-If you don't have host certificates for the worker nodes, there is a host proxy distribution script located at  =http://fermigrid.fnal.gov/files/glexec/host_dist_latest.tgz= which can be installed on your gatekeeper and will automatically create a proxy from your gatekeeper's host certificate and push it out to =/etc/grid-security/hostproxy.pem= and =/etc/grid-security/hostproxykey.pem=.
-
----+++ Installing the gLexec package
-<b>gLexec must be installed as root</b>.
-
-It is recommended that the gLexec package be installed within the OSG Worker Node Client area because most of its dependencies are the same 
-as those within the worker node client.   It must be installed in the *same*  location on all worker nodes managed by the same Compute Element.
-The reason for this is that the location of the gLexec executable is defined on the CE. Details are described in the  [[GlexecInstall#Configuring_the_CE_node][Configuring the CE node section]] of this document.
+The reason for this is that the location of the glexec executable is defined on the CE. Details are described in the  [[GlexecInstall#Configuring_the_CE_node][Configuring the CE node section]] of this document.
 
 To install:
-<pre class="screen">
-# pacman -get %CACHE%:Glexec
-# source ./setup.sh
-# vdt-post-install
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% pacman -get %CACHE%:Glexec
+%UCL_PROMPT_ROOT% source ./setup.sh
+%UCL_PROMPT_ROOT% vdt-post-install
 </pre>
 
 %NOTE% The =setup.sh= file is not changed to put the =glexec= binary into your path.
@@ -101,10 +88,10 @@ After the =pacman= installation is complete, perform these checks:
 
 
 
----++Post-install Configuration of gLexec
-The following steps need to be executed manually after the =gLexec= installation is complete.
+---+Post-install Configuration of glexec
+The following steps need to be executed manually after the glexec installation is complete.
 
----+++Modify /etc/glexec/contrib/gums_interface/getmapping.cfg
+---++Modify /etc/glexec/contrib/gums_interface/getmapping.cfg
 
 Modify the file =/etc/glexec/contrib/gums_interface/getmapping.cfg= to point to the correct location of your GUMS server.  
 
@@ -171,7 +158,7 @@ continue_on_monitor_error=0
 
 </pre>
 
----+++ Using the new XACML2 GUMS interface 
+---++ Using the new XACML2 GUMS interface 
 Starting with this version of VDT, GUMS and PRIMA can use two different ways to communicate with each other  
    * the old PRIMA legacy protocol, based on SAML v1
    * the new XACML2 protocol defined by the OSG-EGEE interoperability group
@@ -199,7 +186,7 @@ gums_url="https://yourmachine.yourdomain:8443/gums/services/GUMSXACMLAuthorizati
 </b>
 </pre>
 
----+++Modify /etc/glexec/tracking_groups.cfg
+---++Modify /etc/glexec/tracking_groups.cfg
 
 Modify the file =/etc/glexec/tracking_groups.cfg= with the correct tracking group id range that you created in the pre-installation section.
 <pre class="file">
@@ -212,27 +199,27 @@ min_gid=65000
 max_gid=65049
 </pre>
 
----++ Testing gLexec locally on the worker node
+---+ Testing glexec locally on the worker node
 
 Now, __as a non-privileged user (not root)__ , do the following (where "yourvo" is your vo, etc.):
 <pre class="screen">
->  cd $VDT_LOCATION
->  source setup.sh
->  voms-proxy-init -voms yourvo:/yourvo -file /tmp/x509_xyz
+%UCL_PROMPT% cd $VDT_LOCATION
+%UCL_PROMPT% source setup.sh
+%UCL_PROMPT% voms-proxy-init -voms yourvo:/yourvo -file /tmp/x509_xyz
 
-> export GLEXEC_CLIENT_CERT=/tmp/x509_xyz
-> $VDT_LOCATION/glexec-osg/sbin/glexec /usr/bin/id
+%UCL_PROMPT% export GLEXEC_CLIENT_CERT=/tmp/x509_xyz
+%UCL_PROMPT% $VDT_LOCATION/glexec-osg/sbin/glexec /usr/bin/id
 It appears that the value of pthread_mutex_init is 10603520
 uid=13160(fnalgrid) gid=9767(fnalgrid)
 </pre>
-If gLexec is successful, it will print out the uid and gid that your proxy would normally be mapped to by your gums server.
+If glexec is successful, it will print out the uid and gid that your proxy would normally be mapped to by your gums server.
 
 .
 
----++ gLexec log files
-There are four gLexec log files that are made on each worker node and they have  four different time stamp formats.  They all live, by default, in =/var/log/glexec= directory:
+---+ Glexec log files
+There are four glexec log files that are made on each worker node and they have  four different time stamp formats.  They all live, by default, in =/var/log/glexec= directory:
 
----+++ glexec_log
+---++ glexec_log
 This is the main log of each glexec. It logs in GMT
 <pre class="file">
 glexec[14507]: 20080109T173203Z glexec pid: 14507
@@ -240,7 +227,7 @@ glexec[14507]: 20080109T173203Z Reading glexec configuration file failed, contin
 glexec[14507]: 20080109T173203Z uid: real/eff cdffgrid(3377)/root(0), gid: real/eff cdf(3200)/root(0)
 </pre>
 
----+++ gums_interface.log
+---++ gums_interface.log
 This logs the gums mapping process. It logs in local time.
 <pre class="file">
 glegumsi[23138#23137] 2008-12-02T13:58:17Z Caller account (500,500)
@@ -254,8 +241,8 @@ glegumsi[23138#23137] 2008-12-02T13:58:18Z Launching monitor /opt/vdt/glexec-osg
 glegumsi[23138#23137] 2008-12-02T13:58:18Z Using tracking GID 65002
 </pre>
 
----+++ lcas_lcmaps.log
-The log of the lcas and lcmap portions of gLexec.
+---++ lcas_lcmaps.log
+The log of the lcas and lcmap portions of glexec.
 It  logs with a %RED%zero-indexed month%ENDCOLOR%  (January=0, February-1, etc.).  Time is local time.
 <pre class="file">
 LCMAPS 1: 2008-00-09.11:32:03-14507-glexec_get_accounts : lcmaps.mod-runPlugin()
@@ -277,8 +264,8 @@ LCMAPS 1: 2008-00-09.11:32:03-14507-glexec_get_accounts : lcmaps.mod-lcmaps_term
 (): terminating
 </pre>
 
----+++ glexec_monitor.log
-The gLexec utility also has a process called glexec_monitor which runs as root through the life of the glexec'd process.
+---++ glexec_monitor.log
+The glexec utility also has a process called glexec_monitor which runs as root through the life of the glexec'd process.
 It logs in  GMT format
 <pre class="file">
 glemon[23093#22904]: 2008-12-02T19:57:06Z Tracking gid: 65001
@@ -298,8 +285,8 @@ glemon[23093#22904]: 2008-12-02T19:59:08Z Killing procd 23096
 glemon[23093#22904]: 2008-12-02T19:59:08Z All childs terminated
 </pre>
 
----++  Configuring the CE node to use gLexec
----+++ config.ini changes
+---+  Configuring the CE node to use glexec
+---++ config.ini changes
 After all worker nodes have been configured for =glexec= , the CE node =$VDT_LOCATION/osg/etc/config.ini= file needs to be modified to tell the
 location of the glexec executable.  As mentioned previously, this is why the =glexec= executable __must__ be installed in the same location on all worker nodes.
 <pre class="file">
@@ -310,15 +297,15 @@ glexec_location = YOUR_WN_VDT_LOCATION/sbin/glexec
 </pre>
 
 To effect the change, you need to run this on the CE node:
-<pre class="screen">
-# source YOUR_CE_VDT_LOCATION/setup.sh
-# configure-osg -c
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% source YOUR_CE_VDT_LOCATION/setup.sh
+%UCL_PROMPT_ROOT% configure-osg -c
 </pre>
 
 This will populate the =OSG_GLEXEC_LOCATION= variable in =$VDT_LOCATION/osg/etc/osg-job-environment.conf= file which contains variables
 available to all grid jobs.  This is how pilot jobs invoke =glexec= ..
 
----+++ Testing the CE configuration
+---++ Testing the CE configuration
 To test this, create a script like this to run on a worker node via your batch system:
 <pre class="file">
 #!/bin/bash
@@ -338,7 +325,7 @@ It appears that the value of pthread_mutex_init is -43132256
 
 %BR%
 
----++ *Comments*
+---+ *Comments*
 %COMMENT{type="tableappend"}%
 
 
