@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DerekWeitzel" date="1286993282" format="1.1" reprev="1.5" version="1.5"}%
+%META:TOPICINFO{author="DerekWeitzel" date="1287001878" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="CampusGridTechnology"}%
 ---+ Campus Grid Technology
 %TOC%
@@ -13,7 +13,7 @@ You do not have to install condor as root.  This guide will assume installing as
    1. [[http://www.cs.wisc.edu/condor/downloads-v2/download.pl?state=select_from_mirror_page&version=7.5.3&mirror=UW%20Madison&optional_organization_url=http://][Download]]
    1. Uncompress condor.  For example if you are running on RHEL5, SL5, or !CentOS5:
    <pre class="screen">tar xzf condor-7.5.3-linux-x86_64-rhel5-dynamic.tar.gz</pre>
-   1. Create the file =condor.sh= with the following, replacing =CONDOR_LOCATION= with the location of condor.
+   1. Create the file =condor.sh= with the following, replacing =CONDOR_LOCATION= with the full path to condor-7.5.3.  It should include the condor-7.5.3.
    <pre class="file">#!/bin/sh
 CONDOR_DIR=CONDOR_LOCATION
 export CONDOR_CONFIG=$CONDOR_DIR/etc/condor_config
@@ -22,69 +22,145 @@ export PATH=$CONDOR_DIR/bin:$CONDOR_DIR/sbin:$PATH
 
 
 ---++ Preparing Condor
+   1. Download the factory release.
+   1. Execute the condor 7.5.3 patch:
+   <pre class="screen">$ cd condor-7.5.3
+$ patch -p1 < FACTORY_RELEASE/share/condor/condor-7.5.3-glite.patch </pre>
    1. Copy the file =condor_config.generic= from =CONDOR_LOCATION/etc/examples/condor_config.generic=:
-   <pre class="screen">cd condor-7.5.3
-cp etc/examples/condor_config.generic etc/condor_config </pre>
+   <pre class="screen">$ cp etc/examples/condor_config.generic etc/condor_config </pre>
    1. Edit the required lines in the condor_config that you just created.
       * =RELEASE_DIR= to the full path of the condor location.  It should be the same as =CONDOR_LOCATION= mentioned in [[#InstallingCondor][Installing Condor]]
       * =LOCAL_DIR= to a directory where condor will place host dependent files (logs...).  A common value is =$(RELEASE_DIR)/local.$(HOSTNAME)=.  Be sure to create this directory.  =$(HOSTNAME)= is same as the output from =hostname= on the command line.
       * =LOCAL_CONFIG_FILE= set to =$(RELEASE_DIR)/etc/condor_config.local=
-   1. Download the factory release.
+
    1. Edit the required condor lines in the local condor configuration file (condor_config.local):
       * =CONDOR_HOST= to the full hostname of the machine that will run condor
       * =CONDOR_ADMIN= set to the email address that will receive emails about malfunctioning condor.
       * =UID_DOMAIN= set to a unique name for this resource.  For example, for a cluster named Firefly at Nebraska, we would set =UID_DOMAIN= to =firefly.unl.edu=
       * =FILESYSTEM_DOMAIN= set to your domain.  This can be the same as =UID_DOMAIN=
       * =COLLECTOR_NAME= Name of the resource.
+      * =FLOCK_FROM= Hosts that will be allowed to run jobs on this cluster
+      * =FLOCK_TO= Hosts that can run jobs submitted on this cluster.
+      * =INTERNAL_IPS= IP addresses (or hostnames) of the worker nodes and any NAT machines that the worker nodes may use to contact the =CONDOR_HOST=.
       
+   1. Edit the Condor PBS Blahp configuration.  This file is located in =CONDOR_LOCATION/lib/glite/etc/batch_gahp.config=
+      * =pbs_binpath= set to the location of the pbs executables (ie qstat, qsub, ...)
+      * =pbs_nochecksubmission= Set to =yes=
+      * =pbs_nologaccess= Set to =yes=
+      * =blah_shared_directories= set to =/dev/null=
+
    A sample configuration with the variables changes is shown below.   
    %TWISTY{
 mode="div"
-showlink="Sample condor config"
-hidelink="Sample condor config"
+showlink="Sample condor config.local"
+hidelink="Sample condor config.local"
 showimgleft="%ICONURLPATH{toggleopen-small}%"
 hideimgleft="%ICONURLPATH{toggleclose-small}%"
 }%
 
    <pre class="file">
+#
+# Things you have to edit
+#
 
 ##  What machine is your central manager?
 CONDOR_HOST = ff-grid.unl.edu
-
-##  Where have you installed the bin, sbin and lib condor directories?
-RELEASE_DIR     = /home/swanson/dweitzel/condor-7.5.3
-
-##  Where is the local condor directory for each host?
-##  This is where the local config file(s), logs and
-##  spool/execute directories are located
-LOCAL_DIR       = $(RELEASE_DIR)/local.ff
-
-##  Where is the machine-specific local config file for each host?
-LOCAL_CONFIG_FILE   = $(RELEASE_DIR)/etc/condor_config.local
 
 ##  When something goes wrong with condor at your site, who should get
 ##  the email?
 CONDOR_ADMIN        = dweitzel@cse.unl.edu
 
-##  Full path to a mail delivery program that understands that "-s"
-##  means you want to specify a subject:
-MAIL            = /usr/bin/mail
-
-##  Internet domain of machines sharing a common UID space.  
+##  Internet domain of machines sharing a common UID space.
 UID_DOMAIN      = ff.unl.edu
 
 ##  Internet domain of machines sharing a common file system.
 FILESYSTEM_DOMAIN   = ff.unl.edu
 
-##  This macro is used to specify a short description of your pool.
+##  This macro is used to specify a short description of your pool. 
 COLLECTOR_NAME      = Firefly
+
+# What hosts can run jobs to this cluster.
+FLOCK_FROM = glidein.unl.edu, prairiefire.unl.edu
+
+# Jobs submitted here can run at.
+FLOCK_TO = prairiefire.unl.edu
+
+# Internal ip addresses of the cluster
+INTERNAL_IPS = 10.158.* ff-grid.unl.edu 129.93.227.*
+
+##############################################
+# Things that are 'safe' to leave
+#
+
+# Where the certificate mapfile is located.
+CERTIFICATE_MAPFILE=$(RELEASE_DIR)/etc/condor_mapfile
+
+# What daemons should I run?
+DAEMON_LIST = COLLECTOR, SCHEDD, NEGOTIATOR, MASTER
+
+# Location of the PBS_GAHP to be used to submit the glideins.
+GLITE_LOCATION = $(LIB)/glite
+PBS_GAHP       = $(GLITE_LOCATION)/bin/batch_gahp
+
+# Remove glidein jobs that get put on hold for over 24 hours.
+SYSTEM_PERIODIC_REMOVE = (GlideinJob == TRUE && JobStatus == 5 && CurrentTime - EnteredCurrentStatus > 3600*24*1)
+
+#
+# Security definitions
+#
+SEC_ENABLE_MATCH_PASSWORD_AUTHENTICATION = TRUE
+
+SEC_DEFAULT_NEGOTIATION = OPTIONAL
+SEC_DEFAULT_AUTHENTICATION = PREFERRED
+SEC_DEFAULT_AUTHENTICATION_METHODS = FS,CLAIMTOBE
+
+ALLOW_WRITE = $(FLOCK_FROM) $(FLOCK_TO) execute-side@matchsession $(INTERNAL_IPS) $(HOSTNAME)
+ALLOW_READ = $(ALLOW_WRITE)
+
+SEC_DEFAULT_ENCRYPTION = OPTIONAL
+SEC_DEFAULT_INTEGRITY = REQUIRED
+
 
    </pre>
    %ENDTWISTY%
 
-   1. The next section of the =condor_config.local= prepares condor for the factory.
+Start the condor daemons by first sourcing the condor.sh file you created above:
+<pre class="screen">$ . CONDOR_LOCATION/condor.sh</pre>
+
+Then starting the =condor_master=:
+<pre class="screen">$ condor_master</pre>
 
 ---++ Installing the factory
+In this section, the location of the factory will be represented by =FACTORY_LOCATION=.
+
+---+++ Configuring
+In the configuration file =FACTORY_LOCATION/etc/campus_factory.conf=:
+   * =MaxIdleGlideins= Set to the number of startd that can be idle at a time
+   * =iterationtime= Seconds to sleep between iterations of checking for idle jobs.  30 Seconds is a good default.
+   * =maxqueuedjobs= Number of glidein jobs that can be queued but idle.  When running, these will turn in to idle startd's
+   * =worker_tmp= The local temp directory on the worker node.  This will be where condor places the intermediate job data and glidein logs
+   * =GLIDEIN_Site= (Optional)  Distinct name that the startd's will advertise when jobs are running.  This is useful for accounting, if you want to distinguish what cluster you are running on.  Defaults to the COLLECTOR_NAME defined in the condor_config.local above.
+   * =loglevel= Level of logging that is enabled for the factory.  As this is an early release, I would recommend =debug=.  The logs are rotated and eventually deleted automatically.
+   * =logdirectory= Directory to place the logs for the factory.  They will be named campus_factory.log
+
+---+++ Starting the Factory
+   1. Confirm that the condor executables are in your path:
+   <pre class="screen">$ condor_q</pre>
+   Should output
+   <pre class="screen">
+-- Schedd: HOSTNAME : <IP_ADDRESS>
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+
+0 jobs; 0 idle, 0 running, 0 held
+   </pre>
+   If =condor_q= failes, be sure to source the condor.sh file you created while installing condor.
+   <pre class="screen">$ . CONDOR_LOCATION/condor.sh</pre>
+   1. Export the correct python path:
+   <pre class="screen">$ export PYTHONPATH=$PYTHONPATH:FACTORY_LOCATION/python-lib</pre>
+   1. Start the factory:
+   <pre class="screen">$ cd FACTORY_LOCATION
+condor_submit share/factory.job
+</pre>
 
 
 
