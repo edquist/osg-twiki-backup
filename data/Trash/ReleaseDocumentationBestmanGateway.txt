@@ -1,18 +1,19 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1287507691" format="1.1" reprev="1.82" version="1.82"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1287527705" format="1.1" reprev="1.83" version="1.83"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>BeStMan Gateway*
 %DOC_STATUS_TABLE%
 %TOC{depth="3"}%
 %STARTINCLUDE%
-<!-- conventions used in this document
-   * Local INST_DIR = /opt/osg-%VERSION%
-   * Local BESTMAN_HOST = bestman
-   * Local BESTMAN_PROMPT_ROOT=[root@%BESTMAN_HOST% %INST_DIR%-bestman ]
-   * Local BESTMAN_TYPE=gateway
--->
 
 ---+ About this Document
 %INCLUDE{"Bestman" section="About"}%
+
+<!-- conventions used in this document
+   * LOCAL 
+   * Local UCL_HOST = bestman
+   * Local UCL_CWD  =/opt/osg-%VERSION%
+   * Local BESTMAN_TYPE=gateway
+-->
 
 
 ---+ Introduction
@@ -25,139 +26,10 @@
 %INCLUDE{"Bestman" section="EngineeringConsiderationsPart1"}%
 <img src="%ATTACHURLPATH%/bestman_gateway_arch.jpeg" alt="bestman_gateway_arch.jpeg" width='384' height='288' />
  
-The following questions should be answered before you can proceed with installation and 
-configuration of !BeStMan-Gateway storage solution: 
- 
-   $ Q. _What authorization mechanism do you prefer?_ : You need to decide if you want to use grid-mapfile or !GUMS server for users’ authentication and authorization. More details about !GUMS could be found at [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS GUMS Installation Guide]]. %BR% %BR% We currently recommend using GUMS as it provides superior flexibility and allows a site to manage all of its mappings in one central location; most large sites use GUMS.
- 
-   $ Q. _Do you need to support space tokens?_ : !BeStMan-Gateway supports pre-defined, static space tokens that could be included in configuration. It doesn't keep track of the contents in the space with the static space tokens, nor enforce allocations.  If you want to partition your storage space and have a “designated” space for some VOs or users, you can choose to use space tokens. You will have to provide the names and descriptions of the tokens as well as the size of the area.  
+ %INCLUDE{"Bestman" section="EngineeringConsiderationsPart2"}%
+   $ Q. _Do you need to support static space tokens?_ : !BeStMan-Gateway supports pre-defined, static space tokens that could be included in configuration. It doesn't keep track of the contents in the space with the static space tokens, nor enforce allocations.  If you want to partition your storage space and have a “designated” space for some VOs or users, you can choose to use space tokens. You will have to provide the names and descriptions of the tokens as well as the size of the area.  
 
-   $ Q. _How many !GridFTP servers you will need?_: You can choose to run multiple !GridFTP servers to achieve load balance and better performance. 
-
-   $ Q. _Do you want to enable Gratia gridftp-transfer probes?_ : Yes!  The Gratia gridftp-transfer probes provide OSG-wide storage statistics for accounting, much like the Gratia job accounting.  More details can be found at [[https://twiki.grid.iu.edu/bin/view/Accounting/WebHome  Gratia Home Page]]. The reported information will include the source and destination of transfer, certificate subject of transfer initiator, size and status of the transferred file. %BR% %BR% This probe captures transfer statistics only, hence it needs to be installed on your !GridFTP server.  If you do not run your !GridFTP server and !BeStMan server out of the same VDT installation, you will want to install this probe additionally on your other !GridFTP server nodes.
-
----+ How to get Help?
-
-If a problem occurs during installation or verification of the service, see [[#DebugInfo][Debugging Information]].
-
-If you cannot resolve the problem, the best way to get help is by following  [[HelpProcedure][this page]]. 
-
-If you cannot find answers, please send all your questions to:
-   * osg-storage@opensciencegrid.org
-   * srm@lbl.gov
-
----+ Requirements
-
-   1. [[ReleaseDocumentation/PacmanInstall][pacman]] version >= %PACMAN_VERSION% is required
-   1. The server must have a fully qualified domain name and a valid [[ReleaseDocumentation/GetGridCertificates][grid host certificate]] installed in =/etc/grid-security/=
-   1. %BESTMAN% server needs to have a valid service certificate. The certificate should be own by a user that is running %BESTMAN%  server.
-   1. A working GUMS server or a grid-mapfile are needed for authorization using grid certificates.
-   1. The firewall must allow incoming connections to the %BESTMAN%-gateway ports (default:10080,10443)
-   1. The firewall must allow incoming connections to the !GridFTP port (default 2811). Outgoing connections must be allowed from high ports ( typically in range 32769-65535 ). We recommend to consult the [[ReleaseDocumentation/ComputeElementFirewalls][Firewall Guide]] if you install the !GridFTP server for the first time.
-
----+ !BeStMan Installation Procedure
-
-%STARTSECTION{"Installation"}%
-The installation procedure consists of the following steps:
-   * select the node where  %BESTMAN% will be installed
-   * verify existence and permission of a service certificate for %BESTMAN% server
-   *  create an installation directory
-   * use Pacman to install %BESTMAN%
-   * install the CA Certificates and the Certificate Revocation List
-   * execute the post installation script 
-
----++ Verify Service Certificate for %BESTMAN%
-By default %BESTMAN% is using a service certificate =/etc/grid-security/http/httpcert.pem= and certificate key =/etc/grid-security/http/httpkey.pem=.  
-
-%ICON{warning}% For the time being  %BESTMAN% should be configured with host certificate in order to be able to handle requests from !LCG-Utils tools. This is mandatory for at least all %BESTMAN% servers that support ATLAS experiment. A lot of users/scripts are using [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/LCGUtils][lcg-utils]] commands to access SE. If %BESTMAN% is configured to use a default (service) certificate then ==lcg-cp== command  fails because the certificate service name (which looks like http/hostname instead of just hostname or host/hostname) doesn't match the hostname.  That is why we do not recommend to configure %BESTMAN% with a service certificate. 
-
-There are two ways to solve this problem:
-   * If you don't have a service certificate in the =/etc/grid-security/http== directory then  copy ==hostcert.pem==, ==hostkey.pem== into ==/etc/grid-security/http== and rename these two files to ==httpcert.pem==, ==httpkey.pem== respectively. Change ownership of these files and directory to ==600==.
-<pre class="rootscreen">
-<code>%UCL_PROMPT_ROOT%cd /etc/grid-security
-%UCL_PROMPT_ROOT%mkdir  http
-%UCL_PROMPT_ROOT%cp hostcert.pem http/httpcert.pem
-%UCL_PROMPT_ROOT%cp hostkey.pem http/httpkey.pem
-%UCL_PROMPT_ROOT%chown -R http
-%UCL_PROMPT_ROOT%chmod 600 http/httpcert.pem http/httpkey.pem</code>
-</pre>
-OR  
-   * if you are already using a service certificate for some other purpose then create a directory  ==/etc/grid-security/bestmancert== and copy ==hostcert.pem==, ==hostkey.pem== into this directory under these names ==bestmancert.pem==, ==bestmankey.pem== respectively. Change the ownership of these files and directory. You will need to use relevant options to specify the certificate and the certificate key while configuring %BESTMAN%.
-<pre class="rootscreen">
-<code>%UCL_PROMPT_ROOT%
-%UCL_PROMPT_ROOT%cd /etc/grid-security
-%UCL_PROMPT_ROOT%mkdir  bestmancert
-%UCL_PROMPT_ROOT%cp hostcert.pem bestmancert/bestmancert.pem
-%UCL_PROMPT_ROOT%cp hostkey.pem bestmancert/bestmankey.pem
-%UCL_PROMPT_ROOT%chown -R bestmancert
-%UCL_PROMPT_ROOT%chmod 600 bestmancert/bestmancert.pem  bestmancert/bestmankey.pem</code>
-</pre>
-
----++ Create the  Installation Directory
-
-Next,  create the installation directory and change to this directory.  This directory will be used for installation of all the packages described in this section.
-<pre class="rootscreen">
-<code>%UCL_PROMPT_ROOT%mkdir -p %INST_DIR%-bestman
-%UCL_PROMPT_ROOT%cd %INST_DIR%-bestman/</code>
-</pre>
-
----++ Download %BESTMAN% package
-Next, you will need to install %BESTMAN%  in the same directory. If you are using [[InstallConfigureAndManageGUMS][Grid User Management System (GUMS)] as a Grid Identity Mapping Service, you will need to setup _VDT_GUMS_HOST_ environment variable first. If you are using  grid-mapfile, please proceed to [[#SkipThisStep1][the next step]].
-<pre class="rootscreen"> 
-<code>%BESTMAN_PROMPT_ROOT%export VDT_GUMS_HOST=&lt;GUMS hostname&gt;</code>
-</pre>
-
-#SkipThisStep1
-Next, execute %LINK_PACMAN% to get the %BESTMAN%  package from the %CACHE% cache. %LINK_PACMAN% will ask whether you want to "trust the caches and accept the license", answer =yall= and =y= to install the %BESTMAN% package. 
-<pre class="rootscreen">
-<code>%BESTMAN_PROMPT_ROOT%pacman -get %CACHE%:Bestman</code>
-</pre>
-%TWISTY{%TWISTY_OPTS_OUTPUT%}%
-<pre class="rootscreen">
-<code>%BESTMAN_PROMPT_ROOT%pacman -get %CACHE%:Bestman</code>
-
-========== IMPORTANT ==========
-Most of the software installed by the VDT *will not work* until you install
-certificates.  To complete your CA certificate installation, see the notes
-in the post-install/README file.
-
-</pre>
-%ENDTWISTY%
-
-To reflect the changes update the environment:
-<pre class="rootscreen">
-<code>%BESTMAN_PROMPT_ROOT%source setup.sh</code>
-</pre>
-%ENDSECTION{"Installation"}%
-You will have to install CA Certificate and other related packages next. 
-
-
----+++ Install a Certificate Authority Package 
-Before you proceed to install a Certificate Authority Package you should decide which of the available packages to install. Please consult [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/CaCertificatesInstall][this document]] before you proceed. 
-
-It is possible to install the Certificate Authority Package without sharing it other VDT installations on the same host. 
-<pre class="rootscreen">
-<code>%BESTMAN_PROMPT_ROOT%vdt-ca-manage setupca --location local --url osg
-Setting CA Certificates for VDT installation at ...
-</code>
-</pre>
-Setup completed successfully.
-
-After a successful installation the certificates will be installed in ==%INST_DIR%/globus/share/certificates==.
-
----+++ Post-Install Script
-Now run the post installation script:
-<pre class="rootscreen">
-<code>%BESTMAN_PROMPT_ROOT%vdt-post-install
-Starting...
-Configuring PRIMA... Done.
-Configuring EDG-Make-Gridmap... Done.
-Done.</code>
-</pre>
-
-This completes the installation of the !BeStMan server. Move to the next section to configure the !BeStMan and !GridFTP servers. You may also choose to configure Gratia transfer probe at this time (see [[#Engineering_Considerations][this section]] for detailed explanation).
-
-If you want to install additional !GridFTP servers on the different nodes, please follow [[GsiFtpStandAlone][this document for !GridFTP server installation]]. See [[#Engineering_Considerations][this section]] for reasoning. 
+%INCLUDE{"Bestman" section="GetHelp"}%
 
 
 ---+ !BeStMan-Gateway Configuration
@@ -167,7 +39,7 @@ You will need to configure !BeStMan-Gateway first in order to enable it as a ser
 The simplest configuration example is shown below. It utilizes all the default values including the default user (in this configuration !BeStMan runs as user ==daemon==) and the default path to certificate and key ( ==/etc/grid-security/http/httpcert.pem==, ==/etc/grid-security/http/httpkey.pem==) that should have the right set of permission and belong to user ==daemon==. See [[#Requirements][Requirements]] for details.
 
 <pre class="rootscreen">
-<code>%BESTMAN_PROMPT_ROOT%$VDT_LOCATION/vdt/setup/configure_bestman --server y --enable-gateway</code>
+<code>%UCL_PROMPT_ROOT%$VDT_LOCATION/vdt/setup/configure_bestman --server y --enable-gateway</code>
 </pre>
 
 This command will install !BeStMan that will be 
@@ -181,12 +53,14 @@ This command will install !BeStMan that will be
 If you don't want to try more complex configuration, you may skip the remaining of this and proceed to the [[#Sudoers_File_Modification][next sub-section]]  about the sudoers file.
 
 The more complex installation example is shown below:
+
 %STARTSECTION{"ComplexConfiguration"}%  
+
 The example below shows how to configure !BeStMan in gateway-mode, enable !GUMS
 and space token usage. If you would like to use pre-defined, static space tokens you need to provide a list of  space token names, description and size of space allocated for each token. Keep in mind that in gateway-mode, !BeStMan is not _managing_ the space. 
 
 <pre class="rootscreen">
-<code>%BESTMAN_PROMPT_ROOT%$VDT_LOCATION/vdt/setup/configure_bestman --server y \</br>
+<code>%UCL_PROMPT_ROOT%$VDT_LOCATION/vdt/setup/configure_bestman --server y \</br>
 --user %RED%user%ENDCOLOR% \</br>
 --cert %RED%service_cert%ENDCOLOR% \</br> 
 --key  %RED%service_key%ENDCOLOR% \</br>
@@ -251,96 +125,11 @@ checkSizeWithFS=false
 checkSizeWithGsiftp=true 
 </pre>
 These options will allow file system access through !GridFTP. However, this requires full GSI delegation from the clients.
-
-%STARTSECTION{"SudoersFile"}%
----++ Sudoers File Modification
-
-%ICON{"warning"}%Please, make the appropriate modification to ==/etc/sudoers== described in the !BeStMan documentation, namely add the following lines to this file: 
-<pre class="file">
-<code>
-# Comment out this line, if it is in your ==/etc/sudoers== file (RHEL5+)
-#Defaults    requiretty
-
-Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls 
-Runas_Alias SRM_USR = ALL, !root 
-%RED%user_name%ENDCOLOR% ALL=(SRM_USR) NOPASSWD: SRM_CMD </code>
- </pre>
-
-==user_name== is the account running !BeStMan server process. %BR%
-Please keep in mind that this is just an example, you can choose more  be more restrictive policy for your site.
-!BeStMan server will not be able to handle user requests, if this step is missed.
-%ENDSECTION{"SudoersFile"}%
+%INCLUDE{"Bestman" section="SudoersFile"}
 %ENDSECTION{"ComplexConfiguration"}%
-
-
-#GridFTP  
----++ !GridFTP  Configuration
-
-!GridFTP server comes with !BeStMan installation and have to be configured if used with it  GUMS authorization method.
-
-If you are using GUMS authorization method, please, copy the following two files from ==$VDT_LOCATION/post-install== to  ==/etc/grid-security==. Otherwise go to the next [[#NextStep1][step]]: 
- <pre class="rootscreen">
-<code>%BESTMAN_PROMPT_ROOT%cp $VDT_LOCATION/post-install/prima-authz.conf /etc/grid-security 
-%BESTMAN_PROMPT_ROOT%cp $VDT_LOCATION/post-install/gsi-authz.conf /etc/grid-security</code> 
-</pre>
-
-
-#NextStep1
-If you have a firewall, the open port range for the gridftp should be properly set. In order to do so you will have to modify ==vdt-local-setup.sh== and ==vdt-local-setup.csh==
-<pre class="file">
-<code>
-#edit $VDT_LOCATION/vdt/etc/vdt-local-setup.sh 
-GLOBUS_TCP_SOURCE_RANGE=%RED%low_port,high_port%ENDCOLOR%
-GLOBUS_TCP_PORT_RANGE=%RED%low_port,high_port%ENDCOLOR%
-export GLOBUS_TCP_SOURCE_RANGE
-export GLOBUS_TCP_PORT_RANGE </code>
-</pre>
-
-Where ==low_port, high_port==  controls all outbound globus connections for gridftp (e.g 40000,49150)
-
-You can have multiple installation of  !GridFTP servers located on  the nodes you have 
-specified in !BeStMan-Gateway configuration (see  [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GsiFtpStandAlone][separate !GridFTP installation]] if you want to install it as a stand-alone server).
-
-You will need to make sure that users have write permissions in to the storage area.  
-
----+++ Gratia !GridFTP Transfer Probe Configuration
-
-To enable and configure the Gratia !GrdFTP transfer probe for the !GridFTP server that comes with !BeStMan follow the instructions in
- [[GratiaTransferProbe][Preparing, Installing and Validating Gratia transfer probe]]
-
---++ Enabling the services on %BESTMAN%-gateway node
-You can use the _vdt-control -list_ command to see all services that are installed as part of the install, and whether or not they are enabled or disabled. 
-You will need to enable the following services:
-   * fetch-crl   
-   * vdt-rotate-logs  
-   * vdt-update-certs              
-   * gsiftp
-   * gratia-gridftp-transfer  %ICON{warning}% In case you want to run Gratia !GridFTP transfer probe
-   * gums-host-cron   %ICON{warning}% In case you want to run Gratia !GridFTP transfer probe and are using !GUMS for authorization
-   * edg-mkgridmap     %ICON{warning}% In case you want to use grid-mapfile for authorization 
-
-First, login to %BESTMAN%-gateway node as root. You can execute _vdt-control -enable_ command and list all services you want to enable:
-<pre class="rootscreen">
-<code>%BESTMAN_PROMPT_ROOT%source setup.sh
-%BESTMAN_PROMPT_ROOT%vdt-control --enable fetch-crl vdt-rotate-logs vdt-update-certs gsiftp</code>
-</pre> 
-
-If you have decided to use grid-map file for authorization and would like that it has been automatically generated for you do the following:
-<pre class="rootscreen">
-<code>%BESTMAN_PROMPT_ROOT%source setup.sh
-%BESTMAN_PROMPT_ROOT%vdt-control -enable edg-mkgridmap
-%BESTMAN_PROMPT_ROOT%edg/sbin/edg-mkgridmap</code>
-</pre> 
-
----+ Services Startup/Shutdown 
-The detailed documentation on how to activate/deactivate VDT registered software is provided in [[StartingServices#Service_Activation][this document]].
-   1. Start !BeStMan  (!GridFTP and Gratia transfer probe). Login on !BeStMan node, then:<pre class="rootscreen"><code>%BESTMAN_PROMPT_ROOT%source setup.sh
-%BESTMAN_PROMPT_ROOT%vdt-control --on</code>
-</pre>
-   1. Stop !BeStMan (!GridFTP and Gratia transfer probe). Login on !BeStMan node, then: <pre class="rootscreen"><code>%BESTMAN_PROMPT_ROOT%
-. setup.sh 
-%BESTMAN_PROMPT_ROOT%vdt-control --off</code>  
-</pre> 
+%INCLUDE{"Bestman" section="GridFTPConfiguration"}%
+%INCLUDE{"Bestman" section="GridFTPProbeConfiguration"}%
+%INCLUDE{"Bestman" section="EnableServices"}%
 
 
 ---+ Validation of Service Operation 
