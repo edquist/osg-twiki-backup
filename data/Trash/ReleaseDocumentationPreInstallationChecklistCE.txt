@@ -1,145 +1,84 @@
-%META:TOPICINFO{author="RobertEngel" date="1288805084" format="1.1" reprev="1.81" version="1.81"}%
+%META:TOPICINFO{author="RobertEngel" date="1288810186" format="1.1" reprev="1.82" version="1.82"}%
 %META:TOPICPARENT{name="PreparingComputeElement"}%
-%SHOW_DOC_STATUS_TABLE%
+%DOC_STATUS_TABLE%
 
 
----+!! *Pre-Installation Checklist for Compute Element*
+---+!! Pre-Installation Checklist for Compute Element
 %TOC%
----++ Introduction
 
-This document contains that must be completed before beginning the *Compute Element* installation. 
+---+ About this Document
+
+%ICON{hand}% This document is for system administrators. It contains the procedure that must be completed before beginning the [[ReleaseDocumentation/ComputeElementInstall][Compute Element Installation]]. 
 
 %STARTINCLUDE%
 
-%EDITTHIS%
-%BR%
+---+ Create Required Service Accounts
 
-<!---++ Previous OSG Installations (this is covered in the main installation document)
+---++ Globus
 
-   * [[ReusingConfigurationInformation][Reusing Configuration Information]] describes how you can maintain your OSG configuration when installing a new OSG release.  Typically you should pre-set ==OLD_VDT_LOCATION== to  the location of the  installation which configuration you want to copy.
-   * You do not need to shutdown OSG services before running the new install on the same machine. However before you start services from the new installation, you will need to shutdown the old services. See [[ShuttingDownCE][OSG Shutdown Guide]] for details.
+The web service container requires a Unix account =globus=. By default the =daemon= user will be used.
 
-%TWISTY{%TWISTY_OPTS_REVIEW%}%
-If I reuse my old configuration from the previous OSG installation, do I then still need to follow the steps below? If not, then this should be said here.
-%ENDTWISTY%
+---++ CEMon
 
--->
+This monitoring service requires a Unix account =daemon=.
 
-<!---++ Using an Existing Condor Installation (this is covered in the main installation document)
+---++ Resource and Service Validation (RSV)
 
-Condor can be installed  as a part of the Compute Element install, but most sites choose to install Condor using RPMs to allow for 
-easier pool-wide installations and easier updates.  If you already have installed Condor, you can setup your OSG installation to use it by setting the environment variables =VDTSETUP_CONDOR_LOCATION= and =VDTSETUP_CONDOR_CONFIG=.  For more information, see here: %VDT_DOCS_URL%/existing-condor.html
+RSV requires a Unix account =rsvuser= and a shell to run _probes_ using the Condor-Cron scheduling infrastructure. The following command must succeed when executed by the root user:
 
-To set these, replace =YOUR_CONDOR_LOCATION= and =YOUR_CONDOR_CONFIG= below <em>before</em> running any Pacman commands.
--->
-<!--
-<pre class="screen">
- export VDTSETUP_CONDOR_LOCATION=YOUR_CONDOR_LOCATION
- export VDTSETUP_CONDOR_CONFIG=YOUR_CONDOR_CONFIG
-
-For example:
- export VDTSETUP_CONDOR_LOCATION=/usr
- export VDTSETUP_CONDOR_CONFIG=/etc/condor/condor_config
+<pre class="rootscreen">
+%UCL_PROMPT_SHORT% su -c "/bin/date" rsvuser
 </pre>
 
-If you do not set these environment variables, Condor will be installed as a pre-requisite of some packages (including Globus-Condor-Setup and Globus-ManagedFork-Setup).  It *will not* be installed as a pre-requisite of the =ce= package.
--->
+---+ Create Required User Accounts
 
-<!---++ Configuring Condor to optimize Gratia probe performance (this is covered in the main installation document)
-In order for Gratia to work efficiently, you should change Condor's configuration. Without this change, your Gratia Condor probe may work very slowly.
+UNIX user accounts need to be created by the system administrator for each VO. You will need to create at least one local user account for each supported VO.  The =uid= and =name= of the account can be locally determined. You will be asked to provide a mapping from local accounts to VOs later during the configuration process.  Since VO's are frequently added to the OSG, you should access the current list of registered VO's at [[http://myosg.grid.iu.edu/vosummary?datasource=summary&all_vos=on&active_value=1][MyOSG's Virtual Organization menu item]]. Any new VO's will also appear in on the CE in the file =$VDT_LOCATION/monitoring/osg-user-vo-map.txt=.
 
-The change causes Condor to write information about each job that finishes into a directory. Gratia reads this information (one file per job), records what it needs to know, then cleans up the file. The directory already exists in your VDT installation: it is =$VDT_LOCATION/gratia/var/data=. All you need to do is edit your Condor configuration on your CE so that it record the job information there. Typically you will edit your "condor_config" file: simply add the following information anywhere in that file, and you'll be set. (You can also edit your condor_config.local file, and it doesn't matter to Condor.)
+---+ Request Required Service Certificates
 
-<pre> PER_JOB_HISTORY_DIR = /<i>full-path-to-vdt-installation</i>/gratia/var/data</pre>
+---++ Resource and Service Validation (RSV)
 
-Note that if you don't make this change, the Gratia probe will work because it will fall back to using condor_history. However, this fall back is much less efficient and not recommended.
+RSV probes require a [[ReleaseDocumentation/GetGridCertificates#Request_a_Service_Certificate][service certificate]] to submit monitoring jobs to a %LINK_GLOSSARY_CE% or transfer files to a %LINK_GLOSSARY_SE%.
 
-*Important Note:* This only works for Condor 6.9.0 and later. If you have an earlier version of Condor, Condor will ignore that configuration variable and Gratia will use the fall back method.
+The RSV service certificate and service key should be installed in =/etc/grid-security/rsvcert.pem= and =/etc/grid-security/rsvkey.pem= respectively and be owner by the Unix user =rsvuser=.
 
-*Important Note 2:* If Condor is running when you make this configuration change, run =condor_reconfig= to pick up the new configuration.
--->
+---++ CEMon
 
----++ RSV Prerequisites
+This monitoring services requires a web (http) [[ReleaseDocumentation/GetGridCertificates#Request_a_Service_Certificate][service certificate]]. 
 
-   * *Valid Unix account*: !RSV requires a valid Unix account with a valid shell for running probe jobs using the Condor-Cron scheduling infrastructure
-      * E.g.:  *rsvuser* account for which the following command returns a valid date output  
- <pre class="screen">  su -c "/bin/date" rsvuser</pre>
-      * A locked Unix account is acceptable    
-   * *Authorization to run jobs/transfer files*:  Many RSV probes run Globus jobs (for CE monitoring) or move files on a target SE (for SE monitoring), and threfore require access to a grid proxy authorized to do those actions. Ensure that you have:
-      1 *Recommended*: An RSV service certificate (similar to an http service cert but with suffix /rsv) to be used with <em>RSV's automatic proxy regeneration</em>. 
-         * You can get one using [[https://twiki.grid.iu.edu/twiki/bin/view/ReleaseDocumentation/GetGridCertificates#Other_service_certificates][usual methods]]. For example: 
-   <pre class="screen">cert-request -ou s -service rsv -host <strong><em>FQDN</em></strong> -label rsv-<strong><em>fqdn</em></strong> </pre>
-         * Place !RSV service cert files in =/etc/grid-security/= as <tt>rsvkey.pem</tt> and <tt>rsvcert.pem</tt>
-         * If using =config.ini=, option =use_service_cert= needs to be enabled. [Note: Options =rsv_cert_file=, =rsv_key_file=, =rsv_proxy_out_file= need to be set appropriately, if defaults are not applicable].
-         * You must ensure that  [[https://twiki.grid.iu.edu/twiki/bin/view/MonitoringInformation/MapServiceCertToRsvuser][service cert is authorized to run jobs on the CE/SE ]] it is being used to test.
-      1 *OR* a valid user certificate with <em>manual proxy generation</em> which can also be used to monitor services on external hosts.
-         * If using =config.ini=, option =use_service_cert= needs to be disabled; and options =proxy_file= needs to set to appropriate user proxy file.
+---+ Operating System and Networking Requirements
 
----++ Condor-cron installation with OSG-RSV
-   In OSG 1.2, RSV uses Condor-Cron as a scheduling infrastructure to run jobs.  This is automatically installed with the OSG CE.   If, however, a site does not want to install Condor-Cron, it can be prevented from installing by setting the following environment variable:
-
-=export VDTSETUP_NO_CONDOR_CRON=y=
-
-If you choose not to install Condor-Cron, you will need to provide your own scheduling infrastructure for the RSV jobs.
-
----++ Operating System and Networking Requirements
-
-   * No Compilers are required to install CE
-   * Working network connection is required.  If your site is inside a firewall, has a host firewall (ipchains/iptables), or is using TCP wrappers (/etc/host.{allow,deny}), please review the [[ComputeElementFirewalls][Firewall Document]]
-   * Disk footprint for the OSG CE is ~900MB or ~1.2 GB if Condor for Managed Fork is included
-   * Time Synchronization: <b>NTP</b> should be supported on all systems as lack of synchronization complicates troubleshooting and can cause problems with grid security infrastructures.
-   * Host name: Before the install, you must have the host name set to the fully-qualified domain name (FQDN).  Test this by running the command =hostname= from the prompt.  If your hostname is _ce.example.com_ and =hostname= returns _ce_, you might have difficult-to-debug issues later on.
-      * We recommend against having an "external hostname" and "internal hostname", as this causes confusion with many programs.  If this cannot be avoided, verify that =hostname= returns the *external hostname*; otherwise, various grid components will not work.
-   * Reverse Name Lookups (DNS):  both the forward and reverse lookups as configured through a local DNS service are required for the IP address of the system.  Use the =dig= command to map your hostname to an IP and =dig -x= to map the IP back to the hostname.  Your CE will not work without reverse DNS lookup and may not return sensible error messages.
+   * allow outbound network connections, please review the [[ReleaseDocumentation/ComputeElementFirewalls][Firewall Document]]
+   * the gatekeeper must use a fully qualified domain name
+   * the gatekeeper and the worker nodes must use synchronized clocks (NTP)
+   * support reverse DNS lookup
 
  
-<!-- Jeff Porter 6/11/08: simplified & updated these comments below in the above list
----+++!! Compilers
-From OSG 0.5.1 and greater no compilers are required to install the CE. Previous VDT installations presumed that you have a working C and C++ compiler as part of the install.  The gcc and g++ that come as rpms with most Linux distributions are fine.  
+---+ Network Setup
 
----+++!! Network setup
-It is assumed that your hardware has a working network connection through which packages may be retrieved and from which services may contact your system. The full OSG CE package is ~900 MB or ~1.2 GB if Condor is installed for ManagedFork. 
+It is assumed that your hardware has a working network connection through which packages may be retrieved and from which services may contact your system.
 
+---+ Fully Qualified Domain Name
 
----++++!! Firewall
-If your installation is inside a site firewall, has a host firewall (ipchains/iptables), or is using TCP wrappers (=/etc/hosts.{allow,deny}=), you'll need to review the [[ComputeElementFirewalls][Firewall Document]] of this guide and arrange for appropriate Internet access.
+The gatekeeper must use a fully qualified domain name by default.
 
----++++!! Time synchronization (NTP) 
-Each system should be setup to support network time protocol. Lack of synchronization generally complicates troubleshooting and can cause problems with the security infrastructures evaluation of e.g. proxy lifetimes. 
+---+ Firewalls
 
----++++!! Reverse name lookups (DNS)
-For the middleware to correctly function both the forward and reverse lookups as configured through a local DNS service are required for the IP address of the system.
+Please review  [[ReleaseDocumentation/ComputeElementFirewalls][Firewall Guide]] if your resource is protected by an Institute's firewall, uses a host firewall, or is using TCP wrappers.
 
----+++!! Previous OSG or Grid3 Installations
-If there is a _previous installation_ of the OSG or Grid3 environment or other Globus middleware, please _stop the processes_ which are currently running. This includes the Globus Resource Information Service (GRIS), !Integration.MonALISA and other services configured to start upon initialization on your system. Also, if you've sourced the =$VDT_LOCATION/setup.[c]sh= on your previous VDT install, just log out and log back in to clear out your environment.  From VDT 1.6.1 and later (OSG 0.6.0 and later) this can be done with the vdt-control - -off command.
+---+ Time synchronization (NTP)
 
-More information is provided in the current [[ShuttingDownCE][OSG Shutdown Guide]] or the Shutdown Guide for the version being upgraded.
+Each resource should use synchronized clocks using the Network Time Protocol daemon. Lack of synchronization complicates troubleshooting and causes problems with the security infrastructures evaluation.
 
--->
+---+ Reverse Name Lookup (DNS)
 
----++ Local Account Information
-
-<!--
----+++!! Creation and setup of local user accounts for VOs for OSG 
--->
-
-   * Accounts for OSG VOs:  UNIX user accounts need to be created by the system administrator for the VOs. You will need to create at least one local user account (with the appropriate configuration) for each VO to which you wish to provide resources.  The uid and name of the account can be locally determined. You will be asked to provide a mapping from local accounts to VOs later during the configuration process.  Since VO's are frequently added to the OSG, you should access the current list of registered VO's at [[http://myosg.grid.iu.edu/vosummary?datasource=summary&all_vos=on&active_value=1][MyOSG's Virtual Organization menu item]]. Any new VO's will also appear in on the CE in the file =$VDT_LOCATION/monitoring/osg-user-vo-map.txt=.
-   * Service Accounts:  
-      * Web Service container will be installed to run as the user ==globus== if that account exist. Otherwise it will run as ==daemon==.
-      * CEMon container requires an http service cert and runs as  ==daemon==.
-      * RSV user account - see RSV Prerequisites above.
- 
-
-<!--
-%ICON{"tip"}% *Note:* If there is already a "globus" user on the system, the Web Services container will run as globus, else it will run as "daemon".
--->
-
----+++!! Do you have a user certificate?
-You will need a personal grid certificate to run validation tests in your =$HOME/.globus= directory.  If you don't have a personal certificate, or don't know how to generate a grid proxy (grid-proxy-init, etc),  see [[UserCertificates][User Certificates]].
+For the middle-ware to function both; the forward and the reverse lookup as configured through a local DNS service are required for the IP address of the system.
 
 
-%STOPINCLUDE%
-%BR%
+---+ Do you have a grid user certificate?
+
+You will need a personal grid certificate to run validation tests. For more information see [[ReleaseDocumentation/CertificateGet][here]].
+
 
 <!-- CONTENT MANAGEMENT PROJECT
 
