@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RobertEngel" date="1287691047" format="1.1" version="1.17"}%
+%META:TOPICINFO{author="BrianBockelman" date="1288983545" format="1.1" version="1.18"}%
 %META:TOPICPARENT{name="UsingTheGrid"}%
 %LINKCSS%
 
@@ -12,26 +12,33 @@
 
 To run a job on the Open Science Grid, you must find at least one resource (i.e., _site_) that can run your job. This page explains how a user can find a resource via command line tools.  We will cover querying for the information in two different formats.
 
-An OSG user can utilize the resources they find on this page to send small-scale test jobs to resources.  We will be using the results for the beginning Condor tutorials.  Even later, we will cover more advanced systems which will discover and test resources automatically.
+---+++ Goal
+
+After reading this page, you should
+   * Be able to perform basic queries on the information systems to find a usable compute resource.
+   * Understand there are two systems, BDII and ReSS, which hold machine-readable information about the OSG.
+
+Later, we will utilize the resources you find on this page for small-scale test jobs.  We will be using the results for the beginning Condor tutorials.  Users do not usually perform their own service discovery; in the later tutorials, we will cover more advanced systems which will discover and test resources automatically.
 
 ---++ Requirements
-In order to complete this document, you will need:
-   * Membership in a [[ReleaseDocumentation.WhatIsOSG#Virtual_Organizations][Virtual Organization]]
+In order to finish this document, you will need the following:
+   * Your own [[ReleaseDocumentation.CertificateGet][grid certificate]].
+   * Membership in a [[ReleaseDocumentation.WhatIsOSG#Virtual_Organizations][Virtual Organization]].
    * Access to a machine with the [[ReleaseDocumentation.ClientInstallationGuide][OSG-Client]] installed.
 
 ---++ Finding a Compute Element Resource
 
-There are two OSG central services - called !ReSS and BDII - which provide very detailed data for using OSG resources.  They contain the same data, but the BDII provides data in the LDIF format while !ReSS provides data in a Condor !ClassAd format. Both formats express the information in a schema called GLUE.
+There are two OSG central services - called !ReSS and BDII - which provide very detailed data for using OSG resources.  They contain the same data, but in different formats.  The BDII provides data in the LDIF format while !ReSS provides data in a Condor !ClassAd format. Both formats express the information in a schema called GLUE.
 
-We will be using the results you receive later for some of the job management examples.   If you find yourself programming BDII queries into your code, ask for help - you might be approaching something wrong.
+We will be using the results you receive in this page for the beginner's job management examples.  Advanced and heavy OSG users use higher-level, automated tools (so, if you find yourself programming BDII queries in shell scripts, ask for help - there might be a better tool for the job).
 
-To get a list of contact strings for sites that support your VO, you can query the BDII server.  The traditional command line tool is called 'ldapsearch'. Try the following query directly:
+To get a list of contact strings for sites that support your VO, you can query the BDII server.  The traditional command line tool is called =ldapsearch=. Try the following query directly:
 
 <pre class="screen">
-<userinput>ldapsearch -LLL -h is.grid.iu.edu -p 2170 -x -b 'o=grid' '(&(objectClass=GlueCE)(GlueCEAccessControlBaseRule=VO:cms))' GlueCEInfoHostName GlueCEInfoGatekeeperPort GlueCEInfoJobManager</userinput>
+<userinput>ldapsearch -LLL -h is.grid.iu.edu -p 2170 -x -b 'o=grid' '(&(objectClass=GlueCE)(GlueCEAccessControlBaseRule=VO:%RED%cms%ENDCOLOR%))' GlueCEInfoHostName GlueCEInfoGatekeeperPort GlueCEInfoJobManager</userinput>
 </pre>
 
-This queries the BDII for all CEs which support the CMS VO (replace "cms" with your VO name).  One example result is:
+This queries the OSG BDII server for all CEs which support the CMS VO (replace "%RED%cms%ENDCOLOR%" with your VO name).  It asks for three attributes back - the hostname, port, and the name of the batch system.  One example result for CMS is:
 
 <pre class="screen">
 dn: GlueCEUniqueID=cit-gatekeeper.ultralight.org:2119/jobmanager-condor-cms_us
@@ -41,14 +48,14 @@ GlueCEInfoGatekeeperPort: 2119
 GlueCEInfoJobManager: condor
 </pre>
 
-We can use the information found here to build a query to a tool like Condor-G or globus-job-run.  The format for a Globus resource is "host:port/jobmanager-<batch system>".  From the above example, the corresponding contact is "cit-gatekeeper.ultralight.org:2119/jobmanager-condor".
+This information can be used for client-tools like Condor-G or globus-job-run.  A Globus resource is specified in the following format: =host:port/jobmanager-<batch system>=.  From the example output above, the corresponding Globus endpoint is =cit-gatekeeper.ultralight.org:2119/jobmanager-condor=.
 
-If you have condor_status installed on your system, you can do more advanced formatting:
+To query ReSS, we use a tool called =condor_status=.  The =condor_status= tool allows more control over the output formatting and may be more familiar to users who have previously used the Condor software.  For example, the equivalent query to the =ldapsearch= above is the following:
 
 <pre class="screen">
-<userinput>condor_status -pool osg-ress-1.fnal.gov -const 'stringListIMember("VO:cms", GlueCEAccessControlBaseRule)' -format '%s:' GlueCEInfoHostName -format '%i' GlueCEInfoGatekeeperPort -format '/jobmanager-%s\n' GlueCEInfoJobManager | sort | uniq</userinput>
+<userinput>condor_status -pool osg-ress-1.fnal.gov -const 'stringListIMember("VO:%RED%cms%ENDCOLOR%", GlueCEAccessControlBaseRule)' -format '%s:' GlueCEInfoHostName -format '%i' GlueCEInfoGatekeeperPort -format '/jobmanager-%s\n' GlueCEInfoJobManager | sort | uniq</userinput>
 </pre>
-Like before, replace "cms" with the appropriate name for your VO.
+Like before, replace "%RED%cms%ENDCOLOR%" with the appropriate name for your VO.  Note the output is already converted the right format for Globus:
 <br/>
 %TWISTY{
 mode="div"
@@ -117,14 +124,14 @@ vampire.accre.vanderbilt.edu:2119/jobmanager-pbs
 %ENDTWISTY%
 <br/>
 
-One of the outputs from the command above is =red.unl.edu:2119/jobmanager-condor=.  This string is the important contact information required in all job submission tools.  This string describes the host and the type of submission to be performed (condor).
+One of the outputs from the command above is =red.unl.edu:2119/jobmanager-condor=.
 
-We don't expect you to understand the command you just ran — the important knowledge here is that you can use Condor to query information about the site and to get the list of sites you can run at for the purposes of test jobs.
+Both =ldapsearch= and =condor_status= have long command line invocations - it might be handy to write them down.  We don't expect you to understand all the command-line options - the important knowledge here is you can repeat these queries at any time to get the list of sites you can run at for the purposes of test jobs.
 
 %STOPINCLUDE%
 
 ---++ *Comments*
-| This page isn’t too bad, but there are some places where it should be improved. For one, there is some confusing terminology, which can probably just be cleared up in the introduction. The other main thing is that some of the information is presented without clear implications for how it should be used. Details follow.  ###  Under “About This Document”: One question: Is finding a site by hand the opposite of finding a site in a machine-readable format? Maybe that’s not quite the right distinction. The page itself is organized into sections for finding resources using a web browser and using the command line — is that the right distinction? In any case, the bullets here and the headings should be conceptually clear and match. Then, the final sentence makes little sense to me. What is it that you want the reader to *DO*? It seems like there is useful information/instruction to provide here. For example, is it reasonable to say something like, “If you only need to run a few jobs, have an uncomplicated computational workflow, or for other reasons only need to use a few sites, it works fine to find sites by hand. However, if you are running lots of jobs, have a complicated scripted workflow, or need to access as many sites as possible, it may work better to switch to finding sites programmatically, using commands that produce machine-readable output.”? That long bit of text would be easier to read with bullets.....   ###  “Finding Resources in Your Browser”. Everything was going great until the sentence that starts, “Each endpoint…” What is an endpoint? Is it different that a site or a resource? And then, “each resource provides resources”??? This is one of the places that desperately needs clearer, more distinct terminology. If two terms are used interchangeably, better to just use one of them; if both must be used, then explicitly declare (in the Introduction) that they are equivalent. This is very important. Finally in this section, there is the last sentence and two bullets: Why is it important to tell me that information is missing? Do I need the missing information? If so, where do I get it from? If not, then why should I care?  ###  “Finding a Resource Using the Command Line” Again, this section suffers from a lack of clear direction to the reader/user. MyOSG does not match jobs to resources… OK. What does? Should I be using a system that does this for me? Is it still relevant to look for sites manually? There are two very long and complicated command-line examples, which are fine, but I am left wondering what to do with all this information, especially in light of text that effectively tells me, don’t really do this. | Main.TimCartwright | 25 Jun 2010 - 20:46 |
+
 %COMMENT{type="tableappend"}%
 
 <!-- CONTENT MANAGEMENT PROJECT
