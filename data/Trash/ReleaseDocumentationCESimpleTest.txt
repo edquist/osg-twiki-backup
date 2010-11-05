@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="RobertEngel" date="1288885105" format="1.1" version="1.45"}%
+%META:TOPICINFO{author="BrianBockelman" date="1288987928" format="1.1" reprev="1.46" version="1.46"}%
 %META:TOPICPARENT{name="ValidatingComputeElement"}%
 %DOC_STATUS_TABLE%
 
@@ -246,63 +246,6 @@ GRAM Job submission failed because the gatekeeper failed to find the requested s
 
 %NOTE% The <b>names for job managers are case sensitive</b> and are <b>all lower case for %LINK_GLOSSARY_GRAM%</b>.
 
----++ Job Submission using GRAM-WS
-
-The [[http://www.globus.org/toolkit/][Globus Toolkit]] provides a web service interface to GRAM which is called %LINK_GLOSSARY_GRAM_WS%. The command %HELP_GLOBUSRUN_WS% can be used to test the job submission to GRAM-WS:
-
-<pre class="screen">
-%UCL_PROMPT% globusrun-ws -submit -s -F %UCL_CE%:9443 -c %RED%/bin/hostname%ENDCOLOR%
-Delegating user credentials...Done.
-Submitting job...Done.
-Job ID: uuid:5795dbaa-790f-11df-9763-00163e2ba880
-Termination time: 06/17/2010 06:21 GMT
-Current job state: Active
-Current job state: CleanUp-Hold
-%RED%%UCL_CE%%ENDCOLOR%
-Current job state: CleanUp
-Current job state: Done
-Destroying job...Done.
-Cleaning up any delegated credentials...Done.
-</pre>
-
----+++ Test the Availability of a Factory Type
-
-A %LINK_GLOSSARY_FT% is a web service component on the %LINK_GLOSSARY_CE% which is managing the execution of your job. By default the factory type =Fork= will be used to _fork_ your program directly on the compute element. As a general rule of thumb you should %RED%avoid to use Fork%ENDCOLOR% and to execute programs on the compute element unless that is your intention. A not complete list of factory types includes =Fork=, =ManagedFork=, =CCS=, =Condor=, =LSF=, =PBS= and =SGE=. Depending on the setup of the grid resource more than one factory type may be supported.
-
-Just like in the previous example we can use %HELP_GLOBUSRUN_WS% to verify that the =Fork= factory type is available and used for the execution:
-
-<pre class="screen">
-%UCL_PROMPT% globusrun-ws -submit -s -F %UCL_CE%:9443 -Ft Fork -c %RED%/bin/hostname%ENDCOLOR%
-Delegating user credentials...Done.
-Submitting job...Done.
-Job ID: uuid:d8c5fc78-7914-11df-9738-00163e2ba880
-Termination time: 06/17/2010 07:00 GMT
-Current job state: Active
-Current job state: CleanUp-Hold
-%RED%%UCL_CE%%ENDCOLOR%
-Current job state: CleanUp
-Current job state: Done
-Destroying job...Done.
-Cleaning up any delegated credentials...Done.
-</pre>
-
-Note that the factory type is specified using the =-Ft Fork= option after the factory was defined using =-F %UCL_CE%:9443=. This can be used to detect if a certain factory type such as =PBS= is available:
-
-<pre class="screen">
-%UCL_PROMPT% globusrun-ws -submit -s -F %UCL_CE%:9443 -Ft %RED%PBS%ENDCOLOR% -c /bin/hostname
-Delegating user credentials...Failed.
-globusrun-ws: globus_i_delegate.c::1143:
-Error trying to delegate
-globus_i_delegate.c::674:
-Error querying delegation factories
-globus_i_delegate.c::658:
-%RED%Error: invalid factory EPR. Unable to query resource properties.%ENDCOLOR%
-%UCL_PROMPT% echo $?
-253
-</pre>
-
-%NOTE% The <b>names for factory typs are case sensitive</b> in the case of %LINK_GLOSSARY_GRAM_WS%</b>. GRAM-WS is generally not supported on production resources of the Open Science Grid. The OSG resources that support GRAM-WS provide the web service on a non-default port =9443=. 
-
 ---+ Troubleshooting
 
 %ICON{hand}% The following sections provide a _step-by-step guide_ helping you to determine the approximate cause of an error that has occurred. Knowing the approximate cause of an error will allow you to write more _meaningful error reports_ when opening a ticket with the %LINK_GOC_OPEN_TICKET%. 
@@ -442,6 +385,23 @@ GRAM Job submission failed because the gatekeeper failed to find the requested s
 %NOTE% The list of known jobmanagers supported by %LINK_GLOSSARY_GRAM% includes =fork=, =managedfork=, =condor=, =sge=, =pbs=, =lsf=, =ccs=. The spelling is _case-sensitive_ and differs slightly for %LINK_GLOSSARY_GRAM_WS%: =Fork=, =ManagedFork=, =Condor=, =SGE=, =PBS=, =LSF=, =CCS=! It is also called a %LINK_GLOSSARY_FT% by GRAM-WS.
 
 Please open a ticket with the %LINK_GOC_OPEN_TICKET% if you are certain that the job manager name you provided should be supported by the resource.
+
+---+++ Does Condor-G fail when Globus commmands succeed?
+
+Sometimes Condor-G will fail even when the simple Globus commands succeed.  This is because Condor-G exercises the GRAM protocol more than most =globus-job-run= invocations. In particular, it requires that more client network ports be open.  Condor-G will listen for incoming connections on the client coming from the CE (so, the Condor-G client acts like a server to some extent).  If either client or the remote site has a firewall blocking these ports, Condor-G will fail but =globus-job-run= will succeed.
+
+Firewall issues may be difficult to track down. The three possible places where you might run into a firewall are:
+   1 On the client Condor-G host.  This is the most common, as many operating systems block incoming connections.  This is discussed below.
+   1 On the client's network.  It's common security practice at some universities or sites to lock down incoming connections.  To fix this, you may need to contact your local site security.
+   1 On the remote CE host.  This is unlikely, as it's not very common to block outgoing connections on a CE.  
+
+To solve the first problem, you need to punch a hole in the firewall. You need a port range with at least 13 ports per user that might use Condor-G. For example, if you have ten people that might submit jobs via Condor-G, you'll need at least 130 ports in the port range.  Once you have the port range, you need to change the Condor-G client's configuration for the condor_gridmanager component. For example, if the port range is 8000-8129, you would set in your =condor_config=:
+
+<pre>
+GRIDMANAGER.IN_LOWPORT = 8000
+GRIDMANAGER.IN_HIGHPORT = 8129
+</pre>
+After changing this configuration, restart Condor-G.
 
 ---+ Recommendations on opening a ticket with the GOC
 
