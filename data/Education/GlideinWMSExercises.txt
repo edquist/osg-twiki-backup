@@ -1,0 +1,231 @@
+%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dMats_20Rynge_20274484" date="1291357166" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Brazil2011"}%
+
+---+ Glidein for the users - Hands-on Session, Wednesday July 21st, 2010 
+
+This session will give you hands-on experience in using the glideinWMS as a user.
+
+---++ Local setup
+
+As with all the other hands-on exercises, we will be using <br>
+<tt>vdt-itb.cs.wisc.edu</tt><br>
+to submit and monitor our jobs.
+
+However, we will use <b>a different Condor instance running on that same machine</b>.<br>
+The reason for having a different instance is due to the security requirements
+of having a Condor pool spread across the WAN (see also the [[https://twiki.grid.iu.edu/twiki/pub/Education/MaterialsOSS2010/pilots_and_glideinwms_lecture.pdf][lecture]]).
+Interested students can talk to me to get a more detailed information,
+for all the others, you just need to make sure you point to the right Condor installation.
+
+To use the proper Condor instance, please run:
+<pre>
+[sfiligoi@vdt-itb ~]$ source /opt/glidecondor/condor.sh 
+</pre>
+
+At any given point, you can check you are using the right one by using:
+<pre>
+[sfiligoi@vdt-itb ~]$ which condor_submit
+/opt/glidecondor/bin/condor_submit
+[sfiligoi@vdt-itb ~]$ echo $CONDOR_CONFIG
+/opt/glidecondor/etc/condor_config
+</pre>
+
+---++ The work environment
+
+As mentioned in the [[https://twiki.grid.iu.edu/twiki/pub/Education/MaterialsOSS2010/pilots_and_glideinwms_lecture.pdf][lecture]],
+the glideinWMS environment looks almost exactly like a regular, local Condor pool.
+
+It just does not have any resources attached unless you ask for them;
+try
+<pre>
+condor_status
+</pre>
+
+The glideinWMS will submit glideins on your behalf when you will need them.
+But you may need to tell it what are your needs (but more on this later on).
+
+---++ Generic jobs
+
+Let's start with a very generic job;<br>
+a variation of the basic Condor jobs Alain introduced you to.
+
+Let us [[http://www.stealthcopter.com/blog/2009/09/python-calculating-pi-using-random-numbers/][calculate Pi using the monte carlo method]];<br>
+create a file called
+<pre>
+pi.py
+</pre>
+containing
+<pre>
+#!/bin/env python
+from random import *  
+from math import sqrt,pi  
+from sys import argv
+inside=0  
+n=int(argv[1])
+for i in range(0,n):  
+    x=random()  
+    y=random()  
+    if sqrt(x*x+y*y)<=1:  
+        inside+=1  
+pi_prime=4.0*inside/n  
+print pi_prime, pi-pi_prime
+</pre>
+and make it executable.
+
+Try to run it:
+<pre>
+./pi.py 1000000
+</pre>
+The first number is the approximation of pi, while the second one is how far from the real Pi it is.
+
+Repeat a couple of times.
+As you can see, the result changes every time.
+
+Now, lets submit it as a Condor job;
+or better to say, as a bunch of Condor jobs.
+
+These jobs should run everywhere, so no need to specify any requirement:
+<pre>
+Universe   = vanilla
+Executable = pi.py
+Arguments  = 10000000
+Requirements = (Arch=!="")
+Log        = pi.$(Cluster).log
+Output   = pi.$(Cluster).$(Process).out
+Error      = pi.$(Cluster).$(Process).err
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+Queue 100
+</pre>
+
+Submit the above.
+
+Now sit back and relax... Condor+glideinWMS will take care of everything else... 
+after a few minutes we just look at the outputs and see who got the most precise Pi.
+
+Well... you would do that if you were a seasoned user.
+As a student, you are supposed to see what is going on.
+
+So run <tt>condor_q</tt> and <tt>condor_status</tt> from time to time, until the jobs are done.
+
+What do you see?
+
+---++ Understanding where jobs are running
+
+While your jobs can run everywhere, you may still want to know where they actually ran;
+either becuase you want to know who to thank for the CPUs you were consuming,
+or to debug problems you had with your program (unlikely in this case... but one never knows).
+
+So let us add a couple additional attributes to the submit file:
+<pre>
+Universe   = vanilla
+Executable = pi.py
+Arguments  = 50000000
+Requirements = (Arch=!="")
+Log        = pi.$(Cluster).log
+Output   = pi.$(Cluster).$(Process).out
+Error      = pi.$(Cluster).$(Process).err
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
++JOB_Site = "$$(GLIDEIN_Site:Unknown)"
++JOB_Gatekeeper = "$$(GLIDEIN_Gatekeeper:Unknown)"
+Queue 100
+</pre>
+
+Now submit the job cluster.
+
+Now monitor the running jobs with
+<pre>
+condor_q `id -un` -const 'JobStatus==2' -format '%d.' ClusterId -format '%d ' ProcId -format '%s\n' MATCH_EXP_JOB_Site
+</pre>
+
+What do you see?
+
+For completed jobs, you can use
+<pre>
+condor_history JOB_ID -format '%d.' ClusterId -format '%d ' ProcId -format '%s\n' MATCH_EXP_JOB_Site
+</pre>
+
+Similarly, you can monitor where the available resources are by using:
+<pre>
+condor_status -format "%-40s\t" Name -format "%s\t" GLIDEIN_Site -format "%s\n" State
+</pre>
+
+---++ BLAST jobs
+
+Let us now run a set of BLAST jobs, similarly the way [[https://twiki.grid.iu.edu/bin/view/Education/CondorBLASTOSS2010][you did Monday]].
+
+BLAST jobs will however not run everywhere... only a subset of Grid site have BLAST installed.
+
+So we need to tell the glideinWMS backend we want to run only on sites with BLAS installed.
+In this particular glideinWMS installation, we do this by adding this attribute:
+<pre>
++NeedBLAST=True
+</pre>
+
+Moreover, we have to tell the Negotiator that we want the jobs only to run on sites that support BLAST;
+while we may not be requesting glideins on sites without BLAST, someone else might, and we do not want to run there.
+
+The glideins in this setup will be publishing the HasBLAST attribute.
+So let's add these requirements to your submit file:
+<pre>
+Requirements=(Arch=!="") && (HasBLAST=?=True)
+</pre>
+
+Finally, the BLAS software and data may be located in different directories on different sites.
+This glideinWMS installation defines two environment variables you can use:
+<pre>
+BLAST_SRC
+BLAST_DATA
+</pre>
+
+Use them in your startup scripts; for example:
+<pre>
+source $BLAST_SRC/setup.sh
+blastp -db $BLAST_DATA/yeast.aa -query query1
+</pre>
+
+Now submit a job cluster and monitor it as before.
+
+Where did they run?
+
+---++ File transfer
+
+As with a regular pool, you can have Condor do the file transfer for you;<br>
+please try to run a few [[https://twiki.grid.iu.edu/bin/view/Education/CondorROSS2010][R jobs, as you did on Monday]].
+
+What are requirements?
+
+Where did they run?
+
+---++ Mixing them up
+
+Let's now consider what happens when you have jobs with different requirements.
+
+Submit a few clusters of BLAST jobs, a few of the Pi and a few R jobs, possibly intermixing them.
+
+Where did they run?
+
+In which order?
+
+---++ Doing Grid file transfers
+
+Having Condor do all the file transfer may not be appropriate if you have very large data sizes.
+So let's try some [[https://twiki.grid.iu.edu/bin/view/Education/DataManagement2Oss2010][Grid Data Transfer, as you did yesterday]].
+
+But before you start, remember you need a [[https://twiki.grid.iu.edu/bin/view/Education/DataManagement2Oss2010#Prerequisite][Grid proxy]] for that.
+
+You may not have thought about it, but you were not using a proxy until now. 
+The Grid resources you got were requested in the glidein name.
+
+For storage, instead, you will need to use your own proxy; glideinWMS does not help you there.
+
+Using the Condor vanilla universe, Condor will transfer your proxy to the execution side only if you explicitly ask it to do it;<br>
+i.e. you need to add 
+<pre>
+x509userproxy = &lt;path_to_your_proxy&gt;
+</pre>
+
+Try it out and let me know how it goes.
+
+-- Main.MatsRynge - 03 Dec 2010
