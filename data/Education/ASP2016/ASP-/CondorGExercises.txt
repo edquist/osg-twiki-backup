@@ -1,0 +1,381 @@
+%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dMats_20Rynge_20274484" date="1291357066" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Brazil2011"}%
+
+---+ Condor-G Exercises
+
+---+ About This Document
+
+This document contains the initial exercises related to using Condor-G.  After completing these exercises, you should be able to:
+   * Understand how to turn a Condor job into a Condor-G job.
+   * Manage (submit, query, remove) grid jobs using Condor-G.
+   * Convert a scientific workflow from Condor to the grid.
+
+Prior to completing this document, you should have completed the Condor and proxy exercises.
+
+---++ Condor-G Submit Files
+
+The =condor_schedd= daemon controls the contents of a Condor queue; it interacts directly with the negotiator (to match a job to a worker node) and a startd (which runs the job on behalf of the schedd).
+
+With Condor-G, a user can utilize the familiar interfaces and capabilities of the schedd (familiar submit file format, queueing, state tracking, job submitting, etc) and have a separate process, the "gridmanager" do the internal state tracking.  The gridmanager interacts with the grid so the user doesn't have to.  Each grid middleware flavor can implement their own gridmanager process, allowing Condor to interact with many different grid types (even if it's really a "cloud", such as EC2, not a true grid).
+
+To tell Condor to use "Condor-G" mode, you need to specify the job to be in the grid universe and specify the grid flavor.  On the OSG, we use Globus Toolkit 2's protocol, so the grid flavor is called "gt2".
+
+Start off by saving the following script as =mytest.sh=:
+%TWISTY{
+mode="div"
+showlink="Show simple script file..."
+hidelink="Hide simple script file"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="file">
+#!/bin/sh
+echo "Hello, world, from `hostname`"
+printenv
+date
+sleep 10
+date
+</pre>
+%ENDTWISTY%
+
+This script is fairly boring - it simply echos the hostname and prints the environment.  Try running it locally
+<pre class="screen">
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%vim mytest.sh%ENDCOLOR% # Copy in script contents from above
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%chmod +x mytest.sh %ENDCOLOR%
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%./mytest.sh %ENDCOLOR%
+%TWISTY{
+mode="div"
+showlink="Show script output when run locally..."
+hidelink="Hide script output."
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+Hello, world, from vdt-itb.cs.wisc.edu
+MANPATH=/opt/osg-client/pegasus/man:/opt/osg-client/globus/man:/usr/man::/opt/osg-client/vdt/man:/opt/osg-client/perl/man:/opt/osg-client/expat/man:/opt/osg-client/logrotate/man:/opt/osg-client/wget/man:/opt/osg-client/jdk1.5/man:/opt/osg-client/glite/share/man:/opt/osg-client/curl/share/man:/opt/osg-client/lcg/man:/opt/osg-client/ndt/man:/opt/osg-client/owamp/man:/opt/osg-client/bwctl/man
+HOSTNAME=vdt-itb.cs.wisc.edu
+PAC_ANCHOR=/opt/osg-client
+SHELL=/bin/bash
+TERM=xterm-color
+VOMS_USERCONF=/opt/osg-client/glite/etc/vomses
+HISTSIZE=1000
+SSH_CLIENT=99.152.112.59 62931 22
+GLOBUS_LOCATION=/opt/osg-client/globus
+GLOBUS_PATH=/opt/osg-client/globus
+PERL5LIB=/opt/osg-client/pegasus/lib/perl:/opt/osg-client/perl/lib/5.8.0:/opt/osg-client/perl/lib/5.8.0/x86_64-linux-thread-multi:/opt/osg-client/perl/lib/site_perl/5.8.0:/opt/osg-client/perl/lib/site_perl/5.8.0/x86_64-linux-thread-multi:/opt/osg-client/vdt/lib:
+VDTSETUP_AGREE_TO_LICENSES=y
+X509_CERT_DIR=/opt/osg-client/globus/TRUSTED_CA
+SSH_TTY=/dev/pts/2
+VDTSETUP_GOOD_PLATFORM=1
+ANT_HOME=/opt/osg-client/ant
+GLITE_LOCATION_LOG=/opt/osg-client/glite/log
+USER=bbockelm
+SRM_CONFIG=/opt/osg-client/srm-client-fermi/etc/config-2.xml
+LD_LIBRARY_PATH=/opt/osg-client/openldap/lib:/opt/osg-client/lcg/lib64:/opt/osg-client/lcg/lib:/opt/osg-client/curl/lib:/opt/osg-client/glite/lib64:/opt/osg-client/glite/lib:/opt/osg-client/globus/lib:/opt/osg-client/berkeley-db/lib:/opt/osg-client/expat/lib:
+GLOBUS_ERROR_VERBOSE=true
+LS_COLORS=no=00:fi=00:di=01;34:ln=01;36:pi=40;33:so=01;35:bd=40;33;01:cd=40;33;01:or=01;05;37;41:mi=01;05;37;41:ex=01;32:*.cmd=01;32:*.exe=01;32:*.com=01;32:*.btm=01;32:*.bat=01;32:*.sh=01;32:*.csh=01;32:*.tar=01;31:*.tgz=01;31:*.arj=01;31:*.taz=01;31:*.lzh=01;31:*.zip=01;31:*.z=01;31:*.Z=01;31:*.gz=01;31:*.bz2=01;31:*.bz=01;31:*.tz=01;31:*.rpm=01;31:*.cpio=01;31:*.jpg=01;35:*.gif=01;35:*.bmp=01;35:*.xbm=01;35:*.xpm=01;35:*.png=01;35:*.tif=01;35:
+GPT_LOCATION=/opt/osg-client/gpt
+GLITE_LOCATION_TMP=/opt/osg-client/glite/tmp
+LIBPATH=/opt/osg-client/globus/lib:/usr/lib:/lib
+GLOBUS_OPTIONS=-Xms256M -Xmx1024M
+X509_CADIR=/opt/osg-client/globus/TRUSTED_CA
+PATH=/usr/kerberos/bin:/opt/osg-client/osg/bin:/opt/osg-client/discovery/bin:/opt/osg-client/bwctl/bin:/opt/osg-client/owamp/bin:/opt/osg-client/npad/bin:/opt/osg-client/ndt/bin:/opt/osg-client/lcg/bin:/opt/osg-client/srm-client-lbnl/bin:/opt/osg-client/srm-client-fermi/sbin:/opt/osg-client/srm-client-fermi/bin:/opt/osg-client/curl/bin:/opt/osg-client/cert-scripts/bin:/opt/osg-client/pyglobus-url-copy/bin:/opt/osg-client/pegasus/bin:/opt/osg-client/glite/sbin:/opt/osg-client/glite/bin:/opt/osg-client/ant/bin:/opt/osg-client/gpt/sbin:/opt/osg-client/globus/bin:/opt/osg-client/globus/sbin:/opt/osg-client/jdk1.5/bin:/usr/sbin:/usr/bin:/opt/osg-client/wget/bin:/opt/osg-client/logrotate/sbin:/opt/pacman-3.28/bin:/opt/osg-client/vdt/sbin:/opt/osg-client/vdt/bin:/usr/local/bin:/bin:/usr/bin:/home/osgmm/installs/current/bin:/home/bbockelm/bin
+MAIL=/var/spool/mail/bbockelm
+VDTSETUP_CONDOR_LOCATION=/usr
+CONDOR_LOCATION=/usr
+VDT_LOCATION=/opt/osg-client
+VDTSETUP_CONDOR_CONFIG=/etc/condor/condor_config
+CONDOR_CONFIG=/etc/condor/condor_config
+PWD=/home/bbockelm/testjob_simple
+INPUTRC=/etc/inputrc
+JAVA_HOME=/opt/osg-client/jdk1.5
+LANG=en_US.UTF-8
+VOMS_LOCATION=/opt/osg-client/glite
+CATALINA_OPTS=-Dorg.globus.wsrf.container.persistence.dir=/opt/osg-client/vdt-app-data/globus/persisted
+SSH_ASKPASS=/usr/libexec/openssh/gnome-ssh-askpass
+HOME=/home/bbockelm
+SHLVL=2
+GLITE_LOCATION_VAR=/opt/osg-client/glite/var
+VDT_INSTALL_LOG=vdt-install.log
+DYLD_LIBRARY_PATH=/opt/osg-client/globus/lib
+LOGNAME=bbockelm
+PYTHONPATH=/opt/osg-client/lcg/lib64/python:/opt/osg-client/pegasus/lib/python
+SSH_CONNECTION=99.152.112.59 62931 198.51.254.90 22
+CLASSPATH=/opt/osg-client/pegasus/lib/resolver.jar:/opt/osg-client/pegasus/lib/xmldb.jar:/opt/osg-client/pegasus/lib/junit.jar:/opt/osg-client/pegasus/lib/postgresql-8.1dev-400.jdbc3.jar:/opt/osg-client/pegasus/lib/pegasus.jar:/opt/osg-client/pegasus/lib/cog-jglobus.jar:/opt/osg-client/pegasus/lib/cryptix.jar:/opt/osg-client/pegasus/lib/jakarta-oro.jar:/opt/osg-client/pegasus/lib/exist-optional.jar:/opt/osg-client/pegasus/lib/xercesImpl.jar:/opt/osg-client/pegasus/lib/xmlrpc.jar:/opt/osg-client/pegasus/lib/wings.jar:/opt/osg-client/pegasus/lib/accessors.jar:/opt/osg-client/pegasus/lib/java-getopt-1.0.9.jar:/opt/osg-client/pegasus/lib/commons-logging.jar:/opt/osg-client/pegasus/lib/cryptix-asn1.jar:/opt/osg-client/pegasus/lib/xmlParserAPIs.jar:/opt/osg-client/pegasus/lib/puretls.jar:/opt/osg-client/pegasus/lib/log4j-1.2.8.jar:/opt/osg-client/pegasus/lib/jce-jdk13-125.jar:/opt/osg-client/pegasus/lib/mysql-connector-java-5.0.5-bin.jar:/opt/osg-client/pegasus/lib/cryptix32.jar:/opt/osg-client/pegasus/lib/preservcsl.jar:/opt/osg-client/pegasus/lib/exist.jar:/opt/osg-client/pegasus/lib/globus_rls_client.jar:/opt/osg-client/pegasus/lib/commons-pool.jar
+LESSOPEN=|/usr/bin/lesspipe.sh %s
+SHLIB_PATH=/opt/osg-client/globus/lib
+VDT_POSTINSTALL_README=/opt/osg-client/post-install/README
+GLITE_LOCATION=/opt/osg-client/glite
+PACMAN_LOCATION=/opt/pacman-3.28
+PEGASUS_HOME=/opt/osg-client/pegasus
+G_BROKEN_FILENAMES=1
+CERT_SCRIPTS_HOME=/opt/osg-client/cert-scripts
+_=/usr/bin/printenv
+Tue Jul  6 20:48:58 CDT 2010
+Tue Jul  6 20:49:08 CDT 2010
+[bbockelm@vdt-itb testjob_simple]$ 
+%ENDTWISTY%
+</pre>
+
+We can submit it with the following simple Condor job:
+<pre class="file">
+Universe                = vanilla
+Executable              = mytest.sh
+Output                  = job_test.output.$(Cluster).$(Process)
+Error                   = job_test.error.$(Cluster).$(Process)
+Log                     = job_test.log
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+queue
+</pre>
+This is fairly unremarkable, and similar to the simple jobs you did yesterday.  See the command-line output below.
+
+<pre class="screen">
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%vim test.condor%ENDCOLOR% # Copy in script given above
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%condor_submit test.condor%ENDCOLOR%
+%TWISTY{
+mode="div"
+showlink="Show job submit example..."
+hidelink="Hide example."
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+Submitting job(s).
+Logging submit event(s).
+1 job(s) submitted to cluster 60256.
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%condor_q bbockelm%ENDCOLOR%
+
+
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:53180> : vdt-itb.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+60256.0   bbockelm        7/6  21:01   0+00:00:00 I  0   0.0  mytest.sh         
+
+1 jobs; 1 idle, 0 running, 0 held
+
+%ENDTWISTY%
+</pre>
+
+The job should eventually go into running state and finish locally.  Verify it ran by examining its output file.
+
+What changed in the environment between when you ran it through Condor and when you ran it by hand?
+
+Now, we'll take this job and change the universe and specify a grid resource to send it to.  Add the following two lines to the top of your submit file, =test.condor=:
+
+<pre class="file">
+universe=grid
+grid_resource = %RED%gt2 osg-edu.cs.wisc.edu:/jobmanager-condor%ENDCOLOR%
+</pre>
+
+Here, we specify to send the job to a GT2-style (Globus Toolkit 2) resource.  The job will go to CE =osg-edu.cs.wisc.edu= and use =jobmanager-condor=.
+
+Recall from our previous exercise GlobusToolsOss2010: *Always specify the jobmanager you want, and never use the default one called "jobmanager".*
+
+---++ Job Submission and Management
+
+As with vanilla or standard Condor jobs, there are three important tools you want to know:
+   * Job submission (=condor_submit=)
+   * Job status query (=condor_q=)
+   * Job removal/cancel (=condor_rm=)
+
+Let's run through each of these with grid universe jobs.  Use the following submit file:
+
+<pre class="file">
+Universe                = grid
+grid_resource           = %RED%gt2 osg-edu.cs.wisc.edu:/jobmanager-condor%ENDCOLOR%
+Executable              = mytest.sh
+Output                  = job_test.output.$(Cluster).$(Process)
+Error                   = job_test.error.$(Cluster).$(Process)
+Log                     = job_test.log
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+queue
+
+</pre>
+
+Submit this job using =condor_submit=:
+
+<pre class="screen">
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%vim test.condor%ENDCOLOR%
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%condor_submit test.condor %ENDCOLOR%
+Submitting job(s).
+Logging submit event(s).
+1 job(s) submitted to cluster 61532.
+</pre>
+
+%NOTE% If you get an error message like this one:
+
+<pre class="screen">
+[bbockelm@vdt-itb gridx]$ condor_submit test.condor 
+Submitting job(s)
+ERROR: can't determine proxy filename
+x509 user proxy is required for gt2, gt4, nordugrid or cream jobs
+</pre>
+You have no valid proxy!  Create yourself a new proxy.
+
+Check the status of the queue using =condor_q=:
+
+<pre class="screen">
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%condor_q bbockelm%ENDCOLOR%
+
+
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:53928> : vdt-itb.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+61964.0   bbockelm        7/13 20:55   0+00:00:00 I  0   0.0  mytest.sh         
+
+</pre>
+
+This should look just like the a normal job!  We get no grid information.  There's a =-globus= flag which displays the grid status:
+<pre class="screen">
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%condor_q bbockelm -globus%ENDCOLOR%
+%TWISTY%
+
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:53928> : vdt-itb.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+61964.0   bbockelm      %RED%UNSUBMITTED%ENDCOLOR% condor   osg-edu.cs.wisc.ed  /home/bbockelm/tes
+
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%condor_q bbockelm -globus%ENDCOLOR%
+
+
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:53928> : vdt-itb.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+61964.0   bbockelm      %RED%PENDING%ENDCOLOR% condor   osg-edu.cs.wisc.ed  /home/bbockelm/tes
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%condor_q bbockelm -globus%ENDCOLOR%
+
+
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:53928> : vdt-itb.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+61964.0   bbockelm      %RED%RUNNING%ENDCOLOR% condor   osg-edu.cs.wisc.ed  /home/bbockelm/tes
+[bbockelm@vdt-itb testjob_simple]$ %BLUE%condor_q bbockelm -globus%ENDCOLOR%
+
+
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:53928> : vdt-itb.cs.wisc.edu
+ ID      OWNER          STATUS  MANAGER  HOST                EXECUTABLE        
+61964.0   bbockelm      %RED%STAGE_OUT%ENDCOLOR% condor   osg-edu.cs.wisc.ed  /home/bbockelm/tes
+
+%ENDTWISTY%
+</pre>
+
+If you recall, in order to implement the grid universe, Condor calls out to a specific gridmanager to do the heavy lifting of queue operations.  After you submit your job, you should see a gridmanager launched as your own user.  Use the unix command =ps= to see it running:
+<pre class="screen">
+[bbockelm@vdt-itb gridx]$ %BLUE%ps fux%ENDCOLOR%
+USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+bbockelm 12444  0.3  0.1  32112  4040 ?        S    15:21   0:00 condor_gridmanager -f -C (Owner=?="bbockelm"&&JobUniverse==9) -o bbockelm -S /tmp/condor_g_scratch.0x1e350fe0.28761
+bbockelm 12445  0.4  0.2  27608  4900 ?        S    15:21   0:00  \_ /usr/sbin/gahp_server
+bbockelm  4710  0.0  0.0  90136  1832 ?        S    12:00   0:00 sshd: bbockelm@pts/26
+bbockelm  4711  0.0  0.0  66132  1696 pts/26   Ss   12:00   0:00  \_ -bash
+bbockelm 12588  0.0  0.0  65572   904 pts/26   R+   15:21   0:00      \_ ps fux
+</pre>
+
+---+++ Homework
+
+Try the following:
+   * What different grid statuses do you see when you run =condor_q -globus=?
+   * Verify that =condor_rm= works the same for Condor-G as it does for regular Condor.
+   * What interesting environment variables do you see when running the job via Condor-G instead of Condor or locally.  There should be at least four that are only defined in the Condor-G job.
+
+Ok, you've now submitted to the OSG-EDU resource.  Repeat the following exercise (submit job, watch it go through the different grid states, view the output) using one (or more) of the following GT2 resources:
+   * ff-grid.unl.edu:/jobmanager-pbs
+   * ff-grid2.unl.edu:/jobmanager-pbs
+   * ff-grid3.unl.edu:/jobmanager-pbs
+   * red.unl.edu:/jobmanager-condor
+   * gpn-husker.unl.edu:/jobmanager-condor
+
+What grid states do you see?  What is the fastest resource?  The slowest?
+
+Thinking homework:
+   * If you had to decide to where to send jobs, how would you decide?
+   * How would you find more resources to run your jobs at?
+
+---++ OSG Job Execution Environment
+
+There are several important parts of the OSG job environment you should be aware of; these are communicated to the job through environment variables.
+
+---+++ OSG_GRID
+
+This points to the location of the grid client software.  In order to initialize the job environment, you need to run:
+
+<pre class="screen">
+%BLUE%source $OSG_GRID/setup.sh%ENDCOLOR%
+</pre>
+
+Otherwise, none of the following variables will be defined, nor will grid clients be accessible on the worker node.
+
+*Always do this at the beginning of your job*.
+
+---+++ OSG_DATA
+
+This directory is the correct place to store job data.  This is typically on a single NFS server, meaning it's not actually highly scalable.  You do not want to use $OSG_DATA to hold the input or output of a large number of data-intensive jobs.  Typically, there is up to 20GB per VO allocated.
+
+*If no $OSG_DATA directory is available*, then the value of this variable will be set to =UNAVAILABLE=.  Always check for this condition.
+
+You should write your data into:
+<verbatim>
+$OSG_DATA/osgedu
+</verbatim>
+Replace =osgedu= with the name of your VO.
+
+*For the sake of this summer school*, we want you to write into this directory:
+
+<verbatim>
+$OSG_DATA/osgedu/USERNAME
+</verbatim>
+
+Replace =USERNAME= with your actual username.
+
+---+++ OSG_APP
+
+$OSG_APP is the place to install application data.  Again, this is on a single NFS server, so it has limited scalability.  Typically, there is up to 10GB in this directory and writable only from the head node.
+
+*If no $OSG_APP directory is available*, then the value of this variable will be set to =UNAVAILABLE=.  Always check for this condition.
+
+You should install your application into:
+<verbatim>
+$OSG_APP/osgedu
+</verbatim>
+Replace =osgedu= with the name of your VO.
+
+*For the sake of this summer school*, we want you to write into this directory:
+<verbatim>
+$OSG_APP/osgedu/USERNAME
+</verbatim>
+Replace =USERNAME= with your actual username.
+
+---+++ OSG_WN_TMP
+
+$OSG_WN_TMP points to a shared scratch place on the local hard drive on the worker node.  Typically, there is up to 10GB in this directory per batch slot on the worker node.  Because of the fact that all VOs share the same directory, you need to create your own subdirectory *and remember to delete it afterward*.
+
+The logic of the script should look something like this:
+<pre class="screen">
+%BLUE%source $OSG_GRID/setup.sh%ENDCOLOR%
+export originalPwd=$PWD
+cd $OSG_WN_TMP
+export TMPDIR=$OSG_WN_TMP
+tmpDir=`mktemp -d -t osgedu.XXXXXX`
+cd $tmpDir
+%RED%... DO JOB STUFF HERE ...%ENDCOLOR%
+%RED%... WRITE JOB OUTPUT FILES BACK TO ORIGINAL DIRECTORY ...%ENDCOLOR%
+cp my_output_file $originalPwd/my_output_file
+cd $OSG_WN_TMP
+rm -rf $tmpDir
+</pre>
+
+---++ Converting and Running our Science Application on the Grid
+
+Here's your homework/project for this module: convert the BLAST application from yesterday to Condor-G.  In order to do this, you need to know that:
+   * We have installed the BLAST databases into =$OSG_DATA/osgedu/blast_dbs= on OSG-EDU and Firefly.
+   * We have installed BLAST into =$OSG_APP/osgedu/blast= on OSG-EDU and Firefly.  You can add BLAST to your environment by runnning =source $OSG_APP/osgedu/blast/setup.sh=.
+
+Make sure you do the following steps, one at a time:
+   * Get a single execution working here at =osg-edu.cs.wisc.edu=
+   * Get a single execution working at Firefly.
+   * Submit many queries at once to one of these two sites.
+   * Convert the BLAST DAG from yesterday over to the grid and run it on one of the sites.
+   * Run the entire DAG at multiple times, choosing different sites.
+   * Adapt the DAG so a single workflow can "load balance" between different sites.
+
+Run the BLAST application via the grid, then answer the following questions:
+   * How much time does the grid/Condor-G version take versus the plain Condor version?
+   * What strategy did you use to split a single DAG between multiple sites?  What errors did you encounter, if any?
+
+
+
+-- Main.MatsRynge - 03 Dec 2010
