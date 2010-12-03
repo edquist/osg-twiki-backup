@@ -1,0 +1,422 @@
+%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dMats_20Rynge_20274484" date="1291356951" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Brazil2011"}%
+
+---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+---++ Querying ReSS directly using condor_status
+
+OSG provides a central ReSS master server at osg-ress-1.fnal.gov. You can use the condor_status command to query it directly. But note that the collector contains something like 15000 ads. Let's start with just counting the ads using the wc (wordcount) command. Please run:
+
+<pre class="screen">
+[rynge@vdt-itb ~]$ condor_status -pool osg-ress-1.fnal.gov | wc -l
+</pre>
+
+How many entries did you get?
+
+Let's ask for just the ads for sites supporting the osgedu VO. Run:
+
+<pre class="screen">
+[rynge@vdt-itb ~]$ condor_status -pool osg-ress-1.fnal.gov -constraint 'StringlistIMember("VO:osgedu";GlueCEAccessControlBaseRule)' | wc -l
+</pre>
+
+How many entries did you get?
+
+You can also use the -format to list the site names and contact strings:
+
+<pre class="screen">
+[rynge@vdt-itb ~]$ condor_status -pool osg-ress-1.fnal.gov -constraint 'StringlistIMember("VO:osgedu";GlueCEAccessControlBaseRule)' -format '%-20s' GlueSiteUniqueID -format '%s\n' GlueCEInfoContactString
+</pre>
+
+The reason for duplicate entries is that they ads list different storage options. At this point we just want sitenames and contact strings, so let's narrow down the result set. Run:
+
+<pre class="screen">
+[rynge@vdt-itb ~]$ condor_status -pool osg-ress-1.fnal.gov -constraint 'StringlistIMember("VO:osgedu";GlueCEAccessControlBaseRule)' -format '%-20s' GlueSiteUniqueID -format '%s\n' GlueCEInfoContactString | sort | uniq
+</pre>
+
+This is the set of sites which advertises support for the osgedu VO. But not all these sites will actually work. They might be under maintenance, having problems or just misconfigured and not being able to run jobs from the VO.
+
+---++ Querying local OSGMM instance using condor_status
+
+OSGMM uses similar queries as the ones above to download the ads for the configured VO. It then verifies the sites using test jobs (usually every 12-24 hours), and includes the test results in the ads. Let's query the local Condor collector which is used by the local OSGMM for sites which have passed the tests. Run:
+
+<pre class="screen">
+[rynge@vdt-itb ~]$ condor_status -constraint 'SiteVerified == true' -format '%-20s' GlueSiteUniqueID -format '%s\n' GlueCEInfoContactString | sort
+</pre>
+
+Note how this is a subset of what we found in the last query againt ReSS. Some sites did not pass the verification jobs. The sites listed here did pass and should work if you send jobs to them.
+
+The sites and OSGMM puts a lot of other interesting attributes into the ads. Take a look at one full ad by running:
+
+<pre class="screen">
+[rynge@vdt-itb ~]$ condor_status -l -constraint 'GlueSiteUniqueID == "WISC-OSG-EDU"'
+</pre>
+
+Some of the attributes you might want to use when matching jobs are:
+
+| *Attribute Name* | *Value* | *Description* |
+| OSGMM_CENetworkOutbound | True/False | True if you can make outbound network connections from the compute nodes |
+| OSGMM_CPUBits | 32/64 | Is the system a 32 or 64 bit system? |
+| OSGMM_MemPerCPU | Megabytes | Memory available to a job |
+| OSGMM_DISK_GB_AVAILABLE_OSG_DATA | Gigabytes | Available space under $OSG_DATA |
+
+For example, if you have a job which requires 50 GB of disk space under $OSG_DATA and 2GB memory, you can find sites by running:
+
+<pre class="screen">
+[rynge@vdt-itb ~]$ condor_status -constraint 'SiteVerified == true && OSGMM_MemPerCPU >= 2048000 && OSGMM_DISK_GB_AVAILABLE_OSG_DATA >= 50' -format '%-20s' GlueSiteUniqueID -format '%s\n' GlueCEInfoContactString | sort
+</pre>
+
+OSGMM can also install and advertise software/datasets on sites. For the upcoming exercises we will send jobs to sites which have blast and povray installed. These sites cab be found with:
+
+<pre class="screen">
+[rynge@vdt-itb blast]$ condor_status -constraint 'SiteVerified == true && OSGMM_Software_Blast == True' -format '%-20s' GlueSiteUniqueID -format '%s\n' GlueCEInfoContactString | sort
+[rynge@vdt-itb blast]$ condor_status -constraint 'SiteVerified == true && OSGMM_Software_Povray == True' -format '%-20s' GlueSiteUniqueID -format '%s\n' GlueCEInfoContactString | sort
+</pre>
+
+
+Lastly, if all you want is a quick overview of site and job status, OSGMM provides a convenience command called condor_grid_overview. We will use that in the exercises below. For now, just try to run it:
+
+<pre class="screen">
+[rynge@vdt-itb ~]$ condor_grid_overview
+</pre>
+
+---++ Copy the exercise directory
+
+For the next couple of exercises, we will use already existing job examples. Please copy the exercise directory by running the following command:
+
+<pre class="screen">
+cp -r ~rynge/osgmm-exercises ~/
+</pre>
+
+You should now have a directory under your home directory called "osgmm-exercises"
+
+
+---++ BLAST / Condor-G example with match making
+
+This example builds on the BLAST example you did yesterday and earlier today. It is using the information provided by ReSS and OSGMM and will automatically distribute your jobs out on the grid. This example includes features such as failure detection and automatically resubmits so it looks a little bit complex compared to what we have done up until now. Let's start by taking a look at the provided files. Please open them up in an editor at least scan them. Cd into the work directory and list the files.
+
+<pre class="screen">
+cd ~/osgmm-exercises/blast/
+ls
+</pre>
+
+Description of the files / directories:
+
+   * *blast-summarize* - Same summary script that Alain provided yesterday.
+
+   * *inputs* - Directory containing inputs for the jobs - the 10 ones we used yesterday afternoon
+
+   * *local-pre-job* - It is a script which DAGMan runs before each job. It is mostly a placeholder in the Blast example.
+
+   * *local-post-job* - It is a script which DAGMan runs *locally* after *each job* completes. This is a very important part of detecting job failures. Failures should be expected in any distributed system, so it is important to detect and handle failures accordingly. The local-post-job script checks the job output to determine if the job was successful or not, and if a failure is detected, the script exists with exit code of 1, which signals to the DAGMan that the job should be resubmitted. The local-post-job script is also a good hook to place post-processing. In this case we want to untar the output tar.gz file from the job and run blast-summarize on the output.
+
+   * *remote-blast-wrapper* - This is the actual job that runs on the *remote side*. In most cases you will have to wrap your executable in a job wrapper to do the staging in/out (tar.gz in our case), work dir handling (moving to $OSG_WN_TMP for example for local disk I/O) and to do some extra error detection. 
+
+   * *runs* - This is a directory in which is used to old each "run". When you start a new run, a timestamped directory will be created in here to hold logs and outputs.
+
+   * *submit* - This is the submit script. It creates the Condor jobs based on inputs/parameters, sets up input files in tar.gzs and a DAGMan description. Then the run is submitted to Condor for execution.
+
+Let's start a run and see how it works. First make sure you have a valid proxy:
+
+<pre class="screen">
+voms-proxy-info
+</pre>
+
+If you do not have a proxy or it is expired / close to expired, generate a new one with voms-proxy-init like described earlier.
+
+Then, kick off a new run:
+
+<pre class="screen">
+./submit
+</pre>
+
+Cd into runs/ and check the newly created run directory:
+
+<pre class="screen">
+cd  runs/
+ls
+</pre>
+
+Cd into the timestamped directory and ls in there. You should see something like:
+
+<pre class="screen">
+cd  runs/
+10.condor  alljobs.log       inputs-9.tar.gz        outputs-1.tar.gz
+1.condor   inputs-10.tar.gz  logs                   outputs-2.tar.gz
+2.condor   inputs-1.tar.gz   master.dag             outputs-3.tar.gz
+3.condor   inputs-2.tar.gz   master.dag.condor.sub  outputs-4.tar.gz
+4.condor   inputs-3.tar.gz   master.dag.dagman.log  outputs-5.tar.gz
+5.condor   inputs-4.tar.gz   master.dag.dagman.out  outputs-6.tar.gz
+6.condor   inputs-5.tar.gz   master.dag.lib.err     outputs-7.tar.gz
+7.condor   inputs-6.tar.gz   master.dag.lib.out     outputs-8.tar.gz
+8.condor   inputs-7.tar.gz   master.dag.lock        outputs-9.tar.gz
+9.condor   inputs-8.tar.gz   outputs-10.tar.gz
+</pre>
+
+The input tar files contains the input queries. The output tar files are empty until they have been staged back from the remote side. The master.* files are Condor DAGMan files. Let's take a look at the condor submit script. 
+
+<pre class="screen">
+universe        = grid
+grid_type       = gt2
+globusscheduler = $$(GlueCEInfoContactString)
+globusrsl       = (maxWallTime=60)(min_memory=800)(max_memory=800)
+requirements    = ( (TARGET.GlueCEInfoContactString =!= UNDEFINED) \
+                    && (TARGET.Rank > 300) \
+                    && (TARGET.OSGMM_MemPerCPU >= (800 * 1000)) \
+                    && (TARGET.OSGMM_Software_Blast == TRUE) \
+                    && ( isUndefined(TARGET.OSGMM_Success_Rate_rynge) \
+                          || (TARGET.OSGMM_Success_Rate_rynge > 75) ) \
+                  )
+
+# when retrying, remember the last 4 resources tried
+match_list_length = 4
+Rank              = (TARGET.Rank) - \
+                    ((TARGET.Name =?= LastMatchName0) * 1000) - \
+                    ((TARGET.Name =?= LastMatchName1) * 1000) - \
+                    ((TARGET.Name =?= LastMatchName2) * 1000) - \
+                    ((TARGET.Name =?= LastMatchName3) * 1000)
+
+# make sure the job is being retried and rematched
+periodic_release = (NumGlobusSubmits < 5)
+globusresubmit = (NumSystemHolds >= NumJobMatches)
+rematch = True
+globus_rematch = True
+
+# only allow for the job to be queued for a while, then try to move it
+#  GlobusStatus==16 is suspended
+#  JobStatus==1 is pending
+#  JobStatus==2 is running
+periodic_hold = ( (GlobusStatus==16) || \
+                  ((JobStatus==1) && ((CurrentTime - EnteredCurrentStatus) > (30*60))) || \
+                  ((JobStatus==2) && ((CurrentTime - EnteredCurrentStatus) > (60*60))) )
+
+# stay in queue on failures
+on_exit_remove = (ExitBySignal == False) && (ExitCode == 0)
+
+executable = ../../remote-blast-wrapper
+arguments = 2010-07-18_172638 1  query1
+
+stream_output = False
+stream_error  = False
+
+WhenToTransferOutput = ON_EXIT
+TransferExecutable = true
+
+Transfer_Input_Files = inputs-1.tar.gz
+Transfer_Output_Files = outputs-1.tar.gz
+
+output = logs/1/job.out
+error = logs/1/job.err
+log = alljobs.log
+
+notification = NEVER
+
+queue
+
+</pre>
+
+Note how the requirements string list memory and other requirements of the job. This is what is used to match up with sites which should be able to handle our jobs. Also note globusscheduler = $$(GlueCEInfoContactString). In the Condor-G example we had a site contact here. In match making we make Condor fill it out with information from the target site ad.
+
+Now, check the status of your run with:
+
+<pre class="screen">
+condor_grid_overview
+</pre>
+
+Once jobs comes back, check the outputs/ directory for the blast output and summary outputs.
+
+
+---++ Povray Exercise
+
+For this demo we will be using Povray, which is a raytracer used to create three-dimensional graphics. A scene (including objects, textures, lights, cameras, ...) is described in a scene description language, and Povray then follow the light rays and creates a image with shadows, transparency and so on. This final output we are going to do in this demo is an image of a Bonsai tree:
+
+<img src="%ATTACHURLPATH%/rendered.png" alt="rendered.png" width='400' height='300' />
+
+
+Running Povray can be pretty compute intensive. How intensive depends on scene complexity and output size of the image. Running on a grid like OSG, one of the things you will have to do is break your problem up into sub problems. When animation studios render full movies, each frame of the move is a job. For our rendering problem, we will split the task of rendering the full image up into the problems of rendering tiles of the image, and then when we have all the tiles, we will put the tiles together into the final image. How many tiles you want to do is a user setting, but one possible break down would be 8x6 (48 tiles).
+
+<img src="%ATTACHURLPATH%/rendered_split_lines.png" alt="rendered_split_lines.png" width='500' height='375' />
+
+The steps necessary to create a workflow is:
+
+   * for each tile, create a Condor submit file to describe the job and pass the needed parameters to the job
+   * add all the Condor jobs to the DAGMan
+   * submit the DAGMan
+
+Just like in the BLAST example, we have a submit script which takes cares of these steps.
+
+---+++ Starting a Run
+
+Description of the files / directories:
+
+   * *helpers* - This is a directory holding helper scripts. In the case of the povray example, there is only one helper, tiles-combine, which is used to combine all the individual tiles into one final image
+
+   * *inputs* - Directory containing inputs for the jobs, which include the Povray scene description for the Bonsai scene
+
+   * *local-pre-job* - It is a script which DAGMan runs before each job. It is mostly a placeholder in the Povray example.
+
+   * *local-post-job* - It is a script which DAGMan runs after each job completes. This is a very important part of detecting job failures. Failures should be expected in any distributed system, so it is important to detect and handle failures accordingly. The local-post-job script checks the job output to determine if the job was successful or not, and if a failure is detected, the script exists with exit code of 1, which signals to the DAGMan that the job should be resubmitted.
+
+   * *remote-povray-wrapper* - This is the actual job that runs on the remote side. In most cases you will have to wrap your executable in a job wrapper to do the staging in/out, work dir handling (moving to $OSG_WN_TMP for example for local disk I/O) and to do some extra error detection.
+
+   * *runs* - This is a directory in which is used to old each "run". When you start a new run, a timestamped directory will be created in here to hold logs and outputs.
+
+   * *submit* - This is the submit script. It creates the Condor jobs based on inputs/parameters, and a DAGMan description. Then the run is submitted to Condor for execution.
+
+
+Let's start a run with the default parameters:
+
+<pre class="screen">
+$ <b>./submit</b>
+Run id is 2009-10-21_202324
+Generating job 1 X: 1 {1:200}, Y: 1 {1:150}
+....
+Generating job 16 X: 4 {601:800}, Y: 4 {451:600}
+
+Checking all your submit files for log file names.
+This might take a while...
+Done.
+-----------------------------------------------------------------------
+File for submitting this DAG to Condor           : master.dag.condor.sub
+Log of DAGMan debugging messages                 : master.dag.dagman.out
+Log of Condor library output                     : master.dag.lib.out
+Log of Condor library error messages             : master.dag.lib.err
+Log of the life of condor_dagman itself          : master.dag.dagman.log
+
+Condor Log file for all jobs of this DAG         : runs/2009-10-20_135040/alljobs.log
+Submitting job(s).
+Logging submit event(s).
+1 job(s) submitted to cluster 849162.
+-----------------------------------------------------------------------
+
+</pre>
+
+What was submitted was one DAGMan which will manager 16 tile jobs.
+
+
+---+++ Checking on the Jobs
+
+We can check on jobs in the queue using the *condor_grid_overview* command:
+
+<pre class="screen">
+[train01@gs-mm ~]$ <b> condor_grid_overview</b>
+ID         DAG              Owner        Resource              Status      Command       TimeInState
+========== ================ ============ ===================== =========== ============= ===========
+703        (DAGMan)         train01                            Running     condor_dagman     0:03:44
+704          |-job_1        train01      UCHC_CBG              Stage out   remote-povray-    0:00:30
+705          |-job_2        train01      LIGO_UWM_NEMO         Pending     remote-povray-    0:03:30
+706          |-job_3        train01      Clemson-ciTeam        Stage out   remote-povray-    0:02:46
+708          |-job_5        train01      NYSGRID_CORNELL_NYS1  Stage out   remote-povray-    0:00:31
+709          |-job_6        train01      Firefly               Stage out   remote-povray-    0:00:31
+710          |-job_8        train01      Firefly               Stage out   remote-povray-    0:01:28
+711          |-job_10       train01      NYSGRID-CCR-U2        Running     remote-povray-    0:00:31
+712          |-job_12       train01      Nebraska              Pending     remote-povray-    0:03:26
+713          |-job_7        train01      UCHC_CBG              Stage out   remote-povray-    0:00:31
+714          |-job_9        train01      LIGO_UWM_NEMO         Pending     remote-povray-    0:03:21
+715          |-job_11       train01      Clemson-ciTeam        Stage out   remote-povray-    0:00:31
+717          |-job_14       train01      NYSGRID_CORNELL_NYS1  Stage out   remote-povray-    0:00:31
+718          |-job_15       train01      Firefly               Stage out   remote-povray-    0:00:31
+720          |-job_4        train01      Firefly               Submitting  remote-povray-    0:00:25
+721          |-job_13       train01      Clemson-ciTeam        Submitting  remote-povray-    0:00:25
+
+Site                      Total  Subm Stage  Pend  Run  Other  Rank Succes
+========================= ===== ===== ===== ===== ===== ===== ===== ======
+AGLT2                         0     0     0     0     0     0   500   100%
+BNL-ATLAS                     0     0     0     0     0     0   500   100%
+BNL-ATLAS                     0     0     0     0     0     0   500   100%
+CIT_CMS_T2                    0     0     0     0     0     0   500   100%
+CIT_CMS_T2                    0     0     0     0     0     0   500   100%
+CIT_CMS_T2                    0     0     0     0     0     0   500   100%
+Clemson-ciTeam                3     1     2     0     0     0   947   100%
+Duke                          0     0     0     0     0     0   500   100%
+Firefly                       2     0     2     0     0     0   200   100%
+Firefly                       2     1     1     0     0     0   950   100%
+LIGO_UWM_NEMO                 2     0     0     2     0     0   200   100%
+NYSGRID-CCR-U2                1     0     0     0     1     0   168    84%
+NYSGRID_CORNELL_NYS1          2     0     2     0     0     0   200   100%
+Nebraska                      1     0     0     1     0     0   200   100%
+RENCI-Engagement              0     0     0     0     0     0     0     0%
+SBGrid-Harvard-East           0     0     0     0     0     0   500   100%
+SPRACE                        0     0     0     0     0     0   500   100%
+UCHC_CBG                      2     0     2     0     0     0   200   100%
+UFlorida-HPC                  0     0     0     0     0     0   200   100%
+UJ-OSG                        0     0     0     0     0     0   500   100%
+WQCG-Harvard-OSG              0     0     0     0     0     0   500   100%
+
+16 jobs; 0 matching, 3 pending remotely, 2 running, 0 held, 11 other
+</pre>
+
+The first section of the output lists jobs. The second section lists compute sites. Interesting notes:
+
+   * *Where does the site information come from?* - The site information comes from [[https://twiki.grid.iu.edu/bin/view/ResourceSelection/WebHome][ReSS]] which is one of the site information feeds in OSG. To see what the full Condor ClassAd for a site looks like, try this command: *condor_status -l RENCI-Engagement_belhaven-1.renci.org*  Information is advertised directly from the sites, and is less than 5 minutes old. Note that these are the set of sites which accepts OSGEDU VO jobs. The total number of sites on OSG is close to 100.
+
+   * *Multiple Sites with the same name* - Some sites have multiple job gateways to spread the load out. The site entries in *condor_grid_overview* are one entry per gatekeeper.
+
+   * *Rank* - Rank is used by Condor during the match making step. If a job matches multiple sites, the one with the highest rank will win. OSGMM continuously assigns and updates rank between 0 and 1000 depending on how well the sites is doing (running jobs, job success rates, etc). Ranks below 300 means that no more jobs will be sent to the site. If you keep on running *condor_grid_overview* you will see the rank column change.
+
+   * *Why do the jobs not go to certain sites?* - The jobs depend on Povray being installed at the sites, and have that expressed as a requirement in the Condor job descriptions. Povray has not been built on all sites, and the jobs will not match those sites. 
+
+   * *Jobs timing out* - the jobs are set up to time out after 10 minutes in being stuck pending. The result is that if a site is busy and not running the job, it will move to another site. Held state means that the job is being removed from the site, and will be resubmitted somewhere else.
+
+
+---+++ Run Directory
+
+Outputs will appear in runs/{timestamp}, where the timestamp will be different for each submit. For example:
+
+<pre class="screen">
+[train01@gs-mm ~]$ <b>cd runs/2009-10-21_202324/</b>
+[train01@gs-mm 2009-10-21_202324]$ <b>ls</b>
+10.condor          1.outputs.tar.gz  9.condor
+10.outputs.tar.gz  2.condor          9.outputs.tar.gz
+11.condor          2.outputs.tar.gz  alljobs.log
+11.outputs.tar.gz  3.condor          jobkey.txt
+12.condor          3.outputs.tar.gz  logs
+12.outputs.tar.gz  4.condor          master.dag
+13.condor          4.outputs.tar.gz  master.dag.condor.sub
+13.outputs.tar.gz  5.condor          master.dag.dagman.log
+14.condor          5.outputs.tar.gz  master.dag.dagman.out
+14.outputs.tar.gz  6.condor          master.dag.lib.err
+15.condor          6.outputs.tar.gz  master.dag.lib.out
+15.outputs.tar.gz  7.condor          outputs
+16.condor          7.outputs.tar.gz  parameters.txt
+16.outputs.tar.gz  8.condor          tiles-combine.log
+1.condor           8.outputs.tar.gz
+</pre>
+
+In here you will find:
+
+   * *DAGMan description and logs* - master.dag describes what jobs are part of the DAG.
+
+   * *Condor* - The Condor submit files are the NN.condor files. They look complicated, but once you have this set up, you can submit and let the system handle job failures. Also note the "requirements" string which states that we need Povray.
+
+   * *logs* - Contains outputs from the jobs. Also note alljobs.log where all the jobs log to the same file - this is so that DAGMan only have to check one file to know what is happening with the jobs belonging to the DAG.
+
+   * *outputs* - This is where the povray outputs go, which we then tile together to the final image.
+
+
+The post script is again used to do post process data as it comes back from the grid. Each tile is added into the final image. During the run you should see a partially tiled image. Example:
+
+<img src="%ATTACHURLPATH%/output-tiles.png" alt="output-tiles.png" width='400' height='300' />
+
+
+If the image is complete, you can start another run by running "./submit" again. You can also change number of tiles by changing *CHUNKSIZE_X* and *CHUNKSIZE_Y* (try 200 and 150) on the top of the *submit* script. But don't make them to small. There is an overhead (staging, scheduling at multiple levels, ...) running jobs on the grid, so making the jobs to short will just make the overall runtime longer. For production jobs, we usually try to create jobs that are 4-24 hours long, which sometimes mean grouping many task into jobs.
+
+---+++ More information
+
+OSGMM:
+http://osgmm.sourceforge.net/
+
+Povray:
+http://en.wikipedia.org/wiki/POV-Ray
+
+Bonsai Povray scene:
+http://www.zazzle.com/bonsais_poster-228003235318786172
+
+
+
+
+-- Main.MatsRynge - 03 Dec 2010
+
+%META:FILEATTACHMENT{name="output-tiles.png" attachment="output-tiles.png" attr="h" comment="" date="1291356895" path="output-tiles.png" size="55109" stream="output-tiles.png" tmpFilename="/usr/tmp/CGItemp61172" user="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dMats_20Rynge_20274484" version="1"}%
+%META:FILEATTACHMENT{name="rendered.png" attachment="rendered.png" attr="h" comment="" date="1291356917" path="rendered.png" size="201944" stream="rendered.png" tmpFilename="/usr/tmp/CGItemp61228" user="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dMats_20Rynge_20274484" version="1"}%
+%META:FILEATTACHMENT{name="rendered_split_lines.png" attachment="rendered_split_lines.png" attr="h" comment="" date="1291356951" path="rendered_split_lines.png" size="178227" stream="rendered_split_lines.png" tmpFilename="/usr/tmp/CGItemp61306" user="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dMats_20Rynge_20274484" version="1"}%
