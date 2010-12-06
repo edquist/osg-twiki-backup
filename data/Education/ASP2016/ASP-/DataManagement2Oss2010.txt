@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dTanya_20Levshina_20508821" date="1291404801" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dTanya_20Levshina_20508821" date="1291664624" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="MaterialsOSS2010"}%
 ---+!!Data Management Exercises (Part II) 
 %TOC{depth="3"}%
@@ -27,7 +27,7 @@ In the second part of our exercises we will continue to work with BLAST applicat
    * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="user"}%
    * Local UCL_DOMAIN = %URLPARAM{"INPUT_DOMAIN" encode="quote" default="ncc.unesp.br"}%
    * Local GATEKEEPER = %URLPARAM{"INPUT_GATEKEEPER" encode="quote" default="ce.grid.unesp.br"}%
-   * Local UCL_CWD= %URLPARAM{"INPUT_CWD" encode="quote" default="osg_school/dm_part_1"}%
+   * Local UCL_CWD= %URLPARAM{"INPUT_CWD" encode="quote" default="osg_school/dm_part_2"}%
    * Local BATCH_SYSTEM = %URLPARAM{"BATCH_SYSTEM" encode="quote" default="pbs"}%
    * Local SURL= %URLPARAM{"INPUT_SURL" encode="quote" default="srm://se.grid.unesp.br:8443/srm/v2/server?SFN=/store"}%
    * Local OSG_DATA=%URLPARAM{"INPUT_OSG_DATA" encode="quote" default="/osg/data"}%
@@ -161,24 +161,25 @@ appdir=$OSG_APP/hcc/blast
 dbdir=$OSG_DATA/osgedu/blast_dbs
 
 # Get our environment set up
-. $appdir/setup.sh
+export PATH="$appdir/bin:$PATH"
+export LD_LIBRARY_PATH="$appdir/lib:$LD_LIBRARY_PATH"
 
 # Run the query
 blastp -db $dbdir/$1 -query $2  >>$3  2>&1
 %ENDTWISTY%
 </pre>
-   * Wrapper script ==/opt/workshop/dm_exercises/part2/blast2.sh==.<pre class="file">
-more blast2.sh
+   * Wrapper script ==/opt/workshop/dm_exercises/part2/blast_wrapper.sh==.<pre class="file">
+more blast_wrapper.sh
 %TWISTY%
-  #!/bin/bash
+#!/bin/bash
 ################################################################################
-#  blast2 - download specific blast databases from a particular Storage Element  #
+#  blast_wrapper - download specific blast databases from a particular Storage Element  #
 #          execute blast query for a particular query                           #
 #          do cleanup                                                           #
 #################################################################################
 usage ()
 {
-     log "Usage: ./blast2.sh surl endpath db_name query_file logfile"
+     log "Usage: ./blast_wrapper.sh surl db_name query_file logfile"
 }
 log ()
 {
@@ -190,26 +191,25 @@ else
 fi
 }
 # test if we have four arguments on the command line
-if [ $# -lt  4 ]
+if [ $# -lt  3 ]
 then
     usage
     exit 1
 fi
 surl=$1
-endpath=$2
-dbname=$3
-query=$4
+dbname=$2
+query=$3
 logname=""
 cwd=`pwd`
-if [ $# -eq 5 ]
+if [ $# -eq 4 ]
 then
-        logname=$5
+        logname=$4
         logfile=$cwd/$logname
         #just in case create a logfile
         touch $logfile
 fi
 retVal=0
-log "Start blast2.sh"
+log "Start blast_wrapper.sh"
 #setup grid enviroment
 . $OSG_GRID/setup.sh
 #create temporary directory
@@ -223,11 +223,11 @@ chmod 755 blast.sh
 mv $cwd/$query .
 mkdir db-1
 #get all the databases we need to download
-log "Executing: srm-ls srm://$surl/srm/v2/server\?SFN=$endpath|grep  SRM-CLIENT|grep yeast"
-srm-ls srm://red-srm1.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/user/engage/scienceportal/databases/blast/db-1/ |grep SRM-CLIENT|grep $dbname|awk -F'db-1/' '{print $2}'|while read name
+log "Executing: srm-ls $surl|grep  SRM-CLIENT|grep yeast"
+srm-ls $surl|grep SRM-CLIENT|grep $dbname|awk -F'db-1/' '{print $2}'|while read name
 do
-        log "Executing: srm-copy srm://$surl/srm/v2/server\?SFN=$endpath/$name file:///$PWD/db-1/$name "
-        srm-copy srm://$surl/srm/v2/server\?SFN=$endpath/$name file:///$PWD/db-1/$name
+        log "Executing: srm-copy $surl/$name file:///$PWD/db-1/$name "
+        srm-copy $surl/$name file:///$PWD/db-1/$name
         curRetVal=$?
         log "Return value $curRetVal"
         if [ $curRetVal -ne 0 ]
@@ -252,32 +252,32 @@ then
 fi
 cd $OSG_WN_TMP
 rm -rf $tmpDir
-log "End blast2.sh"
+log "End blast_wrapper.sh"
 exit $retVal
 %ENDTWISTY%
 </pre>
-   * Condor-G submission file ==/opt/workshop/dm_exercises/part2/test2.submit==: <pre class="file">
-more test2.submit
+   * Condor-G submission file ==/opt/workshop/dm_exercises/part2/test.submit==: <pre class="file">
+more test.submit
 %TWISTY%
 universe=grid
-grid_resource = gt2 osg-edu.cs.wisc.edu:/jobmanager-condor
-Executable = blast2.sh
-Log = test2.$(Cluster).$(Process).log
-Output = test2.$(Cluster).$(Process).out
-Error = test2.$(Cluster).$(Process).err
+grid_resource = gt2 %GATEKEEPER%/jobmanager-%BATCH_SYSTEM%
+Executable = blast_wrapper.sh
+Log = test.$(Cluster).$(Process).log
+Output = test.$(Cluster).$(Process).out
+Error = test.$(Cluster).$(Process).err
 transfer_executable = true
 transfer_input_files = blast.sh,yeast.query1
 WhenToTransferOutput = ON_EXIT_OR_EVICT
-transfer_output_files = test2.out.$(Cluster).$(Process)
+transfer_output_files = test.out.$(Cluster).$(Process)
 should_transfer_files   = YES
-Arguments =  %SURL% yeast.aa yeast.query1  test2.out.$(Cluster).$(Process)
+Arguments =  %SURL%/%VO%/blast/db-1 yeast.aa yeast.query1  test.out.$(Cluster).$(Process)
 queue
 %ENDTWISTY%
 </pre>
    * Submit this Condor-G job. The logfile should look similar to this: <pre class="file">
-more test2.log.62398.0
+more test.log.62398.0
 %TWISTY%
-Start blast2.sh
+Start blast_wrapper.sh
 Current directory is /tmp/osgedu.rY3298
 Executing: srm-ls srm://red-srm1.unl.edu:8443/srm/v2/server\?SFN=/mnt/hadoop/user/engage/scienceportal/databases/blast/db-1/|grep SRM-CLIENT|grep yeast
 Executing: srm-copy srm://red-srm1.unl.edu:8443/srm/v2/server\?SFN=/mnt/hadoop/user/engage/scienceportal/databases/blast/db-1//yeast.aa file:////tmp/osgedu.rY3298/db-1/yeast.aa
@@ -297,7 +297,7 @@ Return value 0
 Executing: srm-copy srm://red-srm1.unl.edu:8443/srm/v2/server\?SFN=/mnt/hadoop/user/engage/scienceportal/databases/blast/db-1//yeast.aa.psq file:////tmp/osgedu.rY3298/db-1/yeast.aa.psq
 Return value 0
 Return value 0
-Executing: ./blast.sh yeast.aa yeast.query1 /nfs/osgedu/gram_scratch_kFmkKIBmUW/test2.log.62398.0
+Executing: ./blast.sh yeast.aa yeast.query1 /nfs/osgedu/gram_scratch_kFmkKIBmUW/test.log.62398.0
 BLASTP 2.2.23+
 
 
@@ -419,7 +419,7 @@ Gap Penalties: Existence: 11, Extension: 1
 Neighboring words threshold: 11
 Window for multiple hits: 40
 Return value 0
-End blast2.sh
+End blast_wrapper.sh
 %ENDTWISTY%
 </pre>
 
@@ -428,10 +428,11 @@ End blast2.sh
 
 ---++ Storage Discovery
 
-You should know by now enough about storage to be able to try to figure out how to use it on your own. The problem is that we didn't give any tools to figure out what Storage Element will support your VO. Also, how you would find the  surl and endpath of a SE. You can always use ==condor_status== and various constraints to try to figure out this information, but it is not a trivial task. The OSG has a  [[http://is.grid.iu.edu/cgi-bin/status.cgi][BDII service]] which aggregates LDAP information provided by sites. The information reported by each site describes static and dynamic resources available at that site and VOs that are authorized to use these resources. The [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/OSGStorageDiscoveryTool][OSG Discovery Tools]] allow users to discover what SE supports thier VO and how to access it.
+You should know by now enough about storage to be able to try to figure out how to use it on your own. The problem is that we didn't give any tools to figure out what Storage Element will support your VO. Also, how you would find the  surl of a SE. You can always use ==condor_status== and various constraints to try to figure out this information, but it is not a trivial task. The OSG has a  [[http://is.grid.iu.edu/cgi-bin/status.cgi][BDII service]] which aggregates LDAP information provided by sites. The information reported by each site describes static and dynamic resources available at that site and VOs that are authorized to use these resources. The [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/OSGStorageDiscoveryTool][OSG Discovery Tools]] allow users to discover what SE supports thier VO and how to access it.
 
    1. Setup GRID environment
-   1. See all the get_commands available for information discovery: <pre class="screen"> ls $VDT_LOCATION/discovery/bin/get_*
+   1. See all the ==get_== commands available for information discovery: <pre class="screen"> cd $VDT_LOCATION/discovery/bin
+ls get_*
 /opt//osg-client/discovery/bin/get_gridftp_storage_element_id  /opt//osg-client/discovery/bin/get_site_name              /opt//osg-client/discovery/bin/get_srm_sp_reserve_cmd
 /opt//osg-client/discovery/bin/get_gridftp_url                 /opt//osg-client/discovery/bin/get_site_name_for_seid     /opt//osg-client/discovery/bin/get_srm_storage_element_id
 /opt//osg-client/discovery/bin/get_mount_path                  /opt//osg-client/discovery/bin/get_srm_copy_cmd           /opt//osg-client/discovery/bin/get_storage_element_id
@@ -439,7 +440,7 @@ You should know by now enough about storage to be able to try to figure out how 
 /opt//osg-client/discovery/bin/get_runtime_versions            /opt//osg-client/discovery/bin/get_srm_reserve_space_cmd
 </pre>
    1.  Check what SEs are available for OSGEDU and what are endpoints: <pre class="screen">
-/opt//osg-client/discovery/bin/get_surl --vo osgedu --show_storage_element_id  
+get_surl --vo osgedu --show_storage_element_id  
 STORAGE ELEMENT ID            SURL                                                                                                
 bsrm-1.t2.ucsd.edu            srm://bsrm-1.t2.ucsd.edu:8443/srm/v2/server?SFN=/hadoop/osgedu/TESTFILE                             
 cit-se.ultralight.org         srm://cit-se.ultralight.org:8443/srm/v2/server?SFN=/mnt/hadoop/osg/osgedu/TESTFILE                  
