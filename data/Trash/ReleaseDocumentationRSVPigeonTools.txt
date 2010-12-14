@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dDoug_20Strain_20834323" date="1292281745" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dDoug_20Strain_20834323" date="1292367764" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{%TOPIC%}%*
 %DOC_STATUS_TABLE%
@@ -6,83 +6,119 @@
 
 ---++ Introduction
 
-The following 
+The following document explains how to use and configure pigeon tools to monitor storage elements that support a VO.
+Pigeon-tools is currently available via the VDT and will be available in the osg in 
+%RED% *osg-version x.y* %ENDCOLOR% (or higher)
 
----+++!! Applicable Versions
-The applicable software versions for this document are 
-%RED%
-*osg-version x.y* 
-%ENDCOLOR%
-(or higher) and 
-%RED%
-*vdt-version  a.b*
-%ENDCOLOR%
-(or higher).
+Pigeon-tools is based on RSV and will use RSV and apache to display results of storage tests.
 
----+++!!Engineering Considerations
-Include a link to document containing engineering information.
-E.g. Needs to be installed on its own server, can be combined with some other service, need to have multiple servers depending on site size, etc.
-This can be in-line if it is fairly short -- a couple of paragraphs.
+Further help can be obtained by emailing the OSG-storage mailing list.
 
----+++!!Help!
-If a problem occurs during installation or verification of the service, see [[#DebugInfo][Debugging Information]].
-%BR%
-If you cannot resolve the problem, the best way to get help is by following this ReleaseDocumentation.HelpProcedure.
+---++ Requirements
 
----++ Checklist
-An in-line numbered list of items assumed to have been already performed
-E.g.:
-   1. Installs that must be done before this one
-   1. Security environment in place
-   1. batch system in place
-   1. stop existing service
-   1. ports required
+   * You will need to have a proxy certificate signed by your VO (virtual-organization).  This is needed to access grid services.  
+   * You will need pacman installed in order to install the VDT packages.
 
----++ First Time Install
-A link to document containing information and install steps that only need to be performed if this a first time install.
+---++ Pigeon Tools Installation Procedure
 
----++ Installation Procedure
-The description of the steps of this Install procedure (including the commands and options required) that will have to be performed each time this is installed.
+Pigeon tools is a package of the VDT and is installed on top of RSV.  If you already have VDT installed 
+and you would like to install it in that location, perform these commands in $VDT_LOCATION.
 
-Each step that requires commands should show the commands in a green box using 
-<verbatim><pre class="screen">
-command parameters
-</pre></verbatim> tag which will look like this.
 <pre class="screen">
-command parameters
+pacman -get http://software.grid.iu.edu/osg-1.2:pigeon-tools
+. setup.sh
 </pre>
-%BR%
-%NOTE% Standard variables (such as $VDT_LOCATION) should be used where they exist
-%NOTE% The terminal interaction must be verbatim with no extra characters so that a user can copy and paste the command lines.
 
-This procedure covers the success legs only 
+This step will also install RSV as a dependency.  If this the first VDT package you have installed, you will need to install the certificates:
 
----++ Service Configuration/Startup/Shutdown
-Description of the steps (including the commands/options) to startup and shutdown the service.
-This often requires, the reader to edit lines in a config file.
-If this is necessary, put the lines in a screen box with a yellow background 
-(to distinguish from entering commands (green box).
+
+%INCLUDE{"ReleaseDocumentation/CaCertificatesInstall"
+section="LocalInstallation" INPUT_SCREEN="rootscreen"}%
+
+
+
+---++ RSV configuration
+
+Edit $VDT_LOCATION/osg/etc/config.ini.  *Note:* If you are running RSV/pigeon standalone, you will probably want to 
+use the rsv.ini instead of configuring the full config.ini as follows:
+
 <pre class="file">
-Config file line a
-Config file line b
+cd osg/etc
+cp rsv.ini config.ini
+vi config.ini
+configure-osg -v
+configure-osg -c
 </pre>
 
----++ Validation of Service Operation
-Commands to be used to verify the service is working correctly.  This can be combined with the previous section if they are both short.
+You will need to modify the following attributes:
 
-#DebugInfo
+<pre class="file">
+; The rsv_user option gives the user that the RSV service should use.  It must  ; be a valid unix user account                                                  
+rsv_user = UNIX_ACCT
+
+; You must use a certificate with RSV.  Either you can use a service certificate
+; or a user certificate.  Using a service certificate is highly recommended
+; because it will be automatically renewed for you with each job that runs.
+;
+; To use a service certificate, set the following variables:
+use_service_cert = True
+rsv_cert_file = server_cert.pem
+rsv_key_file = server_key.pem
+rsv_proxy_out_file = where_proxy_will_go
+
+; To use a user certificate, uncomment and set the following variables:
+;use_service_cert = False
+;proxy_file=/tmp/x509_proxy_file
+</pre>
+You will need to designate a user account for RSV.  You will also have to designate either a service cert/key pair OR a user generated proxy file.
+If you use a proxy file, you will probably need a mechanism to automatically update it, as it will expire after some time.
+
+
+---++ Pigeon configuration
+
+Next, you will need to configure Pigeon.  Edit $VDT_LOCATION/pigeon-tools/etc/pigeon.ini.  Make sure to modify the vo field:
+<pre class="file">
+vo=Engage
+timeout=120
+surl_metric=org.osg.srm.srmclient-ping
+surl_metric=org.osg.srm.srmclient-put
+surl_metric=org.osg.srm.srmclient-mv
+surl_metric=org.osg.srm.srmclient-rm
+surl_metric=org.osg.srm.srmclient-mkdir
+surl_metric=org.osg.srm.srmclient-rmdir
+turl_metric=org.osg.globus.gridftp-simple
+</pre>
+
+| *vo* | Engage | The name of the VO you would like to query.  Pigeon will find all storage elements that advertise support for this VO. |
+| *timeout* |  120 | The number of seconds that pigeon will wait before exiting long-running commands and assume failure. |
+| *surl_metric* | org.osg.srm.srmclient-ping |  The name of an RSV metric that will run for each SRM surl found.  You can specify this argument multiple times as above. |
+| *turl_metric* | org.osg.globus.gridftp-simple |  The name of an RSV metric that will run for each GridFTP url found.  You can specify this argument multiple times. |
+
+
+---++ Running Pigeon
+
+Currently, pigeon must be run manually or as a cron/condor_cron script.  Pigeon can be run as root or as the rsvuser.
+
+<pre class="screen">
+$VDT_LOCATION/bin/pigeon
+</pre>
+
+Note: This will take a while to run.  It will query BDII and test each storage element returned.  This can take several hours.  If you will not be logged on this long, you may want to run it with the nohup command.
+
+---++ Viewing Pigeon Results
+
+You will need to turn on both apache and rsv in order to see the results.  They are updated every five minutes:
+<pre class="screen">
+vdt-control --on apache
+vdt-control --on rsv
+</pre>
+
+You will be able to see the results at https://hostname.com:8443/rsv.
+
 ---++ Debugging Information
----+++!!File Locations
-Locations of configuration files, input/output files, log files, etc. that are important for an administrator to know about if something doesn't work.  
 
----+++!!Debugging Procedure
-What are the first things to check, step-by-step instructions to determine source of problem for this service
+Pigeon prints out information to stdout.  If this does not help, you may need to see the !RSV logs.
 
----+++!!Caveats/Known Issues
-Restrictions and/or work around for known issues 
-
----+++!!References
-References to additional information.  This document should be as concise as possible, but the reader can use these links if he/she wants more background or information.
 
 ---+++!!Screen Dump of the Complete Install Process
 %TWISTY{
@@ -92,8 +128,177 @@ hidelink="Hide"
 showimgleft="%ICONURLPATH{toggleopen-small}%"
 hideimgleft="%ICONURLPATH{toggleclose-small}%"
 }%
+*The following shows the installation from VTB*.  This needs pacman to get RSV since a pigeon tools package for OSG was not created yet.
+
 <pre class="screen">
-complete screen dump of the install procedure
+[root@gw014k1 local]# mkdir vdt-rsv
+[root@gw014k1 local]# cd vdt-rsv
+[root@gw014k1 vdt-rsv]# pacman -get VTB:rsv
+Do you want to add [http://osg-vtb.uchicago.edu/vtb/] to [trusted.caches]? (y/n/yall): yall
+Beginning VDT prerequisite checking script vdt-common/vdt-prereq-check...
+
+All prerequisite checks are satisfied.
+
+
+
+========== IMPORTANT ==========
+Most of the software installed by the VDT *will not work* until you install
+certificates.  To complete your CA certificate installation, see the notes
+in the post-install/README file.
+
+
+
+
+Pacman Installation of OSG RSV Complete
+
+[root@gw014k1 vdt-rsv]# pacman -get http://vdt.cs.wisc.edu/vdt_2089_cache:Pigeon-Tools
+[root@gw014k1 vdt-rsv]# source setup.sh
+[root@gw014k1 vdt-rsv]# vdt-ca-manage setupca --location local --url osg
+Setting up CA Certificates for VDT installation at '/usr/local/vdt-rsv'
+CA Certificates will be installed into /usr/local/vdt-rsv/globus/share/certificates
+
+Setup completed successfully.
+[root@gw014k1 vdt-rsv]# cp osg/etc/rsv.ini osg/etc/config.ini
+cp: overwrite `osg/etc/config.ini'? y
+[root@gw014k1 vdt-rsv]# vi osg/etc/config.ini
+[root@gw014k1 vdt-rsv]# configure-osg -v
+
+Using /usr/local/vdt-rsv/osg/etc/config.ini for configuration information
+Configuration verified successfully
+[root@gw014k1 vdt-rsv]#
+[root@gw014k1 vdt-rsv]# configure-osg -c
+Using /usr/local/vdt-rsv/osg/etc/config.ini for configuration information
+running 'vdt-register-service --name vdt-rotate-logs --enable'... ok
+INFO: Resetting all metrics and consumers to disabled because --reset was supplied
+INFO: Configuring RSV to use a user proxy.
+Enabling consumers: html-consumer gratia-consumer
+Enabling default metrics of type 'OSG-Local-Monitor' for host 'gw014k1.fnal.gov'
+Enabling default metrics of type 'OSG-CE' for host 'gw014k1.fnal.gov'
+running 'vdt-register-service --name condor-cron --enable'... ok
+Configure-osg completed successfully
+[root@gw014k1 vdt-rsv]# vi pigeon-tools/etc/pigeon.ini
+[root@gw014k1 vdt-rsv]# vdt-control --on
+enabling cron service vdt-rotate-logs... ok
+enabling init service condor-cron... ok
+skipping cron service 'fetch-crl' -- marked as disabled
+skipping cron service 'vdt-update-certs' -- marked as disabled
+enabling init service apache... ok
+enabling init service osg-rsv... ok
+[root@gw014k1 vdt-rsv]# pigeon-tools/bin/pigeon
+Querying BDII for SEs for VO Engage...
+Duplicate key found for Vanderbilt.
+Found 17 SEs
+Querying BDII for GridFTP servers for VO Engage...
+Duplicate key found for BNL-ATLAS.
+Duplicate key found for FNAL_FERMIGRID.
+Duplicate key found for FNAL_FERMIGRID.
+Duplicate key found for GLOW.
+Duplicate key found for SBGrid-Harvard-East.
+Duplicate key found for SPRACE.
+Duplicate key found for Purdue-RCAC.
+Duplicate key found for TTU-ANTAEUS.
+Found 42 SEs
+Monitoring SE Firefly (ff-se.unl.edu)
+rsv-control -r -u ff-se.unl.edu:8443 --extra-config-file /tmp/pigeon.TvKTNA.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE UCSDT2 (bsrm-1.t2.ucsd.edu)
+rsv-control -r -u bsrm-1.t2.ucsd.edu:8443 --extra-config-file /tmp/pigeon.mChOTX.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE SPRACE (osg-se.sprace.org.br)
+rsv-control -r -u osg-se.sprace.org.br:8443 --extra-config-file /tmp/pigeon.KwYuGu.ini org.osg.srm.srmclient-ping
+Probe Successfully Ran.  See HTML page for results.
+rsv-control -r -u osg-se.sprace.org.br:8443 --extra-config-file /tmp/pigeon.KwYuGu.ini org.osg.srm.srmclient-put
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE FNAL_FERMIGRID (fndca1.fnal.gov)
+rsv-control -r -u fndca1.fnal.gov:8443 --extra-config-file /tmp/pigeon.ERckw7.ini org.osg.srm.srmclient-ping
+Probe Successfully Ran.  See HTML page for results.
+rsv-control -r -u fndca1.fnal.gov:8443 --extra-config-file /tmp/pigeon.ERckw7.ini org.osg.srm.srmclient-put
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE BNL-ATLAS (dcsrm.usatlas.bnl.gov)
+rsv-control -r -u dcsrm.usatlas.bnl.gov:8443 --extra-config-file /tmp/pigeon.2W1n7v.ini org.osg.srm.srmclient-ping
+Probe Successfully Ran.  See HTML page for results.
+rsv-control -r -u dcsrm.usatlas.bnl.gov:8443 --extra-config-file /tmp/pigeon.2W1n7v.ini org.osg.srm.srmclient-put
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE GridUNESP_CENTRAL (se.grid.unesp.br)
+rsv-control -r -u se.grid.unesp.br:8443 --extra-config-file /tmp/pigeon.DIdq-n.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE SBGrid-Harvard-East (osg-east.hms.harvard.edu)
+rsv-control -r -u osg-east.hms.harvard.edu:10443 --extra-config-file /tmp/pigeon.tv4EtB.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE Vanderbilt_2 (se3.accre.vanderbilt.edu)
+rsv-control -r -u se3.accre.vanderbilt.edu:6288 --extra-config-file /tmp/pigeon.Q2s7wa.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE Vanderbilt (se1.accre.vanderbilt.edu)
+rsv-control -r -u se1.accre.vanderbilt.edu:6288 --extra-config-file /tmp/pigeon.RvWUXg.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE MIT_CMS (se01.cmsaf.mit.edu)
+rsv-control -r -u se01.cmsaf.mit.edu:8443 --extra-config-file /tmp/pigeon.3LnQD_.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE NWICG_NotreDame (osg.crc.nd.edu)
+rsv-control -r -u osg.crc.nd.edu:8443 --extra-config-file /tmp/pigeon.-gy2OX.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE Nebraska (red-srm1.unl.edu)
+rsv-control -r -u red-srm1.unl.edu:8443 --extra-config-file /tmp/pigeon.OrfRro.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE TTU-ANTAEUS (sigmorgh.hpcc.ttu.edu)
+rsv-control -r -u sigmorgh.hpcc.ttu.edu:49443 --extra-config-file /tmp/pigeon.EnTerA.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE UCR-HEP (charm.ucr.edu)
+rsv-control -r -u charm.ucr.edu:10443 --extra-config-file /tmp/pigeon.tkWaL2.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE Purdue-RCAC (srm-dcache.rcac.purdue.edu)
+rsv-control -r -u srm-dcache.rcac.purdue.edu:8443 --extra-config-file /tmp/pigeon.OweVke.ini org.osg.srm.srmclient-ping
+Probe Successfully Ran.  See HTML page for results.
+rsv-control -r -u srm-dcache.rcac.purdue.edu:8443 --extra-config-file /tmp/pigeon.OweVke.ini org.osg.srm.srmclient-put
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE CIT_CMS_T2 (cit-se.ultralight.org)
+rsv-control -r -u cit-se.ultralight.org:8443 --extra-config-file /tmp/pigeon.qKnagj.ini org.osg.srm.srmclient-ping
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE GLOW (cmssrm.hep.wisc.edu)
+rsv-control -r -u cmssrm.hep.wisc.edu:8443 --extra-config-file /tmp/pigeon.hdZi5Z.ini org.osg.srm.srmclient-ping
+Probe Successfully Ran.  See HTML page for results.
+rsv-control -r -u cmssrm.hep.wisc.edu:8443 --extra-config-file /tmp/pigeon.hdZi5Z.ini org.osg.srm.srmclient-put
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE SPRACE (osg-se.sprace.org.br)
+rsv-control -r -u osg-se.sprace.org.br:2811 --extra-config-file /tmp/pigeon.6fuyEF.ini org.osg.globus.gridftp-simple
+Probe Successfully Ran.  See HTML page for results.
+Monitoring SE TTU-ANTAEUS (sigmorgh.hpcc.ttu.edu)
+rsv-control -r -u sigmorgh.hpcc.ttu.edu:2811 --extra-config-file /tmp/pigeon.BaqUUl.ini org.osg.globus.gridftp-simple
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE UJ-OSG (osg-ce.grid.uj.ac.za)
+rsv-control -r -u osg-ce.grid.uj.ac.za:2811 --extra-config-file /tmp/pigeon.mpI9eR.ini org.osg.globus.gridftp-simple
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE BNL-ATLAS-ITB (gridtest01.racf.bnl.gov)
+rsv-control -r -u gridtest01.racf.bnl.gov:2811 --extra-config-file /tmp/pigeon.Y6ijnG.ini org.osg.globus.gridftp-simple
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE UConn-OSG (gluskap.phys.uconn.edu)
+rsv-control -r -u gluskap.phys.uconn.edu:2811 --extra-config-file /tmp/pigeon.2If-pZ.ini org.osg.globus.gridftp-simple
+Probe Successfully Ran.  See HTML page for results.
+Monitoring SE UTA_SWT2 (gk04.swt2.uta.edu)
+rsv-control -r -u gk04.swt2.uta.edu:2811 --extra-config-file /tmp/pigeon.4YN0YY.ini org.osg.globus.gridftp-simple
+Probe Successfully Ran.  See HTML page for results.
+Monitoring SE SBGrid-Harvard-East_2 (osg-east.hms.harvard.edu)
+rsv-control -r -u osg-east.hms.harvard.edu:2811 --extra-config-file /tmp/pigeon.QufEfS.ini org.osg.globus.gridftp-simple
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE SWT2_CPB (gk01.atlas-swt2.org)
+rsv-control -r -u gk01.atlas-swt2.org:2811 --extra-config-file /tmp/pigeon.qqd3Ww.ini org.osg.globus.gridftp-simple
+Probe Successfully Ran.  See HTML page for results.
+Monitoring SE Purdue-RCAC_2 (dcache-00.rcac.purdue.edu)
+rsv-control -r -u dcache-00.rcac.purdue.edu:2811 --extra-config-file /tmp/pigeon.uUkvDU.ini org.osg.globus.gridftp-simple
+Probe Ran With Critical Status, aborting other probes for this site.
+Monitoring SE GLOW_2 (cmsgrid01.hep.wisc.edu)
+rsv-control -r -u cmsgrid01.hep.wisc.edu:2811 --extra-config-file /tmp/pigeon.m4Wg0_.ini org.osg.globus.gridftp-simple
+Probe Successfully Ran.  See HTML page for results.
+Monitoring SE Firefly (ff-gridftp.unl.edu)
+rsv-control -r -u ff-gridftp.unl.edu:2811 --extra-config-file /tmp/pigeon.PjlBG_.ini org.osg.globus.gridftp-simple
+Probe Successfully Ran.  See HTML page for results.
+Monitoring SE UCSDT2 (osg-gw-2.t2.ucsd.edu)
+rsv-control -r -u osg-gw-2.t2.ucsd.edu:2811 --extra-config-file /tmp/pigeon.jWx5kL.ini org.osg.globus.gridftp-simple
+Probe Successfully Ran.  See HTML page for results.
+Monitoring SE UFlorida-PG (pg.ihepa.ufl.edu)
+rsv-control -r -u pg.ihepa.ufl.edu:2811 --extra-config-file /tmp/pigeon.us-vwL.ini org.osg.globus.gridftp-simple
+...
+
 </pre>
 %ENDTWISTY%
 
