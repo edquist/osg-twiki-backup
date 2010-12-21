@@ -1,0 +1,107 @@
+%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dBrian_20Bockelman_20504307" date="1292953577" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Hadoop"}%
+---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+---+ Upgrading Hadoop
+
+This page describes the process of upgrading a OSG Hadoop 0.19 installation to OSG Hadoop 0.20.
+
+---++ Description and Warnings
+
+Upgrading your file system is a dangerous activity.  We have tested the upgrade several times, and it has been tested by the community in general.  Hadoop allows you to run 0.20 indefinitely without deleting the 0.19 data (on the datanodes, the on-disk metadata is recreated in a separate directory, and the data itself is hardlinked over. Nothing is deleted.), and allows you to rollback the upgrade
+
+However, no software is bug-free, and no upgrade is 100% safe.  Read the entire upgrade instructions first, then upgrade.  Make the appropriate plans - irreplaceable data should be backed up.  If you suspect something has gone wrong, ask for help via the GOC (https://ticket.grid.iu.edu/goc/open) or the community on osg-hadoop@opensciencegrid.org sooner rather than later.
+
+There are six parts to the upgrade:
+   1 Pre-upgrade activities.  Perform data backups, take a few metadata snapshots, shut down the cluster.
+   1 Installing the new software.
+   1 Migrating to new configurations.
+   1 Starting the upgrade
+   1 Verifying the install
+   1 Committing the install.  Once you have hit this step, rolling back to the previous version is not possible.
+
+---++ Pre-upgrade Activities
+
+Before your upgrade, we advise to run backups, snapshot current system, and turn off HDFS.  Turning off HDFS at this point is mandatory, while the rest are advised.  Having snapshots handy will be useful to compare the pre- and post- systems, and can be performed according to your level of paranoia.
+
+   1 Back up the data on the current system according to your site policy and level of paranoia.
+   1 Run fsck command: <verbatim> hadoop fsck / -files -blocks -locations > hdfs-old-fsck.log </verbatim>  Fix HDFS to the point there are no errors. The resulting file will contain complete block map of the file system.
+   1 Run lsr command: <verbatim>hadoop dfs -lsr / > hdfs-old-lsr.log </verbatim>  The resulting file will contain complete namespace of the file system.
+   1 Run a node report: <verbatim>hadoop dfsadmin -report > hdfs-old-report.log </verbatim>  The resulting file will contain a list of all nodes participating in the cluster.
+   1 Shut down the cluster.  Run the following on every node: <verbatim>service hadoop stop</verbatim>  You may want to use the =ps= command to verify all HDFS-related java processes have exited.
+   1 Make a backup copy of =${dfs.name.dir}/edits= and =${dfs.name.dir}/image/fsimage=, where =${dfs.name.dir}= is the appropriate value for your cluster (defaults to $HADOOP_DATADIR/dfs/name in 0.19).
+
+---++ Installing the RPMs
+
+Currently, the Hadoop 0.20 RPMs are kept in a separate repository.  You will need to manually use this repository instead of the OSG one.  Add the following repo into =/etc/yum.repos.d=:
+
+http://newman.ultralight.org/repos/hadoop20/x86_64/
+
+You will need to do the following on all nodes:
+<verbatim>
+yum install hadoop-0.20-osg
+</verbatim>
+
+On nodes that need FUSE, do the following:
+<verbatim>
+yum install hadoop-0.20-fuse
+</verbatim>
+
+On the gridftp nodes:
+<verbatim>
+yum install gridftp-hdfs
+</verbatim>
+
+On the SRM node:
+<verbatim>
+yum install bestman2
+</verbatim>
+
+On the xrootd nodes:
+<verbatim>
+yum install xrootd-hdfs xrootd-cmstfc xrootd-lcmaps
+</verbatim>
+The =xrootd-cmstfc= RPM is optional for non-CMS sites.
+
+---++ Migrating configurations
+
+Between 0.19 and 0.20, there were several minor configuration option name changes.  Refer to the upstream documentation to see if any of the site customizations you performed are deprecated.  Most people will not need to change anything.  However, there are two things which must be changed:
+
+   1 The name of the site-customization file has changed from =hadoop-site.xml= to =core-site.xml=.  You'll need to rename this in =/etc/hadoop=.
+   1 The directory layout of configuration files has changed.  The configuration files are in =/etc/hadoop=, but that's actually a symlink maintained by the RHEL =alternatives= system.  We highly encourage sites to take advantage of this and create their own "site HDFS configuration RPM" to keep maintenance tidy.  Support for doing this is currently provided by the mail list.  <br/>If creating RPMs is not for you, you can continue to maintain the configuration files in =/etc/hadoop=.  Alternately, you can use the =hadoop-firstboot= method of configuring your cluster.  See the Hadoop 0.20 fresh install instructions.
+
+---++ Starting the upgrade
+
+   1 Log in to the namenode and issue the following command: <verbatim> hadoop-daemon.sh start namenode -upgrade </verbatim>  Follow in the logs in =/var/log/hadoop= to verify the namenode upgrade completes successfully.
+   1 Start your datanodes.  On each datanode, perform: <verbatim> service hadoop start </verbatim>  The datanodes will contact the namenode, which will request they start the upgrade.
+   1 Follow the progress using the following command on the namenode: <verbatim>hadoop dfsadmin -upgradeProgress status</verbatim> 
+
+Once all datanodes have completed the upgrade process, the namenode can leave safemode.  At this point, HDFS has a full version of the 0.20 and 0.19 directories, but will be using the 0.20 for any operations.
+
+The 0.19 directories are frozen in time.  Any changes made to the file system (including deletions!) will only happen on the *new* version of the directories.  So, if you write files into HDFS for two weeks then rollback to 0.19, you will lose any changes you performed post-upgrade.
+
+---++ Verify the install
+
+If you chose to do the snapshots prior to upgrading, do a snapshot of the new system:
+   1 Run fsck command: <verbatim> hadoop fsck / -files -blocks -locations > hdfs-new-fsck.log </verbatim>
+   1 Run lsr command: <verbatim>hadoop dfs -lsr / > hdfs-new-lsr.log </verbatim>
+   1 Run a node report: <verbatim>hadoop dfsadmin -report > hdfs-new-report.log </verbatim>
+Compare the before-and-after picture.  The output of =lsr= should be identical. =fsck= is very hard to compare between versions on large clusters, but you should verify the post-upgrade cluster has no broken files.  Make sure all nodes have come up in the node report.
+
+Run the cluster under typical load conditions until you are satisfied that no files are missing, no files have been corrupted, and the performance of HDFS 0.20 has not regressed.
+
+---++ Committing the install
+You can take as long as desired on the verification step - several days or weeks may be possible, depending on your level of free space.  At some point, however, you need to either commit or rollback.
+
+If you decide to commit to the new system, the backup metadata directories will be deleted.  *Once you commit, you cannot rollback to the previous version*.  Perform the following command:
+<verbatim>
+hadoop dfsadmin -finalizeUpgrade
+</verbatim>
+This will instruct the system to remove all traces of the 0.19 install.
+
+If you decide to rollback to the previous version, issue the following command:
+<verbatim>
+hadoop dfsadmin -rollback
+</verbatim>
+However, there will be a few more manual downgrade steps (downgrading RPMs, restoring configuration files) not documented here.  Please contact osg-hadoop@opensciencegrid.org for support in this case, as we envision rollbacks will be handled on a case-by-case basis.
