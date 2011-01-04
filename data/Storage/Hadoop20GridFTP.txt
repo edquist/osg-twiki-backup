@@ -1,0 +1,124 @@
+%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dWill_20Maier_20286302" date="1294156709" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Hadoop"}%
+---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+
+---+    Installation
+
+This guide covers installation of the Globus-based Hadoop !GridFTP server using the RPM format.
+The version of !GridFTP covered in this guide is compatible with Hadoop 0.20.2. 
+
+---++   Quick Start
+
+Quickstart for the impatient.
+This assumes you already have the *jdk* 1.6.0 RPM installed on all relevant nodes.
+
+<verbatim>
+rpm -ivh http://vdt.cs.wisc.edu/hadoop/osg-hadoop20-1-2.el5.noarch.rpm
+yum install gridftp-hdfs
+vi /etc/sysconfig/hadoop # Edit appropriately.
+vi /etc/grid-security/prima-authz.conf # Add gums hostname
+service xinetd restart
+</verbatim>
+
+---++ Prerequisites and Assumptions
+
+To follow this guide, you must first:
+
+   1. Read the [[HadoopUnderstanding][HDFS planning guide]]
+   1. Install the Hadoop RPM on your !GridFTP node, edit =/etc/sysconfig/hadoop=, and verify your installation (see the [[HadoopInstallation][installation guide]] for directions).
+   1. Install and configure a reasonably recent version of GUMS (grid-mapfiles may be used instead, though they are not currently tested or supported).
+
+To verify that HDFS core is installed and configured correctly on your system, the following command should return results and have exit code 0:
+
+<verbatim>
+hadoop fs -ls /
+</verbatim>
+
+*IF* the results of that command are the same files as those shown in =ls -l /=, then your site has not been configured; you probably forgot to run =hadoop-firstboot=.
+
+The !GridFTP server for Hadoop can be very memory-hungry, up to 500MB/transfer in the default configuration.
+You should plan accordingly to provision enough !GridFTP servers to handle the bandwidth that your site can support.
+
+The installation includes the latest CA Certificates package from the OSG as well as the fetch-crl CRL updater.
+
+*Note:* You do not need FUSE mounted on !GridFTP nodes,
+
+---++ Yum-based Installation Method
+To configure your local installation for the yum repository, [[HadoopInstallation#Yum_install][follow the advice here]] to install the =osg-hadoop= package at your site.
+
+After installing the osg-hadoop yum configuration package, you can install the gridftp-hdfs server with:
+
+<verbatim>
+yum install gridftp-hdfs
+</verbatim>
+
+Updates can be installed with:
+
+<verbatim>
+yum upgrade gridftp-hdfs
+</verbatim>
+
+Proceed to the Configuration section.
+
+---+ Configuration
+
+The installation of gridftp-hdfs and its dependencies creates several directories.
+In addition to the Hadoop installation files, you will also find:
+
+| Log files | =/var/log/gridftp-auth.log=, =/var/log/gridftp.log= |
+| xinetd files | =/etc/xinetd.d/gridftp-hdfs= |
+| runtime config files | =/etc/gridftp-hdfs/*= |
+| System binaries | =/usr/bin/gridftp-hdfs*= |
+| System libraries | =/usr/lib64/libglobus_gridftp_server_hdfs.so*= |
+| prima auth configuration | =/etc/grid-security/prima-authz.conf= |
+| CA certificates | =/etc/grid-security/certificates/*= |
+
+=prima-authz.conf= is provided by the prima package; previous versions of the !GridFTP server also included a copy of this file.
+
+gridftp-hdfs reads the Hadoop configuration file to learn how to talk to Hadoop.
+As per the prerequisites section, you should have already edited =/etc/sysconfig/hadoop= and run =service hadoop-firstboot start=.
+If you did not follow the directions, please do that now.
+
+It is *not* necessary to start any Hadoop services with =service hadoop start= if you are running a dedicated !GridFTP server (that is, no datanode or namenode services will be run on the host).
+
+In =prima-authz.conf= you will need to enter the url for your gums server, as well as the path to your host certificate and key:
+
+<verbatim>
+imsContact https://your.gums.host:8443/gums/services/GUMSAuthorizationServicePort
+...
+serviceCert /etc/grid-security/hostcert.pem
+serviceKey  /etc/grid-security/hostkey.pem
+</verbatim>
+
+The default settings in =/etc/gridftp-hdfs/*.conf= should be ok for most installations.
+The file =gridftp-inetd.conf= is used by the xinetd service for starting up the !GridFTP server.
+The file =gridftp.conf= is used by =/usr/bin/gridftp-hdfs-standalone= for starting up the !GridFTP server in a testing mode.
+=gridftp-hdfs-local.conf= contains additional site-specific environment variables that are used by the gridftp-hdfs dsi module in both the xinetd and standalone !GridFTP server.
+Some of the environment variables that can be used in =gridftp-hdfs-local.conf= include:
+
+| Option Name | Needs Editing? | Suggested value|
+| GRIDFTP_HDFS_REPLICA_MAP | No | File containing a list of paths and replica values for setting the default # of replicas for specific file paths |
+| GRIDFTP_BUFFER_COUNT | No | The number of 1MB memory buffers used to reorder data streams before writing them to Hadoop |
+| GRIDFTP_FILE_BUFFER_COUNT | No | The number of 1MB file-based buffers used to reorder data streams before writing them to Hadoop |
+| GRIDFTP_SYSLOG | No | Set this to 1 in case if you want to send transfer activity data to syslog (only used for the HadoopViz application) |
+| GRIDFTP_HDFS_MOUNT_POINT | Maybe | The location of the FUSE mount point used during the Hadoop installation.  Defaults to /mnt/hadoop.  This is needed so that gridftp-hdfs can convert fuse paths on the incoming URL to native Hadoop paths. *Note:* this does not imply you need FUSE mounted on !GridFTP nodes! |
+| GRIDFTP_LOAD_LIMIT | No | !GridFTP will refuse to start new transfers if the load on the !GridFTP host is higher than this number; defaults to 20. |
+| TMPDIR | Maybe | The temp directory where the file-based buffers are stored.  Defaults to /tmp. |
+
+---++ Running gridftp-hdfs
+
+If you were not already running the xinetd service (by default it is not installed on RHEL5), then you will need to start it with the command =service xinetd restart=.
+Otherwise, the gridftp-hdfs service should be configured to run automatically as soon as the installation is finished.
+If you would like to test the gridftp-hdfs server in a debug standalone mode, you can run the command:
+
+<verbatim>
+/usr/bin/gridftp-hdfs-standalone
+</verbatim>
+
+The standalone server runs on port 5002, handles a single !GridFTP request, and will log output to stdout/stderr.
+
+---+ Next Steps
+Congratulations! At this point, you should have a working Hadoop installation and !GridFTP server.
+Please proceed to the validation steps or the next guide, [[HadoopSRM][Hadoop SRM install]].
