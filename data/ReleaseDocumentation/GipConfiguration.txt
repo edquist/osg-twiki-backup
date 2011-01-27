@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dAnthony_20Tiradani_20329103" date="1296161935" format="1.1" reprev="1.29" version="1.29"}%
+%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dAnthony_20Tiradani_20329103" date="1296168828" format="1.1" reprev="1.30" version="1.30"}%
 %DOC_STATUS_TABLE%
 
 ---+!! Configuration of the Generic Information Provider
@@ -6,7 +6,7 @@
 
 ---+ About this Document
 <!-- conventions used in this document
-   * Local UCL_CWD  = /opt/osg-%VERSION%
+   * Local UCL_CWD  = $OSG_LOCATION
    * Local UCL_HOST = ce
    * Local TABLE_OPTS = cellpadding="5,2,5,2" cellspacing="0" databg="#FFFFFF" headerbg="#8D929A" valign="middle" databg="#FFFFFF,#DDDDDD" tablewidth="100%" columnwidths="150,150,"
    * Local UCL_CONFIG = =%UCL_CWD%/osg/etc/config.ini=
@@ -72,7 +72,7 @@ The values for this section are relatively well-documented and self-explanatory 
 |cores_per_node|_Positive Integer_|Number of cores per node.|
 |inbound_network|_True_ or _False_|Set to true or false depending on inbound connectivity.  That is, external hosts can contact the worker nodes in this sub-cluster based on their hostname.|
 |outbound_network|_True_ or _False_|Set to true or false depending on outbound connectivity.  Set to true if the worker nodes in this sub-cluster can communicate with the internet.|
-|cpu_platform|_x86_64_ or _i686_|*NEW for OSG 1.2*.  Set according to your sub-cluster's processor architecture. |
+|cpu_platform|_x86_64_ or _i686_|*NEW for OSG 1.2*.  Set according to your sub-cluster's processor architecture. |=$OSG_LOCATION/osg/etc/config.ini
 |HEPSPEC|_Positive Integer_|Optional:  Publish the HEPSPEC number for the subcluster.|
 %ENDTWISTY%
 
@@ -84,16 +84,20 @@ The values for this section are relatively well-documented and self-explanatory 
 The %LINK_GIP% queries the batch system specified and enabled in %UCL_CONFIG%. Alternatively you may manually specify which batch system to query by setting the =batch= attribute in the =[GIP]= section. 
 
 %AH_CONDOR_BEGIN%---%SHIFT%+++ Information on Condor
+GIP has several options that will control how it interacts with the Condor Batch system.  You can determine which Condor daemon GIP queries as well as set whitelists and black lists that GIP will use to properly report which VOs are assigned to which Condor Groups.
 
-By default, owner VMs are not accounted for the total CPU numbers published by GIP. According to Condor definition an Owner state implies <i>"The machine is 
-being used by the machine owner, and/or is not available to run Condor jobs"</i>.  In order to tell the GIP to count the CPUs in _"Owner"_ state for the total CPU count a site administrator should add the following line to the =[Condor]= section in the resource configuration file %UCL_CONFIG%:
+%TABLE{ %TABLE_OPTS% }%
+|*Option* | *Valid Values* | *Explanation* |
+|use_collector|_True_ or _False_|Ordinarily GIP queries the Negotiator.  This option allows the administrator to tell GIP to query the collector instead of the negotiator.  This option is overridden by =query_only_local_condor=|
+|query_only_local_condor|_True_ or _False_|This option overrides =use_collector=.  It causes GIP to query the local Condor SCHEDD rather than the Negotiator or Collector.  If not explicitly set, this option defaults to =False=|
+|exclude_schedds|_String_|This is a comma separated list of schedds that should be excluded during a condor_status -submitter query|
+|subtract_owner|_True_ or _False_|By default, owner VMs are not accounted for the total CPU numbers published by GIP since according to Condor they aren't available for user jobs.  Set to =False= to tell GIP to not subtract CPUs provided by owner VMs|
+|(groupname)_blacklist|_String_|Either set to "*" which denies access to all VOs to the Condor group identified by (groupname) or set to a comma separate list of VOs you wish to deny access.|
+|(groupname)_whitelist|_String_|Either set to "*" which allows access to all VOs to the Condor group identified by (groupname) or set to a comma separate list of VOs you wish to allow access.|
+|jobs_constraint|_String_|adds a =--constraint= option to the condor_q command that GIP will execute.  %NOTE: for big sites this could cause rather large performance issues|
+|status_constraint|_String_|adds a =--constraint= option to the condor_status command that GIP will execute.  %NOTE: for big sites this could cause rather large performance issues|
 
-%CODE{"scheme"}%
-[Condor]
-
-; Do no subtract CPUs provided by owner VMs:
-subtract_owner = False
-%ENDCODE%
+%NOTE% To generate a list of supported VOs for a queue, the blacklist is evaluated before the whitelist.
 
 %AH_CONDOR_END%
 
@@ -103,29 +107,17 @@ By default any authorized grid user may submit to every PBS queue listed in =$VD
 
 GIP will also detect if queues restrict access to certain users (=acl_users=) or certain groups (=acl_groups=). A reverse mapping from these users and groups to their associated %LINK_GLOSSARY_VO% provides access information of VOs to certain queues which will be advertised by the GIP instead.
 
-This process is not perfect and sometimes fails to generate the right information. In this case you may _manually_ blacklist and whitelist PBS queues for listed VOs in the =[PBS]= section of the resource configuration file %UCL_CONFIG%:
+This process is not perfect and sometimes fails to generate the right information. In this case you may _manually_ blacklist and whitelist PBS queues for listed VOs in the =[PBS]= section of the resource configuration file %UCL_CONFIG%
 
-%CODE{"scheme"}%
-[PBS]
+GIP also allows you to completely exclude queues from the list of queues that GIP will advertise.
 
-; deny access to all VOs to the queue identified by <queuename>
-<queuename>_blacklist = *
-
-; then allow access for one or more VOs to the same queue
-<queuename>_whitelist = <a VO name>, <another VO name>
-
-%ENDCODE%
+%TABLE{ %TABLE_OPTS% }%
+|*Option* | *Valid Values* | *Explanation* |
+|(queuename)_blacklist|_String_|Either set to "*" which denies access to all VOs to the queue identified by (queuename) or set to a comma separate list of VOs you wish to deny access.|
+|(queuename)_whitelist|_String_|Either set to "*" which allows access to all VOs to the queue identified by (queuename) or set to a comma separate list of VOs you wish to allow access.|
+|queue_exclude|_String_|Comma-separated list of queue names that GIP should exclude from the list of queues to publish|
 
 %NOTE% To generate a list of supported VOs for a queue, the blacklist is evaluated before the whitelist.
-
-To _exclude_ queues from being advertised to the grid provide a comma-separated list of queue names to the =queue_exclude= attribute:
-
-%CODE{"scheme"}%
-[PBS]
-
-; exclude the queue specified by their names from being advertised to the grid
-queue_exclude = <a queue name>, <another queue name>
-%ENDCODE%
 
 %AH_PBS_END%
 
@@ -244,10 +236,24 @@ All options are given in the table below:
 | gsiftp_host  | _String_  | This should be set to the name of the gridftp server GIP will advertise if the advertise_gridftp setting is set to True. |
 | cluster_name | _String_  | This should *only* be set if you run multiple gatekeepers for the same cluster; if you do, set this value to the FQDN of the head node of the cluster. |
 | other_ces| _String_  | This should *only* be set if you run multiple gatekeepers for the same cluster; if you do, set this value to the comma-separate list of FQDNs for the other CEs at this site. |
+| local_template_dirs| _String_ |Support for local template dirs (contributed by Sam Morrison @ ARCS)|
 
 If you want to advertise glexec support you must set =glexec_location= in the =[Misc]= section.  The value should be the location of glexec on the worker node.
 
 %ENDSECTION{"AdvertiseAvailableServices"}%
+
+%STARTSECTION{"AdvertiseWLCGAttributes"}%
+---%SHIFT%++ Advertise WLCG Attributes
+Sites that are interoperable with the WLCG will need to publish certain extra attributes that help identify them in the information systems.  These options go in the =[site]= section.
+%TABLE{ %TABLE_OPTS% }%
+|*Option* | *Valid Values* | *Explanation* |
+|wlcg_tier|_Positive_Integer_ |The WLCG computing model is composed of tiers.  Put the Tier number that your site belongs to here.|
+|wlcg_parent|_String_ |Put your wlcg_tier - 1 site name that your site is assigned to here.  For example, if your site is a Tier-2 site, then put the site name of the Tier-1 site that you are assigned to.|
+|wlcg_name|_String_ |String giving the name that the WLCG uses to identify the site|
+|wlcg_grid|_String_|String defining which native grid the site belongs to.  Example:  OSG sites would set this value to =OSG=|
+
+
+%ENDSECTION{"AdvertiseWLCGAttributes"}%
 
 %ENDSECTION{"All"}%
 %STOPINCLUDE%
