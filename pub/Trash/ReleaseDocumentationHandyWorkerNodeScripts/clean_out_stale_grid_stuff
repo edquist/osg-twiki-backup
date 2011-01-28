@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+set -u
+
+
+#
+#see also https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/HandyWorkerNodeScripts (e.g. globustmpclean)
+#
+#example output:
+#Sun Apr 11 15:49:44 EDT 2010: working on /opt/osg/globus/tmp/gram_job_state
+#Sun Apr 11 15:49:44 EDT 2010: working on /opt/osg/globus/tmp/gram_job_state (second pass for consistency)
+#Sun Apr 11 15:49:44 EDT 2010: working on /odyssey/home/usatlas1/.globus/job/
+#Sun Apr 11 15:49:44 EDT 2010: working on /odyssey/home/usatlas1/.globus/.gass_cache
+#Sun Apr 11 15:49:48 EDT 2010: working on /odyssey/home/usatlas1/gram_job_mgr_*.log /odyssey/home/usatlas1/gram_scratch_*
+#Sun Apr 11 15:49:48 EDT 2010: working on /odyssey/home/usatlas1/core.*
+#
+#all of this assumes there are no spaces in any filenames or directories
+#
+
+
+#time after which any files/dirs considered by this script are considered stale (as a find test)
+EXPIRATION='-mtime +7'
+#EXPIRATION='-mmin +5'
+
+#osg/vdt/globus installation directory
+OSG_LOCATION=/opt/osg
+
+#space-separate list of home directories to clean out (the use of `~' is okay)
+HOME_DIRS='~usatlas1'
+
+#whether or not to print messages about what it's doing
+VERBOSE=true
+
+#prefix the rm commands with this string (e.g. "echo"); unless debugging, this should be empty
+PREFIX=""
+
+
+#--- helpers
+
+log () { $VERBOSE && echo "$(date): $1"; }
+
+
+#--- don't let multiple copies of this script run at the same time
+
+if [ "$(ps ax -o 'pgid cmd' | grep '[b]ash.*'"$(basename $0)" | grep -v ^"$(ps -o pgid= -p $$)"'\>' | wc -l)" -gt 0 ]; then
+	echo "*** ERROR *** another copy of this script is already running" >&2
+	exit 1
+fi
+
+
+
+#===
+
+
+#--- grid monitor agent state and lock files
+
+dirs="$OSG_LOCATION/globus/tmp/gram_job_state"
+
+x="$OSG_LOCATION/globus/tmp/gram_job_state.stale"
+test -d $x && dirs="$dirs $x"
+
+log "working on $dirs"
+
+#if the lock file is old, remove it and the (probably newer) state file
+find -H $dirs  -mindepth 1 -maxdepth 1 -type f    -name '*.lock' $EXPIRATION | while read lockfile; do
+	statefile="$(basename "$lockfile" .lock)"
+	$PREFIX rm -f "$statefile"
+	$PREFIX rm -f "$lockfile"
+done
+
+log "working on $dirs (second pass for consistency)"
+
+#now find old state files that would've been missed by the above if for some reason the lock file was gone
+find -H $dirs -mindepth 1 -maxdepth 1 -type f \! -name '*.lock' $EXPIRATION | while read statefile; do
+	lockfile="${statefile}.lock"
+	$PREFIX rm -f "$statefile"
+	$PREFIX rm -f "$lockfile"
+done
+
+
+for homedir in $HOME_DIRS; do
+	homedir=$(eval echo "$homedir")  #expand any ~ and such
+
+
+	#--- $homedir/.globus/job/$HOSTNAME/$UniqID
+	
+	log "working on $homedir/.globus/job/$HOSTNAME"
+
+	find -H $homedir/.globus/job -mindepth 2 -maxdepth 2 $EXPIRATION | xargs -r $PREFIX rm -fr
+
+
+	#--- $homedir/.globus/.gass_cache
+
+	#/odyssey/home/usatlas1/.globus/.gass_cache/local/md5/* (the two-digit ones) look ok (all have recent timestamps)
+	#the 30-char hex things in there are not
+	#everthing under them share the same timestamp, so they look good to wipeout
+	#(same thing for global, though it doesn't seem to have as much stuff)
+
+	log "working on $homedir/.globus/.gass_cache"
+
+	for x in 'local' 'global'; do
+		find -H $homedir/.globus/.gass_cache/$x/md5/ -mindepth 2 -maxdepth 2 $EXPIRATION | xargs -r $PREFIX rm -fr
+	done
+
+
+	#--- globus-job-manager logs and gram scratch dirs
+
+	log "working on $homedir/gram_job_mgr_*.log $homedir/gram_scratch_*"
+	
+	#(should probably check to make sure the corresponding globus-job-manager process ($PID from gram_job_mgr_$PID.log) is not running)
+
+	find -H $homedir -mindepth 1 -maxdepth 1 \( -name 'gram_job_mgr_*.log' -o -name 'gram_scratch_*' \) -a $EXPIRATION | xargs -r $PREFIX rm -fr
+
+
+	#--- athena core dumps
+
+	log "working on $homedir/core.*"
+
+	find -H $homedir -mindepth 1 -maxdepth 1 -name 'core.*' -a $EXPIRATION | xargs -r $PREFIX rm -f
+done
