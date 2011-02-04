@@ -1,61 +1,99 @@
-%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dSuchandra_20Thapa_20757586" date="1296156872" format="1.1" version="1.30"}%
+%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dRobert_20Engel_20392994" date="1296848501" format="1.1" reprev="1.31" version="1.31"}%
 %META:TOPICPARENT{name="TroubleshootingComputeElement"}%
----+edg-mkgridmap Troubleshooting Guide
-
 %DOC_STATUS_TABLE%
-%TOC{depth="2"}%
 
+---+ !!EDG-MKGRIDMAP Troubleshooting Guide
+%TOC{}%
 
----++ About This Document
-This document aims to provide assistance in troubleshooting problems  related to creation and usage of the =edg-mkgridmap= script. The =edg-mkgridmap= script is used to maintain the CE host grid-mapfile at sites that do not relay on GUMS servers by downloading information from VOMS servers. It runs every so often on a gatekeeper, contacts the list of VOMS servers specified in the configuration file (edg/etc/edg-mkgridmap.conf), and creates a grid-mapfile.
+---+ About This Document
+<!-- useful variable definitions
+   * Local UCL_CWD = /opt/osg-%VERSION%
+   * Local UCL_HOST = ce
+-->
+
+%ICON{hand}% This document is for System Administrators. It aims to provide assistance in troubleshooting problems related to creation and usage of the =edg-mkgridmap= script. The =edg-mkgridmap= script is used to maintain the =grid-mapfile= at sites that do not relay on %LINK_GLOSSARY_GUMS% servers by downloading information from VOMS servers.
 
 %STARTINCLUDE%
-%EDITTHIS%
-%STARTSECTION{"Troubleshooting"}%
----++ Common Problems
+
+---%SHIFT%+ Common Problems
+
    * [[#NoMapfile][grid-mapfile not created]]
    * [[#UserNotincluded][Local users not included in the grid mapfile]]
    * [[#CodeSixtyfour][Error code 64]]
-   
 
----++ Troubleshooting Procedure
-In case of problems first of all check <tt>$VDT_LOCATION/edg/log/edg-mkgridmap.log</tt> . This file lists:
+%STARTSECTION{"Troubleshooting"}%   
+---%SHIFT%++ Troubleshooting Procedure
+
+In case of problems first of all check the service log file =$VDT_LOCATION/edg/log/edg-mkgridmap.log=. This file lists:
+
    * any errors accessing individual voms servers or any general errors
-   * any mappings eliminated from the =$VDT_LOCATION/osg/etc/osg-user-vo-map.txt= and =$VDT_LOCATION/osg/etc/osg-supported-vo-list.txt= files where the unix account a user would be mapped to does not exist.  There is an =$VDT_LOCATION/osg/etc/osg-undefined-accounts.txt= file created that lists these accounts.
-   * changes from the last time the script was run.
+   * any mappings eliminated from the =$VDT_LOCATION/osg/etc/osg-user-vo-map.txt= and =$VDT_LOCATION/osg/etc/osg-supported-vo-list.txt= files where the Unix account a user would be mapped to does not exist.  There is an =$VDT_LOCATION/osg/etc/osg-undefined-accounts.txt= file created that lists these accounts.
+   * changes from the last time the script was run
 
-There is also a "last_checked" file in =/etc/grid-security= that tells you the last time the cron process was run successfully (the =grid-mapfile= only gets updated if there is a difference from the previous run).
+There is also a _last_checked_ file in =/etc/grid-security= that tells you the last time the cron process was run successfully (the =grid-mapfile= only gets updated if there is a difference from the previous run).
+
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /etc/grid-security
+%UCL_PROMPT_ROOT% ls -al /etc/grid-security
 -rw-r--r--  1 root     root     1162888 Jul 12 02:14 grid-mapfile
 -rw-r--r--  1 root     root           0 Jul 12 08:14 grid-mapfile.last_checked
 </pre>
+
 #NoMapfile
----+++=/etc/grid-security/grid-mapfile= not created.
-   * Run =vdt-control --list= and make sure service is enabled.
-   * Run =crontab -l= and verify that the script is run by cron.
-   * Run the script by hand and verify that a vald mapfile got created.
+---%SHIFT%++ Grid-Mapfile was not created
+
+First use =vdt-control --list= and make sure that the _edg-mkgridmap_ service is enabled:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% vdt-control --list edg-mkgridmap
+Service                 | Type   | Desired State
+------------------------+--------+--------------
+edg-mkgridmap           | cron   | %GREEN%enable%ENDCOLOR% 
+</pre>
+
+Next, use =crontab -l= to list all crontab entries for the _root_ user. Make sure an entry for _edg-mkgridmap_ is present:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% crontab -l | grep edg-mkgridmap
+59 13,19,1,7 * * * %UCL_CWD%/edg/sbin/edg-mkgridmap >> %UCL_CWD%/edg/log/edg-mkgridmap.log 2>&1
+</pre>
+
+%NOTE% If no entry for _edg-mkgridmap_ is present, use =vdt-control -on= to _activate_ the service.
+
+Last, run the =edg-mkgridmap= script on the command line and check that =/etc/grid-security/grid-mapfile= gets created:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% %UCL_CWD%/edg/sbin/edg-mkgridmap
+</pre>
+
+%NOTE% The script will not output to the command line. Check the log file at =%UCL_CWD%/edg/log/edg-mkgridmap.log= instead.
+
 #UserNotincluded
----+++Local users not included in the =/etc/grid-security/grid-mapfile=
-Check  =$VDT_LOCATION/edg/etc/edg-mkgridmap.conf=. It should contain:
+---%SHIFT%++ Grid-Mapfile does not list Local Users
+
+Check the configuration file =$VDT_LOCATION/edg/etc/edg-mkgridmap.conf=. It should contain:
+
 <pre class="file">
 #### GMF_LOCAL: gmf_local grid-mapfile-local
 gmf_local /etc/grid-security/grid-mapfile-local
 </pre>
-Then make sure the file =/etc/grid-security/grid-mapfile-local= contains the desired  DN->user mapping.
+
+Then make sure the file =/etc/grid-security/grid-mapfile-local= contains the desired %LINK_GLOSSARY_DN% to Unix account mappings.
 
 #CodeSixtyfour
----+++Error code 64
-This type of error occurs when the script established contact with the VOMS server but the requested group or subgroup does not exist there.  It is really a 'not found' type error.  It is usually caused by a bad entry in the =edg-mkgridmap.conf= file.
+---%SHIFT%++ Error Code 64
 
-In the example below the configuration file contains a request for the VOMS server to send a list of all members of  the uscms VO belonging to a non-existent =/uscms/production= group.
+This type of error occurs when the script established contact with the VOMS server but the requested group or subgroup does not exist there. It is really a _'not found'_ type error.  It is usually caused by a bad entry in the =$VDT_LOCATION/edg/etc/edg-mkgridmap.conf= file.
 
-Configuration file =VDT_LOCATION/edg/etc/edg-mkgridmap.conf= entry:<br>
+In the example below the configuration file contains a request for the VOMS server to send a list of all members of the uscms VO belonging to a non-existent =/uscms/production= group.
+
+Configuration file =VDT_LOCATION/edg/etc/edg-mkgridmap.conf= entry:
+
 <pre class="file">
  group vomss://voms.fnal.gov:8443/voms/uscms/production uscms01
 </pre>
 
 Command run on CE node:
+
 <pre class="rootscreen">
 %UCL_PROMPT_ROOT% source $VDT_LOCATION/setup.(c)sh 
 %UCL_PROMPT_ROOT% cd $VDT_LOCATION/edg/sbin 
@@ -76,7 +114,9 @@ On the VOMS host you are attempting to access, the following error can be seen i
        Not in database: group "/uscms/production" -  connection.Database
  </pre>
 
----++ Useful Options for edg-mkgridmap troubleshooting
+%ENDSECTION{"Troubleshooting"}%
+
+---%SHIFT%+ Useful Options for edg-mkgridmap troubleshooting
    
    * [--help] 
    * [--version] 
@@ -84,11 +124,9 @@ On the VOMS host you are attempting to access, the following error can be seen i
    * [--output[=output_file]] 
    * [--verbose]
 
-%ENDSECTION%
-
 %STOPINCLUDE%
-%BR%
----+++ Who to contact
+
+---+ How to get Help?
 
 For further assistance consult our [[ReleaseDocumentation/HelpProcedure][Help]] listing page.
 
