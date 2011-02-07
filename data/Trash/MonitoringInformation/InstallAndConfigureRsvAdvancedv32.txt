@@ -1,0 +1,137 @@
+%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dScot_20Kronenfeld_20866253" date="1297121228" format="1.1" version="1.1"}%
+---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+%LINKCSS%
+
+%TOC%
+
+%STARTINCLUDE%
+%BR%
+
+
+<a name="advanced_rsv_config"></a>
+
+---+ Advanced !RSV Installations (Configurations)
+
+---++ !RSV background
+<p> While the [[MonitoringInformation.RSV][OSG-RSV]] package (from now on, referred to simply as !RSV), by default, is installed (but not configured) along with the OSG CE, it can also be installed separately [[MonitoringInformation/InstallAndConfigureRsvAdvanced][on a standalone machine]] or an existing CE/SE, [[MonitoringInformation/InstallRSVv2On080CE][for example an OSG 1.0.x CE]] or an OSG 1.2 CE.
+
+<p> Starting with VDT 1.10.0 (>=OSG CE 1.0), unless =VDTSETUP_NO_CONDOR_CRON= is set to =1=, !RSV will always include a minimal Condor package called condor-cron that is used to schedule !RSV probes and such.
+
+%INCLUDE{"MonitoringInformation/GetRsvLatestStandalone"}%
+%INCLUDE{"MonitoringInformation/AdditionalHacksForOsg10Ce"}%
+
+---++ Pre-config check list
+<p> Ensure you have gone through the [[https://twiki.grid.iu.edu/twiki/bin/view/ReleaseDocumentation/PreparingComputeElement#RSV_Prerequisites][<strong>RSV prerequisites section of the Preparing Compute Element</strong>]] document already. 
+
+
+---++ Enabling non-default metrics (or disabling default metrics)
+If you want to enable a metric that is not enabled-by-default against a particular service (end point) (for example: to enable an experimental probe or a non-default metric like jobmanager-status-lsf) then follow this section. These steps are fairly complex but our hope is that a tool named =rsv-control= will soon allow admins to do tasks like this using a simpler interface--stay tuned.
+
+   1 Determine probe, metric name, and FQDN of service: 
+      * Probes are located in =${VDT_LOCATION}/osg-rsv/bin/=
+      * You, as admin, know the FQDN of the service under question.
+      * After sourcing VDT's =setup.sh=, do the following:
+ <pre class="screen"> cd ${VDT_LOCATION}/osg-rsv/bin/
+ ./<strong><em>&lt;probe&gt;</em></strong> -m all -l </pre>
+ ... to discover appropriate metric name. For example, when executed with the =srm-ping-probe=, you will get metric name =org.osg.srm.srmping=. 
+   1 Add appropriate config line to applicable FQDN's metics.conf file.
+ <pre class="screen"> echo "on   <strong><em>&lt;probe file&gt;</em></strong>@<strong><em>&lt;metric_name&gt;</em></strong> 21 * * * *" >>  ${VDT_LOCATION}/osg-rsv/config/<strong><em>&lt;Service_FQDN&gt;</em></strong>_metrics.conf </pre>
+   1 Run =configure_osg_rsv= or =configure-osg= as you would normally do, and restart osg-rsv (=vdt-control --off osg-rsv; vdt-control --on osg-rsv=).
+
+---+++ Special case: To enable =gratia-config-probe= metrics
+   * Substitue step (2) in above section with the following -- the following snippet *requires* you to edit =GRATIAPROBES= to only retain metrics applicable to your CE; and to edit =CEFQDN= as applicable.
+ <pre class="screen"> CEFQDN="<strong><em>&lt;foo.grid.iu.edu&gt;</em></strong>"
+ GRATIAPROBES="condor gridftp-transfer hadoop-transfer lsf managedfork metric pbs sge" ## <strong><em>EDIT THIS LINE</em></strong>
+ for  METRIC in ${GRATIAPROBES};
+ do 
+    echo "CE: ${CEFQDN} - probe: ${METRIC}";
+    echo "on   gratia-config-probe@org.osg.gratia.${METRIC}  21 * * * *" >> \
+     ${VDT_LOCATION}/osg-rsv/config/${CEFQDN}_metrics.conf ;
+ done </pre>
+
+
+---++ Adding custom specifications to your !RSV configuration
+If you want to add custom specifications to a particular metric's invocation (for example: to specify a non-default SRM client to be used by the =srm-ping-probe=) on a service then follow this section. These steps are fairly complex but our hope is that a tool named =rsv-control= will soon allow admins to do tasks like this using a simpler interface--stay tuned.
+   1 Determine what parameter/value needs to be provided; plus probe name, metric name (and optionally FQDN of service endpoint):
+      * Determine parameter switch for appropriate probe using =--help= switch; Probes are located in =${VDT_LOCATION}/osg-rsv/bin/=
+ <pre class="screen"> cd ${VDT_LOCATION}/osg-rsv/bin/
+ ./<strong><em>&lt;probe&gt;</em></strong> --help</pre>
+      * You probably already know which metric is in context that needs an additional parameter to be passed to it. If not, then you can find out metrics tested by a probe as follows: After sourcing VDT's =setup.sh=, do the following:
+ <pre class="screen"> cd ${VDT_LOCATION}/osg-rsv/bin/
+ ./<strong><em>&lt;probe&gt;</em></strong> -m all -l </pre>
+ ... to discover appropriate metric name. For example, when executed with the =srm-ping-probe=, you will get metric name =org.osg.srm.srmping=. 
+      * (Optional): You, as admin, know the FQDN of the service under question.
+   1 Add appropriate parameter/value pair to appropriate global-specs file or service-endpoint specific specs file. For example:
+      * To specify location of SRM client that must be used by the =srm-ping-probe= on all SRM service endpoints:
+ <pre class="screen"> mkdir -p ${VDT_LOCATION}/osg-rsv/specs/global-specs/
+ echo -n " --srm-client-loc <strong><em>&lt;/usr/local/srm_custom/&gt;</em></strong> " \
+    >> ${VDT_LOCATION}/osg-rsv/specs/global-specs/srm-ping-probe@org.osg.srm.srmping.spec</pre>
+      * To specify location of SRM client that must be used by the =srm-ping-probe= on one SRM service endpoints called foo.grid.iu.edu but not other SRM endpoints:
+ <pre class="screen"> mkdir -p ${VDT_LOCATION}/osg-rsv/specs/foo.grid.iu.edu/
+ echo -n " --srm-client-loc <strong><em>&lt;/usr/local/srm_custom/&gt;</em></strong> " \
+    >> ${VDT_LOCATION}/osg-rsv/specs/foo.grid.iu.edu/srm-ping-probe@org.osg.srm.srmping.spec</pre>
+      * Repeat setting of global or service level specification for all applicable metrics
+   1 Run =configure_osg_rsv= or =configure-osg= as you would normally do, and restart osg-rsv (=vdt-control --off osg-rsv; vdt-control --on osg-rsv=).
+
+
+
+
+---++ Configuring !RSV using configure_osg_rsv script on the command line
+   * Configuring !RSV using the command line =configure_osg_rsv= script is recommended if:
+      * If you want to run the !RSV client on one machine, and monitor a bunch of CEs/SEs on your site. 
+      * If you find that configure_osg.py does not support advanced features you might be looking for; For example, you cannot specify different write locations for different !SRM SEs. In such a case, use the instructions provided below to configure !RSV.
+      * To configure simple RSV setups -- for example an !RSV client that monitors a single CE and a single standard SE -- we recommend [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallAndConfigureRSV][using configure-osg, and its accompanying !OSG-level config.ini file]]. These command line instructions need to be used only if you have a very complex setup (for example, an !RSV host that monitors multiple CEs/SEs with custom settings).
+   * To configure !RSV using the command line =configure_osg_rsv= script, as =root=,  replace entries in =<em><strong>italics</strong></em>= to appropriate values, and execute the !RSV config script using <u>one of the following example configurations shown below</u>
+   * *Additional Notes:*
+      * *ServiceUri:* In the examples shown below, the serviceUri for various services is shown in the standard =hostname:[port/service]= format. Most users will not use the optional port and service. For example, a typical SRM would run on port 8443, and so the user would specify just the =hostname=. But for a gridftp server running port =2813=, you should specify =hostname:2813=.
+      * *URI for gridftp/gums probes:* If you specify =--gridftp-probes= or =--gums-probes=, then the corresponding =--xyz-uri= switch(es) (=--gridftp-uri= and =--gums-uri=) are optional; if none is provided (i.e your CE host is where the gums probes should run/ CE is the gridftp server as well), then those URIs default to the the =--ce-uri= assuming that is provided. 
+      * *Dir option required for SRM probes:* If you configure !SRM probes, then you'll have to also provide a =--srm-dir= value where test files can be copied over to.
+      * *Combining parameters:* If you have your CE and SE (!SRM or Gridftp based) running on the same host, then you can combine any of the following pairs =--ce-probes --ce-uri=,  =--srm-probes --srm-uri=, =--gridftp-probes --gridftp-uri= options into one =configure_osg_rsv= execution. 
+      * *GUMS probe not recommended:* The one !GUMS probe that comes with RSVv3.0 is not expected to work robustly on all !OSG resources. We recommend you not enable them -- by <u>not</u> specifying =--gums-probes=.
+
+
+<a name="more_example_configs"></a>
+
+---++ Example configure_osg_rsv invocations
+
+<p> Use *_one_* of the appropriate examples shown below, replace entries in =<em><strong>italics</strong></em>= to appropriate values
+
+%INCLUDE{"MonitoringInformation/ConfigureRsvV3AdvStandaloneServcertNogums"}%
+
+---+++ !RSV running on OSG CE; !GridFTP server running on CE; <u>using user-proxy</u>
+
+   <pre class="screen"> $VDT_LOCATION/osg-rsv/setup/configure_osg_rsv --user <em><strong>rsvuser</strong></em> --init --server y \
+      --ce-probes --ce-uri "<em><strong>&#60;CE_FQDN[:port/service]&#62;</strong></em>" \
+      --gridftp-probes  \
+      --consumers --gratia --grid-type <strong><em>"OSG-ITB or OSG"</em></strong> \
+      --verbose --setup-for-apache \
+      --proxy /path/to/rsvuser/proxy</pre>
+
+%INCLUDE{"MonitoringInformation/ConfigureRsvV2AdvSeSrmServcertNogums"}%
+
+%INCLUDE{"MonitoringInformation/ConfigureRsvV2AdvSeBestmanServcertNogums"}%
+
+<p> Experimental components of !RSV v3.x, and their configuration, are [[#experimental_components][documented in a separate section below]].
+
+<hr>
+<p><br><p>
+
+%INCLUDE{"MonitoringInformation/StartRsvV2"}%
+
+%INCLUDE{"MonitoringInformation/ValidateRsvV2Configuration"}%
+
+
+<p><br><p>
+<hr>
+<p><br><p>
+
+<a name="experimental_components"></a>
+---++ Configure experimental features/probes
+<p> The following components are offered as-is on an experimental basis. You are welcome to try them, and report bugs, etc. If you do configure these components, you'll have to restart the osg-rsv service for it to take effect.
+
+%INCLUDE{"MonitoringInformation/ConfigureRsvV2AdvCeServcertGums"}%
+%INCLUDE{"MonitoringInformation/ConfigureRsvV2AdvCeServcertNogumsNagios"}%
+
+%STOPINCLUDE%
+
+-- Main.ArvindGopu - 04 Aug 2009
