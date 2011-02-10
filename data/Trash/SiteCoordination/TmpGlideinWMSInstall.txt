@@ -1,0 +1,446 @@
+%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dMarco_20Mambelli_20325802" date="1297299480" format="1.1" reprev="1.1" version="1.1"}%
+%LINKCSS%
+
+---+!! !GlideinWMS VO Frontend Installation
+%TOC%
+
+---++ About This Document
+
+This document describes how to install the Glidein Workflow Managment System (!GlideinWMS) VO Frontend.  The VO Frontend is the minimum required software for a Virtual Organization to submit grid jobs using the !GlideinWMS system.  
+This installation guide describes both the installation using the RPM prepared by the OSG and the installation using the TAR files.  
+
+---++ Planning
+Depending on your architecture and Linux version you may prefer to install he !GlideinWMS system using the RPM distribution or the TAR file distribution. Check the requirements below.
+ 
+---++ Requirements
+Hardware requirements:
+   * This machine needs a fast CPU and a moderate amount of memory (1GB should be enough).
+   * The disk needed is just for binaries, config files and log files (20GB should be enough)
+
+Operating system:
+   * The RPM distribution is for SL 5 (RHEL 5), x86_64 architecture.  It has been tested on SL5.5. A source RPM is available.
+   * The TAR file distribution supports both 32 and 64 bit architectures. It requires a reasonably recent Linux OS that is a  [[http://www.cs.wisc.edu/condor/manual/v7.4/1_5Availability.html][Condor-supported OS]] (RH/SL4 and RH/SL5 tested at press time)
+
+Required software:
+   * Condor is available as RPM (via Yum, for some OS/architecture combinations) or as TAR file.
+      * Check <pre class="screen">$ which condor
+/usr/sbin/condor
+$ condor -version
+$CondorVersion: 7.4.4 Oct 13 2010 BuildID: 279383 $
+$CondorPlatform: X86_64-LINUX_RHEL5 $</pre>
+      * [[http://www.cs.wisc.edu/condor/downloads-v2/download.pl][Condor RPM]]. 
+      * The [[http://twiki.grid.iu.edu/bin/view/Tier3/WebHome][OSG Tier 3 Web]] explains different possible [[http://twiki.grid.iu.edu/bin/view/Tier3/ModulesIntro#Phase_2_Quick_guide_for_setting][installation of Condor]]. The [[http://twiki.grid.iu.edu/bin/view/Tier3/CondorRPMInstall][RPM distribution of Condor]] is recommended, if available for your platform.
+   * [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/ClientInstallationGuide][OSG Client]] (Do no install condor with the client) %RED%why?%ENDCOLOR%
+   * Apache httpd is probably already on your system or easily available.  
+      * On RHEL/SL you can install it via yum and enable with chkconfig:<pre class="screen">
+yum install httpd
+chkconfig --add httpd
+chkconfig httpd on</pre>
+      * [[http://www.stllinux.org/meeting_notes/2001/0719/tux/intro.html][TUX]] HTTP server is another possibility
+   * Python interpreter, version 2.3.4 or above (no Python 3). It is probably already on your system or easily available.
+      * Check <pre class="screen">$ python -V
+Python 2.4.3</pre>  
+      * Available from [[http://www.python.org/download/][python.org]]
+      * On RHEL/SL you can install it via yum (=yum install python=)
+   * The [[http://freshmeat.net/projects/m2crypto][M2Crypto python library]] v0.17 or later. It is probably already on your system.
+      * Check <pre class="screen">$ python 
+Python 2.4.3 (#1, Sep 10 2009, 18:34:35) 
+[GCC 4.1.2 20080704 (Red Hat 4.1.2-46)] on linux2
+Type "help", "copyright", "credits" or "license" for more information.
+>>> import M2Crypto
+>>> M2Crypto.version
+'0.16'</pre>
+      * On RHEL/SL you can install it via yum (=yum install m2crypto=)
+      * Below are instructions to install it from scratch
+   * The Perl interpreter and the Perl module =Time::HiRes= are required by the RRDTools. They are probably already on your system.
+      * Check <pre class="screen">$ perldoc Time::HiRes
+x86_64-linux-thread-muUser:Contributex86e64-linux-thread-multi::Time::HiRes(3)
+...</pre>
+   * The [[http://oss.oetiker.ch/rrdtool/][RRDTool package]] v1.2.18 or later and the python-rrdtool bindings.
+      * You may have it already on your system or be able to install it via yum: <pre class="screen">
+yum install python-rrdtool</pre>
+      * I had to install the RPMs from as documented below.
+   * The [[http://sourceforge.net/projects/javascriptrrd/][javascriptRRD]] package v0.5 or later with [[http://code.google.com/p/flot/][flot]] (a pure Javascript plotting library). It contains the javascript libraries needed by the monitoring. 
+      * The RPM is available [[http://t2.unl.edu/store/rpms/SL5/x86_64/javascriptrrd-0.5.0-2.noarch.rpm][here]]
+      * Else just download the tarball (with flot), and untar it. You will need to point the installer to this directory.<pre class="rootscreen">
+# wget http://sourceforge.net/projects/javascriptrrd/files/javascriptrrd/0.5.0/javascriptrrd-0.5.0-with-flot-0.6.tgz/download
+# cd /opt
+# tar xzf ~/javascriptrrd-0.5.0-with-flot-0.6.tgz 
+# chown -R gcadmin:gcadmin javascriptrrd-0.5.0</pre>
+
+Users:
+   * Vo Frontend User (=gcadmin=) - The Glidein Frontend should be installed as a non-privilged user. Note: It is recommended that you install Condor as this user as well. %RED%Why Condor should be the same user? Can Condor be installed as root (RPM)? Do I need one or more users? "The installer will ask you for several non-privileged users during the install process. These should be created prior to running the glideinWMS installer."%ENDCOLOR%
+
+Certificates:
+   * CA certificates and CRL must be installed and updated (OSG Client is taking care of this)
+   * Glidein Frontend Condor cert/proxy - The use of a service certificate is recommended. The Frontend will use a proxy from the certificate (cannot use directly the certificate)
+   * User Submitter cert/proxy DN
+
+%RED%Some questions:
+   * How is that 4 certificates are mentioned while only 2 are used (this is from the VO frontend installation doc)?
+   * What means "Glidein Frontend Condor cert/proxy DN (cannot use a cert here)" cert/proxy and cannot use cert means only proxy or this refers to personal/service certs?
+%ENDCOLOR%
+
+<!--
+The installer will ask for several DNs for GSI authentication. You have the option of using a service certificate or a proxy. These should be created and put in place before running the installer. The following is a list of DNs the installer will ask for:
+
+    * WMS Collector cert/proxy DN
+    * User Pool Collector cert/proxy DN
+    * User Submitter cert/proxy DN
+    * Glidein Frontend Condor cert/proxy DN (cannot use a cert here)
+
+Note: In some places the installer will also ask for nicknames to go with the DNs. For the most part the name given doesn't really matter. There is one case where is does matter. If you are using privilege separation, then, on the WMS Collector, the nickname for each Glidein Frontend must be the username that you created for the frontend.
+Note 2: The installer will ask if these are trusted Condor Daemons. Answer 'y'. 
+-->
+
+If you install from the TAR file (no RPM), specially if installed as non root, the Glidein WMS installer requires write permission in some directories that you must create ahead of time:
+   * the installation directory (e.g. =/opt/giwms=)
+   * the directory to host Web data (e.g. =/var/www/html/glidefactory=). This must be a directory served by the HTTP Server.
+   * the directory of the OSG Client or its installation directory (the installer will install the client for you if you like, e.g. =/opt/osg-client=).
+
+<!--
+When installing the Glidein Frontend you will be presented with a question asking for the directory location for various items. The example below puts many of them in /var. All the directories in /var have to be created as root. Therefore, if you intend on using /var, you will have to create the directories ahead of time.
+
+Note: The web data must be stored in a directory served by the HTTP Server.
+
+Example:
+
+Where will the web data be hosted?: [/var/www/html/glidefactory] /var/www/html/glidefactory
+
+Misc
+
+At some point the installer will prompt you for the OSG VDT Client location or if you want to install it. The installer will install the client for you. (See GlideinWMS Component Install)
+
+When asked if you want OSG_VDT_BASE defined globally? Answer 'y' unless you want to force your users to find and hard code the location.
+
+When asked if you want to enable Match authentication, if you are using Condor 7.1.3 or later, answer 'y' unless you have a reason not to.
+-->
+
+%RED%Why not use OSG_LOCATION or VDT_LOCATION but OSG_VDT_BASE?%ENDCOLOR%
+
+---+++ M2Crypto installation from source
+If your system does not come with m2crypto package, or you do not can/want install it as root, compile it from source as the glidein factory user.
+The source code can be downloaded from: http://chandlerproject.org/Projects/MeTooCrypto#Downloads
+
+The build process is very easy:<pre class="rootscreen">
+#  python setup.py build
+#  python setup.py install --root %lt;base dir> 
+</pre>
+Finally add M2Crypto site-packages into the =PYTHONPATH=, possibly in the =.profile=, =.bashrc= and/or in the =.cshrc= files.
+The exact path is system specific. On a 32bit system with python 2.3.x it will look like this:<pre class="file">
+    export PYTHONPATH=$PYTHONPATH:<base dir>/usr/lib/python2.3/site-packages/
+</pre>
+---+++ RRDTools
+In my SL 5.5 RRDTools were not preinstalled nor in the standard yum repositories. 
+
+RPMs for Redhat/Scientific Linux distributions can be found at http://packages.sw.be/rrdtool/ (was: http://dag.wieers.com/rpm/packages/rrdtool/)
+
+I had to download and install manually python-rrdtool*.rpm and related dependencies (RPM packages). I decided to install version 1.4.4. Version 1.2.30 is another candidate. %RED%Is it there any recommended version or the higher the better? Specially for the RPM%ENDCOLOR%
+<pre class="rootscreen">
+[root@gi-vofe ~]# wget http://packages.sw.be/rrdtool/rrdtool-1.4.4-1.el5.rf.x86_64.rpm 
+[root@gi-vofe ~]# wget http://packages.sw.be/rrdtool/python-rrdtool-1.4.4-1.el5.rf.x86_64.rpm 
+[root@gi-vofe ~]# wget http://packages.sw.be/rrdtool/perl-rrdtool-1.4.4-1.el5.rf.x86_64.rpm 
+[root@gi-vofe ~]# rpm -i rrdtool-1.4.4-1.el5.rf.x86_64.rpm perl-rrdtool-1.4.4-1.el5.rf.x86_64.rpm
+warning: rrdtool-1.4.4-1.el5.rf.x86_64.rpm: Header V3 DSA signature: NOKEY, key ID 6b8d79e6
+[root@gi-vofe ~]# rpm -i python-rrdtool-1.4.4-1.el5.rf.x86_64.rpm
+warning: python-rrdtool-1.4.4-1.el5.rf.x86_64.rpm: Header V3 DSA signature: NOKEY, key ID 6b8d79e6
+</pre>
+
+If installing as root is not an option, you can build from the sources, as the glidein factory user, and put the python libraries into the =PYTHON_PATH=.
+The source code can be downloaded from: http://oss.oetiker.ch/rrdtool/pub/
+
+Beware: The build process has several dependencies that make it complicated. Use this option only if you cannot install from RPMs (or similar). 
+
+
+---+++ !javascriptRRD
+You will need the !javascriptRRD package. It contains the javascript libraries needed by the monitoring. Just download the tarball (with flot), and untar it. You will need to point the installer to this directory. 
+
+
+
+---++ Installation Procedure from the RPM
+After making sure that you satisfy all the pre-requisites (install all the missing software, prepare accounts and certificates, ...) you can proceed with the installation of Glidein WMS:
+   1. Download and install the VO Frontend RPM
+   1. Edit Frontend configuration options
+   1. Edit Condor configuration options
+   1. Create a Condor grid map file
+   1. Reconfigure and Start frontend
+
+
+---+++ Download and install the VO Frontend RPM
+
+The RPM is currently available from [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/RPMS/GlideinWMSFrontend-2.4.2-2.x86_64.rpm][the glideinWMS project]].  The source RPM is available at [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/SRPMS/GlideinWMSFrontend-2.4.2-2.src.rpm][the glideinWMS project]] also.
+
+   1. Download the RPM
+   <pre class="screen">
+$ wget http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/RPMS/GlideinWMSFrontend-2.4.2-2.x86_64.rpm</pre>
+   %TWISTY{
+mode="div"
+showlink="Click to show output"
+hidelink="Click to hide output"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+   <pre class="screen">
+ --11:44:53--  http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/RPMS/GlideinWMSFrontend-2.4.2-2.x86_64.rpm
+           => `GlideinWMSFrontend-2.4.2-2.x86_64.rpm'
+Resolving www.uscms.org... 131.225.70.20
+Connecting to www.uscms.org|131.225.70.20|:80... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 342,901 (335K) [text/plain]
+
+100%[====================================>] 342,901       --.--K/s             
+
+11:44:53 (11.62 MB/s) - `GlideinWMSFrontend-2.4.2-2.x86_64.rpm' saved [342901/342901]
+  </pre>
+   %ENDTWISTY%
+   1. Install the RPM.  During installation, the rpm will check for dependencies.
+   <pre class="screen">
+rpm -i GlideinWMSFrontend-2.4.2-2.x86_64.rpm</pre>
+   If the install succeeded, then there will be no output from the command.
+
+
+
+---+++ Configuring the Frontend
+
+The configuration file is =/etc/gwms-frontend/frontend.xml=.  The next steps will describe each line that you will need to edit.  The portions to edit are highlighted in red font.
+
+   1. The VO you are affiliated with.
+   <pre class="file">
+&lt;factory query_expr='((stringListMember("%RED%VO%ENDCOLOR%", GLIDEIN_Supported_VOs)))'></pre>
+   1. The username that you are assigned from the factory (email osg-gfactory-support@physics.ucsd.edu) (scroll right).
+   <pre class="file">
+&lt;collector DN="/DC=org/DC=doegrids/OU=Services/CN=glidein-1.t2.ucsd.edu" comment="Define factory collector globally for simplicity" factory_identity="gfactory@glidein-1.t2.ucsd.edu" my_identity="%RED%username%ENDCOLOR%@glidein-1.t2.ucsd.edu" node="glidein-1.t2.ucsd.edu"/>
+   </pre>
+   1. The Schedd information.  The Cert DN is the DN specified in the GSI_DAEMON_PROXY or GSI_DAEMON_CERT when condor is configured.  A secondary schedd is optional.  You will need to delete the secondary schedd line if you are not using it.
+   <pre class="file">
+&lt;schedds>
+   &lt;schedd DN="%RED%Cert DN used by the schedd at fullname:%ENDCOLOR%" fullname="%RED%Hostname of the schedd%ENDCOLOR%"/>
+   &lt;schedd DN="%RED%Cert DN used by the second Schedd at fullname:%ENDCOLOR%" fullname="%RED%schedd name%ENDCOLOR%@%RED%Hostname of second schedd%ENDCOLOR%"/>
+&lt;/schedds></pre>
+   1. The DN of the cert that the frontend will use to communicate with the factory and use to submit to the factory.
+   <pre class="file">
+&lt;security classad_proxy="/tmp/x509up_u99" proxy_DN="%RED%DN of proxy owned by user nobody%ENDCOLOR%" proxy_selection_plugin="ProxyAll" security_name="%RED%The security name, this is used by factory%ENDCOLOR%" sym_key="aes_256_cbc"> </pre>
+   1. The hostname of the frontend.
+   <pre class="file">
+&lt;stage base_dir="/usr/share/gwms-frontend/www/stage" use_symlink="True" web_base_url="http://%RED%hostname of frontend%ENDCOLOR%/vofrontend/stage"/> </pre>
+   1. The hostname of the collectors.
+   <pre class="file">
+&lt;collector DN="DN of main collector" node="%RED%hostname of collector%ENDCOLOR%" secondary="False"/>
+&lt;collector DN="DN of secondary collectors (usually same as DN in line above)" node="%RED%hostname of secondary collectors (usually same as hostname in line above)%ENDCOLOR%:9620-9660" secondary="True"/>
+</pre>
+
+---+++ Configuring Condor
+In versions of Condor 7.4.4 and above, the condor configuration for the frontend is placed in =/etc/condor/config.d/gwms-frontend.conf=.  If you have a version less than 7.4.4, a local condor configuration file is located at =/etc/condor/condor_config.local=.  Adding the following to the bottom of =condor_config.local= will pick up the !GlideinWMS condor configuration.
+<pre class="file">
+LOCAL_CONFIG_DIR = /etc/condor/config.d</pre>
+
+After configuring condor, be sure to restart condor:
+<pre class="screen">
+service condor restart</pre>
+
+The lines you have to edit:
+   1. Credentials of the machine.  You can either run using a proxy, or a service certificate.  It is recommended to use a service certificate, which uses the variables GSI_DAEMON_CERT and GSI_DAEMON_KEY.  The proxy and certificate files should be owned by user =condor=.
+   <pre class="file">
+############################
+# Credentials
+############################
+#GSI_DAEMON_PROXY = /tmp/x509up_u1349
+
+# EDIT THESE VALUES
+# If you ever decide to use a Certificate, see below
+GSI_DAEMON_CERT = /etc/grid-security/glideincert.pem
+GSI_DAEMON_KEY  = /etc/grid-security/glideinkey.pem </pre>
+   1. Location of the condor grid map (description in the next section)
+   <pre class="file">
+#################################
+# Where to find ID->uid mappings EDIT THIS
+#################################
+CERTIFICATE_MAPFILE=/opt/glidecondor/certs/condor_mapfile </pre>
+   1. Add the DN's for the certificates that your daemons will use.  Examples are placed below.
+   <pre class="file">
+#####################################
+# Add whitelist of condor daemon DNs EDIT THIS
+#####################################
+GSI_DAEMON_NAME=/DC=org/DC=doegrids/OU=People/CN=Derek Weitzel 285345,/DC=org/DC=doegrids/OU=People/CN=Derek Weitzel 285345/CN=993078166,/DC=org/DC=doegrids/OU=Services/CN=host/glidein.unl.edu,/DC=org/DC=doegrids/OU=Services/CN=glidein-1.t2.ucsd.edu </pre>
+
+
+---+++ Create a Condor grid map file.
+The condor grid map file is used for authentication between the glidein running on a remote worker node, and the local collector.  Condor uses the mapfile to map certificates to users on the local machine.  It is important that you map the DN's of:
+   * Each schedd that the frontend talks to
+   * The DN that the frontend uses
+
+Below is an example mapfile:
+   <pre class="file">
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=People\/CN\=Derek\ Weitzel\ 285345$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/hcc\-grid\.unl\.edu$" dweitzel
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/cpass\.unl\.edu$" dweitzel
+GSI (.*) anonymous
+FS (.*) \1 </pre>
+
+
+---+++ Proxy Configuration
+By default, the frontend will run as user =nobody=.  In order for the frontend to use the certificate for user =nobody=, it has to exist and be owned by the user =nobody=.
+   1. Create the proxy
+   <pre class="screen">
+user> $ voms-proxy-init -valid &lt;hours_valid> -voms &lt;vo> </pre>
+   1. Copy the proxy to the correct name
+   <pre class="screen">
+user> $ cp /tmp/x509up_u`id -u` /tmp/x509up_u`id -u nobody` </pre>
+   1. Change ownership of the proxy
+   <pre class="screen">
+root> $ chown nobody: /tmp/x509up_u`id -u nobody` </pre>
+
+
+---+++ Reconfigure and verify installation
+In order to use the frontend, first you must reconfigure it.
+
+<pre class="screen">
+/etc/init.d/frontend_startup reconfig </pre>
+
+After reconfiguring, you can start the frontend:
+<pre class="screen">
+/etc/init.d/frontend_startup start </pre>
+
+
+---++ Installation Procedure using the TAR file and the install script
+After making sure that you satisfy all the pre-requisites (install all the missing software, prepare accounts and certificates, ...) you can proceed with the installation of Glidein WMS:
+   1. Download the VO Frontend TAR file and install
+   1. Edit Frontend configuration options
+   1. Edit Condor configuration options
+   1. Create a Condor grid map file
+   1. Reconfigure and Start frontend
+
+---+++ Download and install the VO Frontend RPM
+
+The RPM is currently available from [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/RPMS/GlideinWMSFrontend-2.4.2-2.x86_64.rpm][the glideinWMS project]].  The source RPM is available at [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/SRPMS/GlideinWMSFrontend-2.4.2-2.src.rpm][the glideinWMS project]] also.
+
+   1. Download the RPM
+   <pre class="screen">
+$ wget http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/glideinWMS_v2_5_frontend.tgz</pre>
+   %TWISTY{
+mode="div"
+showlink="Click to show output"
+hidelink="Click to hide output"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+   <pre class="screen">
+--2011-02-01 14:57:07--  http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/glideinWMS_v2_5_frontend.tgz
+Resolving www.uscms.org... 131.225.70.20
+Connecting to www.uscms.org|131.225.70.20|:80... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 9060734 (8.6M) [application/x-gzip]
+Saving to: `glideinWMS_v2_5_frontend.tgz'
+
+100%[================================================================================================================>] 9,060,734   7.27M/s   in 1.2s    
+
+2011-02-01 14:57:08 (7.27 MB/s) - `glideinWMS_v2_5_frontend.tgz' saved [9060734/9060734]
+  </pre>
+   %ENDTWISTY%
+   1. Install the package.  During installation, the rpm will check for dependencies.
+Supposing that you created already the install directory (=/opt/giwms=) and the temporary directory for the installation is =/tmp=:
+   <pre class="screen">
+[root@gi-vofe install]# mkdir /opt/giwms
+[root@gi-vofe install]# chown gcadmin:condor /opt/giwms
+[root@gi-vofe opt]# ln -s /opt/giwms/vofrontend /var/www/html/vofrontend
+[root@gi-vofe opt]# /etc/init.d/httpd status
+httpd is stopped
+[root@gi-vofe opt]# /etc/init.d/httpd start
+Starting httpd:                                            [  OK  ]
+[root@gi-vofe opt]# 
+</pre>
+
+   <pre class="screen">
+$ cd /tmp
+$ tar xvzf ~/glideinWMS_v2_5_frontend.tgz 
+$ cd glideinWMS/install
+$ ./glideinWMS_instal
+</pre>
+   Then the interactive installer is started:
+   <pre class="screen">Welcome to the glideinWMS Installation Helper
+
+What do you want to install?
+(May select several options at one, using a , separated list)
+[1] glideinWMS Schedds and Collector
+[2] Glidein Factory
+[3] GCB
+[4] User Pool Collector
+[5] User Schedd
+[6] Condor for VO Frontend
+[7] VO Frontend
+[8] Components
+Please select: 7
+
+The following profiles will be installed:
+[7] VO Frontend
+
+
+Installing VO Frontend
+
+Do you have already a javascriptRRD installation?: (y/n) y
+Where is javascriptRRD installed?: /opt/javascriptrrd/
+The provided directory is not hosting javascriptRRD
+(/opt/javascriptrrd/src/lib/rrdFile.js not found)
+Do you have already a javascriptRRD installation?: (y/n) y
+Where is javascriptRRD installed?: /opt/javascriptrrd/
+Where will you host your config files?: [/home/gcadmin/frontstage] /opt/giwms/frontstage
+Directory '/opt/giwms/frontstage' does not exist, should I create it?: (y/n) y
+Where will the web data be hosted?: [/var/www/html/vofrontend] /opt/giwms/vofrontend
+Directory '/opt/giwms/vofrontend' does not exist, should I create it?: (y/n) y
+What Web URL will you use?: [http://gi-vofe.uchicago.edu/vofrontend/] 
+Failed connecting to: http://gi-vofe.uchicago.edu/vofrontend/
+What Web URL will you use?: [http://gi-vofe.uchicago.edu/vofrontend/] 
+</pre>
+
+
+
+
+---+++ Configuring the Frontend
+
+The configuration file is =/etc/gwms-frontend/frontend.xml=.  The next steps will describe each line that you will need to edit.  The portions to edit are highlighted in red font.
+
+
+---++ Important file locations
+
+|  *File Description*  |  *File Location*  |
+|Configuration file | /etc/gwms-frontend/frontend.xml |
+|Logs | /var/log/gwms-frontend/ |
+|Startup script | /etc/init.d/frontend_startup |
+|Web Directory | /usr/share/gwms-frontend/www |
+|Working Directory | /usr/share/gwms-frontend/frontend-temp/ |
+
+
+
+---++ References
+Definition:
+   * VO http://www.opensciencegrid.org/About/Learn_About_Us/OSG_Organization/VOs
+   * http://twiki.grid.iu.edu/bin/view/Documentation/UsingTheGrid
+   * http://twiki.grid.iu.edu/bin/view/Documentation/CondorGToGlidein
+   * http://twiki.grid.iu.edu/bin/view/Engagement/EngageNewUserGuide
+
+Documents about the VO frontend:
+   * http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/
+   * http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.prd/manual/
+   * http://twiki.grid.iu.edu/bin/view/Documentation/GlideinWMSVOFrontendInstall
+
+Other examples:
+   * http://home.fnal.gov/~weigand/weigand/www/glideinWMS_rpm/index.shtml
+
+M2Crypto:
+   * http://www.heikkitoivonen.net/blog/2008/10/14/ssl-in-python-26/
+   * http://chandlerproject.org/bin/view/Projects/MeTooCrypto
+   * http://freshmeat.net/projects/m2crypto
+RRDTools:
+   * http://packages.sw.be/rrdtool/
+javascriptRRD:
+   * http://sourceforge.net/projects/javascriptrrd/
+
+Other documents
+   * RRD tools: http://segfault.in/2010/03/python-rrdtool-tutorial/
+   * RRD tools: http://sourceforge.net/projects/py-rrdtool/
+   * http://oss.oetiker.ch/rrdtool/download.en.html
+   * http://www.express.org/~wrl/rrdtool/
+   * Downloads from Nebraska: http://t2.unl.edu/store/rpms/SL5/x86_64/
+
+
+-- Main.MarcoMambelli - 10 Feb 2011
