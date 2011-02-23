@@ -1,80 +1,172 @@
-# This awk script with "clean up" the OSG TWiki Glossary html file 
-if [ $# -ne 2 ]
-then
-echo "Usage: cleanglossary glossaryofterms.html CleanGlossary.html"
-exit
-fi
+#!/bin/sh
+# This shell script used awk to "clean up" the OSG TWiki Glossary html file 
+# Author: James Weichel, Fermilab
 
-awk '
-# Fix title
-/<title>/ {
-   print "<title> OSG Glossary </title>";
-   next;
-}
-/<body/ {
-   print "<body>";
-   print "<h1> OSG Glossary of Terms </h1>";
-   next;
-}
+# define function to print usage to terminal
+function usage {
+cat << EOF
+usage: $0 options
 
-# Remove <base> so internal references will be internal
-/^<base/ { next; }
+This script uses awk to clean up the OSG Twiki Glossary html file.
 
-# Remove EDITTHIS buttons
-/EDITTHIS/ { next; }
-
-# Remove last line (error in html page)
-/<\/html>/ {
-   print;
-   exit;
+OPTIONS:
+   -h      show this message
+   -f      the input html file 
+   -o      the output html file
+EOF
 }
 
-# Remove Scripts, Styles, and Imports, meta, divs, classes
-/<script /,/<\/script>/ { next; }
-/<style /,/<\/style>/ { next; }
-/\@import/ { next; }
-/<\/style>/ { next; }
-/<link / { next; }
-/<meta name/ { next; }
-/<div / { next; }
-/<\/div>/ { next; }
+# define function to process html file
+function process {
 
-# Remove forms (that implement the letter indexes)
-/<form/,/<\/form>/ { next; }
-/<span style/ { next; }
+	# check that -f was used to define $OPT_FILE_IN
+	if [ -z "$OPT_FILE_IN" ]
+	then
+		echo "ERROR: option -f missing"
+		usage;
+		exit 1;
+	fi
 
-# Remove the Comment Boxes
-/commentPlugin/ { next; }
+	# check that file exists
+	if [ ! -f "$OPT_FILE_IN" ]
+	then
+		echo "ERROR: file = '$OPT_FILE_IN' does not exist!";
+		return;
+	fi
 
-# Remove Bottom of Page links
-/GlossaryToPDF/ { next; }
-/CONTENT MANAGEMENT PROJECT/,/^<\/font>/ { next; }
+	# check that -f was used to define $OPT_FILE_OUT
+	if [ -z "$OPT_FILE_OUT" ]
+	then
+		echo "ERROR: option -o missing"
+		usage;
+		exit 1;
+	fi
+	
+	# check that location specified by $OPT_FILE_OUT is writable	
+	if [ -e "$OPT_FILE_OUT" -a ! -w "$OPT_FILE_OUT" ]
+	then
+		echo "ERROR: no permissions to write to file = '$OPT_FILE_OUT'!";
+		return;
+	fi
+	
+	# check that output doesn't overwrite input
+	if [ "$OPT_FILE_IN" == "$OPT_FILE_OUT" ]
+	then
+		echo "ERROR: the output file cannot be the input file!"
+		return;
+	fi
+	
+	# start processing using awk
+	awk '
+	# Fix title
+	/<title>/ {
+	   print "<title> OSG Glossary </title>";
+	   next;
+	}
+	/<body/ {
+	   print "<body>";
+	   print "<h1> OSG Glossary of Terms </h1>";
+	   next;
+	}
+	
+	# Remove <base> so internal references will be internal
+	/^<base/ { next; }
+	
+	# Remove EDITTHIS buttons
+	/EDITTHIS/ { next; }
+	
+	# Remove last line (error in html page)
+	/<\/html>/ {
+	   print;
+	   exit;
+	}
+	
+	# Remove Scripts, Styles, and Imports, meta, divs, classes
+	/<script /,/<\/script>/ { next; }
+	/<style /,/<\/style>/ { next; }
+	/\@import/ { next; }
+	/<\/style>/ { next; }
+	/<link / { next; }
+	/<meta name/ { next; }
+	/<div / { next; }
+	/<\/div>/ { next; }
+	
+	# Remove forms (that implement the letter indexes)
+	/<form/,/<\/form>/ { next; }
+	/<span style/ { next; }
+	
+	# Remove the Comment Boxes
+	/commentPlugin/ { next; }
+	
+	# Remove Bottom of Page links
+	/GlossaryToPDF/ { next; }
+	/CONTENT MANAGEMENT PROJECT/,/^<\/font>/ { next; }
+	
+	# Make internal page links internal (not refering to TWiki)
+	/href=.\/bin\/view\/Documentation\/GlossaryOfTerms#/ {
+	    n = gsub("\/bin\/view\/Documentation\/GlossaryOfTerms#", "#", $0);
+	}
+	
+	# Make references to other TWiki pages a true external reference
+	/href="\/bin/ {
+	    n = gsub("\/bin", "https://twiki.grid.iu.edu/bin", $0);
+	}
+	
+	# Modify Title
+	/Glossary of Terms/ { 
+	    n = gsub("Glossary of", "OSG Glossary of", $0);
+	}
+	
+	# Style the h2 (Letter) headers
+	/<\/head>/ {
+	 print "<style type=\"text/css\">";
+	 print "h2 {";
+	 print " background-color:orange;";
+	 print " border-bottom-style:solid;";
+	 print "}";
+	 print "</style>";
+	}
+	
+	# This merely copies the content lines
+	{ print; }
+	' $OPT_FILE_IN >$OPT_FILE_OUT
 
-# Make internal page links internal (not refering to TWiki)
-/href=.\/bin\/view\/Documentation\/GlossaryOfTerms#/ {
-    n = gsub("\/bin\/view\/Documentation\/GlossaryOfTerms#", "#", $0);
+	# check return code of awk
+	if [ $? != 0 ]
+	then
+		echo "ERROR: awk exited with an error!"
+	fi
+	
+	return;
 }
 
-# Make references to other TWiki pages a true external reference
-/href="\/bin/ {
-    n = gsub("\/bin", "https://twiki.grid.iu.edu/bin", $0);
-}
+# MAIN
 
-# Modify Title
-/Glossary of Terms/ { 
-    n = gsub("Glossary of", "OSG Glossary of", $0);
-}
+# parse command line using getopts
+OPT_FILE_IN=;
+OPT_FILE_OUT=;
+while getopts "hf:o:" OPTION
+do
+	case $OPTION in
+		h)
+			usage
+			exit 1
+			;;
+		f)
+			OPT_FILE_IN=$OPTARG
+			;;
+		o)
+			OPT_FILE_OUT=$OPTARG
+			;;
+		?)
+			usage
+			exit 1
+			;;
+		*)
+			usage
+			exit 1
+			;;
+	esac
+done
 
-# Style the h2 (Letter) headers
-/<\/head>/ {
- print "<style type=\"text/css\">";
- print "h2 {";
- print " background-color:orange;";
- print " border-bottom-style:solid;";
- print "}";
- print "</style>";
-}
-
-# This merely copies the content lines
-{ print; }
-' $1 >$2
+process;
