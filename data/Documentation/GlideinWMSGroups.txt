@@ -1,0 +1,150 @@
+%META:TOPICINFO{author="DerekWeitzel" date="1301000832" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="UsingTheGrid"}%
+%LINKCSS%
+
+<!-- This is the default OSG documentation template. Please modify it in -->
+<!-- the sections indicated to create your topic.                        --> 
+
+<!-- By default the title is the WikiWord used to create this topic. If  -->
+<!-- you want to modify it to something more meaningful, just replace    -->
+<!-- %TOPIC% below with i.e "My Topic".                                  -->
+
+---+!! !GlideinWMS VO Frontend Groups
+%TOC%
+
+---++ Breakdown of VO Frontend Group
+A group in the VO Frontend is a logical way to separate jobs in the frontend.  A group can choose a subset of jobs and subset of entry points in order to match jobs with special requirements to entry points that provide them.
+
+---
+<verbatim class="file">
+<group name="htpc" enabled="True">
+</verbatim>
+Name of the group.
+
+---
+
+<verbatim class="file">
+   <config>
+      <idle_glideins_per_entry max="30" reserve="5"/>
+      <idle_vms_per_entry curb="5" max="100"/>
+      <running_glideins_per_entry max="10000" relative_to_queue="1.15"/>
+   </config>
+</verbatim>
+Configuration options for this frontend.  In this specific example
+   * The frontend will ask the factory to keep 30 glideins idle in the remote queue.
+   * No idea about curb?
+   * The frontend will ask the factory for a limit of 10000 running jobs at the resource, or idle queue * 1.15, which ever is smaller.
+
+---
+
+<verbatim class="file">
+      <factory query_expr='((stringListMember("HCCHTPC", GLIDEIN_Supported_VOs)))'>
+</verbatim>
+Use this query expression when asking for entry points from the factory.
+
+---
+
+<verbatim class="file">
+         <collectors>
+            <collector DN="/DC=org/DC=doegrids/OU=Services/CN=glidein-1.t2.ucsd.edu" comment="Define factory collector globally for simplicity" factory_identity="gfactory@glidein-1.t2.ucsd.edu" my_identity="unlfe@glidein-1.t2.ucsd.edu" node="glidein-1.t2.ucsd.edu"/>
+         </collectors>
+</verbatim>
+The glidein factory to talk to.  Normally this can be declared globally (as it is in the RPM), and therefore does not need to be here if already defined.
+
+---
+
+<verbatim class="file">
+      <job query_expr="(RequiresWholeMachine=?=True)&amp;&amp;(JobUniverse==5)&amp;&amp;(GLIDEIN_Is_Monitor =!= TRUE)&amp;&amp;(JOB_Is_Monitor =!= TRUE)">
+</verbatim>
+This is the query expression send to the schedd to filter jobs.  imagine =condor_q -const &lt;query_expr>=.  Notice we filter on a special attribute, =RequiresWholeMachine=.  This attribute needs to be in every HTPC job in order for the frontend to detect it is a HTPC job.  This can be added to the Condor job with the syntax:
+<pre class="file">
+universe = vanilla
+...
+%RED%+RequiresWholeMachine = True%ENDCOLOR%
+...
+queue
+</pre>
+
+---
+
+<verbatim class="file">
+         <schedds>
+            <schedd DN="/DC=org/DC=doegrids/OU=Services/CN=host/glidein.unl.edu" fullname="glidein.unl.edu"/>
+         </schedds>
+</verbatim>
+This is a list (or in this case, only one) of schedds that will be queried to find HTPC jobs.
+
+---
+
+<verbatim class="file">
+   <attrs>
+     <attr name="CAN_RUN_WHOLE_MACHINE" glidein_publish="True" job_publish="False" parameter="True" type="expr" value="True"/>
+     <attr name="GLIDECLIENT_Group_Start" glidein_publish="True" job_publish="False" parameter="True" type="string" value="TARGET.RequiresWholeMachine"/>
+   </attrs>
+</verbatim>
+This is a list of additionally attributes that will be published by the Glidein's Startd.  =GLIDECLIENT_Group_Start= is a special attribute in the !GlideinWMS configuration, it will be appended to the START expression of the glidein.  In this case we make sure that only jobs that have the special attribute, =RequiresWholeMachine=, will run on this glidein.  Further, the startds will advertise =CAN_RUN_WHOLE_MACHINE= in their classads, enabling jobs require htpc slots:
+<pre class="file">
+universe = vanilla
+...
+Requirements = %RED%CAN_RUN_WHOLE_MACHINE == TRUE%ENDCOLOR%
+...
+queue
+</pre>
+
+---
+<verbatim class="file">
+   <files>
+      <file absfname="/usr/share/gwms-frontend/glidein_scripts/startd.sh" after_entry="True" const="True" executable="True" untar="False" wrapper="False">
+         <untar_options cond_attr="TRUE"/>
+      </file>
+   </files>
+</verbatim>
+A list (or in this case, only one) of files that will be brought down at the start of the glidein.  It can be considered a verification script.  This file will be executed before the glidein reports to the frontend to run jobs.  If the script fails (exit status is not 0), the glidein will quickly exit.  Documentation on these scripts, including an API to add custom attributes to the startd, is on the [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.prd/factory/custom_scripts.html][GlideinWMS website]].
+
+
+---++ Example HTPC Group
+Example group for HTPC at HCC.
+
+<verbatim class="file">
+<group name="htpc" enabled="True">
+   <config>
+      <idle_glideins_per_entry max="30" reserve="5"/>
+      <idle_vms_per_entry curb="5" max="100"/>
+      <running_glideins_per_entry max="10000" relative_to_queue="1.15"/>
+   </config>
+   <downtimes/>
+   <match match_expr="True">
+      <factory query_expr='((stringListMember("HCCHTPC", GLIDEIN_Supported_VOs)))'>
+         <match_attrs>
+         </match_attrs>
+         <collectors>
+            <collector DN="/DC=org/DC=doegrids/OU=Services/CN=glidein-1.t2.ucsd.edu" comment="Define factory collector globally for simplicity" factory_identity="gfactory@glidein-1.t2.ucsd.edu" my_identity="unlfe@glidein-1.t2.ucsd.edu" node="glidein-1.t2.ucsd.edu"/>
+         </collectors>
+      </factory>
+      <job query_expr="(RequiresWholeMachine=?=True)&amp;&amp;(JobUniverse==5)&amp;&amp;(GLIDEIN_Is_Monitor =!= TRUE)&amp;&amp;(JOB_Is_Monitor =!= TRUE)">
+         <match_attrs>
+         </match_attrs>
+         <schedds>
+            <schedd DN="/DC=org/DC=doegrids/OU=Services/CN=host/glidein.unl.edu" fullname="glidein.unl.edu"/>
+         </schedds>
+      </job>
+   </match>
+   <security>
+      <proxies>
+      </proxies>
+   </security>
+   <attrs>
+     <attr name="CAN_RUN_WHOLE_MACHINE" glidein_publish="True" job_publish="False" parameter="True" type="expr" value="True"/>
+     <attr name="GLIDECLIENT_Group_Start" glidein_publish="True" job_publish="False" parameter="True" type="string" value="TARGET.RequiresWholeMachine"/>
+   </attrs>
+   <files>
+      <file absfname="/usr/share/gwms-frontend/glidein_scripts/startd.sh" after_entry="True" const="True" executable="True" untar="False" wrapper="False">
+         <untar_options cond_attr="TRUE"/>
+      </file>
+   </files>
+</group>
+</verbatim>
+
+
+
+-- Main.DerekWeitzel - 24 Mar 2011
