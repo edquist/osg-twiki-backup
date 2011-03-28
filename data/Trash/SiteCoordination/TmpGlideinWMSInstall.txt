@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1301335492" format="1.1" version="1.9"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1301340848" format="1.1" reprev="1.10" version="1.10"}%
 %LINKCSS%
 
 ---+!! !GlideinWMS VO Frontend Installation
@@ -140,11 +140,13 @@ Condor can be installed as =root= and run as =condor= (e.g. via the recommended 
 
 CA certificates and CRL must be installed and updated (OSG Client is taking care of this).
 
-The VO Frontend will use two certificates:
+The VO Frontend will use two certificates in its communication with the Glidein WMS Factory:
    * Glidein Frontend Condor cert/proxy - The use of a service certificate is recommended. The Frontend will use a proxy from the certificate (cannot use directly the certificate)
-   * User Submitter cert/proxy - This proxy is used to submit the glidein jobs, therefore must have access to the CEs where jobs are submitted
+   * User Submitter cert/proxy - This proxy is used to submit the glidein jobs, therefore must have access to the CEs where jobs are submitted (i.e. it has to be a user proxy and not a service/host certificate)
 It is possible also to use a single certificate/proxy for both functions. It is also possible to use more than one certificate to submit glidein.
+A third certificate, User Pool Collector cert, is used to secure the communication between the User Pool Collector and the User Pool Schedd, two components of the VO Frontend.
 
+Certificates will be in PEM format, a certificate file and a key file. They must be owned by the user running the service (check also that it can access the directory where you stored the certificates) and have the right permission (600).
 
 <!--
 The installer will ask for several DNs for GSI authentication. You have the option of using a service certificate or a proxy. These should be created and put in place before running the installer. The following is a list of DNs the installer will ask for:
@@ -191,7 +193,7 @@ Before installing the Glidein WMS VO Frontend you need the information about a [
 
 To request access the OSG Glidein Factory you have to send an email to osg-gfactory-support@physics.ucsd.edu providing:
    1 Your identity
-   1 The VO you are working for
+   1 The VO of the VO Frontend
    1 The DN that you will use to authenticate with the Factory (Glidein Frontend Condor cert DN)
    1 The DN of the certificate/s you will use to submit pilots (User Submitter cert DN). As mentioned in the Certificates section above, this can be the same as the previous. 
    1 You can propose a security name that will have to be confirmed/changed by the Factory managers (see below)
@@ -243,7 +245,9 @@ Length: 342,901 (335K) [text/plain]
    <pre class="screen">
 rpm -i GlideinWMSFrontend-2.4.2-2.x86_64.rpm</pre>
    %ENDTWISTY%
+<!--
 -->
+
    If the install succeeded, then there will be no output from the command.
 
 
@@ -258,28 +262,35 @@ After installing the RPM you need to configure the components of the Glidein WMS
 
 ---++ Configuring the Frontend
 
-The configuration file is =/etc/gwms-frontend/frontend.xml=.  The next steps will describe each line that you will need to edit.  The portions to edit are highlighted in red font.
+The configuration file is =/etc/gwms-frontend/frontend.xml=.  The next steps will describe each line that you will need to edit if you are using the OSG Factory at UCSD.  The portions to edit are highlighted in red font. If you are using a different Factory more changes are necessary, please check [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.prd/frontend/configuration.html][the VO Frontend configuration reference]].
 
-   1. The VO you are affiliated with, also called your "Security name".
+   1. The VO you are affiliated with. Sometime the whole =query_expr= is provided to you by the factory (see Factory access above):
    <pre class="file">
 &lt;factory query_expr='((stringListMember("%RED%VO%ENDCOLOR%", GLIDEIN_Supported_VOs)))'></pre>
-   1. The username that you are assigned from the factory (email osg-gfactory-support@physics.ucsd.edu) (scroll right), also the "identity" provided by the factory (fechicago@glidein-1.t2.ucsd.edu).
+   1. The username that you are assigned from the factory (also called the identity you will be mapped to on the factory, see above) (scroll right, this is a long line):
    <pre class="file">
 &lt;collector DN="/DC=org/DC=doegrids/OU=Services/CN=glidein-1.t2.ucsd.edu" comment="Define factory collector globally for simplicity" factory_identity="gfactory@glidein-1.t2.ucsd.edu" my_identity="%RED%username%ENDCOLOR%@glidein-1.t2.ucsd.edu" node="glidein-1.t2.ucsd.edu"/>
    </pre>
-   1. The Schedd information.  The Cert DN is the DN specified in the GSI_DAEMON_PROXY or GSI_DAEMON_CERT when condor is configured.  A secondary schedd is optional.  You will need to delete the secondary schedd line if you are not using it.
+   1. The Schedd information.  The Cert DN is the DN of the User Pool Collector certificate, specified also in the GSI_DAEMON_PROXY or GSI_DAEMON_CERT when condor is configured (see below).  The hostname is the fully qualified domain name of the host where you installed the VO Frontend (run =hostname --fqdn=). A secondary schedd is optional.  You will need to delete the secondary schedd line if you are not using it. Multiple Schedd allow multiple submit host to connect to the same VO Frontend.
    <pre class="file">
 &lt;schedds>
    &lt;schedd DN="%RED%Cert DN used by the schedd at fullname:%ENDCOLOR%" fullname="%RED%Hostname of the schedd%ENDCOLOR%"/>
    &lt;schedd DN="%RED%Cert DN used by the second Schedd at fullname:%ENDCOLOR%" fullname="%RED%schedd name%ENDCOLOR%@%RED%Hostname of second schedd%ENDCOLOR%"/>
 &lt;/schedds></pre>
-   1. The DN of the cert that the frontend will use to communicate with the factory and use to submit to the factory, and the Security name identifying this frontend with the Factory.
+   1. If you are using a single certificate to authenticate with the factory (Glidein Frontend Condor cert DN) and to submit to the factory (User Submitter cert DN) then make a proxy for the user nobody (UID 99) out of it (=/tmp/x509up_u99=, as described below) and edit the configuration as indicated here. The DN of the cert that the frontend will use to communicate with the factory and use to submit to the factory, and the Security name identifying this frontend with the Factory.
    <pre class="file">
-&lt;security classad_proxy="/tmp/x509up_u99" proxy_DN="%RED%DN of proxy owned by user nobody%ENDCOLOR%" proxy_selection_plugin="ProxyAll" security_name="%RED%The security name, this is used by factory%ENDCOLOR%" sym_key="aes_256_cbc"> </pre>
+&lt;security classad_proxy="/tmp/x509up_u99" proxy_DN="%RED%DN of proxy owned by user nobody%ENDCOLOR%" proxy_selection_plugin="ProxyAll" security_name="%RED%The security name, this is used by factory%ENDCOLOR%" sym_key="aes_256_cbc"> 
+</pre>If you are using a single certificate to authenticate with the factory (Glidein Frontend Condor cert DN) and to submit to the factory (User Submitter cert DN) then make a proxy =/tmp/x509up_vofe= using the Glidein Frontend Condor cert (see below) and a proxy for the user nobody (UID 99, =/tmp/x509up_u99=) using the User Submitter cert as described below. Then edit the configuration: The DN of the cert that the frontend will use to communicate with the factory (Glidein Frontend Condor cert DN), the Security name identifying this frontend with the Factory. You may have to change the files containing the proxies (=/tmp/x509up_vofe= and /tmp/x509up_u99) if you decide to store the proxy somewhere else or use a different user.
+   <pre class="file">
+&lt;security classad_proxy="/tmp/x509up_vofe" proxy_DN="%RED%DN of vofe (Glidein Frontend Condor cert)%ENDCOLOR%" proxy_selection_plugin="ProxyAll" security_name="%RED%The security name, this is used by factory%ENDCOLOR%" sym_key="aes_256_cbc"> 
+   &lt;proxies>
+      &lt;proxy absfname="/tmp/x509up_u99" security_class="frontend"/>
+   &lt;proxies>
+&lt;/security></pre>
    1. The hostname of the frontend.
    <pre class="file">
 &lt;stage base_dir="/usr/share/gwms-frontend/www/stage" use_symlink="True" web_base_url="http://%RED%hostname of frontend%ENDCOLOR%/vofrontend/stage"/> </pre>
-   1. The hostname of the collectors.
+   1. The DN (User Pool Collector cert/proxy DN) and the hostname of the collectors (the host were the VO Frontend is being installed, =hostname -fqdn=). The default Condor configuration of the VO Frontend starts multiple Collector processes on the host: the DN and the hostname on the second line are the same as the ones in the first one.
    <pre class="file">
 &lt;collector DN="DN of main collector" node="%RED%hostname of collector%ENDCOLOR%" secondary="False"/>
 &lt;collector DN="DN of secondary collectors (usually same as DN in line above)" node="%RED%hostname of secondary collectors (usually same as hostname in line above)%ENDCOLOR%:9620-9660" secondary="True"/>
