@@ -1,0 +1,53 @@
+%META:TOPICINFO{author="AnandPadmanabhan" date="1301586648" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="PoliciesProceduresInProgress"}%
+---++ Service Certificate Usage in Production
+This page outlines a policy on our treatment of service certificates in OSG
+---+++ Policy Statement
+Service certificates and personal certificates can both be used to generate proxies to authenticate job submission and data transport on grid systems.  A service certificate, with an unencrypted private key, should be stored on a system with limited access and owned by a local account dedicated to running the service for which the certificate is used. The system should also have logging and monitoring sufficient to check if the system has been compromised.
+
+---+++ Policy Discussion and Risk Analysis
+
+Risk assessment of service certificates as opposed to end entity certificates. The text is a bit more verbose than necessary because we want the document to make sense to non-experts as well.
+
+Service certificates (SC) are identical to end entity certificates (EEC) except that private key of an SC is unencrypted. This analysis compares the security risks of using SC for job submission as opposed to using an EEC.
+
+During job submission, both certificate types need a proxy on the submission host and send proxies to the gatekeeper. Proxies generated from different certificate types are identical and have no superior security over one another.
+
+Assumption: the private key is stored on a grid submission node for job or data transfer. If we assume the keys are kept on a secure media such as smart cards with no grid access, then we can conclude SC and EEC are equally secure.
+
+   * The risk of having a proxy stolen from a compromised worker node or a gatekeeper is identical regardless of certificate type -- SC or EEC. If a gatekeeper is compromised, a proxy has no protection. An attacker who obtain a proxy can access any computer that is running grid services and allowing access to the proxy, including the submission host itself.
+   * A submission host can be compromised either via i) a proxy stolen from a gatekeeper or via ii) other means that does not involve the proxy access, such as ssh scans, vulnerabilities in the node, etc. For our discussion, ii) is equally likely regardless of certificate type. i) is also equally likely for an EEC and SC because compromising the submission host is dependent on whether the submission host runs grid services and allow access to the stolen proxy. In other words, if the submission node has the DN of EEC or SC listed in its GUMS/gridmap. If not, the attacker has no means to compromise the submission node. Thus, the submission node is equally likely to be compromised whether it uses an SC or an EEC.
+   * An SC introduces the same level of vulnerability to a submission host as an EEC does.
+      * Let's assume the grid node gives access to the job submission proxy. Also assume the private keys are stored on the submission host.  Clearly SC is considered compromised in this scenario and should be revoked. The advantage of EEC is that once a compromised proxy expires, the attacker cannot generate a new proxy because he has no access to the private key, which is encrypted. I consider cracking the private key of EEC as impossible for our discussion. After the proxy expiration, attacker should lose access to any resources that compromised  proxy had provided access to. However, in OSG, expiration of a proxy has nothing to do with termination of all processes that are spawned under the specific proxy. An attacker can easily install a malicious process running on the submission host with the privileges granted by the compromised proxy and continue to grab the newly generated EEC proxies. The attacker does not need to crack or have access to the private key to do this. This can continue until a sys admin notices the compromise on the submission machine. This is essentially the same risk as with an SC. 
+      * Let's assume attacker's processes are terminated after stolen proxy expires. Even then, the vulnerability introduced by an SC is only slightly higher than that of an EEC.  In the case of EEC, to continue the attack after the compromised proxy expires, attacker has to do more work. The attacker is forced to open a back door to be allowed into the submission host before his processes are killed or elevate his privileges to root. Although having a back door or elevating to root is more work, it is definitely possible.
+
+From the above discussion, we can conclude that SC and EEC essentially introduces the same level of security vulnerability to the submission node. The protection over the private key of EEC has no additional security value; instead, the defining factor is the quality of security practices applied over the submission node.
+
+A submission node that runs the least amount of services and that does not allow access to itself with the same proxy used for job submission is secure regardless of certificate type used on the node.
+
+Another question we should discuss is whether using SC or EEC require different incident response steps. In other words, does using a certain certificate type cause more work for the site admins and for the security team during the
+incident response.
+
+The actions taken during incident response:
+
+   1. Ban the suspicious user/service from grid resources until forensics analysis is completed.
+   1. If proxy lifetime of the suspicious user/service is unknown or too long, revoke the certificate.
+      * Grant a new certificate and remove the ban on the user/service
+   1. If the user is temporarily banned from the grid, i.e. proxy has a short lifetime, check whether the private key is compromised or not.
+      * If private key is compromised, revoke the certificate.
+      * If not, wait until all compromised proxies expire (find if there are proxies generated by the attacker); have user generate a new proxy; remove the ban on the user after incident response is over.
+
+Only in step 3, having an SC or EEC matters. With an EEC, we have a small likelihood that we do not have to revoke the certificate. However, this is a very small likelihood and is not practiced today for a number of reasons.
+
+   1. The proxy lifetimes are often unknown or unreasonably long to ban the user/service from the grid. The user may in fact prefer to revoke and get a new certificate to establish grid access faster.
+   1. Not all grid resources have the ability to ban a user/service for the lifetime of the compromised proxy.
+   1. Even with strong encryption on EEC private keys, an attacker can steal the passphrase on the key if proxy generation happens on the grid submission node(e.g. via keystroke logger, elevating to root via kernel vulnerabilities etc).
+
+We do not need to revoke the certificate when we are certain that private key does not reside on the grid submission node. In other words, private key is kept on a different secure machine -- smart card, etc-- which has no grid access and
+ the proxies are sent to the submission node by other means. However this is valid for SC as well. So it is not an advantage of EEC.
+
+For these reasons, our current practice is to revoke the certificate as long as its private key reside on a compromised node regardless of whether it is SC or EEC.
+
+Therefore, having SC or EEC does not affect the amount of work needs to be done by site admins or security team.
+
+-- Main.AnandPadmanabhan - 31 Mar 2011
