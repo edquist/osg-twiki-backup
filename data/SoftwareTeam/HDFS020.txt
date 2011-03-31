@@ -1,3 +1,63 @@
-%META:TOPICINFO{author="AlainRoy" date="1301599572" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1301600710" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="Projects"}%
-Hi Tanya!
+---+ !BeStMan2/GridFTP-Hdfs/Hdfs-2.0 Issues
+
+Summary: This is a temporary page to record and monitor all the issues we have found with !BeStMan2/GridFTP-Hdfs/Hdfs-2.0 rpms
+---++ List of issues
+   1.  init.d scripts refer to /etc/hadoop which no longer exists (I had to "ln -s /etc/hadoop-0.20 /etc/hadoop")
+   1. Default HADOOP_NAMENODE_HEAP is 2048m but this causes an extra "m" in the java argument "2048mm".  Also, the default heap for datanodes seems to be "3000".  Is this reasonable?  Can it be configurable?  It is certainly too high for our older test stand.
+   1, Hadoop client commands are no longer in path (/usr/lib/hadoop-0.20/bin)
+   1. Fuse error creating directories:<pre class="screen">
+$ mkdir /mnt/hadoop/test
+mkdir: cannot create directory `/mnt/hadoop/test': Input/output error
+</pre>
+   1. Client warning when creating directories: <pre class="screen">
+./hadoop fs -mkdir /hadoop
+11/03/31 11:20:19 WARN permission.FsPermission: dfs.umask configuration key is deprecated. Convert to dfs.umaskmode, using octal or symbolic umask specifications.
+</pre>
+   1. Fuse error: chown is impossible (tried every sort of owner/permission combination, hadoop user, root, engage, etc):<pre class="screen"> $ chown engage:engage /mnt/hadoop/root/
+chown: changing ownership of `/mnt/hadoop/root/': Permission denied
+</pre>
+   1. Fuse error: copies not quite working right.<pre class="screen">$ cp /etc/hosts /mnt/hadoop/hadoop/
+cp: cannot stat `/mnt/hadoop/hadoop/hosts': Input/output error
+</pre>
+   1. If gums host is not right in /etc/lcmaps/lcmaps.db, then grid-ftp seg faults with no useful error.  While this is user error, it should have at least a warning or clue in the output and it should end gracefully and not seg fault.
+   1. srm-mkdir fails for accesses to bestman2.  This is not a bug as much as it is a critical result of issue #4.
+   1. lcmaps issue: Problems mapping fermilab VO.  While using a fermilab proxy, lcmaps bans user and does not return a user.  Grid-ftp subsequently generates a segmentation fault.  Initial investigating seems to suggest that lcsmaps is dropping the VO extension and thus maps users to the wrong VO or fails to map at all.  It also returns "error: an end-of-file was reached" because of the seg fault rather than "Permission denied".
+%TWISTY%
+<pre class="screen">
+The mapping is wrong:
+
+1. I have a voms-proxy from fermilab VO
+
+2. bestman2 that is installed on the same node and is talking to the same gums   returns the correct mapping:
+(from gums log)
+31 Mar 2011 11:19:19,865 [INFO ]: GridID[/DC=org/DC=doegrids/OU=Services/CN=http/fermicloud044.fnal.gov] - Mapped on host '/DC=org/DC=doegrids/OU=Services/CN=fermicloud044.fnal.gov' the user '/DC=org/DC=doegrids/OU=People/CN=Tanya Levshina 508821' / '/fermilab/Role=NULL/Capability=NULL' to 'fnalgrid'
+
+
+3. gridftp via lcmaps sends to gums DN without VO extended  information:
+
+31 Mar 2011 11:38:40,834 [INFO ]: GridID[/DC=org/DC=doegrids/OU=Services/CN=fermicloud044.fnal.gov] - Mapped on host '/DC=org/DC=doegrids/OU=Services/CN=fermicloud044.fnal.gov' the user '/DC=org/DC=doegrids/OU=People/CN=Tanya Levshina 508821' / 'null' to 'osg'
+
+4. on the bestman/gridftp node in log message:
+
+Mar 31 11:38:40 fermicloud044 l_l_gt4[30199]:   lcmaps_plugin_scas_client-plugin_run(): User "/DC=org/DC=doegrids/OU=People/CN=Tanya Levshina 508821" with first FQAN "" Permitted at endpoint "https://gums.fnal.gov:8443/gums/services/GUMSXACMLAuthorizationServicePort"
+Mar 31 11:38:40 fermicloud044 l_l_gt4[30199]: lcmaps_plugin_posix_enf-plugin_run(): post-id-switch: uid=12740(osg),euid=12740(osg),gid=9652(osg),egid=9652(osg)
+Mar 31 11:38:40 fermicloud044 l_l_gt4[30199]: 2011-03-31.11:38:40.0000030199.0000000000 : lcmaps_plugin_posix_enf-plugin_run(): posix_enf plugin succeeded
+Mar 31 11:38:40 fermicloud044 l_l_gt4[30199]: LCMAPS CRED FINAL: DN:"/DC=org/DC=doegrids/OU=People/CN=Tanya Levshina 508821"->mapped uid:'12740',pgid:'9652'
+Mar 31 11:38:40 fermicloud044 l_l_gt4[30199]: GT4 Authorization & Mapping Interface Succeeded.
+Mar 31 11:38:40 fermicloud044 l_l_gt4[30199]: Execution of LCMAPS Succeeded.
+Mar 31 11:38:40 fermicloud044 l_l_gt4[30199]: Successfull Authorization and Mapping done
+Mar 31 11:38:41 fermicloud044 l_l_gt4[30199]: Mapping service "LCMAPS" returned local user "osg"
+
+
+5. I have asked Steve Timm about lcmaps/vo config:
+
+"As far as I can tell there is nothing that is linked to any of the
+  lcmaps and scas libraries that are being called that knows how
+to parse a VOMS FQAN.  Better ask Brian what is going on, could
+be a build option missing or something.  You do have voms libraries
+available on the system but ldd shows that the important stuff
+doesn't actually use them."
+</pre>
+%ENDTWISTY%
