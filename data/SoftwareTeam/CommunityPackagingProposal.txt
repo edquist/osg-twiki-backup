@@ -1,79 +1,118 @@
-%META:TOPICINFO{author="AlainRoy" date="1300297782" format="1.1" version="1.6"}%
----+ Alternative Packaging Investigation
+%META:TOPICINFO{author="AlainRoy" date="1302046602" format="1.1" reprev="1.7" version="1.7"}%
+---+ Pass-Through Packaging: A Proposal
 
----++ Goal of this document
+---++ 1. Goal of this document
 
-We want to answer the following question: 
+We propose an alternative approach to packaging that we call "pass-through" packaging. If we adopt this approach, it will fundamentally shift how we package and ship the VDT. 
 
-<blockquote>
-Does it make sense to implement the VDT's native packaging independently of our Pacman packaging and on a limited set of platforms? 
-</blockquote>
+In the document, we'll describe the approach, the benefits, and the downsides of pass-through packaging. We also share some early results of investigations about the practicality of our approach.
 
----++ Background
+---++ 2. State of this document
 
-Today we are implementing native packages as an adjunct to Pacman packaging: we're augmenting our existing builds to produce binary native packages (primarily RPMs). This keeps our Pacman and RPM packaging in sync, but it results in packages that are suboptimal. Not only that, but we're making slow progress--we want to consider if we should be using a different approach. By decoupling our native packaging from our Pacman packaging can we get results done in a similar time frame or faster? Will they be more acceptable to the community?
+This document is a %RED%DRAFT%ENDCOLOR%.
+
+It was written by Alain Roy.
+
+It has been edited/commented on by: %RED%TBD%ENDCOLOR%
+
+---++ 3. Background
+
+Today we are implementing native packages as an adjunct to Pacman packaging: we're augmenting our existing builds to produce binary native packages (primarily RPMs). This keeps our Pacman and RPM packaging in sync, but it results in packages that are suboptimal (see below). Not only that, but we're making slow progress--we want to consider if we should be using a different approach. By decoupling our native packaging from our Pacman packaging can we get results done in a similar time frame or faster? Will they be more acceptable to the community?
 
 Part of our reasoning is that we see the writing on the wall in various way:
 
    * More and more, people are asking for packages that "just work" with their existing systems. 
-   * Many of the packages that are in the VDT are either in a community-accepted software repository (Fedora, EPEL, Debian...) or is likely to be there within the next year. 
+   * Many of the packages that are in the VDT are either in a community-accepted software repository (Fedora, EPEL, Debian...) or are likely to be there within the next year. 
 
----++ Outline of approach
+---+++ 3.1 Our current binary packages are suboptimal
 
-Proposal: The VDT should only package software when it is essential to do so. That is, we should package software when one of the following is true:
+Today, our RPMs are suboptimal in the following ways:
+
+   * They do not install software into standard locations (a.k.a FHS). This matters to users. For instance, the recent [[https://twiki.grid.iu.edu/bin/view/SoftwareTeam/XrootdRPMPhase1Reqs?rev=12][ATLAS requirements for Xrootd]] say that they Xrootd should be installed into FHS. 
+   * The RPMs are not compatible with the EPEL repository. This is a very commonly used 3rd-party repository for software not shipped by the OS vendor. At least one site (Nebraska) says that it's a serious problem for them if our RPMs are incompatible with the EPEL repository. We know EPEL is commonly used--incompatibility is likely to be a serious inconvenience.
+   * We only provide binary RPMs, not source RPMs. This is less serious, but it's an aid to users who wish to our our packages on another platform that we don't support. LIGO has benefitted from the source packages we provide because they rebuilt them on unsupported platforms 
+
+---+++ 3.2 External packaging
+
+As we noted above, many packages that are currently in the VDT are provided by community-accepted software repositories. Some examples:
+
+   * Many packages are shipped by OS vendors and in almost all cases our repackaging provides a known version but little other benefit. Examples: Tomcat, Apache, MySQL. 
+   * Globus is part of EPEL (Red Hat-compatible repository) and Debian 6. It is Globus 5 and it doesn't have our patches.
+   * Xrootd has begun to provide an EPEL-compatible source RPM for Xrootd. 
+   * EMI 1.0 (due in May) will provide all their software as [[https://twiki.cern.ch/twiki/bin/view/EMI/EmiSa2PackagingPolicy][source RPMs that follow the guidelines for Fedora and EPEL]]. This includes the gLite software we use (such as glexec, LFC, FTS, and CREAM). Given that it is a 1.0 release, we expect it to be a bit rough, but they are headed in this direction. 
+
+---++ 4.0 Pass-Through Packaging
+
+---+++ 4.1 The Pass-Through Principle
+Proposed Principle: The VDT should only package software when it is essential to do so. That is, we should package software when one of the following is true:
    1. The software is not already packaged; or 
    1. The software is packaged but needs significant changes to be acceptable to our users. (Different version, extra patches, etc...)
 
-The VDT will maintain a software repository (or set of repositories) that contain the set of software we have to package or repackage. These will depend on existing high-quality software packages maintained in software repositories external to the VDT. For example:
+Instead of packaging most software, we will instead use a "pass-through" strategy. That is, we will use the existing packaging provided by external developers or software repositories. 
 
-<img src="%ATTACHURLPATH%/packaging1.gif" alt="packaging1.gif" width='431' height='274' />    
+The VDT will maintain a software repository (or set of repositories) that contain the set of software we have to package or repackage. Depending on a few characteristics (outlined below), we may copy external packages into the VDT repository or include them by reference in the external repository.
+
+---+++ 4.2 An example of pass-through packaging.
+<center><img src="%ATTACHURLPATH%/packaging1.png" alt="packaging1.png"/></center>
 
 In this picture, there are three points to be made:
 
-   1. Much of the software we rely on comes from an external software repository. (Or perhaps multiple repositories, if appropriate). In the diagram, these are Packages 1 to N on the right.
-   1. The VDT has created some packages unique to the VDT. In the diagram, these are the "VDT Packages A to C" on the left.
+   1. Much of the software we rely on comes from an external software repository. (Or perhaps multiple repositories, if appropriate). In the diagram, these are Packages 1 to 3 on the right. 
+      * Package 1 has been copied to the VDT repository without making any changes.
+      * Package 2 has been copied to the VDT repository, but it's also been patched. A "patch" could be any change, including changing the version of the software, changing the software itself, or changing how the software has been packaged.
+      * Package 3 has not been copied, but one of the VDT packages depends on it by reference.
+   1. The VDT has created some packages unique to the VDT. In the diagram, these are the "VDT Packages A and B" on the left.
    1. The VDT has re-packaged a couple of packages that come from the external software repository, perhaps due to version or patching differences. The goal is to keep this category as small as possible. 
 
----++ Implications of this approach
 
-(Needs to be fleshed out. This is a hasty sketch.)
+---+++ 4.3 When do we pass-through?
 
-   1. Not in sync with Pacman
-   1. VDT team has less control over packaging. (But can we push to external repos?)
-   1. VDT team can focus less on packaging and more on configuration, testing, etc. 
-   1. More versions of software "in the wild" to deal with. For instance, if Red Hat upgrades to new version of MySQL, what's the implication for us?
-   1. Complexity if we support multiple OSes: Fedora/EPEL don't have same external packages as Debian Squeeze. 
+When do pass-through software packages, and when do we provide them ourselves? 
 
----++ Answered questions (but not yet integrated into the above text)
+*Package*: We will package software for which there is no existing packaging in an external software repository or when the software belongs to us. For example, RSV or OSG-specific configuration packages. 
 
-Q1: [Alain] What is EMI doing? Alain believes they might be pushing a lot of software to external repositories. <br>
+*Copy*: We will copy packages when we want to control exactly which version of the software our users will get or when we need to patch the packaging or software. For example, if ATLAS requests that we provide the same version of Xrootd as is shipped with ROOT, we may ship an older version of Xrootd than provided by the Xrootd developers. 
 
-From: https://twiki.cern.ch/twiki/bin/view/EMI/EMI-1#Supported_Platforms :
+*Copy and Patch*: We will patch software when absolutely needed to meet our users' needs. For example, we may patch Globus to provide OSG-specific changes. *Important:* We will avoid patching whenever possible. We will share our patches with the software provider and work with them to include the patches (or an equivalent) whenever possible so that we do not need to provide modified versions of the software. 
 
-<blockquote>
-All EMI 1 components must be fully supported on the SL5/64 platform* with EPEL as repository for external components.
-Full platform support means the component is distributed from the EMI repository using certified source and binary packages according to the format specification of the platform.
-The component is built, tested, deployed on the testbed, certified, supported and maintained on that platform using the EMI infrastructure.
-</blockquote>
+*Refer*: We may not copy software when the version provided by the external distribution is stable and our software is likely to remain compatible with new versions. 
 
----++ Open Questions
+---++ 5.0 Continuing support for Pacman packaging
 
-(For now, answers can be put here before they are neatly integrated into the rest of the document. 
+We are unable to simply drop support for Pacman packaging. This pass-through approach will take considerable time to implement, and users will not be able to upgrade as soon as it is available. We expect to provide Pacman packaging for the foreseeable future. 
 
+We will maintain the Pacman packaging in parallel with our native/RPM packaging. This does mean a duplication of effort. However, we are struggling to find an effective way to make RPMs that continue to be synchronized with our Pacman packages, so we believe that the effort to stay synchronized is not well-spent effort. 
 
-Q2: [Tim] What might we rely on today in EPEL/Fedora/Squeeze? In the near future? How good are they? <br>
+Over time, we expect Pacman packages to be deprecated then dropped, but the deprecation and dropping may take a long time. To illustrate what we mean:
 
-Q3: [Tim] Can we technically implement this? That is, can we repackage some software and have this scheme work? <br>
+<center><img src="%ATTACHURLPATH%/packaging2.png" alt="packaging2.png" /></center>
 
-Q4: [Alain] What changes are needed to Globus such that we can stop patching it? <br>
+---++ 6.0 Benefits of pass-through packaging
 
-Q5: [Alain] What OS are sites using? What set of OSes can we reasonably limit ourselves to? If we only supply RHEL, wh's affected?
+   1. Pass-through packaging will allow us to focus our efforts where we provide the most value. We believe that as more software is well-packaged by external groups, we will provide limited value by re-packaging the software ourselves. Instead we will focus our efforts on:
+      1. Packaging software that really needs packaging
+      1. Providing high-quality testing and integration
+      1. Providing configurations appropriate for OSG users
+      1. Providing front-line support to OSG users.
+   1. It will be easier for people to contribute packages (or fixes for packages) to the VDT. Instead of using a proprietary system (Pacman) for which most of the world doesn't know how to provide packages, people will be able to use a well-known, well-documented system for packaging. For example, the GlideinWMSVOFrontEnd developers have created an RPM independently. 
+   1. Where appropriate, the VDT will be able to contribute packages to external repositories. This is a path to sustainability: the software will be available outside the VDT and will have the possibility of external groups providing maintenance of the packages. 
+   1. We are better able to meet the desires of our customers: packages that interoperate well with their OS and commonly used third-party software repositories. 
 
-Q6: [Tim] How can we implement the repackaging of some RPMs? Yum priorities? Something else?
+---++ 7.0 Downsides of pass-through packaging
 
-Q6: If we use packages from EMI, are we required to use YAIM? If so, is that good or bad?
+   1. *Platform Support*: It will be significantly harder to provide support for a wide variety of platforms. Right now, most of our "paying" customers use RHEL-compatible OSes, except for LIGO which also uses Debian. However, we some small interest in SUSE (which uses RPMs, but is different enough to require significant effort) and some small interest in Mac OS X (which doesn't have a clear native package winner). Future Campus Grid efforts might require support of other OSes. Adding support for new styles of OS is more complicated with pass-through native packaging than binary native packaging or Pacman. Should we limit our set of supported platforms? Should we accept the extra effort for adding other styles of platforms?
+   1. *Risk*: When we rely more heavily on external software packagers, we are less in control of the software we provide to our users. 
+   1. *More versions*: Our users will end up using a wider variety of packages, since we are likely to refer to external versions more often. This makes it harder for us to guarantee our integrated suite of software. We've always had this problem to some extent (since we rely on the underlying OS), but it will be greater.
+   1. *Synchronization with Pacman*: Our Pacman packages and our native packages may not always be synchronized. This is partly a question of clear documentation, but can lead to user confusion.
+   1. *Configuration*: We don't yet have a coherent plan for configuration with pass-through packages. Some of our configuration that we currently do as a separate configuration step goes away because well-packaged RPMs do limited self-configuration: for a basic installation they work out of the box. However, advanced configuration is not provided. We are likely to be stuck with re-doing much of our advanced configuration. While we can learn from our existing configuration scripts, not much of the actual code could be reused. 
 
----++ Interesting references.
+---++ 8.0 Open Questions
+
+   1. At a technical level, how can we control inclusion of other packages. (yum priorities and the like.)
+   1. What changes are needed to Globus such that we can stop patching it? (Will be discussed at !GlobusWorld)
+   1. How much do we really need suse support?
+
+---++ 9.0 Interesting References.
 
 Fedora Packaging Guidelines:
 http://fedoraproject.org/wiki/PackagingGuidelines
@@ -88,5 +127,7 @@ EMI 1 Release information:
 https://twiki.cern.ch/twiki/bin/view/EMI/EMI-1
 
 
-
-%META:FILEATTACHMENT{name="packaging1.gif" attachment="packaging1.gif" attr="h" comment="" date="1298061638" path="packaging1.gif" size="11166" stream="packaging1.gif" tmpFilename="/usr/tmp/CGItemp15303" user="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dAlain_20Roy_20424511" version="1"}%
+%META:FILEATTACHMENT{name="packaging1.gif" attachment="packaging1.gif" attr="h" comment="" date="1302041982" path="packaging1.gif" size="6547" stream="packaging1.gif" tmpFilename="/usr/tmp/CGItemp49060" user="AlainRoy" version="2"}%
+%META:FILEATTACHMENT{name="packaging1.png" attachment="packaging1.png" attr="h" comment="" date="1302042090" path="packaging1.png" size="27006" stream="packaging1.png" tmpFilename="/usr/tmp/CGItemp49192" user="AlainRoy" version="1"}%
+%META:FILEATTACHMENT{name="packaging2.png" attachment="packaging2.png" attr="h" comment="" date="1302044202" path="packaging2.png" size="15068" stream="packaging2.png" tmpFilename="/usr/tmp/CGItemp51021" user="AlainRoy" version="1"}%
+%META:TOPICMOVED{by="AlainRoy" date="1302042186" from="SoftwareTeam.AltPackagingPlan" to="SoftwareTeam.PassThroughPackaging"}%
