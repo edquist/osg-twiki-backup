@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DerekWeitzel" date="1276542663" format="1.1" version="1.11"}%
+%META:TOPICINFO{author="DerekWeitzel" date="1303879123" format="1.1" reprev="1.12" version="1.12"}%
 %META:TOPICPARENT{name="UsingTheGrid"}%
 %LINKCSS%
 
@@ -34,15 +34,56 @@ Once =$http_proxy= is set, it will automatically be picked up by the HTTP client
 
 ---++ OSG Client Tools
 
-Both =curl= and =wget= are common clients, and shipped with the OSG.  We recommend using =curl=; there is a [[http://en.wikipedia.org/wiki/CURL][decent Wikipedia reference for the tool]].  The syntax is simple:
+Both =curl= and =wget= are common clients, and shipped with the OSG.  We recommend using =wget=; there is a [[http://en.wikipedia.org/wiki/Wget][decent Wikipedia reference for the tool]].  The syntax is simple:
 
 <pre class="userinput">
-curl "<i>http://example.com/your/url</i>" > input_file
+wget "<i>http://example.com/your/file.txt</i>"
 </pre>
 
-Here, =curl= will download the data and write it to stdout; adding => input_file= will redirect the stdout to a file on disk.
+Here, =wget= will download the data and write it to to disk.  
+
+An example with retries:
+<pre class="userinput">
+wget --retry-connrefused --waitretry=10 "<i>http://example.com/your/file.txt</i>"
+</pre>
+
+%NOTE% =curl= will not use squid caching by default.  You have to add the command line argument =-H "Pragma:"=
 
 ---++ Examples
+
+---+++ Simple Example
+Putting the above together.  This example will get the environment variable, try downloading with squid, then fail over to direct connection.
+<pre class="file">
+#!/bin/sh
+source $OSG_GRID/setup.sh
+website=http://google.com/
+
+source $OSG_GRID/setup.sh
+export OSG_SQUID_LOCATION=${OSG_SQUID_LOCATION:-UNAVAILABLE}
+if [ "$OSG_SQUID_LOCATION" != UNAVAILABLE ]; then
+  export http_proxy=$OSG_SQUID_LOCATION
+fi
+
+wget --retry-connrefused --waitretry=10 $website
+</pre>
+
+The squid may not always work.  To test if the download worked, you can use:
+
+<pre class="file">
+# Check if the command worked
+if [ $? -ne 0 ]
+then
+   unset http_proxy
+   wget --retry-connrefused --waitretry=10 $website
+   if [ $? -ne 0 ]
+   then
+      exit 1
+   fi
+fi
+</pre>
+
+---+++ Secure example
+To better protect against security threats, you can checksum the files and verify after download.
 
 Suppose your input is saved locally as "my_important_input".  Calculate the checksum, and copy the file to your web directory:
 <pre class="screen">
@@ -54,7 +95,7 @@ Suppose your input is saved locally as "my_important_input".  Calculate the chec
 
 Then, give your script the following arguments: "606c302fb75ad67715820a6eeb860a08ed66f6ad" "http://osg-test4.unl.edu/my_important_input".  The following would download the file and calculate its checksum on the worker node:
 
-<pre class="screen">
+<pre class="file">
 source $OSG_GRID/setup.sh
 export OSG_SQUID_LOCATION=${OSG_SQUID_LOCATION:-UNAVAILABLE}
 if [ "$OSG_SQUID_LOCATION" != UNAVAILABLE ]; then
@@ -62,9 +103,10 @@ if [ "$OSG_SQUID_LOCATION" != UNAVAILABLE ]; then
 fi
 echo "$1  my_important_input" > my_checksum.sha 
 url=$2
-curl $url > my_important_input
+wget --retry-connrefused --waitretry=10 "<i>http://example.com/your/file.txt</i>"
 sha1sum -c my_checksum.sha || exit 1
 </pre>
+
 
 %STOPINCLUDE%
 
@@ -97,6 +139,10 @@ The recipe is as follows:
    1 Verify the job's downloaded copy of =input_checksums.txt= using the checksum given as the job's input.
    1 Download the appropriate input files
    1 Compute and compare the checksum of the input file for the job against the job's downloaded copy of =input_checksums.txt=.
+
+
+---++ Advanced Tools
+   * [[http://nd.edu/~ccl/software/parrot/][Parrot]] can make http access transparent to the application.  
 
 
 ---++ Comments
@@ -156,6 +202,6 @@ The recipe is as follows:
    * Local TESTER         = AdamCaprez
   
    Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local TEST_PASSED    = %YES%
+   * Local TEST_PASSED    = %NO%
 ############################################################################################################
 -->
