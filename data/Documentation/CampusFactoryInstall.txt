@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1305762795" format="1.1" reprev="1.30" version="1.30"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1305824699" format="1.1" reprev="1.31" version="1.31"}%
 %META:TOPICPARENT{name="CampusGrids.WebHome"}%
 %LINKCSS%
 
@@ -54,7 +54,7 @@ For more information about the Campus Factory structure check the [[http://sourc
 
 ---++ Installing Condor 
 
-You do not have to install condor as root.  This guide will assume installing as non-root.  The user that runs condor will be the same user which the pilots will be submitted as to PBS.
+You do not have to install Condor as root.  This guide will assume installing as non-root.  The user that runs Condor will be the same user which the pilots will be submitted as to PBS.
    1 Go to the [[http://www.cs.wisc.edu/condor/downloads-v2/download.pl?state=select_from_mirror_page&version=7.5.6&mirror=UW%20Madison&optional_organization_url=http://][download page]] and choose Condor version %CONDORREL% for RHEL 5 64bit (x86_64).
       *  =condor-%CONDORREL%-x86_64_rhap_5-stripped.tar.gz=  (for RHEL 5 x86_64 OS)
    1 Save the downloaded file to your home directory (you can use =wget= or =curl=).
@@ -95,9 +95,6 @@ mkdir $CONDOR_LOCATION/etc/config.d</pre>
    1. Edit the required lines in the =condor_config= file (=$CONDOR_LOCATION/etc/condor_config=):
       * =LOCAL_CONFIG_DIR= set to =&lt;CONDOR_LOCATION>/etc/config.d=, where &lt;CONDOR_LOCATION> is the content of the variable defined above. Use the absolute path, no variables or symbols like =~=. E.g.:<pre class="file">
 LOCAL_CONFIG_DIR = /home/marco/cf/condor/etc/config.d</pre>
-   1. Edit the required lines in the =condor_config.local= file (=$CONDOR_LOCATION/etc/condor_config.local=):
-      * =DAEMON_LIST=  set to =COLLECTOR=, =NEGOTIATOR=, =SCHEDD=.  This tells Condor to run the COLLECTOR, NEGOTIATOR, and SCHEDD on the factory node.<pre class="file">
-DAEMON_LIST = COLLECTOR, NEGOTIATOR, SCHEDD</pre>
    1. Copy the =condor_config.factory= and =condor_mapfile= from the factory release.<pre class="screen">
 cp $FACTORY_LOCATION/share/condor/condor_config.local $CONDOR_LOCATION/etc/config.d/condor_config.factory
 cp $FACTORY_LOCATION/share/condor/condor_mapfile $CONDOR_LOCATION/etc/condor_mapfile</pre>
@@ -106,6 +103,11 @@ cp $FACTORY_LOCATION/share/condor/condor_mapfile $CONDOR_LOCATION/etc/condor_map
       $ =INTERNAL_IPS=: IP addresses (or hostnames) of the worker nodes and any NAT machines that the worker nodes may use to contact the =CONDOR_HOST=.
    1. Optional parameters in the factory condor configuration file (=condor_config.factory=):
       $ =FLOCK_TO=: Hosts that can run jobs submitted on this cluster. It would allow to daisy-chain this Campus Factory to another Campus Factory or Condor cluster.
+      <!-- the DAEMON_LIST should  come from the factory configuration and be set there correctly in the template
+   1. Edit the required lines in the =condor_config.local= file (=$CONDOR_LOCATION/local.$(HOST)/condor_config.local=): 
+      * =DAEMON_LIST=  set to =COLLECTOR=, =NEGOTIATOR=, =SCHEDD=.  This tells Condor to run the COLLECTOR, NEGOTIATOR, and SCHEDD on the factory node.<pre class="file">
+DAEMON_LIST = COLLECTOR, NEGOTIATOR, SCHEDD</pre>  -->
+   1. Comment out the =DAEMON_LIST= variable in condor_config.local. 
    1. Check the value of these condor lines in the local condor configuration file (=local.$(HOST)/condor_config.local=). Condor's setup should have been set these for you:
       $ =CONDOR_HOST=: to the full hostname of the machine that will run condor
       $ =CONDOR_ADMIN=: set to the email address that will receive emails about malfunctioning condor.
@@ -115,7 +117,6 @@ cp $FACTORY_LOCATION/share/condor/condor_mapfile $CONDOR_LOCATION/etc/condor_map
       * A sample configuration with the variables filled in is shown in the source [[http://sourceforge.net/apps/trac/campusfactory/browser/campus_factory/tags/CampusFactory-0.3.1/share/condor/condor_config.local][condor_config.local]].
    1. Add to the Condor configuration the =NETWORK_INTERFACE= option.  This will cause Condor to bind and advertise the public IP address.  Set the value to the Public IP address of the factory. <pre class="file">
 NETWORK_INTERFACE = &lt;ip_address></pre>
-   1. Comment out the =DAEMON_LIST= variable in condor_config.local.
    1. Edit the Condor PBS Blahp configuration.  This file is located in =$CONDOR_LOCATION/libexec/glite/etc/batch_gahp.config=.
       * Use =which qstat= to find the binary path of the PBS executables (i.e. qstat, qsub, ...), =/usr/bin= in the example
       * Set =pbs_binpath= and these other variables accordingly: <pre class="file">
@@ -198,20 +199,23 @@ As user you may have no control on the PBS submit host where you are installing 
 
 The solution is to install the Condor Collector and Negotiator for the Campus Factory on a different host. This can be a submit host or a third host with just the Condor Collector and Negotiator.
 
-To make these instructions more generic we will present the second configuration.
+To make these instructions more generic we will present the second configuration. The submit host and all the worker nodes are behind a firewall and only SSH access (port 22) to the submit host is allowed.
 
    * Campus grid elements when also the queue headnoe is behind a firewall: <br />
      <img src="%ATTACHURLPATH%/CampusGridFirewall_15.png" alt="CampusGridFirewall_15.png" width='287' height='412' />    
 
-<!-- 
+The CCB Node has a Condor installation with Collector and Negotiator running. For clarity let's assume that the CCB hostname (FQDN) is =your_ccb_host.com= and that Condor the Collector is running on the default port (9618).
 
-explain changes
--->
+The Campus Factory configuration must be changed to use CCB:
+   * In the job template (=$FACTORY_LOCATION//share/glidein_jobs/job.submit.template=), replace the GLIDEIN_HOST:<pre class="file">GLIDEIN_HOST = your_ccb_host.com</pre>
+   * In the Condor local configuration (=$CONDOR_LOCATION/local.$(HOST)/condor_config.local=), change the definition of the COLLECTOR_HOST (or add it at the end of the file if it is not there). You have to specify an available port (e.g. 39618, different form the default 9618):<pre class="file">COLLECTOR_HOST = your_ccb_host.com</pre> 
 
----+++ Condor already running on the Campus Factory 
-Either the system administrator or other users may be running already Condor on the Campus Factory host. In this case you'll have to choose an alternative port for the Condor Collector.
+If the Campus Factory was already running, you must restart it after these changes.
 
-In the local Condor configuration file (e.g. =$CONDOR_LOCATION/etc/condor_config.local=) change the definition of the COLLECTOR_HOST (or add it at the end of the file if it is not there). You have to specify an available port (e.g. 39618, different form the default 9618):<pre class="file">COLLECTOR_HOST = $(CONDOR_HOST):39618
+---+++ Running the Campus Factory on an alternative port
+Either the system administrator or other users may be running already Condor on the Campus Factory host. In this case you'll have to choose an alternative port for the Condor Collector to avoid clashing with the other Condor installation..
+
+In the local Condor configuration file (e.g. =$CONDOR_LOCATION/local.$(HOST)/condor_config.local=) change the definition of the COLLECTOR_HOST (or add it at the end of the file if it is not there). You have to specify an available port (e.g. 39618, different form the default 9618):<pre class="file">COLLECTOR_HOST = $(CONDOR_HOST):39618
 </pre>
 
 The same port should be set in the job template (=$FACTORY_LOCATION//share/glidein_jobs/job.submit.template=) by adding the port to the GLIDEIN_HOST: <pre class="file">GLIDEIN_HOST = example.com:39618
@@ -221,9 +225,7 @@ If you are using CCB or an alternate Collector because of a Firewall (see above)
 
 The submit host (Schedd) configuration values of COLLECTOR_HOST or FLOCK_TO must reflect the port change as well.
 
-<!-- 
-explain how to set an alternative collector port
--->
+If the Campus Factory was already running, you must restart it after these changes.
 
 
 ---+ Service Activation and Deactivation
