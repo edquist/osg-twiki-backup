@@ -1,0 +1,123 @@
+%META:TOPICINFO{author="JeffDost" date="1305876932" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="Hadoop"}%
+---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
+%TOC%
+
+---+ Installation
+
+Hadoop uses the [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/BestmanGateway][BeStMan2 SRM server]] in gateway mode to provide a SRM interface to Hadoop.  !BeStMan2 will use the Hadoop FUSE interface for namespace operations, such as mkdir, rm, and ls.  !BeStMan2 will use a [[Hadoop20GridFTP][Gridftp]] server for reading and writing files.  The version of !BeStMan2 covered in this guide is compatible with Hadoop 0.20.2.
+
+---++ Quick Start
+
+Quickstart for the impatient.  This assumes you already have [[Hadoop20Installation][Hadoop and FUSE]] installed on the SRM server.
+
+ <verbatim>
+rpm -ivh http://vdt.cs.wisc.edu/hadoop/osg-hadoop20-1-2.el5.noarch.rpm
+yum install bestman2-server
+vi /etc/bestman.rc # Edit appropriately (see below)
+visudo # Add specific sudo privileges for the bestman user (see below)
+service bestman2 start
+</verbatim>
+
+---++ Prerequisites
+
+The !BeStMan2 server has the following prerequisites:
+
+   1 You must also have already [[Hadoop20Installation][installed and mounted]] Hadoop using FUSE.
+   1 A [[Hadoop20GridFTP][GridFTP-HDFS]] server must also be installed, but this does not need to be on the same server as the !BeStMan2 server.  A larger site will prefer to have their !GridFTP and !BeStMan2 servers installed on separate hosts; see the list of [[HadoopArchitectures][deployment layouts]] for more information.
+
+!BeStMan2 is preconfigured to look for the host certificate and key in =/etc/grid-security/http/http*.pem=.
+These files must exist and be readable by the bestman user.  Using certificates in a different directory or with different names is not supported.
+
+The installation includes the latest CA Certificates package from the OSG as well as the fetch-crl CRL updater. *NOTE* the fetch-crl service does not start by default after installing !BeStMan2.  To have fetch-crl update automatically, run:
+
+<verbatim>
+service fetch-crl-cron start
+</verbatim>
+
+The rpm/yum installation will create a 'bestman' system account and group (uid,gid < 500) on the host system for running the !BeStMan2 SRM process. If you would like to control the uid/gid that is used, then you should create the 'bestman' user and group manually before installing the rpms.
+
+---++ YUM Installation
+
+Remember, in order to use !BeStMan2 SRM, you must have the [[Hadoop20Installation][Hadoop and the FUSE kernel module]] already installed on your system in order to use the yum installer.
+
+To configure your local installation for the yum repository, [[Hadoop20Installation#Installing_with_yum][follow the advice here]] to install the =osg-hadoop-20= package for your site.
+
+After installing the osg-hadoop-20 yum configuration package, you can install the !BeStMan2 SRM server with:
+
+<verbatim>
+yum install bestman2-server
+</verbatim>
+
+Updates can be installed with:
+
+<verbatim>
+yum upgrade bestman2-server
+</verbatim>
+
+---+ Configuration
+
+For those familiar with the VDT installation of !BeStMan, you will know about the =configure_bestman= script for configuring the !BeStMan server.  This script is not supported or included in the RPM package.  Certain operations that you would normally do with =configure_bestman=, such as changing the certificate location, are not supported.
+
+The installation of !BeStMan2 and its dependencies creates several directories.  In addition to the Hadoop installation files, you will also find:
+
+| Log files | =/var/log/bestman2= |
+| main config file | =/etc/bestman2.rc= |
+| other runtime config files | =/usr/lib/bestman2/conf/*= |
+| !BeStMan2 lib files | =/usr/lib/bestman2/= |
+| init.d startup script | =/etc/init.d/bestman2= |
+| CA certificates | =/etc/grid-security/certificates/*= |
+
+!BeStMan2 SRM uses the Hadoop FUSE mount to perform namespace operations, such as mkdir, rm, and ls.  As per the [[Hadoop20Installation][Hadoop install instructions]], edit =/etc/sysconfig/hadoop= and run =service hadoop-firstboot start=.  It is *not* necessary (or even recommended) to start any hadoop services with =service hadoop start=.
+
+The !BeStMan2 SRM configuration file is located in =/etc/bestman2.rc=.  There are a few settings that you need to add or change manually, depending on your site configuration:
+
+<verbatim>
+supportedProtocolList=gsiftp://your.gridftp.server1:2811;gsiftp://your.gridftp.server2:2811
+GUMSserviceURL=https://your.gums.host:8443/gums/services/GUMSAuthorizationServicePort
+localPathListAllowed=/mnt/hadoop;/tmp
+</verbatim>
+
+!BeStMan2 uses sudo to perform changes to the filesystem namespace.  This ensures that directories get created and file get removed with the proper permissions.  You must manually add permissions.  Append the following to the end of the =/etc/sudoers= file with the =visudo= command:
+
+<verbatim>
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/ls 
+Runas_Alias SRM_USR = ALL, !root 
+bestman ALL=(SRM_USR) NOPASSWD:SRM_CMD
+</verbatim>
+
+If you are running SL5, comment out the following line in /etc/sudoers:
+<verbatim>
+Defaults    requiretty
+</verbatim>
+With this option enabled, !BeStMan2 will be unable to use sudo because it doesn't use a console.
+
+---++ Running !BeStMan2 SRM
+
+Start the !BeStMan2 SRM server with the command
+
+<verbatim>
+service bestman2 start
+</verbatim>
+
+To start !BeStMan2 SRM automatically at boot time:
+
+<verbatim>
+chkconfig bestman2 on
+</verbatim>
+
+---+++ JMX Monitoring
+
+This is an optional customization which will allow admins to closely monitor BeStMan activity.  This is not needed for a typical install.
+
+This allows service administrators to closely monitor memory usage
+and thread activity in a much more Java-centric manner than Ganglia
+monitoring. To enable this, add the following command-line arguments
+to the call to =java= in =$VDT_LOCATION/bestman/sbin/bestman.server=:
+
+<verbatim>
+-Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote=true -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.port=8004
+</verbatim>
+
+Note that this allows anyone with access to port 8004 access to read
+out your JVM internal metrics.
