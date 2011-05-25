@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JeffDost" date="1306332830" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="JeffDost" date="1306352316" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! *<nop>%SPACEOUT{%TOPIC%}%*
 %DOC_STATUS_TABLE%
@@ -19,6 +19,28 @@ Hadoop Distributed File System (HDFS) is a scalable reliable distributed file sy
    * A FUSE interface for localized POSIX access.
    * Version *0.20.2* of Apache Hadoop.
 
+The VDT packaging and distribution of Hadoop is based on YUM. All components are packaged as RPMs. Two YUM repositories are available: 
+   * Stable repository for wider deployments and production usage.
+   * Testing repository for limited deployments and pre-release evaluation.
+
+Please note that this distribution is independent of the Pacman packaging of the VDT: it is separately versioned, and separately packaged. We expect future releases to eventually be common with the rest of the VDT, as the "rest" of the VDT begins to be packaged as RPMs. For now, the VDT distribution of Hadoop is distinct from the rest of the VDT.
+
+The *stable YUM repository* is enabled by default through the *osg-hadoop-20 RPM*, and contains the *golden release* supported by OSG for LHC operations. 
+
+---++++ VDT Downloads webpage
+
+The VDT Downloads webpage is http://vdt.cs.wisc.edu/components/hadoop.html
+
+---++++ VDT Release notes webpage
+
+The VDT Release notes are available at http://vdt.cs.wisc.edu/hadoop/release-notes.html
+
+---+++ Architecture
+
+This diagram shows the suggested topology and distribution of services at a Hadoop site. Major service components and modules which need to be deployed on the various nodes are listed. Please use this as a recommendation to prepare for the Hadoop deployment procedure at your site.
+
+<img src="%ATTACHURLPATH%/Hadoop-site-architecture.png">
+
 ---+++!! Applicable Versions
 The applicable software versions for this document are 
 %RED%
@@ -36,9 +58,7 @@ E.g. Needs to be installed on its own server, can be combined with some other se
 This can be in-line if it is fairly short -- a couple of paragraphs.
 
 ---+++!!Help!
-If a problem occurs during installation or verification of the service, see [[#DebugInfo][Debugging Information]].
-%BR%
-If you cannot resolve the problem, the best way to get help is by following this ReleaseDocumentation.HelpProcedure.
+Total installation time, on an average, should not exceed 8 to 24 man-hours. If your site needs further assistance to help expedite, please email osg-storage@opensciencegrid.org and osg-hadoop@opensciencegrid.org.
 
 ---++ Checklist
 An in-line numbered list of items assumed to have been already performed
@@ -53,6 +73,83 @@ E.g.:
 A link to document containing information and install steps that only need to be performed if this a first time install.
 
 ---++ Installation Procedure
+
+Please read the [[Storage.HadoopUnderstanding][planning document]] to understand different components of the system. 
+
+Main server components can be divided in 3 categories: 
+   * HDFS core: Namenode, Datanode.
+   * Grid extensions: !BeStMan SRM, Globus !GridFTP, Gratia probe, and Xrootd server plugin, etc.
+   * HDFS auxiliary: Secondary Namenode, Hadoop Balancer.
+
+Main client components are FUSE and Hadoop command line client.
+
+---+++ Initializer RPM
+
+|Target |On all nodes:|
+
+---++++ Initializing the YUM Repository
+
+Download and install the =osg-hadoop-20= RPM on *all* nodes. This will initialize the OSG YUM repository for Hadoop.
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% rpm -Uvh http://vdt.cs.wisc.edu/hadoop/osg-hadoop-20-2.el5.noarch.rpm
+</pre>
+
+This initializes YUM repository configuration in =/etc/yum.repos.d/osg-hadoop.repo=. 
+
+---++++ Choosing Stable or ITB Repository
+
+%NOTE% %RED% *For Integration Testbed (ITB) Sites:* %ENDCOLOR% 
+   * By default, *Stable Repository* is enabled (=enabled=1=) in the YUM configuration. Production sites should use the default setting.
+   * ITB sites doing testing can enable the *Testing Repository* to fetch pre-release packages. 
+
+Simply set =enabled=0= in =[hadoop]= section and =enabled=1= in =[hadoop-testing]= section of =/etc/yum.repos.d/osg-hadoop.repo=.
+
+*YUM Repository types in /etc/yum.repos.d/osg-hadoop.repo*
+
+<table>
+<tr colspan=2>
+<td>
+*Production Sites:*
+<pre class="file">
+[hadoop]
+... ...
+enabled=1
+... ...
+
+[hadoop-testing]
+... ...
+enabled=0
+... ...
+
+[hadoop-unstable]
+... ...
+enabled=0
+... ...
+</pre>
+</td>
+<td>
+*Integration Sites:*
+<pre class="file">
+[hadoop]
+... ...
+enabled=0
+... ...
+
+[hadoop-testing]
+... ...
+enabled=1
+... ...
+
+[hadoop-unstable]
+... ...
+enabled=0
+... ...
+</pre>
+</td>
+</tr>
+</table>
+
 The description of the steps of this Install procedure (including the commands and options required) that will have to be performed each time this is installed.
 
 Each step that requires commands should show the commands in a green box using 
@@ -69,6 +166,47 @@ command parameters
 This procedure covers the success legs only 
 
 ---++ Service Configuration/Startup/Shutdown
+
+---+++ Creating VO and User filesystem areas
+
+Prior to starting basic day-to-day operations, it is important to create dedicated areas for each VO and/or user. This is similar to user management in simple UNIX filesystems. 
+
+%NOTE% Create (and maintain) usernames and groups with UIDs and GIDs on all nodes. These are maintained in basic system files such as =/etc/passwd= and =/etc/group=.
+
+For clean HDFS operations and filesystem management:
+
+(a) Create top-level VO subdirectories under =/mnt/hadoop=.
+
+Example: 
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/cms
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/dzero
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/sbgrid
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/fermigrid
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/cmstest
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/osg
+</pre>
+
+(b) Create individual top-level user areas, under each VO area, as needed.
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/tanyalevshina
+%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/michaelthomas
+%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/brianbockelman
+%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/douglasstrain
+%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/abhisheksinghrana
+</pre>
+
+(c) Adjust username:group ownership of each area. 
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% chown -R cms:cms /mnt/hadoop/cms
+%UCL_PROMPT_ROOT% chown -R sam:sam /mnt/hadoop/dzero
+
+%UCL_PROMPT_ROOT% chown -R michaelthomas:cms /mnt/hadoop/cms/store/user/michaelthomas
+</pre>
+
 Description of the steps (including the commands/options) to startup and shutdown the service.
 This often requires, the reader to edit lines in a config file.
 If this is necessary, put the lines in a screen box with a yellow background 
@@ -79,6 +217,53 @@ Config file line b
 </pre>
 
 ---++ Validation of Service Operation
+
+Get familiar with Hadoop commands.
+
+<pre class="screen">
+%UCL_PROMPT% /usr/bin/hadoop -h
+</pre>
+
+An online guide is also available at [[http://hadoop.apache.org/common/docs/current/commands_manual.html][Apache Hadoop commands manual]].
+You can use Hadoop commands to perform filesystem operations with more consistency.
+
+Example, to look into the internal hadoop namespace:
+
+<pre class="screen">
+%UCL_PROMPT% /usr/bin/hadoop fs -ls /
+</pre>
+
+Example, to adjust ownership of filesystem areas (there is usually no need to specify the mount itself =/mnt/hadoop= in Hadoop commands):
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /usr/bin/hadoop fs -chown -R cms:cms /cms
+%UCL_PROMPT_ROOT% /usr/bin/hadoop fs -chown -R sam:sam /dzero
+
+%UCL_PROMPT_ROOT% /usr/bin/hadoop fs -chown -R michaelthomas:cms /cms/store/user/michaelthomas
+</pre>
+
+Check HDFS and FUSE:
+<pre class="screen">
+%UCL_PROMPT% cd /mnt/hadoop
+%UCL_PROMPT% hadoop fs -ls /
+</pre>
+
+Check SRM server ping response:
+<pre class="screen">
+%UCL_PROMPT% srm-ping  srm://SRM.SERVER.FQDN:8443
+</pre>
+
+Check SRM copy using !GridFTP underneath:
+<pre class="screen">
+%UCL_PROMPT% lcg-cp -v -b -D srmv2 file:/home/user/testfile  srm://SRM.SERVER.FQDN:8443/srm/v2/server?SFN=/mnt/hadoop/user/testfile
+</pre>
+
+Check SRM based remote directory listing:
+<pre class="screen">
+%UCL_PROMPT% lcg-ls  -l -b -D srmv2 srm://SRM.SERVER.FQDN:8443/srm/v2/server?SFN=/mnt/hadoop
+%UCL_PROMPT% lcg-ls  -l -b -D srmv2 srm://SRM.SERVER.FQDN:8443/srm/v2/server?SFN=/mnt/hadoop/user
+</pre>
+
 Commands to be used to verify the service is working correctly.  This can be combined with the previous section if they are both short.
 
 #DebugInfo
@@ -93,6 +278,10 @@ What are the first things to check, step-by-step instructions to determine sourc
 Restrictions and/or work around for known issues 
 
 ---+++!!References
+---++++ Benchmarking
+
+   * [[http://www.iop.org/EJ/article/1742-6596/180/1/012047/jpconf9_180_012047.pdf][Using Hadoop as a Grid Storage Element]], <i>Journal of Physics Conference Series, 2009</i>.
+   * [[http://osg-docdb.opensciencegrid.org/0009/000911/001/Hadoop.pdf][Hadoop Distributed File System for the Grid]], <i>IEEE Nuclear Science Symposium, 2009</i>.
 References to additional information.  This document should be as concise as possible, but the reader can use these links if he/she wants more background or information.
 
 ---+++!!Screen Dump of the Complete Install Process
@@ -164,3 +353,5 @@ complete screen dump of the install procedure
    * Local TEST_PASSED    = %IN_PROGRESS%
 ############################################################################################################
 -->
+
+%META:FILEATTACHMENT{name="Hadoop-site-architecture.png" attachment="Hadoop-site-architecture.png" attr="h" comment="" date="1306345934" path="Hadoop-site-architecture.png" size="23565" stream="Hadoop-site-architecture.png" tmpFilename="/usr/tmp/CGItemp37821" user="JeffDost" version="1"}%
