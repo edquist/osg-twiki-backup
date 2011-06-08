@@ -1,0 +1,132 @@
+%META:TOPICINFO{author="MineAltunay" date="1307571343" format="1.1" reprev="1.1" version="1.1"}%
+---++ Identity Management Roadmap for OSG
+%TOC%
+---+++ Problems
+   1. Usability: 
+      1 User experience with CA web pages. CA web pages can be confusing. The software used by the CA has problems with some browser/OS combos
+      1 Usability of X.509 certificates. This problem is not particular for any CA. Users have difficulty getting their certs work. 
+      1 Approval waiting period. Certificate approval takes 3-5 days. Users want "5-minute certificates", credentials that can be issued in 5 minutes. 
+   2. Having a single CA provider for OSG users and services. Although we recognize and accept all IGTF CAs, OSG only works with DOEgrids to issue certificates to new users. The identity vetting performed by OSG (called as OSG Registration Authority) is tightly coupled with DOEGrids CA. We may use alternative CAs during emergencies, but the process has to be performed manually (via Emails/fax)
+   3. Lack of an OSG-owned and operated Registration service that can be tied into multiple CAs and modify quickly based on OSG stakeholder needs. 
+
+---+++ List of High Level Requirements
+   1. Improved user interface for certificate lifecycle management. 
+   2. Flexible Registration service that can be plugged into university user databases and talk to multiple CA operators for issuing certificates. Needs to be able to interface with Shibboleth IdP and SPs
+   3. Separate user certificates from service certificates in solutions initially
+
+---+++ Possible Solutions
+
+---++++ 1. Providing an OSG-owned and operated User Database/Registration Authority.  
+A Registration Authority (RA) service provide initial identity vetting of OSG users and register them in a central database. It does not include the CA services. Under this scenario, OSG itself becomes the Identity Provider (IdP). This is a different solution than using IdP already exists such as BNL IdP or Fermilab IdP, which is discussed below. When such outside IdPs are used, there is no need for OSG to run a central RA service.  
+
+Currently, as its RA service, OSG uses RedHat Certificate Service software provided and run by DOEgrids CA. This service is used by OSG Registration Authority (Alain Deximo), RA Agents, sponsors, GridAdmins to vet and approve requests. This service can only be used with DOEGrids CA. 
+
+There are various options in providing an OSG-owned and operated RA
+
+   *%ORANGE% 1.1 Run the RedHat Certificate Service as a standalone service%ENDCOLOR%*
+
+Since we want to run an independent RA on our own and then integrate it with another CA such as CIlogon CA, my initial thinking was that can we integrate RedHat software with CILogon CA. (I use CILogon CA throughout this text as an example of a alternative CA other than DOEGrids.) I still do not have a good answer for that. This is licensed software and I do not have access the software unless we convince RHCS to provide us with a free trial period. However, I asked a few people like Jim Basney and ESnet folks about this idea and they said they did not think this software would be easy to integrate with CIlogon. For now, I take their word for this. I will get back to this later. There is also an open source version of this software at http://pki.fedoraproject.org/
+   * *Pros*:
+      * Provides independence from any CA provider. Depending on RedHat code and how easy it is to integrate it with CILogon or other CAs. 
+   * *Cons*:
+      * Does not improve any of the usability concerns. The same software and ui problems persists since we get it from RedHat. Approval takes the same amount of time. 
+      * Jim and ESnet thought it may be hard to tailor this service to interface Shib-enabled CAs such as CIlogon CA. 
+
+    
+   *%ORANGE% 1.2 Write an RA portal software from scratch%ENDCOLOR%*
+
+   If we were to write this software from scratch, below are the major design considerations we should work on:
+   * It has to have multiple simple and reliable user interfaces for different roles: RA authority, Agents, gridadmins, sponsors, and end users. It has to implement the identity vetting workflow correctly. Each of the above roles plays a part in the workflow. (For example, RA authority assign a request to an Agent (representing a VO). Agent assigns it to a local sponsor to vet the identity; sponsor approves it. user finally gets a notification.)  It has to ensure each role interface hands off information correctly to the next role.
+   * Moreover, interfaces for end user has to be very simple and reliable. We have to support our code against one or two browsers at all times (e.g. Firefox and IE). (We currently have problems with this RedHat software. With every new browser version, the service needs patching/upgrading)
+   * Also, the resulting product has to have good error and request tracking. Right now it is hard to find out where a request in the workflow. We track manually. Ideally, A user or an agent should be able to easily see where a request has stuck in the system (i.e. who is handling the request and for how long).
+   * In addition it has to implement the full identity lifecycle: initial vetting, renewing, and removal. Each of these stages will have a different workflow than the one I described above (initial identity vetting).
+   * Moreover, it has to have good archival and storage. Every request, approval, communication between agents, RA, and sponsors must be captured for future audits and renewals. 
+   * Finally, the most important part: the service has to be Shib-enabled. We should be able to send approved requests to CIlogon CA for processing. Originally I thought this would not be hard as the code from Shibboleth project is available and I set myself up an Shib Idp within a day. But then I realized service certificates would be a challenge. Since we put aside the service certificates for this initial conversation, I only list it below as a sidenote. 
+   * Currently, shibboleth protocol is not meant to provide identity services for service certs.For service certificates, what OSG does today is that a person requests to become a GridAdmin and he is authorized for a FQDN. From then on GridAdmin can automatically request and approve service certs for his domain. For this to work, CILogon CA needs to differentiate between human and service certs. (should the CA give the person a cert for his own name or a requested service  domain name; how to know who owns which domain, etc. ) Currently CIlogon CA does not distinguish between them. So I found a solution that Jim thinks doable. CILogon CA should not know any difference between a service cert or a GridAdmin. From the CA perspective, any request is just the same. The OSG RA should authenticate and authorize a Gridadmin, determine the credential for the service and then send this to CIlogon CA. This means we enhance the protocol between the IdP and the CILogon CA. Again, this is a departure from standard IdP software, meaning we will code this.
+   * Another side note with service certificates: we have a different workflow for service certificates. It is a simpler (RA --> GridAdmin) workflow, but it has to have different user interfaces and details.
+   * *Pros*: 
+      * Complete control over the software and design. We can custom-design it for OSG needs. Usability complaints may be eroded (This may also be a con-- see below)
+      * Provides independence from any CA provider. 
+   * *Cons*
+      * Design/development/testing the software will take at least a year for 1 FTE. 
+      * Training operators/RA/Agents/GridAdmins with the new software
+      * Designing good ui is very hard. Not certain we may make a huge improvement in that. 
+      * Maintaining the code against browser/OS combos, continuous maintenance. 
+
+---++++ 2. Using an RA Service Provided by a Different Entity
+   This is similar to our current situation in that DOEGrids run the RA service for OSG. We are looking for a different entity to rpovide this service. There are two options
+
+   *%ORANGE% 2.1 Use Globus Online RA service%ENDCOLOR%* 
+
+Globus Online service plans to include a full-fledge RA service. They need a similar workflow system for BIRN and other communities for identity vetting and user registration. I described the workflow we need to Rachana in detail; She thought it was within the scope of RA software she is currently building. Technically, we were in agreement on many points. I told her the problems from RedHat software such as error tracking, archival, etc, and she was receptive.
+   **Pros*:
+      * No software to write, no service to run. Globus Online will take care of that. 
+      * Can be made to talk to different CA providers
+      * Eliminates some of the usability problems. Users will get a Shib token as well and can use this instead of X.509 certificate when a service provider allows it. 
+   **Cons*
+      * Does not eliminate some of the usability problems. Users will still have to wait for approval. Other UI concerns depends on the software design. 
+      * The CAs that we can interface with depends on the RA provider's approval and support. For example, if Globus Online decides not to interface CA XYZ, we cannot use it that CA easily. 
+
+   *%ORANGE% 2.2 Use TeraGrid/XSEDE User Registration Portal%ENDCOLOR%*
+   
+We can use Teragrid user portal as OSG central user database/RA service? We have been saying we should eliminate duplication between TG and OSG and OSG is a XD service provider. Having talked to Von and Jim about the registration workflow in TG, I think the level of vetting and the workflow requirements are very similar (putting aside service certificates). So there is no technical reason so far to rule out this idea. This may even help us beyond providing a portal service once our uses in TG database, we can take advantage of all identity services TG provides. One disadvantage is we would be very tightly coupled with TG.
+   * *Pros*
+      * No software to write, no service to run. XD Portal will take care of it all.
+      * Although user's still need to wait for identity vetting/approval, due to the differences in workflow design, this wait is much shorter. It averages on 5-minutes to vet someone's identity and register with TeraGrid portal given the approver is available.
+           * Eliminates some of the usability problems. Users will get a Shib token as well and can use this instead of X.509 certificate when a service provider allows it. 
+      * Can easily integrate with other identity services provided by XD such as myProxy CA, Kerberos directory, etc. 
+
+   * *Cons*
+      * The CAs that we can interface with depends on the RA provider's approval and support. For example, if TeraGrid/XD decides not to interface CA XYZ, we cannot use it that CA easily. 
+      * Very tightly coupled to TeraGrid. OSG becomes a XD Sevice Provider. Later changing the RA service may be very hard. 
+
+   
+---++++ 3. Do NOT Run Any RA Service at all. 
+
+   There are two main options under this 
+
+   *%ORANGE% 3.1Use VO Registration as Identity Vetting Step%ENDCOLOR%*  
+
+We will accept any university IdP and let them hook into CILogon CA. The vetting on these university credentials are worthless (no accreditation- whatsoever), or unknown at best. We cannot possibly know how a university manages their user database unless the university is accredited at InCommon Bronze or Silver levels, which nobody has such accreditation yet. Even users with no university IdPs can still get certificates. For example, ProtectNetwork IdP is a catch-all IdP that regsiters anyone with an email account. The identity vetting will happen when end user goes to their VOs for registration. A VO member (Agent and the sponsor) will do the identity vetting just as normal. If the person admitted to membership, Vo admin will put his/her certificate into VOMS. This is no extra work on VO because they do the identity vetting anyhow. In fact this is less work: because right now they once vet a person's identity for certificate and then they do it once more when the person applies for VO membership.
+         
+For LHC VOs this solution works out of the box, because CMS and Atlas has stringent requirements during VO registration. CMS VOMS for example is integrated with CERN database such that a VO applicant has to show his CERN ID number, must know the correct birth date in CERN database and so on. Only then the user is allowed to register his certificate into CMS VOMS server. 
+
+   * *Pros*
+      * Get rid of the approval waiting period. Eliminate most of the usability problems. 
+      * Eliminate the burden on VOs. Currently they do vetting and registration twice. 
+      * No need to run any RA service, or write software. IdP works directly with CA with no OSG involvement. 
+      * Would start working tomorrow. Ready solution.
+      * Not locked into a single CA. Works with any Shib-enabled CA. No barriers to changing CAs.
+      * Can work for small VOs immediately which do not require IGTF accreditation.  
+      * Each VO has complete control; nothing is centrally stored.
+      * There is a registration workflow built into VOMRS/ VOMS-admin tools. No big changes needed to perform approval at VO registration step. 
+   * *Cons*
+      * There is no IGTF accreditation for these certificates. However, IGTF has a guideline in the works for VO registration practices. Given CMS and Atlas VOs already do identity vetting at VO registration step independent of the X.509 certificate, these certificate may be granted accreditation. Again it is a long-winded road. 
+       * VO has to take care of archival and storage of identity vetting steps. Yes there is a registration workflow at VOMRS but it should be a tweaked to achieve this. 
+  
+   *%ORANGE% 3.2 Use FNAL and BNL IdPs and integrate them with CILogon%ENDCOLOR%*
+   
+   BNL is just setting up their own Shibboleth IdP (around last month); FNAL is getting ready for theirs. CERN already runs its own IdP. Between these three IdPs we already can cover 80% of OSG population. These IdP can be easily integrated into CIlogon CA to provide certificates. To overcome accreditation barrier, BNL and FNAL will have to obtain their Silver accreditation from InCommon or a special examination of these two IdPs will be requested from IGTF. Both options are feasible. 
+
+   * *Pros*
+      * Solves most of usability problems. No waiting/approval period. Instant certificates. 
+      * BNL and FNAL already registers most of LHC community in their enterprise databases (be it a visitor, employee, or student)
+      * Not locked into a single CA. Works with any Shib-enabled CA. No barriers to changing CAs.
+      * No changes to VO software or registration workflow
+      * Would work for 80% of OSG users 
+      * No need to run any RA service, or write software. 
+      * IdPs work directly with CA with no OSG involvement needed.  
+ 
+   * *Cons*
+      * BNL and FNAL will have to go through some sort of an accreditation. This is feasible given FNAL has gone through this before and both institutions are highly motivated to receive such accreditation. 
+      * Does not cover non-LHC users. 
+
+---++++Conclusion
+
+Given the resources OSG has, my conclusion is to use a hybrid of solutions 3.1 and 3.2. 3.1 is suitabel for non-LHC VOs. Whereas solution 3.2 would help LHC users. 
+ 
+
+
+
+
+-- Main.MineAltunay - 08 Jun 2011
