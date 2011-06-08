@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AlainRoy" date="1307488615" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="BrianBockelman" date="1307545042" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="Projects"}%
 ---+ A transition to native packages
 
@@ -8,7 +8,7 @@ Summary: This document contains the details of how we will transition away from 
 
 ---++ 0.0 To do
 
-   * CA Certs: only from GOC? Also from VDT? IGTF vs. non-IGTF? Different packaging so you can choose subset? 
+   * CA Certs: only from GOC? Also from VDT? IGTF vs. non-IGTF? Different packaging so you can choose subset? (Note from BB: I integrated these below).
    * How do LIGO's requests for SL6 and Debian 6 support mesh?
 
 ---++ 1.0 General Approach
@@ -54,12 +54,29 @@ We will immediately begin the transition to producing the OSG Software Stack as 
 
 ---+++ 2.2.1 Order of packages to release
 
+Starter packages:
    1. *vdt-system-profiler*: We will first ship an updated version of the <code>vdt-system-profiler</code>. This is a simple script that allows users to collect debugging information to be sent to VDT support when help is needed. This is our first target because the package itself is simple, but it will allow us to make sure our infrastructure is in place. (Building RPMs, yum repositories, etc.)
    1. *Xrootd*: Xrootd (without the DSI Plugin) will be our next target. This is already mostly done, so the goal is to make sure that our infrastructure works properly.
-   1. *Xrootd DSI Plugin*: This will require us to use Globus, so we will be forced to address questions about how we get Globus. Do we refer to it from EPEL? Do we copy it from EPEL? 
-   1. *glexec*: CMS wants an upgraded version of glexec. While it is not difficult to build, there are several dependencies (lcas, lcmaps, VOMS, and Globus) that need to be addressed. 
-   1. *Worker Node Client*: This is "low-hanging fruit". Many of these packages have already been done by CMS and we can use the results. They also require minimum configuration to get working. 
-   1. ... VOMS Admin? CE? Something else? VDT-Client? TBD
+   1. *Xrootd DSI Plugin*: This will require us to use Globus, so we will be forced to address questions about how we get Globus. Do we refer to it from EPEL? Do we copy it from EPEL?
+      * Note from BB: We have already done this for the Hadoop DSI plugin.
+   1. *glexec*: CMS wants an upgraded version of glexec. While it is not difficult to build, there are several dependencies (lcas, lcmaps, VOMS, and Globus) that need to be addressed.
+      * Note from BB: VOMS is an interesting issue, as (last I checked) the VOMS in EPEL doesn't have the "--dont-verify" flag.  This is possibly the first place where we'll have to decide between "copy and maintain a patch" versus "work with upstream".  This is based on 9-month-old information; may have changed.
+   1. *Worker Node Client*: This is "low-hanging fruit". Many of these packages have already been done by CMS and we can use the results. They also require minimum configuration to get working.
+      * Note from BB: We have proof of concept source packages for all of the WN-client *except* Fermi-SRM-Client.
+   1. *OSG Client*: Probably falls under the "starter" package category in complexity, but it does possibly affect end-users.  (Added by BB)
+
+Complex packages:
+   1. VOMS Admin: This is the first Tomcat+MySQL application we'll need to support.  This would be the first test of our ability to port complex configuration scripts over. (Added by BB)
+   1. OSG-CE: This is the most complex software we offer.  It's going to be necessary to start very early, as it will take much longer than any other software, and will require coordination with several pieces of software that have never had native packaging.  (Added by BB)
+   1. CREAM: EMI is also doing source packages for this; it might benefit to let them shake-out bugs.
+      * Note from BB: The following software will be in both OSG-CE and CREAM, and have never had native packages made: Gratia probes, GIP, OSG-RSV, Configure-OSG, Fermi-SRM-Client.
+
+TBD:
+   1. Gratia Collector.  Small user base (5-6).  Requires MySQL+Tomcat; might be easy after VOMS Admin.  (Added by BB)
+   1. VDT-CA-Manage.  This is to manage the set of CAs; while we have RPMs for CAs right now, they're far less powerful than VDT-CA-Manage.  We probably don't want to regress on these capabilities, as they were strongly desired by the OSG Technical Director.  (Added by BB)
+   1. Mostly-unused-packages: dccp, bwctl, ndt, npad, MonaLisa, owamp.  These packages all provide some level of functionality to a small crowd.  I don't think we should consider removing them (for now), but we might want to state they won't happen for the initial release. (Added by BB)
+   1. Pegasus client: Last I checked with the Pegasus folks, they now glide-in their own client.  We should check to see if this is still necessary.  (Added by BB)
+   1. CA certs.  Who defines the starting set of CA certs?  Can it be only GOC?
 
 What do we say about timeline? Goal of X, Y, and Z by... August 31? 
 
@@ -275,3 +292,41 @@ VDT supported packages will be in three repositories:
    1. *release*: Packages that have been released to our users.
 
 There will also be a "contrib" repository for unsupported software that may be of interest to VDT stakeholders. 
+
+---++ 4.0 Versioning
+
+%RED%Warning:%ENDCOLOR% This whole section was added by BB and not yet reviewed by Alain.
+
+We've previously said the minor version number transitions (as in, OSG 1.2 -> 1.3) are only incremented when upgrades aren't possible.  This makes the major version number mostly meaningless, and leads to a very large patch-level (1.2.19) and major changes happen between patch levels.  I'd like to fix this while we are doing a clean sweep.  Here's my proposal:
+
+---+++ Major version number
+VDT will work on a time-based release schedule of 6 months.  Major version number will be incremented approximately every 6 months.  Each major release will have a separate repository (provided we can make switching repositories simple: there's precedent on how to do this).
+
+   * Significant new services will only be added on major releases.  There are exceptions:
+      * When the OSG-ET signs off.  Expect this to be exceedingly rare.
+      * During the OSG 2.0 release cycle.  We do not expect to be able to release all OSG 1.2 services at once; OSG 2.0 might start with only the worker node client (or less).  Capabilities existing in OSG 1.2 will be added throughout the OSG 2.0 release cycle.  Capabilities *not* existing in OSG 1.2 will likely wait for OSG 3.0
+   * We don't guarantee configuration file compatibility across major releases (although we will keep the existing policy of making configuration files as backward compatible as possible).  We are allowed to obsolete, remove, or semantically change configuration options.  We will avoid semantic changes if at all possible.
+   * We don't guarantee ABI compatibility across major releases.
+   * We don't guarantee protocol compatibility across major releases.
+   * Major version changes will be ITB-tested.
+   * We support the previous two major versions (i.e., about 18 months of support for a release).
+
+Note that, while we have a significant leeway for change at each major release, we aren't necessarily going to change things.  We will continue to be conservative in breaking things - but this will provide a predefined point when we need to.
+
+---+++ Minor version number
+   * Configuration files will be backward, but not necessarily forward compatible.
+   * Minor version changes will be ITB-tested.  We may change this item in the future if ITB effort is reduced.
+   * Minor updates will be available in an -updates repo.
+   * We expect updating across minor version numbers to be "safe", but admins are advised to not do them automatically.
+   * Forward and backward ABI and protocol compatibility is expected.
+   * Services may have new capabilities or versions in minor releases.
+      * New packages may be added in a minor release if the upgrade of an existing service requires it.
+
+---+++ Patch-levels
+   * Configuration variables may not change.
+   * Reserved only for bugfixes or security fixes.
+   * ABI compatibility is guaranteed.
+   * Patch-level fixes may skip ITB if necessary.
+   * It is expected to patch-level upgrades to be completely safe.
+   * We expect updates should be safe to be done automatically.
+   * Patch-level fixes will go into the -updates repo.
