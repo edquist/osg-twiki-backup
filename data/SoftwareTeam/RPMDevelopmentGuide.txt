@@ -1,0 +1,227 @@
+%META:TOPICINFO{author="TimCartwright" date="1308168427" format="1.1" reprev="1.1" version="1.1"}%
+---+ RPM Development Guide
+
+This page documents technical guidelines and details about RPM development for the OSG Software Stack. The procedures, conventions, and policies defined within are used by the OSG Software Team, and are recommended to all external developers who wish to contribute to the OSG Software Stack.
+
+%RED%Status:%ENDCOLOR% This page was spun off of the [[NPTransition][Native Packaging Transition]] page. We expect the details herein to change significantly and frequently over the next few weeks (late June – early July, 2011) as our understanding of the problems and possible solutions becomes more clear.
+
+---++ Principles
+
+The principles below guide the design and implementation of the technical details that follow.
+
+   1. For packages in the OSG software repository, we must be able to reproduce the complete build from data stored in our infrastructure. That is, if we rely on software or files that do not originate with us, we must copy them into our local infrastructure (e.g., version-control system) before we distribute packages based on them. Future (re)builds must not fail even if upstream files are no longer available. For example, we will make a local checkout from a software provider's source code repository instead of relying on the repository's continued existence. 
+   1. We must provide clear distinctions between what comes from external sources and what is the VDT's work. You'll see this distinction in the source code repository layout below. 
+   1. We must have a straightforward, unambiguous conversion from the files in our source code repository into source rpm. We must have a tool that can drive this process as well as the build. 
+   1. We should make it easy for external people to make contributions. 
+   1. We should rely on standard tools provided by the larger packaging/development community wherever appropriate. 
+   1. We will follow the OS vendor packaging guidelines as closely as possible. 
+
+%RED%Warning:%ENDCOLOR% Many technical details follow. Gloss over parts you don't care about.
+
+---+++ Packaging Guidelines
+
+%RED%Tentative:%ENDCOLOR% Our packages _SHOULD_ (but need not) adhere to the [[http://fedoraproject.org/wiki/PackagingGuidelines][Fedora Packaging Guidelines]] whenever possible. However, we may require packages that do not meet all guidelines to install a file (perhaps in <code>/usr/share/doc/<i>package</i>/</code>) that documents major deviations from the guidelines that may be significant to end users.
+
+---++ Build Process
+
+We have a few conflicting desires. We want to use community-accepted tools (such as mock and Koji), we want to take advantage of the Batlab at the University of Wisconsin–Madison, and we want to make it easy for external contributors to provide RPMs. How do we balance these?
+
+---+++ Officially Supported Packages
+
+   1. All necessary information to create the package will be committed to the VDT source code repository (see below)
+   1. A tool will be provided that will take those files, create a source RPM, and submit it to a build system; initially we will support three underlying build systems:
+      1. rpmbuild
+      1. mock
+      1. Metronome (the Batlab build system); this build system will use mock, so it's very similar to option 2
+
+Official builds will be done with Metronome, but contributors can use options 1 or 2 to develop a package before contributing it to the OSG Software Stack.
+
+Initially this will be all we support. In the near future, we will likely have our Metronome builds provide build information to a VDT-owned Koji instance. As we gain expertise with Koji, we may add support for directly using Koji. 
+
+We will implement these build options in the order they are presented. This will allow us to quickly get up to speed in producing !RPMs.
+
+---+++ Unsupported Contributed Packages
+
+Unsupported contributed packages have two build options. They will be provided via a separate yum repository for unsupported contributions.
+
+   1. Build exactly like the supported packages (above). 
+   1. The RPM can be built by the contributor in their own environment and shared with the OSG Software Team for manual staging into the yum repository. 
+
+Should we support Koji in the future, we'll allow Koji submissions for trusted contributors. 
+
+---++ Revision Control System
+
+All packages that are built by the VDT will be checked into our revision control system (currently Subversion). We will allow collaborators to commit to the repository.
+
+Within the system, each source package will be contained within a single directory from which we create a single source RPM. Within the directory, there can be two subdirectories:
+
+   * <code>original</code>: Files that are copied from another source and left unchanged
+   * <code>osg</code>: Files that are provided by or under control of the OSG; they may be modifications (patches) to the original directory, or completely new files
+
+---+++ Original Directory
+
+%RED%TODO:%ENDCOLOR% Within the original directory, we include the contents everything that comes from a source RPM, but with the individual files (not the source RPM itself). For example, if you examined the RPM for commonly-used "<code>less</code>" utility, you would see something like (simplified a bit):
+
+<blockquote>
+<pre>
+% rpm -qpl unzip-5.52-3.el5.src.rpm 
+unzip-5.52-long-filename.patch
+unzip.spec
+unzip552.tar.gz
+</pre>
+</blockquote>
+
+The original directory would contain:
+
+<blockquote>
+<pre>
+     original/
+     original/unzip.spec
+     original/unzip-5.52-long-filename.patch
+     original/%RED%SOURCES%ENDCOLOR%
+</pre>
+</blockquote>
+
+*Open Question:* We're not sure how to specify the source code. Options include: 
+   1. Check it into the repo as-is (or perhaps renamed to eliminate the version number so there is easier history
+   1. Do something koji-like where there is a makefile that can fetch the source code.
+   1. A file with a URL to the source code. 
+
+I think we want to keep the source code cached somewhere for reproducibility. 
+
+---+++ OSG Directory
+
+The "osg" directory may contain a few things:
+
+   1. A "root" directory that contains files to be installed as part of the RPM. This can only be used if the sources are not specified in the original directory.
+   1. A spec file. If there is a spec file in the original directory, the OSG-provided one is used.
+   1. Any OSG-specific patches. 
+
+---+++ Example 1: A VDT-provided utility script, vdt-system-profiler
+
+We will provide a debugging utility named <code>vdt-system-profiler</code> to collect system information that can be sent to the OSG Software Team to aid in debugging. Within the source code repository, it would like this:
+
+<blockquote>
+<pre>
+vdt-system-profiler/
+     osg/
+     osg/root/usr/bin/vdt-system-profiler
+     osg/vdt-system-profiler.spec
+</pre>
+</blockquote>
+
+---+++ Example 2: The VDT creates the RPM for a package without one
+
+As of today, the OSG RSV software does not provide an RPM. The source code repository would have:
+
+<blockquote>
+<pre>
+osg-rsv/
+     original/
+     original/%RED%SOURCES%ENDCOLOR%
+     osg/
+     osg/osg-rsv.spec
+</pre>
+</blockquote>
+
+---+++ Example 3: The VDT copies a source RPM
+
+Here is an example of how we might copy a source RPM. We would copy the RPM in order to freeze the version and/or provide a minor patch. We might do this for xrootd, for example.
+
+<blockquote>
+<pre>
+xrootd/
+     original/
+     original/%RED%SOURCES%ENDCOLOR%
+     original/xrootd.spec
+     osg/
+     osg/fix-init-script.patch
+</pre>
+</blockquote>
+
+---++ Command-Line Tools
+
+We will provide a VDT tool in our source code repository that will create !RPMs. The options will look something like this:
+
+*Option 1: Build with rpmbuild*
+
+<pre>
+make-vdt --rpmbuild PACKAGE-NAME
+</pre>
+
+   1. Create the source rpm
+      1. Combine original and osg directories to create input needed to make source RPM
+      1. Make source RPM with <code>rpmbuild -bs --nodeps</code>
+   1. rpmbuild ...
+   1. Copy RPM to some local directory
+
+*Option 2: Build with with*
+
+<pre>
+make-vdt --mock PACKAGE-NAME
+</pre>
+
+   1. Create the source rpm
+      1. Combine original and osg directories to create input needed to make source RPM
+      1. Make source RPM with <code>rpmbuild -bs --nodeps</code>
+   1. Set up mock
+   1. mock build 32 & 64 bit
+   1. Stage to yum repo if specified in config
+
+*Option 3: Build with Metronome*
+
+<pre>
+make-vdt --batlab PACKAGE-NAME
+</pre>
+
+   1. Create the source rpm
+      1. Combine original and osg directories to create input needed to make source RPM
+      1. Make source RPM with <code>rpmbuild -bs --nodeps</code>
+   1. Submit build to Metronome
+      1. mock build 32 & 64 bit
+      1. Stage to yum repo via ssh if specified in config ... or ...
+      1. Stage to yum repo via Koji
+
+*Option 4: Look at build input*
+
+<pre>
+make-vdt --generate PACKAGE-NAME
+</pre>
+
+   1. Combine original and osg directories to create input needed to make source RPM
+   1. Make source RPM
+   1. Tell user where to find these. 
+
+---++ OSG Software Repository
+
+VDT supported packages will be in three repositories per major version. 
+
+   1. *dev:* Packages that are not ready for release to anyone outside the VDT. They are bleeding-edge and may be changed at any time. This should only be used by contributors to the VDT (both VDT team and external contributors). 
+   1. *test:* Packages that are being tested for imminent release. The ITB and other testers will use this repository. Only a OSG Software Team member may promote packages from _dev_ to _test_. 
+   1. *release*: Packages that have been released to our users. Only an OSG Software Team member may promote packages from _test_ to _release_. In most cases this will only happen after ITB testing.
+
+Unlike the past where there were separate repositories for "the VDT" and "the OSG software cache", we will have a single shared repository. The GOC will continue to maintain the packages they have maintained (such as the VO configuration information), but will provide it via our mechanisms. 
+
+There will also be a "contrib" repository for unsupported software that may be of interest to VDT stakeholders.
+
+---+++ Package and Repository Signing
+
+How we sign: one key for team vs. key for individuals. How does koji handle this?
+
+---++ Testing
+
+Pre-release and after-release against updated versions
+
+---++ External RPM Repositories
+
+---+++ EPEL & Globus & VOMS
+
+We will tell our users that they have to use/enable the EPEL repository.
+
+Initially, we will only copy Globus from EPEL when we need to patch it. We expect that we only need to patch a small subset of the Globus packages, so most will come from EPEL. We don't yet have a good feeling for whether or not we can rely on EPEL, so we reserve the right to copy more RPMs from EPEL in the future, if necessary.
+
+When we copy packages, we will add a VDT repotag to distinguish them from the ones that come from EPEL. We will also recommend using yum priorities to prefer the VDT versions. 
+
+---+++ EMI
+
+EMI 1.0 is very new. We expect to use many of their packages, but we will prefer to copy the packages to our repository instead of relying directly on the EMI repository. This will allow us to control the versions of the critical grid software our stakeholders need.
