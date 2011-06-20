@@ -1,0 +1,255 @@
+%META:TOPICINFO{author="AlainRoy" date="1308608269" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="OSGSS2011Materials"}%
+---+ Submitting a standard universe job
+
+<div style="margin-left: 1em; margin-right: 1em; border: 1px solid black; padding: 0.5em;">
+---+++ Objective of this exercise
+The objective of this exercise is to teach you about Condor's standard universe, which provides checkpointing.
+</div>
+
+
+Your first job was considered a vanilla universe job. This meant that it was a plain old job. Condor also supports standard universe jobs. If you have the source code for your program and if it meets certain requirements, you can re-link your program and Condor will provide two major features for you: 
+
+   * Your job can be checkpointed and restarted. When a job is checkpointed, its complete state is saved. When it is restarted, it restarts from where it was checkpointed. If your job is checkpointed periodically, you can recover if there is some sort of failure or interruption. This is incredibly useful for long-running jobs--wouldn't you hate to lose hours or days of work due to a power outage? When Condor restarts, it can restart your job from the last checkpoint, saving you lots of time.
+   * Your job can use remote I/O. This means that every file operation the job makes is performed on the submission computer, so it appears as though the job is running on the submission computer, not the execution computer. If you have files that are not on a shared filesystem, this can be very useful. Note: This means that file transfer options are not relevant to standard universe jobs. You do not need to specify file transfer, whether submitting from a local disk or a shared filesystem.
+
+Your tutorial leader will give you more details about standard universe before the 2nd-half of Monday morning, or you can read about them [[http://www.cs.wisc.edu/condor/manual/v7.6/1_3Exceptional_Features.html][online]]. 
+
+---++ Linking a program for standard universe
+First, you need a job to run. We'll use the same job as before. In case you don't have it, here it is. Save it in simple.c: 
+
+<pre style="margin-left:4em" class="screen">
+#include &lt;stdio.h&gt;
+
+main(int argc, char **argv)
+{
+    int sleep_time;
+    int input;
+    int failure;
+
+    if (argc != 3) {
+        printf("Usage: simple &lt;sleep-time&gt; &lt;integer&gt;\n");
+        failure = 1;
+    } else {
+        sleep_time = atoi(argv[1]);
+        input      = atoi(argv[2]);
+
+        printf("Thinking really hard for %d seconds...\n", sleep_time);
+        sleep(sleep_time);
+        printf("We calculated: %d\n", input * 2);
+        failure = 0;
+    }
+    return failure;
+}
+</pre>
+
+Now compile the program using condor_compile. This doesn't change how the program is compiled, just how it is linked. Take note that the executable is named differently. 
+
+<pre style="margin-left:4em" class="screen">
+% condor_compile gcc -m32 -o simple.std simple.c
+
+LINKING FOR CONDOR : 
+    /usr/bin/ld 
+    -L/usr/lib/condor -Bstatic --eh-frame-hdr -m elf_i386 
+    --hash-style=gnu -dynamic-linker /lib/ld-linux.so.2 
+    -o simple.std 
+    /usr/lib/condor/condor_rt0.o 
+    /usr/lib/gcc/x86_64-redhat-linux/4.1.2/../../../../lib/crti.o 
+    /usr/lib/gcc/x86_64-redhat-linux/4.1.2/32/crtbeginT.o 
+    -L/usr/lib/condor 
+    -L/usr/lib/gcc/x86_64-redhat-linux/4.1.2/32 
+    -L/usr/lib/gcc/x86_64-redhat-linux/4.1.2/32 
+    -L/usr/lib/gcc/x86_64-redhat-linux/4.1.2/../../../../lib -L/lib/../lib 
+    -L/usr/lib/../lib /tmp/ccSNJNR5.o 
+    /usr/lib/condor/libcondorzsyscall.a 
+    /usr/lib/condor/libcondor_z.a 
+    /usr/lib/condor/libcomp_libstdc++.a 
+    /usr/lib/condor/libcomp_libgcc.a 
+    /usr/lib/condor/libcomp_libgcc_eh.a 
+    --as-needed --no-as-needed 
+    -lcondor_c -lcondor_nss_files 
+    -lcondor_nss_dns -lcondor_resolv -lcondor_c 
+    -lcondor_nss_files -lcondor_nss_dns -lcondor_resolv -lcondor_c 
+    /usr/lib/condor/libcomp_libgcc.a /usr/lib/condor/libcomp_libgcc_eh.a 
+    --as-needed --no-as-needed 
+    /usr/lib/gcc/x86_64-redhat-linux/4.1.2/32/crtend.o 
+    /usr/lib/gcc/x86_64-redhat-linux/4.1.2/../../../../lib/crtn.o
+    /usr/lib/condor/libcondorzsyscall.a(condor_file_agent.cpp.o): In function `CondorFileAgent::open(char const*, int, int)':
+    /home/condor/execute/dir_17974/userdir/src/condor_ckpt/condor_file_agent.cpp:106: 
+        warning: the use of `tmpnam' is dangerous, better use `mkstemp'
+    /usr/lib/condor/libcondorzsyscall.a(special_stubs.cpp.o): In function `condor_gethostbyaddr':
+    /home/condor/execute/dir_17974/userdir/src/condor_syscall_lib/special_stubs.cpp:170: 
+        warning: Using 'gethostbyaddr' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+    /usr/lib/condor/libcondorzsyscall.a(special_stubs.cpp.o): In function `condor_gethostbyname':
+    /home/condor/execute/dir_17974/userdir/src/condor_syscall_lib/special_stubs.cpp:163: 
+        warning: Using 'gethostbyname' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+
+% ls -lh simple.std
+-rwxrwxr-x 1 roy roy 4.3M Jun 20 17:02 simple.std*
+</pre>
+
+There are some warnings there--you can safely ignore those warnings. You can also see just how many libraries we link the program against. It's a lot! And yes, the executable is much bigger now. Partly that's the price of having checkpointing and partly it is because the program is now statically linked, but you can make it smaller if you want by getting rid of debugging symbols: 
+
+<pre style="margin-left:4em" class="screen">
+% strip simple.std
+
+% ls -lh simple.std
+-rwxrwxr-x 1 roy roy 1.1M Jun 20 17:06 simple.std*
+</pre>
+
+Note the extra output when you run the program by hand now: 
+
+<pre style="margin-left:4em" class="screen">
+% ./simple.std 4 10
+Condor: Notice: Will checkpoint to ./simple.std.ckpt
+Condor: Notice: Remote system calls disabled.
+Thinking really hard for 4 seconds...
+We calculated: 20
+</pre>
+
+---++ Submitting a standard universe program
+Submitting a standard universe job is almost the same as a vanilla universe job. Just change the universe to standard. Here is a sample submit file. I suggest making it run for a longer time, so we can experiment with the checkpointing while it runs. Also, get rid of the multiple queue commands that we had. Here is the complete submit file, I suggest naming it submit.std. 
+
+<pre style="margin-left:4em" class="screen">
+Universe   = %RED%standard%ENDCOLOR%
+Executable = simple.std
+Arguments  = 120 10
+Log        = simple.log
+Output     = simple.out
+Error      = simple.error
+Queue
+</pre>
+
+Notice that we are not transferring files this time. This is because standard universe provides remote I/O: all I/O for a job behaves as if it actually is being performed at the submission computer. This is convenient for complex jobs that access lots of files on the file system including shared libraries, input, and output.
+
+Then submit it as you did before, with condor_submit: 
+
+<pre style="margin-left:4em" class="screen">
+% rm -f simple.log
+
+% condor_submit submit.std
+Submitting job(s).
+1 job(s) submitted to cluster 125782.
+
+% condor_q
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:52713> : vdt-itb.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+125782.0   roy             6/20 17:08   0+00:00:00 I  0   1.2  simple.std 120 10 
+
+1 jobs; 1 idle, 0 running, 0 held
+
+% condor_q
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:52713> : vdt-itb.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+125782.0   roy             6/20 17:08   0+00:00:06 R  0   1.2  simple.std 120 10 
+
+1 jobs; 0 idle, 1 running, 0 held
+
+% condor_q
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:52713> : vdt-itb.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+125782.0   roy             6/20 17:08   0+00:01:04 R  0   1.2  simple.std 120 10 
+
+1 jobs; 0 idle, 1 running, 0 held
+
+% condor_q
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:52713> : vdt-itb.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+
+0 jobs; 0 idle, 0 running, 0 held
+
+% cat simple.log
+000 (125782.000.000) 06/20 17:08:06 Job submitted from host: <198.51.254.90:52713>
+...
+001 (125782.000.000) 06/20 17:08:27 Job executing on host: <192.168.0.12:47573>
+...
+005 (125782.000.000) 06/20 17:10:27 Job terminated.
+	(1) Normal termination (return value 0)
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Run Remote Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Total Remote Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+	1046  -  Run Bytes Sent By Job
+	1086405  -  Run Bytes Received By Job
+	1046  -  Total Bytes Sent By Job
+	1086405  -  Total Bytes Received By Job
+...
+</pre>
+
+Notice that the log file has a bit more information this time: we can see how much data was transfered to and from the job because it's in the standard universe. The remote usage was not very interesting because the job just slept, but a real job would have some interesting numbers there. 
+
+---++ Advanced tricks in the standard universe
+At this point in the tutorial, I will demonstrate how you can force your job to be checkpointed and what it will look like. We will use a command called condor_checkpoint that you normally never to use, so we can demonstrate. One reason that it normally isn't used is because it checkpoints all jobs running on a computer, not just the job you want to checkpoint. Be warned.
+
+Begin by submitting your job, and figuring out where it is running: 
+
+<pre style="margin-left:4em" class="screen">
+% rm -f simple.log
+
+% condor_submit submit.std
+Submitting job(s).
+1 job(s) submitted to cluster 125785.
+
+% condor_q
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:52713> : vdt-itb.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD               
+125785.0   roy             6/20 17:15   0+00:00:17 R  0   1.2  simple.std 120 10 
+
+1 jobs; 0 idle, 1 running, 0 held
+
+% condor_q -run
+-- Submitter: vdt-itb.cs.wisc.edu : <198.51.254.90:52713> : vdt-itb.cs.wisc.edu
+ ID      OWNER            SUBMITTED     RUN_TIME HOST(S)         
+125785.0   roy             6/20 17:15   0+00:00:18 slot1@miniosg-c01.cs.wisc.edu
+
+</pre>
+
+Now let's tell Condor to checkpoint and see what happens. %RED%Update this to be appropriate for your job!%ENDCOLOR%
+
+<pre style="margin-left:4em" class="screen">
+% condor_checkpoint miniosg-c01
+Sent "Checkpoint-All-Jobs" command to startd miniosg-c01.cs.wisc.edu
+
+% cat simple.log
+000 (125785.000.000) 06/20 17:15:16 Job submitted from host: <198.51.254.90:52713>
+...
+001 (125785.000.000) 06/20 17:15:17 Job executing on host: <192.168.0.12:47573>
+...
+006 (125785.000.000) 06/20 17:15:49 Image size of job updated: 1891
+...
+003 (125785.000.000) 06/20 17:15:49 Job was checkpointed.
+	Usr 0 00:00:00, Sys 0 00:00:00  -  Run Remote Usage
+	Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+	0  -  Run Bytes Sent By Job For Checkpoint
+...
+005 (125785.000.000) 06/20 17:15:49 Job terminated.
+	(1) Normal termination (return value 0)
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Run Remote Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Total Remote Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+	658117  -  Run Bytes Sent By Job
+	1086746  -  Run Bytes Received By Job
+	658117  -  Total Bytes Sent By Job
+	1086746  -  Total Bytes Received By Job
+...
+</pre>
+
+Voila! We checkpointed our job correctly. 
+
+<div style="margin-left: 1em; margin-right: 1em; background-color: #ffff66; border: 1px solid black; padding: 0.5em;">
+*Advanced note:*
+
+%TWISTY{%TWISTY_OPTS_MORE%}%
+
+You might notice that the job finished right after it was checkpointed. Why? The job was checkpointed while executing sleep(), then essentially restarted from the checkpoint (though Condor doesn't consider this to be a restart since the job didn't leave the computer). Condor didn't keep track of how much time had elapsed in the sleep call, so the job finished right away. Don't worry--Condor handles other system calls just fine. It's not clear how to handle checkpointing sleep()--if your job is interrupted during the sleep and restarted sometime later, how much time should Condor force the job to sleep for? Do we rely on wall clock time? Run time? 
+%ENDTWISTY%
+</div>
+
+Normally, you _never_ need to use condor_checkpoint: we just used it as a demonstration. Condor will checkpoint your jobs periodically (the default is every three hours) or when your job is forced to leave a computer to give time to another user. So you should never need to use condor_checkpoint. 
+
+---++ Challenges (if you have extra time)
+
+You can customize the behavior of the standard universe quite a bit. For instance, you can force some files to be accessed locally instead of via remote I/O. You can change the buffering of remote I/O to get better performance. You can disable checkpointing. You can kill a job that has been restarted from its checkpoint more than three times. How do you do these things? 
+
+Hint: Look at the [[http://www.cs.wisc.edu/condor/manual/v7.6/condor_submit.html][condor_submit manual page]].
