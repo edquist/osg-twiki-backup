@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TimCartwright" date="1308624850" format="1.1" version="1.8"}%
+%META:TOPICINFO{author="TimCartwright" date="1308695796" format="1.1" reprev="1.9" version="1.9"}%
 ---+ RPM Development Guide
 
 This page documents technical guidelines and details about RPM development for the OSG Software Stack. The procedures, conventions, and policies defined within are used by the OSG Software Team, and are recommended to all external developers who wish to contribute to the OSG Software Stack.
@@ -9,57 +9,36 @@ This page documents technical guidelines and details about RPM development for t
 
 The principles below guide the design and implementation of the technical details that follow.
 
-   1. For packages in the OSG software repository, we must be able to reproduce the complete build from data stored in our infrastructure. That is, if we rely on software or files that do not originate with us, we must copy them into our local infrastructure (e.g., version-control system) before we distribute packages based on them. Future (re)builds must not fail even if upstream files are no longer available. For example, we will make a local checkout from a software provider's source code repository instead of relying on the repository's continued existence. 
-   1. We must provide clear distinctions between what comes from external sources and what is the VDT's work. You'll see this distinction in the source code repository layout below. 
-   1. We must have a straightforward, unambiguous conversion from the files in our source code repository into source rpm. We must have a tool that can drive this process as well as the build. 
-   1. We should make it easy for external people to make contributions. 
-   1. We should rely on standard tools provided by the larger packaging/development community wherever appropriate. 
-   1. We will follow the OS vendor packaging guidelines as closely as possible. 
+   * Packages should adhere to community standards (e.g., [[http://fedoraproject.org/wiki/PackagingGuidelines][Fedora Packaging Guidelines]]) when possible, and significant deviations must be documented
+   * Every released package must be reproducible from data stored in our system
+   * Upstream source files (which should not be modified) should be clearly separated from files owned by the OSG Software Team
+   * Building source and binary packages from our system should be easy and efficient
+   * External developers should have a clear and effective system for developing and contributing packages
+   * We should use standard tools from relevant packaging and development communities when appropriate
 
-%RED%Warning:%ENDCOLOR% Many technical details follow. Gloss over parts you don't care about.
+%RED%Find a better home:%ENDCOLOR% We may require packages that do not meet all guidelines to install a file (perhaps in <code>/usr/share/doc/<i>package</i>/</code>) that documents major deviations from the guidelines that may be significant to end users.
 
----+++ Packaging Guidelines
+%RED%Find a better home:%ENDCOLOR% (We should probably provide a more user-level README file in /usr/share/doc/package as well, if a package doesn't come with some form of documentation)
 
-%RED%Tentative:%ENDCOLOR% Our packages _SHOULD_ (but need not) adhere to the [[http://fedoraproject.org/wiki/PackagingGuidelines][Fedora Packaging Guidelines]] whenever possible. However, we may require packages that do not meet all guidelines to install a file (perhaps in <code>/usr/share/doc/<i>package</i>/</code>) that documents major deviations from the guidelines that may be significant to end users.
+---++ Development Infrastructure
 
-(We should probably provide a more user-level README file in /usr/share/doc/package as well, if a package doesn't come with some form of documentation)
+This section documents most of what a developer needs to know about our RPM infrastructure:
 
----++ Build Process
+   * Upstream Source Cache — a filesystem scheme for caching upstream source files
+   * Revision Control System — where to get and store development files, and how they are organized
+   * Build System — how to build packages from the revision control system
+   * Development Tools — other tools to aid development
+   * Yum Repository — the location and organization of our Yum repository, and how to promote packages through it
 
-We have a few conflicting desires. We want to use community-accepted tools (such as mock and Koji), we want to take advantage of the Batlab at the University of Wisconsin–Madison, and we want to make it easy for external contributors to provide RPMs. How do we balance these?
+---+++ Upstream Source Cache
 
----+++ Officially Supported Packages
+One of our principles (every released package must be reproducible from data stored in our system) creates a potential issue: If we keep all historical source data, especially upstream files like source tarballs and source RPMs, in our revision control system, we may face large checkouts and consequently long checkout and update times.
 
-   1. All necessary information to create the package will be committed to the VDT source code repository (see below)
-   1. A tool will be provided that will take those files, create a source RPM, and submit it to a build system; initially we will support three underlying build systems:
-      1. rpmbuild
-      1. mock
-      1. Metronome (the Batlab build system); this build system will use mock, so it's very similar to option 2
+Our solution is to cache all upstream source files in a separate filesystem area, retaining historical files indefinitely. To avoid tainting upstream files, our policy is to leave them unmodified after download.
 
-Official builds will be done with Metronome, but contributors can use options 1 or 2 to develop a package before contributing it to the OSG Software Stack.
+%RED%Proposed extension:%ENDCOLOR% Immediately after caching an upstream source file, save its hash in a file of the same name with a hash-appropriate extension. This extra step could be added at any time in the future.
 
-Initially this will be all we support. In the near future, we will likely have our Metronome builds provide build information to a VDT-owned Koji instance. As we gain expertise with Koji, we may add support for directly using Koji. 
-
-We will implement these build options in the order they are presented. This will allow us to quickly get up to speed in producing !RPMs.
-
----+++ Unsupported Contributed Packages
-
-Unsupported contributed packages have two build options. They will be provided via a separate yum repository for unsupported contributions.
-
-   1. Build exactly like the supported packages (above). 
-   1. The RPM can be built by the contributor in their own environment and shared with the OSG Software Team for manual staging into the yum repository. 
-
-Should we support Koji in the future, we'll allow Koji submissions for trusted contributors. 
-
----++ Upstream Source Cache
-
-Two of our principles create a potential issue: We must keep local copies of all upstream source files (source RPMs, source tarballs, etc.), and we must keep a complete history of all files required to reproduce any released package. The issue is that managing large source files directly in the revision control system results in large checkouts and consequently long checkout and update times.
-
-Our solution is to cache all upstream source files in a separate filesystem area, retaining historical files indefinitely. Source files are not modified after download.
-
-%RED%Proposed extension:%ENDCOLOR% Immediately after caching an upstream source file, save its hash in a file of the same name with a hash-appropriate extension.
-
----+++ Filesystem Layout
+---++++ Locating Files in the Cache
 
 Upstream source files are stored in the filesystem as follows:
 
@@ -76,15 +55,60 @@ The authoritative cache is the VDT webserver. Other developers can create a loca
 
 Upstream source files are referenced from within the revision control system; see below for details.
 
----+++ Referencing Upstream Files
+---+++ Revision Control System
+
+All packages that the OSG Software Team releases are checked into our revision control system (currently Subversion). We %RED%will%ENDCOLOR% allow collaborators to commit to the repository.
+
+---++++ Subversion Access
+
+Our Subversion repository is located at:
+
+<blockquote><pre>https://vdt.cs.wisc.edu/svn</pre></blockquote>
+
+Or, from a UW–Madison Computer Sciences machine:
+
+<blockquote><pre>file:///p/condor/workspaces/vdt/svn</pre></blockquote>
+
+%RED%How does an external developer gain commit access to our repository?%ENDCOLOR%
+
+---++++ Top-Level Directory Organization
+
+The top levels of our Subversion directory hierarchy are as follows:
+
+<blockquote><pre>%RED%os%ENDCOLOR%/%RED%edition%ENDCOLOR%/%RED%package%ENDCOLOR%</pre></blockquote>
+
+where:
+
+   * %RED%os%ENDCOLOR% is a major operating system release; currently only <code>rhel5</code> is supported
+   * %RED%section%ENDCOLOR% is a development section%RED%, which may be one of the standard Subversion sections like <code>trunk</code>, <code>branches/*</code>, and <code>tags/*</code>%ENDCOLOR%
+   * %RED%package%ENDCOLOR% is our standardized name for a source package (e.g., <code>ndt</code>)
+
+---++++ Package Directory Organization
+
+Within a source package directory, the following files (detailed in separate sections below) may exist:
+
+   * <code>README</code>: a file of notes, by and for developers
+   * <code>*.source</code>: references to the upstream source cache
+   * <code>osg</code>: files that patch, replace, or add files in the final package
+   * <code>_build</code>: generated files that are the ultimate contents of the released source package
+   * <code>_unpacked</code>: the expanded contents of a cached upstream source package
+
+---+++++ README
+
+This is a free-form text file for developers to leave notes about the package.
+
+---+++++ Source Files
 
 Within the per-package directories of the revision control system, there must be a way to refer to cached files. This is done with small text files that (a) are named consistently, and (b) contain the location of the referenced file as its only contents.
 
 A reference file is named:
 
-<blockquote><pre>%RED%filename%ENDCOLOR%.source</pre></blockquote>
+<blockquote><em>filename</em><code>.source</code></blockquote>
 
-where %RED%filename%ENDCOLOR% is an arbitrary label for the reference, ideally chosen to be self-descriptive.
+where _filename_ is an arbitrary label for the reference, ideally chosen to be self-descriptive. %RED%Standard names for files are:%ENDCOLOR%
+
+   * %RED%<code>upstream-tarball.source</code>%ENDCOLOR%
+   * %RED%<code>upstream-srpm.source</code>%ENDCOLOR%
 
 The contents of this file match the filesystem path defined above, without the prefix component:
 
@@ -92,201 +116,181 @@ The contents of this file match the filesystem path defined above, without the p
 
 This way, the command-line tools that use the .source files can be given different prefixes for different build situations.
 
----++++ Example
+For example, the reference file for NDT’s source tarball, <code>upstream-tarball.source</code>, might contain:
 
-For NDT, a sample source tarball reference file might look like this:
-
-tarball.source:
 <blockquote><pre>ndt/3.6.4/ndt-3.6.4.tar.gz</pre></blockquote>
 
----++ Revision Control System
+---+++++ Package Files
 
-All packages that are built by the VDT will be checked into our revision control system (currently Subversion). We will allow collaborators to commit to the repository.
+The <code>osg</code> directory contains files that are owned by the OSG Software Team and that are used to create the final, released source package. It may contain a variety of development files:
 
-Within the system, each source package will be contained within a single directory from which we create a single source RPM. Within the directory, there can be two subdirectories:
+   * A <code>root</code> directory, which contains files, organized in FHS subdirectories, to be installed by the package; only to be used when no .source files are in the package directory
+   * An RPM <code>.spec</code> file, which overrides any spec file from a referenced source
+   * Patch (<code>.patch</code>) or replacement files, which override any same-named file from the top-level directory of a referenced source
+   * Other files, which must be explicitly placed into the package by the spec file
 
-   * <code>original</code>: Files that are copied from another source and left unchanged
-   * <code>osg</code>: Files that are provided by or under control of the OSG; they may be modifications (patches) to the original directory, or completely new files
+---+++++ Temporary Build Files
 
----+++ Original Directory
+The <code>_build</code> directory contains the final files that are part of the released source package. It is generated by the package build tool and is a volatile record of a build for developer use. This directory is excluded from Subversion commits.
 
-%RED%TODO:%ENDCOLOR% Within the original directory, we include the contents everything that comes from a source RPM, but with the individual files (not the source RPM itself). For example, if you examined the RPM for commonly-used "<code>less</code>" utility, you would see something like (simplified a bit):
+---+++++ Temporary Upstream Files
 
-<blockquote>
-<pre>
-% rpm -qpl unzip-5.52-3.el5.src.rpm 
-unzip-5.52-long-filename.patch
-unzip.spec
-unzip552.tar.gz
-</pre>
-</blockquote>
+The <code>_expanded</code> directory contains the files that are part of the upstream source package. It is generated by the package build tool and is a volatile record of the upstream source for developer use. This directory is excluded from Subversion commits.
 
-The original directory would contain:
+---+++++ Use Case 1: Packaging Our Own Code
 
-<blockquote>
-<pre>
-     original/
-     original/unzip.spec
-     original/unzip-5.52-long-filename.patch
-     original/%RED%SOURCES%ENDCOLOR%
-</pre>
-</blockquote>
-
-*Open Question:* We're not sure how to specify the source code. Options include: 
-   1. Check it into the repo as-is (or perhaps renamed to eliminate the version number so there is easier history
-   1. Do something koji-like where there is a makefile that can fetch the source code.
-   1. A file with a URL to the source code. 
-
-I think we want to keep the source code cached somewhere for reproducibility. 
-
-Currently, source code is stored under <code>/p/vdt/public/html/software/<i>package</i>/<i>version</i>/*</code>
-Any files with a <code>.source</code> extension in the package dir contain one or more source files (as URIs or paths relative to <code>/p/vdt/public/html/software</code>)
-
----+++ OSG Directory
-
-The "osg" directory may contain a few things:
-
-   1. A "root" directory that contains files to be installed as part of the RPM. This can only be used if the sources are not specified in the original directory.
-   1. A spec file. If there is a spec file in the original directory, the OSG-provided one is used.
-   1. Any OSG-specific patches. 
-
----+++ Example 1: A VDT-provided utility script, vdt-system-profiler
-
-We will provide a debugging utility named <code>vdt-system-profiler</code> to collect system information that can be sent to the OSG Software Team to aid in debugging. Within the source code repository, it would like this:
+When the OSG Software Team contributes all of the files for a package, they are located in the <code>osg/root</code> directory, and then there is a spec file. For example, the OSG Software Team provides a debugging utility called <code>vdt-system-profiler</code> to collect system information that can be sent to the OSG Software Team to aid in debugging. Its package directory contains:
 
 <blockquote>
 <pre>
 vdt-system-profiler/
-     osg/
-     osg/root/usr/bin/vdt-system-profiler
-     osg/vdt-system-profiler.spec
+    osg/
+    osg/root/usr/bin/vdt-system-profiler
+    osg/root/usr/share/man/man1/vdt-system-profiler.1
+    osg/vdt-system-profiler.spec
 </pre>
 </blockquote>
 
----+++ Example 2: The VDT creates the RPM for a package without one
+---+++++ Use Case 2: Packaging an Upstream Source Tarball
 
-As of today, the OSG RSV software does not provide an RPM. The source code repository would have:
+When the OSG Software Team packages an upstream source tarball, for which there is no existing package, the source tarball is referenced with a .source file and we provide a spec file and, if necessary, patches. For example, RSV is provided as a source tarball only. Its package directory contains:
 
 <blockquote>
 <pre>
 osg-rsv/
-     original/
-     original/%RED%SOURCES%ENDCOLOR%
-     osg/
-     osg/osg-rsv.spec
-</pre>
-</blockquote>
-
----+++ Example 3: The VDT copies a source RPM
-
-Here is an example of how we might copy a source RPM. We would copy the RPM in order to freeze the version and/or provide a minor patch. We might do this for xrootd, for example.
-
-<blockquote>
-<pre>
-xrootd/
-     original/
-     original/%RED%SOURCES%ENDCOLOR%
-     original/xrootd.spec
-     osg/
-     osg/xrootd.spec
-     osg/fix-init-script.patch
-</pre>
-</blockquote>
-
-Another way to do this is to reference the SRPM instead of unpacking it, in which case we wouldn't need to keep track of the individual components.
-Here is how that would look like:
-
-<blockquote>
-<pre>
-xrootd/
-    original-srpm.source
+    upstream-tarball.source
     osg/
-    osg/xrootd.spec
-    osg/fix-init-script.patch
+    osg/osg-rsv.spec
 </pre>
 </blockquote>
 
-The contents of <code>original-srpm.source</code> are:
+---+++++ Use Case 3: Passing Through a Source RPM
+
+When the OSG Software Team simply provides a copy of an existing source RPM, it is referenced with a .source file and that is it. For example, we do not modify the xrootd source RPM from EMI. Its package directory contains:
+
 <blockquote>
 <pre>
-xrootd/%RED%VERSION%ENDCOLOR%/%RED%SRPM%ENDCOLOR%
+xrootd/
+    upstream-srpm.source
 </pre>
 </blockquote>
-and the SRPM would be looked for in <code>/p/vdt/public/html/xrootd/%RED%VERSION%ENDCOLOR%/%RED%SRPM%ENDCOLOR%</code>.
 
-Before building, our script would unpack the SRPM, and copy over files in <code>osg/</code> overwriting existing files.
+---+++++ Use Case 4: Modifying a Source RPM
 
+When the OSG Software Team modifies an existing source RPM, it is referenced with a .source file and then all changes to the upstream source are contained in the <code>osg</code> directory. For example, *if we were to ship a modified Apache HTTPD webserver package,* we would use this mechanism. Its package directory contains:
 
----++ Command-Line Tools
+<blockquote><pre>
+apache/
+    osg/
+        httpd.spec
+        vdt-apachectl.patch
+    upstream-srpm.source
+</pre></blockquote>
 
-We will provide a VDT tool in our source code repository that will create !RPMs. The options will look something like this:
+---+++ Build Process
 
-*Option 1: Build with rpmbuild*
+We have a few conflicting desires. We want to use community-accepted tools (such as mock and Koji), we want to take advantage of the Batlab at the University of Wisconsin–Madison, and we want to make it easy for external contributors to provide RPMs. How do we balance these?
 
-<pre>
-make-vdt --rpmbuild PACKAGE-NAME
-</pre>
+---++++ Officially Supported Packages
 
-   1. Create the source rpm
-      1. Combine original and osg directories to create input needed to make source RPM
-      1. Make source RPM with <code>rpmbuild -bs --nodeps</code>
-   1. rpmbuild ...
-   1. Copy RPM to some local directory
+   1. All necessary information to create the package will be committed to the VDT source code repository (see below)
+   1. A tool will be provided that will take those files, create a source RPM, and submit it to a build system; initially we will support three underlying build systems:
+      * rpmbuild
+      * mock
+      * Metronome (the Batlab build system); this build system will use mock, so it's very similar to option 2
 
-*Option 2: Build with with*
+Official builds will be done with Metronome, but contributors can use options 1 or 2 to develop a package before contributing it to the OSG Software Stack.
 
-<pre>
-make-vdt --mock PACKAGE-NAME
-</pre>
+Initially this will be all we support. In the near future, we will likely have our Metronome builds provide build information to a VDT-owned Koji instance. As we gain expertise with Koji, we may add support for directly using Koji. 
 
-   1. Create the source rpm
-      1. Combine original and osg directories to create input needed to make source RPM
-      1. Make source RPM with <code>rpmbuild -bs --nodeps</code>
-   1. Set up mock
-   1. mock build 32 & 64 bit
-   1. Stage to yum repo if specified in config
+We will implement these build options in the order they are presented. This will allow us to quickly get up to speed in producing !RPMs.
 
-*Option 3: Build with Metronome*
+---++++ Unsupported Contributed Packages
 
-<pre>
-make-vdt --batlab PACKAGE-NAME
-</pre>
+Unsupported contributed packages have two build options. They will be provided via a separate yum repository for unsupported contributions.
 
-   1. Create the source rpm
-      1. Combine original and osg directories to create input needed to make source RPM
-      1. Make source RPM with <code>rpmbuild -bs --nodeps</code>
-   1. Submit build to Metronome
-      1. mock build 32 & 64 bit
-      1. Stage to yum repo via ssh if specified in config ... or ...
-      1. Stage to yum repo via Koji
+   1. Build exactly like the supported packages (above). 
+   1. The RPM can be built by the contributor in their own environment and shared with the OSG Software Team for manual staging into the yum repository. 
 
-*Option 4: Look at build input*
+Should we support Koji in the future, we'll allow Koji submissions for trusted contributors. 
 
-<pre>
-make-vdt --dry-run PACKAGE-NAME
-</pre>
+---++++ Build Tools
 
-   1. Combine original and osg directories to create input needed to make source RPM
-   1. Make source RPM
-   1. Tell user where to find these. 
+The revision control system contains a script to help with developing and building source and binary RPMs.
 
----++ OSG Software Repository
+---+++++ Synopsis
 
-VDT supported packages will be in three repositories per major version. 
+<blockquote><pre>vdtrpm <em>command</em> [options] <em>package</em> [...]</pre></blockquote>
 
-   1. *dev:* Packages that are not ready for release to anyone outside the VDT. They are bleeding-edge and may be changed at any time. This should only be used by contributors to the VDT (both VDT team and external contributors). 
-   1. *test:* Packages that are being tested for imminent release. The ITB and other testers will use this repository. Only a OSG Software Team member may promote packages from _dev_ to _test_. 
-   1. *release*: Packages that have been released to our users. Only an OSG Software Team member may promote packages from _test_ to _release_. In most cases this will only happen after ITB testing.
+---+++++ Commands
 
-Unlike the past where there were separate repositories for "the VDT" and "the OSG software cache", we will have a single shared repository. The GOC will continue to maintain the packages they have maintained (such as the VO configuration information), but will provide it via our mechanisms. 
+All commands create or update the =_build= and =_expanded= directories as appropriate.
 
-There will also be a "contrib" repository for unsupported software that may be of interest to VDT stakeholders.
+---++++++ =prepare=
 
-There may also be "personal" repositories for individuals to use for testing newly-built RPMs; the make-vdt script will have a mechanism for creating and using these.
+Prepares the final source package from upstream sources (if any) and local files (if any).
 
----+++ Package and Repository Signing
+---++++++ =rpmbuild=
 
-How we sign: one key for team vs. key for individuals. How does koji handle this?
+Prepares the final source package, then builds it locally using =rpmbuild= and, if successful, copies the resulting source and binary RPMs to the development section of the Yum repository.
+
+---++++++ =mock=
+
+Prepares the final source package, then builds it locally using =mock= and, if successful, copies the resulting source and binary RPMs to the development section of the Yum repository.
+
+---++++++ =batlab=
+
+Prepares the final source package, then builds it remotely using the UW–Madison Build And Test Lab (BATLab) and, if successful, copies the resulting source and binary RPMs to the development section of the Yum repository.
+
+---+++++ Options
+
+---++++++ =--help=
+
+Prints the built-in usage information and exits without doing anything else.
+
+---++++++ =-c=, =--cache-prefix= _prefix_
+
+Sets the _prefix_ for upstream source cache references. The prefix must be a valid URI starting with either =http=, =https=, or =file=. The upstream source cache must be organized as described above. All files referenced by =.source= files in the affected packages must exist in the cache, or a runtime error will occur. %RED%If not specified, defaults to =http://vdt.cs.wisc.edu/SOMETHING/=.%ENDCOLOR%
+
+---++++++ =-m=, =--mock-config= _path_
+
+Specifies the =mock= configuration to use with the =mock= command.
+
+---++++++ =-y=, =--yum-base= _path_
+
+Identifies the filesystem path at which the Yum repository is based. For the commands that attempt to install source and binary RPMs into Yum, this prefix is used to locate the Yum repository. %RED%If not specified, defaults to =/p/vdt/public/html/osg/yum/=.%ENDCOLOR%
+
+---+++ OSG Software Repository
+
+The OSG Software Team maintains a Yum repository, or technically, a set of parallel Yum repositories that contain our source and binary RPMs. The repository is contained within the VDT webserver, organized as follows:
+
+<blockquote><pre>http://vdt.cs.wisc.edu/osg/<em>os</em>/<em>level</em>/<em>architecture</em>/*.rpm</pre></blockquote>
+
+where:
+
+   * _os_: A short string that refers to the major operating system release for which the packages were made; currently, only =rhel5= is supported
+   * _level_: The release level of the package — see below for details
+   * _architecture_: The binary architecture (=i386= or =amd64=) or =source= or =noarch=
+
+Technically, every combination of OS, level, and architecture is a single Yum repository.
+
+---++++ Release Levels
+
+Every package is classified into a release level based on the amount of testing it has undergone and our confidence in its stability. When a package is first built, it goes into the lowest level (=development=). Only members of the OSG Software Team may promote packages upward through the release levels.
+
+   * =development= Packages intended for testing and use by the OSG Software Team and external contributors only. They are bleeding-edge and may be changed at any time without notice.
+   * =test= Packages intended for testing outside of the OSG Software Team but not yet blessed for production use. The ITB and other testers will use this repository.
+   * =production= Packages intended for general use, including on production systems. Most users should use only this repository.
+
+Contrary to past practice, when there were separate repositories for _the VDT_ and _the OSG software cache_, we will have a single shared repository. The GOC will continue to maintain the packages they have maintained (such as the VO configuration information), but will provide it via our mechanisms.
+
+%RED%There will also be a "contrib" repository for unsupported software that may be of interest to VDT stakeholders.%ENDCOLOR%
+
+%RED%There may also be "personal" repositories for individuals to use for testing newly-built RPMs; the make-vdt script will have a mechanism for creating and using these.%ENDCOLOR%
+
+---++++ Package and Repository Signing
+
+%RED%All TBD. How we sign: one key for team vs. key for individuals. How does koji handle this?%ENDCOLOR%
 
 ---++ Testing
 
