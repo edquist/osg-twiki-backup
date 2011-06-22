@@ -1,0 +1,279 @@
+%META:TOPICINFO{author="AlainRoy" date="1308712259" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="OSGSS2011Materials"}%
+---+ Handling a DAG that fails
+
+<div style="margin-left: 1em; margin-right: 1em; border: 1px solid black; padding: 0.5em;">
+---+++ Objective of this exercise
+The objective of this exercise is to help you learn how DAGMan deals with job failures. DAGMan is built to help you recover from such failures.
+</div>
+
+DAGMan can handle a situation where some of the nodes in a DAG fails. DAGMan will run as many nodes as possible, then create a rescue DAG making it easy to continue when the problem is fixed.
+
+Recall that DAGMan decides that a jobs fails if its exit code is non-zero. Let's modify our montage job so that it fails. Work in the same directory where you did the last DAG. Edit montage.sub to add a =-h= to the arguments. It will look like this (the change is highlighted in red):
+
+<pre style="margin-left:4em" class="screen">
+universe                = vanilla
+executable              = /usr/bin/montage
+arguments               = %RED%-h%ENDCOLOR% tile_0_0.ppm tile_0_1.ppm tile_1_0.ppm tile_1_1.ppm -mode Concatenate -tile 2x2 mandle.jpg
+should_transfer_files   = YES
+when_to_transfer_output = ONEXIT
+transfer_input_files    = tile_0_0.ppm,tile_0_1.ppm,tile_1_0.ppm,tile_1_1.ppm
+transfer_executable     = false
+output                  = montage.out
+error                   = montage.err
+log                     = goat.log
+queue
+</pre>
+
+Submit the DAG again: 
+
+<pre style="margin-left:4em" class="screen">
+% condor_submit_dag goatbrot.dag
+-----------------------------------------------------------------------
+File for submitting this DAG to Condor           : goatbrot.dag.condor.sub
+Log of DAGMan debugging messages                 : goatbrot.dag.dagman.out
+Log of Condor library output                     : goatbrot.dag.lib.out
+Log of Condor library error messages             : goatbrot.dag.lib.err
+Log of the life of condor_dagman itself          : goatbrot.dag.dagman.log
+
+Submitting job(s).
+1 job(s) submitted to cluster 126220.
+-----------------------------------------------------------------------
+</pre>
+
+
+Use watch to watch the jobs until they finish.
+
+In a separate window, use =tail --lines=500 -f simple.dag.dagman.out= to watch what DAGMan does. 
+
+<pre style="margin-left:4em" class="screen">
+06/21/11 18:51:29 Setting maximum accepts per cycle 4.
+06/21/11 18:51:29 ******************************************************
+06/21/11 18:51:29 ** condor_scheduniv_exec.126182.0 (CONDOR_DAGMAN) STARTING UP
+06/21/11 18:51:29 ** /usr/bin/condor_dagman
+06/21/11 18:51:29 ** SubsystemInfo: name=DAGMAN type=DAGMAN(10) class=DAEMON(1)
+06/21/11 18:51:29 ** Configuration: subsystem:DAGMAN local:<NONE> class:DAEMON
+06/21/11 18:51:29 ** $CondorVersion: 7.6.1 May 31 2011 BuildID: 339001 $
+06/21/11 18:51:29 ** $CondorPlatform: x86_rhap_5 $
+06/21/11 18:51:29 ** PID = 2864
+06/21/11 18:51:29 ** Log last touched time unavailable (No such file or directory)
+06/21/11 18:51:29 ******************************************************
+06/21/11 18:51:29 Using config source: /etc/condor/condor_config
+06/21/11 18:51:29 Using local config sources: 
+06/21/11 18:51:29    /etc/condor/condor_config.local
+
+... output trimmed ...
+
+%RED%06/21/11 21:21:03 Node montage job proc (126225.0.0) failed with status 1.
+06/21/11 21:21:03 Number of idle job procs: 0
+06/21/11 21:21:03 Of 5 nodes total:
+06/21/11 21:21:03  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+06/21/11 21:21:03   ===     ===      ===     ===     ===        ===      ===
+06/21/11 21:21:03     4       0        0       0       0          0        1
+06/21/11 21:21:03 0 job proc(s) currently held
+06/21/11 21:21:03 ERROR: the following job(s) failed:
+06/21/11 21:21:03 ---------------------- Job ----------------------
+06/21/11 21:21:03       Node Name: montage
+06/21/11 21:21:03            Noop: false
+06/21/11 21:21:03          NodeID: 4
+06/21/11 21:21:03     Node Status: STATUS_ERROR    
+06/21/11 21:21:03 Node return val: 1
+06/21/11 21:21:03           Error: Job proc (126225.0.0) failed with status 1
+06/21/11 21:21:03 Job Submit File: montage.sub
+06/21/11 21:21:03   Condor Job ID: (126225.0.0)
+06/21/11 21:21:03       Q_PARENTS: g1, g2, g3, g4, <END>
+06/21/11 21:21:03       Q_WAITING: <END>
+06/21/11 21:21:03      Q_CHILDREN: <END>
+06/21/11 21:21:03 ---------------------------------------	<END>
+06/21/11 21:21:03 Aborting DAG...
+06/21/11 21:21:03 Writing Rescue DAG to goatbrot.dag.rescue001...%ENDCOLOR%
+06/21/11 21:21:03 Note: 0 total job deferrals because of -MaxJobs limit (0)
+06/21/11 21:21:03 Note: 0 total job deferrals because of -MaxIdle limit (0)
+06/21/11 21:21:03 Note: 0 total job deferrals because of node category throttles
+06/21/11 21:21:03 Note: 0 total PRE script deferrals because of -MaxPre limit (0)
+06/21/11 21:21:03 Note: 0 total POST script deferrals because of -MaxPost limit (0)
+%RED%06/21/11 21:21:03 **** condor_scheduniv_exec.126220.0 (condor_DAGMAN) pid 15627 EXITING WITH STATUS 1%ENDCOLOR%
+</pre>
+
+DAGMan notices that one of the jobs failed because it's exit code was non-zero. DAGMan ran as much of the DAG as possible and logged enough information to continue the run when the situation is resolved. Do you see the part where it wrote the resuce DAG?
+
+Look at the rescue DAG. It's the same structurally as your original DAG, but nodes that finished are marked DONE. (DAGMan also reorganized the file.) When you submit the rescue DAG, DONE nodes will be skipped. 
+
+<pre style="margin-left:4em" class="screen">
+% cat goatbrot.dag.rescue001
+# Rescue DAG file, created after running
+#   the goatbrot.dag DAG file
+# Created 6/22/2011 02:21:03 UTC
+#
+# Total number of Nodes: 5
+%RED%# Nodes premarked DONE: 4%ENDCOLOR%
+%RED%# Nodes that failed: 1
+#   montage,%ENDCOLOR%&lt;ENDLIST>
+
+JOB g1 goatbrot1.sub %RED%DONE%ENDCOLOR%
+
+JOB g2 goatbrot2.sub %RED%DONE%ENDCOLOR%
+
+JOB g3 goatbrot3.sub %RED%DONE%ENDCOLOR%
+
+JOB g4 goatbrot4.sub %RED%DONE%ENDCOLOR%
+
+JOB montage montage.sub 
+
+PARENT g1 CHILD montage
+PARENT g2 CHILD montage
+PARENT g3 CHILD montage
+PARENT g4 CHILD montage
+</pre>
+
+From the comment near the top, we know that the montage node failed. Let's fix it by getting rid of the offending =-h= argument. Change montage.sub to look like:
+
+<pre style="margin-left:4em" class="screen">
+universe                = vanilla
+executable              = /usr/bin/montage
+arguments               = tile_0_0.ppm tile_0_1.ppm tile_1_0.ppm tile_1_1.ppm -mode Concatenate -tile 2x2 mandle.jpg
+should_transfer_files   = YES
+when_to_transfer_output = ONEXIT
+transfer_input_files    = tile_0_0.ppm,tile_0_1.ppm,tile_1_0.ppm,tile_1_1.ppm
+transfer_executable     = false
+output                  = montage.out
+error                   = montage.err
+log                     = goat.log
+queue
+</pre>
+
+Now we can submit our rescue DAG (not the original DAG) and DAGMan will pick up where it left off. If you didn't fix the problem, DAGMan would generated another rescue DAG.
+
+<pre style="margin-left:4em" class="screen">
+% condor_submit_dag goatbrot.dag.rescue001 
+-----------------------------------------------------------------------
+File for submitting this DAG to Condor           : goatbrot.dag.rescue001.condor.sub
+Log of DAGMan debugging messages                 : goatbrot.dag.rescue001.dagman.out
+Log of Condor library output                     : goatbrot.dag.rescue001.lib.out
+Log of Condor library error messages             : goatbrot.dag.rescue001.lib.err
+Log of the life of condor_dagman itself          : goatbrot.dag.rescue001.dagman.log
+
+Submitting job(s).
+1 job(s) submitted to cluster 126235.
+-----------------------------------------------------------------------
+
+% tail -f goatbrot.dag.rescue001.dagman.out
+06/21/11 21:54:20 Setting maximum accepts per cycle 4.
+06/21/11 21:54:20 ******************************************************
+06/21/11 21:54:20 ** condor_scheduniv_exec.126235.0 (CONDOR_DAGMAN) STARTING UP
+06/21/11 21:54:20 ** /usr/bin/condor_dagman
+06/21/11 21:54:20 ** SubsystemInfo: name=DAGMAN type=DAGMAN(10) class=DAEMON(1)
+06/21/11 21:54:20 ** Configuration: subsystem:DAGMAN local:<NONE> class:DAEMON
+06/21/11 21:54:20 ** $CondorVersion: 7.6.1 May 31 2011 BuildID: 339001 $
+06/21/11 21:54:20 ** $CondorPlatform: x86_rhap_5 $
+06/21/11 21:54:20 ** PID = 18754
+06/21/11 21:54:20 ** Log last touched time unavailable (No such file or directory)
+06/21/11 21:54:20 ******************************************************
+06/21/11 21:54:20 Using config source: /etc/condor/condor_config
+06/21/11 21:54:20 Using local config sources: 
+06/21/11 21:54:20    /etc/condor/condor_config.local
+06/21/11 21:54:20 DaemonCore: command socket at <198.51.254.90:36818>
+06/21/11 21:54:20 DaemonCore: private command socket at <198.51.254.90:36818>
+06/21/11 21:54:20 Setting maximum accepts per cycle 4.
+06/21/11 21:54:20 DAGMAN_VERBOSITY setting: 3
+06/21/11 21:54:20 DAGMAN_DEBUG_CACHE_SIZE setting: 5242880
+06/21/11 21:54:20 DAGMAN_DEBUG_CACHE_ENABLE setting: False
+06/21/11 21:54:20 DAGMAN_SUBMIT_DELAY setting: 0
+06/21/11 21:54:20 DAGMAN_MAX_SUBMIT_ATTEMPTS setting: 6
+06/21/11 21:54:20 DAGMAN_STARTUP_CYCLE_DETECT setting: False
+06/21/11 21:54:20 DAGMAN_MAX_SUBMITS_PER_INTERVAL setting: 5
+06/21/11 21:54:20 DAGMAN_USER_LOG_SCAN_INTERVAL setting: 5
+06/21/11 21:54:20 allow_events (DAGMAN_IGNORE_DUPLICATE_JOB_EXECUTION, DAGMAN_ALLOW_EVENTS) setting: 114
+06/21/11 21:54:20 DAGMAN_RETRY_SUBMIT_FIRST setting: True
+06/21/11 21:54:20 DAGMAN_RETRY_NODE_FIRST setting: False
+06/21/11 21:54:20 DAGMAN_MAX_JOBS_IDLE setting: 0
+06/21/11 21:54:20 DAGMAN_MAX_JOBS_SUBMITTED setting: 0
+06/21/11 21:54:20 DAGMAN_MAX_PRE_SCRIPTS setting: 0
+06/21/11 21:54:20 DAGMAN_MAX_POST_SCRIPTS setting: 0
+06/21/11 21:54:20 DAGMAN_ALLOW_LOG_ERROR setting: False
+06/21/11 21:54:20 DAGMAN_MUNGE_NODE_NAMES setting: True
+06/21/11 21:54:20 DAGMAN_PROHIBIT_MULTI_JOBS setting: False
+06/21/11 21:54:20 DAGMAN_SUBMIT_DEPTH_FIRST setting: False
+06/21/11 21:54:20 DAGMAN_ABORT_DUPLICATES setting: True
+06/21/11 21:54:20 DAGMAN_ABORT_ON_SCARY_SUBMIT setting: True
+06/21/11 21:54:20 DAGMAN_PENDING_REPORT_INTERVAL setting: 600
+06/21/11 21:54:20 DAGMAN_AUTO_RESCUE setting: True
+06/21/11 21:54:20 DAGMAN_MAX_RESCUE_NUM setting: 100
+06/21/11 21:54:20 DAGMAN_DEFAULT_NODE_LOG setting: null
+06/21/11 21:54:20 DAGMAN_GENERATE_SUBDAG_SUBMITS setting: True
+06/21/11 21:54:20 ALL_DEBUG setting: 
+06/21/11 21:54:20 DAGMAN_DEBUG setting: 
+06/21/11 21:54:20 argv[0] == "condor_scheduniv_exec.126235.0"
+06/21/11 21:54:20 argv[1] == "-Lockfile"
+06/21/11 21:54:20 argv[2] == "goatbrot.dag.rescue001.lock"
+06/21/11 21:54:20 argv[3] == "-AutoRescue"
+06/21/11 21:54:20 argv[4] == "1"
+06/21/11 21:54:20 argv[5] == "-DoRescueFrom"
+06/21/11 21:54:20 argv[6] == "0"
+06/21/11 21:54:20 argv[7] == "-Dag"
+06/21/11 21:54:20 argv[8] == "goatbrot.dag.rescue001"
+06/21/11 21:54:20 argv[9] == "-CsdVersion"
+06/21/11 21:54:20 argv[10] == "$CondorVersion: 7.6.1 May 31 2011 BuildID: 339001 $"
+06/21/11 21:54:20 argv[11] == "-Dagman"
+06/21/11 21:54:20 argv[12] == "/usr/bin/condor_dagman"
+06/21/11 21:54:20 Default node log file is: </home/roy/condor-test/goatbrot.dag.rescue001.nodes.log>
+06/21/11 21:54:20 DAG Lockfile will be written to goatbrot.dag.rescue001.lock
+06/21/11 21:54:20 DAG Input file is goatbrot.dag.rescue001
+06/21/11 21:54:20 Parsing 1 dagfiles
+06/21/11 21:54:20 Parsing goatbrot.dag.rescue001 ...
+06/21/11 21:54:20 Dag contains 5 total jobs
+06/21/11 21:54:20 Sleeping for 12 seconds to ensure ProcessId uniqueness
+06/21/11 21:54:32 Bootstrapping...
+
+%RED%Here is where DAGMan notices that some jobs have already finished.%ENDCOLOR%
+06/21/11 21:54:32 Number of pre-completed nodes: 4
+06/21/11 21:54:32 Registering condor_event_timer...
+06/21/11 21:54:33 Sleeping for one second for log file consistency
+06/21/11 21:54:34 MultiLogFiles: truncating log file /home/roy/condor-test/goat.log
+
+%RED%Here is where DAGMan resubmits the montage job.%ENDCOLOR%
+06/21/11 21:54:34 Submitting Condor Node montage job(s)...
+06/21/11 21:54:34 submitting: condor_submit -a dag_node_name' '=' 'montage -a +DAGManJobId' '=' '126235 -a DAGManJobId' '=' '126235 -a submit_event_notes' '=' 'DAG' 'Node:' 'montage -a +DAGParentNodeNames' '=' '"g1,g2,g3,g4" montage.sub
+06/21/11 21:54:34 From submit: Submitting job(s).
+06/21/11 21:54:34 From submit: 1 job(s) submitted to cluster 126236.
+06/21/11 21:54:34 	assigned Condor ID (126236.0.0)
+06/21/11 21:54:34 Just submitted 1 job this cycle...
+06/21/11 21:54:34 Currently monitoring 1 Condor log file(s)
+06/21/11 21:54:34 Event: ULOG_SUBMIT for Condor Node montage (126236.0.0)
+06/21/11 21:54:34 Number of idle job procs: 1
+06/21/11 21:54:34 Of 5 nodes total:
+06/21/11 21:54:34  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+06/21/11 21:54:34   ===     ===      ===     ===     ===        ===      ===
+06/21/11 21:54:34     4       0        1       0       0          0        0
+06/21/11 21:54:34 0 job proc(s) currently held
+06/21/11 21:54:44 Currently monitoring 1 Condor log file(s)
+06/21/11 21:54:44 Event: ULOG_EXECUTE for Condor Node montage (126236.0.0)
+06/21/11 21:54:44 Number of idle job procs: 0
+06/21/11 21:54:44 Event: ULOG_JOB_TERMINATED for Condor Node montage (126236.0.0)
+06/21/11 21:54:44 Node montage job proc (126236.0.0) completed successfully.
+
+%RED%This is where the montage finished.%ENDCOLOR%
+06/21/11 21:54:44 Node montage job completed
+06/21/11 21:54:44 Number of idle job procs: 0
+06/21/11 21:54:44 Of 5 nodes total:
+06/21/11 21:54:44  Done     Pre   Queued    Post   Ready   Un-Ready   Failed
+06/21/11 21:54:44   ===     ===      ===     ===     ===        ===      ===
+06/21/11 21:54:44     5       0        0       0       0          0        0
+06/21/11 21:54:44 0 job proc(s) currently held
+
+%RED%And here DAGMan decides that the work is all done.%ENDCOLOR%
+06/21/11 21:54:44 All jobs Completed!
+06/21/11 21:54:44 Note: 0 total job deferrals because of -MaxJobs limit (0)
+06/21/11 21:54:44 Note: 0 total job deferrals because of -MaxIdle limit (0)
+06/21/11 21:54:44 Note: 0 total job deferrals because of node category throttles
+06/21/11 21:54:44 Note: 0 total PRE script deferrals because of -MaxPre limit (0)
+06/21/11 21:54:44 Note: 0 total POST script deferrals because of -MaxPost limit (0)
+06/21/11 21:54:44 **** condor_scheduniv_exec.126235.0 (condor_DAGMAN) pid 18754 EXITING WITH STATUS 0
+</pre>
+
+Success! Now go ahead and clean up. 
+
+---++ Challenge
+If you have time, add an extra node to the DAG. Copy our original "simple" program, but make it exit with a 1 instead of a 0. DAGMan would consider this a failure, but you'll tell DAGMan that it's really a success. This is reasonable--many real world programs use a variety of return codes, and you might need to help DAGMan distinguish success from failure.
+
+Write a POST script that checks the return value. Check [[http://www.cs.wisc.edu/condor/manual/v7.6/2_10DAGMan_Applications.html#dagman:SCRIPT][the Condor manual]] to see how to describe your post script. 
