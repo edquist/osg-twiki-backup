@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianBockelman" date="1308856664" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="BrianBockelman" date="1308861408" format="1.1" version="1.3"}%
 %META:TOPICPARENT{name="OSGSS2011Materials"}%
 ---+!!Data Management Exercises (Part II) 
 %TOC{depth="3"}%
@@ -420,17 +420,17 @@ Shared file systems such as NFS are not highly scalable, especially on the OSG. 
 In this exercise, we will improve on the situation by replacing the shared file system with an OSG storage element.
 
 ---+++ Simple Case: Serving files from a SE
-First, copy a sequence query you will need to use as input to blast executable (copy ==yeast.query1== from ==/opt/workshop/dm_exercises/part2== to your working directory).
+First, copy a sequence query you will need to use as input to blast executable (copy ==yeast.query1== from ==/opt/workshop/dm_exercises/part2== to your working directory).  Do a ==lcg-ls== on the remote SE (%SURL%/%VO%/%UCL_USER%) and verify that the yeast database files are actually there; if not, return to the previous set of exercises and copy them over.
 
 Then, write a simple script that will do the following:
-   1. Setup the OSG worker node environment.
-   1. Create a temporary space on the worker node under ==$OSG_WN_TMP==, move to this directory.
-   1. Find all the files related to the database you want to search (e.g ==yeast==)  at  SE %VO% (surl: ==%SURL%/%VO%==) . The directory path to all BLAST databases is ==/store/osgedu/blast/db-1/==. (Try to do ==srm-ls== command and verify that they are actually there).
+   1. Find all the files related to the database you want to search (==yeast==)  at the SE (==%SURL%/%VO%/%UCL_USER%==)
    1. Download all the files associated with ==yeast== to the worker node.
    1. Run BLAST executable with required parameters (database name, sequence query and log file).
-The Condor-G submission file should describe input and output  files you want to  transfer with these two scripts.
+The Condor submit file should describe input and output files you want to transfer for the job.
 
-You can try to solve this problem on your own. If you need help you can check my examples. Copy ==blast.sh== script from ==/opt/workshop/dm_exercises/part2/blast.sh==
+You can try to solve this problem on your own. If you need help you can try the solution below.
+
+Copy ==blast.sh== script from ==/opt/workshop/dm_exercises/part2/blast.sh==
    * ==blast.sh== (slightly modified script provided by Alain [[https://twiki.grid.iu.edu/bin/view/Education/CondorBLASTOSS2010][here]]). <pre class="file">
 more blast.sh
 %TWISTY%
@@ -441,18 +441,11 @@ if [ $# -ne 3 ]; then
     exit 1
 fi
 
-
-appdir=$OSG_APP/osgedu/hcc
-dbdir=$OSG_DATA/osgedu/blast_dbs
-
-# Get our environment set up
-. $appdir/setup.sh
-
 # Run the query
 blastp -db $dbdir/$1 -query $2  >>$3  2>&1
 %ENDTWISTY%
 </pre>
-   * Copy the wrapper script ==/opt/workshop/dm_exercises/part2/blast_wrapper.sh==.<pre class="file">
+   * Copy the wrapper script ==%BLAST_DB_SUBMIT%/blast_wrapper.sh==.<pre class="file">
 more blast_wrapper.sh
 %TWISTY%
 #!/bin/bash
@@ -463,11 +456,12 @@ more blast_wrapper.sh
 #################################################################################
 usage ()
 {
-     log "Usage: ./blast_wrapper.sh surl db_name query_file logfile"
+     log "Usage: ./blast_wrapper.sh surl db_name query_file [logfile]"
+     log "Sample: ./blast_wrapper.sh srm://red-srm1.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/user/osgedu/bbockelm yeast query.fasta"
 }
 log ()
 {
-if [ x$logname == x ]
+if [ "x$logname" == x ]
 then
         echo $1
 else
@@ -484,7 +478,6 @@ surl=$1
 dbname=$2
 query=$3
 logname=""
-cwd=`pwd`
 if [ $# -eq 4 ]
 then
         logname=$4
@@ -494,48 +487,41 @@ then
 fi
 retVal=0
 log "Start blast_wrapper.sh"
-#setup grid enviroment
-. $OSG_GRID/setup.sh
-#create temporary directory
-export TMPDIR=$OSG_WN_TMP
-tmpDir=`mktemp -d -t osgedu.XXXXXX`
-cd $tmpDir
-log "Current directory is $tmpDir"
-#move and change the permission of the uploaded script
-mv $cwd/blast.sh .
-chmod 755 blast.sh
-mv $cwd/$query .
-mkdir db-1
+
+mkdir -p db-1
 #get all the databases we need to download
-log "Executing: srm-ls $surl|grep  SRM-CLIENT|grep yeast"
-srm-ls $surl|grep SRM-CLIENT|grep $dbname|awk -F'db-1/' '{print $2}'|while read name
+log "Executing: lcg-ls -b -D srmv2 $surl | grep ${dbname}.nt."
+lcg-ls -b -D srmv2 $surl | grep ${dbname}.nt. | xargs -L 1 basename | while read name
 do
-        log "Executing: srm-copy $surl/$name file:///$PWD/db-1/$name "
-        srm-copy $surl/$name file:///$PWD/db-1/$name
-        curRetVal=$?
-        log "Return value $curRetVal"
-        if [ $curRetVal -ne 0 ]
+        if [ -e $PWD/db-1/$name ]
+                log "Not downloading $name as it is already present."
         then
-                retVal=$curRetVal
-                log "New Return value $curRetVal"
+                log "Executing: lcg-cp -b -D srmv2 $surl/$name file:/$PWD/db-1/$name "
+                lcg-cp -b -D srmv2 $surl/$name file:/$PWD/db-1/$name
+                curRetVal=$?
+                log "Return value $curRetVal"
+                if [ $curRetVal -ne 0 ]
+                then
+                        retVal=$curRetVal
+                        log "New Return value $curRetVal"
+                fi
         fi
 done
+
 log "Return value $retVal"
 if [ $retVal -eq 0 ]
 then
-        #move word_counter script
         option=""
-        if [ x$logname != x ]
+        log "Executing: ./blastp -db db-1/yeast -query $query"
+        if [ "x$logname" != x ]
         then
-                option=$logfile
+                ./blastp -db db-1/yeast -query $query  >>$logfile  2>&1
+        else
+                ./blastp -db db-1/yeast -query $query 2>&1
         fi
-        log "Executing: ./blast.sh $dbname $query $option"
-        ./blast.sh $dbname $query  $option
         retVal=$?
         log "Return value $retVal"
 fi
-cd $OSG_WN_TMP
-rm -rf $tmpDir
 log "End blast_wrapper.sh"
 exit $retVal
 %ENDTWISTY%
