@@ -1,24 +1,56 @@
-%META:TOPICINFO{author="StevenTimm" date="1309974126" format="1.1" version="1.20"}%
+%META:TOPICINFO{author="RobertEngel" date="1310067395" format="1.1" reprev="1.21" version="1.21"}%
 %META:TOPICPARENT{name="ComputeElementInstall"}%
----+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %DOC_STATUS_TABLE%
-%TOC{depth="2"}%
 
+---+!! Local Authorization Guide
+%TOC{}%
 
-%BR%
----++ About this Document
+---+ About this Document
 
-%ICON{hand}% This document is for System Administrators. It describes how to set up authorization for your CE using edg-mkgridmap to generate a local gridmap file .
+<!-- useful variable definition
+   * Local UCL_CWD = /opt/osg-%OSG_VERSION%
+   * Local UCL_SERVICE = edg-mkgridmap
+   * Local UCL_HOST = server
+-->
 
----++ Introduction
- It is necessary to enable some mode of authentication before you can successfully  run the OSG configuration script.  There is no mode of authentication that is enabled by default.  This section of the document describes how to enable the Local Authorization mode. There is more background information about the other privilege modes  at AboutAuthorizationForCE.   If you   wish to enable a different mode, please consult [[FullPrivPreConfig][Full Privilege authorization page]]. The Local Authorization mode, uses an ASCII file called a grid-mapfile to make all decisions about authorization. With this mode it is not possible to correctly implement role-based authentication for Virtual Organizations, and difficult to implement VO Groups correctly. This  document provides a short guide to the steps that are necessary to perform for this mode before you run the OSG configuration utility.
+%ICON{hand}% This document is for System Administrators. It describes how to set up local authorization for a %LINK_GLOSSARY_CE% _or_ %LINK_GLOSSARY_SE% using *edg-mkgridmap*. This service creates the =/etc/grid-security/grid-mapfile= by querying VOMS servers.
 
-You may prefer this configuration if:
-   * You are a small site (one gatekeeper) and, 
-   * You deal with a small set of fairly static VOs 
-   * You are *not* supporting _role-based_ authorizations (voms proxies with extended attributes) 
+%NOTE% Alternatively [[ReleaseDocumentation/InstallConfigureAndManageGUMS][GUMS]] can be used for authorization!
 
-The place where the choice of authorization mode is made is in the config.ini file under the <pre class="file">[Misc Services]</pre> section.
+---+ Introduction
+
+%TWISTY{%TWISTY_OPTS_REVIEW%}%
+   * you use authorization and authentication throughout the text, have a look at http://en.wikipedia.org/wiki/Authentication#Authentication_vs._authorization
+   * the ugly Twiki names as this AboutAuthorizationForCE should never appear in the text, but be made proper links such as this [[ReleaseDocumentation/AboutAuthorizationForCE][here]], it is shorter and hides the mess of document naming that was created in the Twiki
+   * the file output below clearly belongs in the configuration section of the document, not in the introduction
+   * watch language: "You are a small site ...". I know what you want to say, but in terms of language your sentence makes no sense, because the reader is not a small site.
+   * ask yourself what question the reader might have reading a paragraph and provide links to further reading, such as:
+      * What other forms of authentication exist? -> GUMS
+      * What is a gatekeeper, CE, SE? -> %LINK_GLOSSARY_GATEKEEPER%, %LINK_GLOSSARY_CE%, %LINK_GLOSSARY_SE%
+      * What is authentication and how does it differ from authorization? -> http://en.wikipedia.org/wiki/Authentication#Authentication_vs._authorization
+      * ...
+   * I add section how to activate and deactivate service, because it was missing in the document
+   * link to VO and VOMS in Glossary
+   * make file output fit a standard screen width. I read at 1920 pixels width and I still can't get the output to fit my screen. 
+%ENDTWISTY%
+
+It is necessary to enable some mode of authentication before you can successfully run the OSG configuration script.  There is no mode of authentication that is enabled by default.  This section of the document describes how to enable the Local Authorization mode. There is more background information about the other privilege modes  at AboutAuthorizationForCE.   If you   wish to enable a different mode, please consult [[FullPrivPreConfig][Full Privilege authorization page]]. The Local Authorization mode, uses an ASCII file called a grid-mapfile to make all decisions about authorization. With this mode it is not possible to correctly implement role-based authentication for Virtual Organizations, and difficult to implement VO Groups correctly. This  document provides a short guide to the steps that are necessary to perform for this mode before you run the OSG configuration utility.
+
+Local authorization is the preferred method for:
+
+   * small sites using a single %LINK_GLOSSARY_GATEKEEPER%
+   * sites providing access to a small set of static %LINK_GLOSSARY_VO%s
+   * sites that do not require to support _role-based_ authorization
+
+---+ Configuration
+
+   1 enable gridmap authorization in =%UCL_CWD%/osg/etc/config.ini=
+   1 adjust the list of supported %LINK_GLOSSARY_VO%s
+   1 add local users to the gridmap file
+
+---++ Enable Gridmap Authorization
+
+Edit the =[Misc Services]= section in =%UCL_CWD%/osg/etc/config.ini= and choose *gridmap* for _authorization_method_:
 
 <pre class="file">
 [Misc Services]
@@ -30,19 +62,21 @@ authorization_method = gridmap
 </pre>
 
 
-The =grid-mapfile= can be maintained using the =edg-mkgridmap= cron service that is installed with the OSG CE software. A GUMS service is not used.
+---++ Adjust the List of supported Virtual Organizations
 
----++ Configure edg-mkgridmap
-=ekg-mkgridmap= is a service that creates =/etc/grid-security/grid-mapfile= by pulling information out of VOMS servers. It has its own configuration file, called =edg-mkgridmap.conf=.
+By default _all_ virtual organizations registered and approved by the %LINK_OSG% are listed in the _default configuration file_ generated at =$VDT_LOCATION/edg/etc/edg-mkgridmap.conf= during the installation of *edg-mkgridmap*. Please review the entries in =$VDT_LOCATION/edg/etc/edg-mkgridmap.conf= and comment out entries of all virtual organizations that you don't want to access your resource:
 
----+++ Configure the list of supported VO's for your site
- During installation, a default OSG configuration file, =$VDT_LOCATION/edg/etc/edg-mkgridmap.conf=, is created providing access to all registered and approved OSG VOs VOMS servers. Review this configuration file: 
-   * If the list is acceptable to you, then you're done with this step. 
-   * If not, then you will need to edit the file and commenting out the line(s) for each VO you wish to disable. 
+The syntax of the *edg-mkgridmap* configuration file is documented [[http://vdt.cs.wisc.edu/extras/edg-mkgridmap.conf.html][here]].
 
 The following is a snippet of the =edg-mkgridmap.conf= file with some brief comments related to the syntax.
 
-<pre class="file">    
+%TWISTY{%TWISTY_OPTS_REVIEW%}%
+   * please document the syntax of the configuration file outside the file example.
+   * then show one or more examples illustrating what you want to say
+   * the file output below now has two comments (#,__), which make this really difficult to read
+%ENDTWISTY%
+
+<pre class="file">
 __Comment lines start with "#" as in a shell script.__  
 #### GROUP: group URI [lcluser] #      
 __"# USER-VO-MAP" line has special significance in OSG:      - the 1st and 2nd tokens after this string are the subgroup and VO respectively      - it then shows the  VO administrator, VO admin email address)__ 
@@ -60,19 +94,9 @@ __Some VO's may have multiple VOMS lines__
 
 The syntax of the =# USER-VO-MAP= line is significant for OSG accounting and monitoring to be effective. If you have not already done so, read the [[OsgSupportedVos][OSG Supported VOs]] topic *now*.
 
-Please notice that this configuration file is periodically updated by the OSG GOC and new/updated versions are issued. 
-The GOC will send out an email notifying the site administrators of the change who then need to run
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% pacman update vo-package
-</pre>
-to update the =edg-mkgridmap.conf= file.
+---++ Add Local Users to the Gridmap File
 
-For this reason, it is recommended that you do not delete entries, but comment them (using =#=). This will allow you to do a comparison of your current configuration against any new OSG version more accurately and you will be more readily aware of those VOs you omitted intentionally.
-
-Generic information can be found at the [[http://vdt.cs.wisc.edu/extras/edg-mkgridmap.conf.html][VDT edg-mkgridmap configuration file documentation page]].
-
----+++ Setting up edg-mkgridmap for local users
- You probably want to keep some portion of your current =grid-mapfile= (at least your own entry) as locally known users so that you won't get locked out should there be a problem with a VOMS server.
+You probably want to keep some portion of your current =grid-mapfile= (at least your own entry) as locally known users so that you won't get locked out should there be a problem with a VOMS server.
 
 You can accomplish this by adding the following directive to the end of the =edg-mkgridmap.conf= file.
 
@@ -87,30 +111,18 @@ The local entries from this file are added to the actual =/etc/grid-security/gri
    * The syntax of the =grid-mapfile-local= is the same as the real =grid-mapfile= 
    * Any =gmf_local= directive(s) *must* (otherwise they could get overwritten) be the last entries in the =edg-mkgridmap.conf= file. 
 
----+++ Enable the edg-mkgridmap service
+---++ GRAM Service Configuration
 
-<pre class="rootscreen">%UCL_PROMPT_ROOT% vdt-control --enable edg-mkgridmap </pre>
-
- You can also force the creation of a new =/etc/grid-security/grid-mapfile= by running
-<pre>(YOUR_VDT_LOCATION)/edg/sbin/edg-mkgridmap </pre>
-as *root* by hand.
-
----++ Configure Globus to use the Local authorization mode
-The Globus gatekeeper is a CE service (also known as Pre_WS-GRAM) that submits user jobs from the grid to an underlying local batch system. Users present their grid identities (user proxy) to Globus. 
-This identity is mapped to a local user (UNIX username) using the PRIMA libraries.
-Jobs are then run in the batch system using this local identity.
+%LINK_GLOSSARY_GRAM% is a service provided on a %LINK_GLOSSARY_CE% that accepts jobs by grid users and submits them to the underlying local batch system. The %LINK_GLOSSARY_GRID_PROXY% of the user is _mapped_ to a local Unix account using the PRIMA libraries. Jobs are then run in the batch system using this Unix account.
 
 No configuration changes are needed. The Globus gatekeeper will automatically use the =/etc/grid-security/grid-mapfile=.
 
----++ WS-GRAM services configuration
-WS-GRAM is a CE service that submits user jobs from the grid to an underlying local batch system. Users present their grid identities (user proxy) to WS-GRAM. This identity is mapped to a local user (UNIX username), for example using a gridmap-file (as explained above). Jobs are run in the batch system using this local identity. 
+---++ WS-GRAM Service Configuration
 
----+++!! WS-GRAM configuration for local auth mode
-The default authorization mode for WS_GRAM is Local.  It uses the =/etc/grid-security/grid-mapfile= as the basis for authorization.  
+%LINK_GLOSSARY_GRAM_WS% is the web-service implementation of %LINK_GLOSSARY_GRAM% and provides identical functionality. The default authorization mode for WS_GRAM is Local. No configuration changes are needed. 
 
-So no changes to the configuration are needed.
+---++ WS-GRAM services sudoers file
 
----+++!! WS-GRAM services sudoers file
 Pre-WS-GRAM and WS-GRAM use two different mechanisms to switch to the appropriate local user.
 
 The <i>pre-WS</i> GRAM processes run as privileged user (root) and can, therefore, change to any local unprivileged user. This mechanism, however, may present security risks: bugs in the code, which runs as root, may be exploited to gain privileged access to the machine.
@@ -138,15 +150,38 @@ daemon ALL=(GLOBUSUSERS)         \
  -g /etc/grid-security/grid-mapfile          /usr/local/osg-ce/globus/libexec/globus-gram-local-proxy-tool * 
 </pre>
 
----++ Known issues
+---+ Enable the Service
 
----++ More information
+<pre class="rootscreen">%UCL_PROMPT_ROOT% vdt-control --enable edg-mkgridmap </pre>
+
+To manually create a new =/etc/grid-security/grid-mapfile= use:
+
+<pre class="rootscreen">%UCL_PROMPT_ROOT% $VDT_LOCATION/edg/sbin/edg-mkgridmap </pre>
+
+---+ Activate and Deactivate the Service
+
+%INCLUDE{"ReleaseDocumentation/StartingServices" section="Activate" TOC_SHIFT="+" }%
+%INCLUDE{"ReleaseDocumentation/StartingServices" section="Deactivate" TOC_SHIFT="+" }%
+
+---+ Update the Gridmap File
+
+The configuration file =$VDT_LOCATION/edg/etc/edg-mkgridmap.conf= is updated periodically by the %LINK_GOC_OPEN_TICKET%. Notifications will be sent to resource administrators to update the vo-package:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% pacman update vo-package
+</pre>
+
+It is recommended that you do not delete entries, but only comment them out. This will allow you to do a comparison of your current configuration against any new OSG version more accurately and you will be more readily aware of those VOs you omitted intentionally.
+
+---+ Known issues
+
+---+ Troubleshooting
 
 Refer to the [[EdgMkgridmapTroubleshootingGuide][edg-mkgridmap troubleshooting guide]] for any problems/errors.
 
+---+ References
 
-
----++ *Comments*
+---+ *Comments*
 
 %COMMENT{type="tableappend"}%
 
@@ -189,7 +224,7 @@ Refer to the [[EdgMkgridmapTroubleshootingGuide][edg-mkgridmap troubleshooting g
  Thank for reviewing this document! Please fill in your FirstLast name here:
    * Local REVIEWER       = RobertEngel
  Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local REVIEW_PASSED  = %IN_PROGRESS%
+   * Local REVIEW_PASSED  = %NO%
 
 
 ############################################################################################################
