@@ -1,0 +1,219 @@
+%META:TOPICINFO{author="DerekWeitzel" date="1310144500" format="1.1" reprev="1.1" version="1.1"}%
+---+!! Report on Building a prototype Campus Grid at Florida
+%TOC%
+
+
+---++ Symptom: Jobs not Running
+=condor_q= showed that the jobs were staying Idle.  Independent investigation lead Yu to the !NegotiatorLog indicating jobs were not matching.
+%TWISTY{
+mode="div"
+showlink="Show..."
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="file">
+07/06/11 12:06:15 ---------- Started Negotiation Cycle ----------
+07/06/11 12:06:15 Phase 1:  Obtaining ads from collector ...
+07/06/11 12:06:15   Getting all public ads ...
+07/06/11 12:06:15   Sorting 5 ads ...
+07/06/11 12:06:15   Getting startd private ads ...
+07/06/11 12:06:15 Got ads: 5 public and 0 private
+07/06/11 12:06:15 Public ads include 1 submitter, 0 startd
+07/06/11 12:06:15 Phase 2:  Performing accounting ...
+07/06/11 12:06:15 Phase 3:  Sorting submitter ads by priority ...
+07/06/11 12:06:15 Phase 4.1:  Negotiating with schedds ...
+07/06/11 12:06:15   Negotiating with yfu@ufhpc at <10.13.54.11:43314>
+07/06/11 12:06:15 0 seconds so far
+07/06/11 12:06:15     Request 00009.00000:
+07/06/11 12:06:15       Rejected 9.0 yfu@ufhpc <10.13.54.11:43314>: no match found
+07/06/11 12:06:15     Got NO_MORE_JOBS;  done negotiating
+07/06/11 12:06:15  negotiateWithGroup resources used scheddAds length 1
+07/06/11 12:06:15 ---------- Finished Negotiation Cycle ----------
+</pre> 
+%ENDTWISTY%
+
+
+
+We first tried looking at the output of a few debugging commands, =condor_status= and =condor_status -any=.  These show anything that the glideins where not reporting to the Campus Factory's collector.
+%TWISTY{
+mode="div"
+showlink="Show..."
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[yfu@submit1 ~]$ condor_status
+[yfu@submit1 ~]$ condor_status -any
+
+MyType               TargetType           Name
+
+Collector            None                 PersonalCondorForCampusFactory
+Scheduler            None                 submit1.ufhpc
+DaemonMaster         None                 submit1.ufhpc
+Negotiator           None                 submit1.ufhpc
+Submitter            None                 yfu@ufhpc
+</pre>
+%ENDTWISTY%
+
+
+
+Next we looked at the campus_factory.log - the campus factory was complaining that the =FLOCK_FROM= variable was not defined.
+%TWISTY{
+mode="div"
+showlink="Show..."
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="file">
+2011-07-06 12:22:12,745 - ERROR - stdout =
+
+2011-07-06 12:22:12,748 - DEBUG - Idle jobs = 0
+2011-07-06 12:22:12,751 - INFO - No idle jobs
+2011-07-06 12:22:12,754 - INFO - Sleeping for 30 seconds
+2011-07-06 12:22:42,757 - INFO - Starting iteration...
+2011-07-06 12:22:42,757 - DEBUG - Idle glideins = 0
+2011-07-06 12:22:42,759 - DEBUG - Queued jobs = 0
+2011-07-06 12:22:42,762 - DEBUG - Using FLOCK_FROM from the condor configuration
+2011-07-06 12:22:42,764 - DEBUG - Schedds to query: ['']
+2011-07-06 12:22:42,766 - INFO - Running external command: condor_q -name  -const '(GlideinJob =!= true) &&  (JobStatus == 1)' -format '<glidein owner="%s"/>' 'Owner'
+2011-07-06 12:22:42,769 - DEBUG - stdin =
+2011-07-06 12:22:42,919 - DEBUG - Exit code: 256
+2011-07-06 12:22:42,922 - DEBUG - stdout:
+
+2011-07-06 12:22:42,924 - DEBUG - strerr: Error: unknown host -const
+Extra Info: The name given with the -name should be the name of a
+condor_schedd process. Normally it is either a hostname, or "name@hostname".
+In either case, the hostname should be the Internet host name, but it appears
+that it wasn't.
+
+2011-07-06 12:22:42,927 - ERROR - No valid output received from command: condor_q -name  -const '(GlideinJob =!= true) &&  (JobStatus == 1)' -format '<glidein owner="%s"/>' 'Owner'
+2011-07-06 12:22:42,929 - ERROR - stderr = Error: unknown host -const
+Extra Info: The name given with the -name should be the name of a
+condor_schedd process. Normally it is either a hostname, or "name@hostname".
+In either case, the hostname should be the Internet host name, but it appears
+that it wasn't.
+
+2011-07-06 12:22:42,931 - ERROR - stdout =
+
+2011-07-06 12:22:42,934 - DEBUG - Idle jobs = 0
+2011-07-06 12:22:42,936 - INFO - No idle jobs
+2011-07-06 12:22:42,938 - INFO - Sleeping for 30 seconds
+</pre>
+%ENDTWISTY%
+
+
+
+%RED%*Solution:*%ENDCOLOR% Add local schedd (output from =condor_status -schedd=) to the FLOCK_FROM variable in cf/condor/etc/config.d/condor_config.factory.
+%NOTE% This is a [[https://sourceforge.net/apps/trac/campusfactory/ticket/11][bug]] discovered in the Campus Factory.
+
+---++ Symptom: Held glidein_wrapper jobs.
+=condor_q= showed that the glidein jobs where being held.
+%TWISTY{
+mode="div"
+showlink="Show..."
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[yfu@submit1 ~]$ condor_q
+
+-- Submitter: submit1.ufhpc : <128.227.253.69:43314> : submit1.ufhpc
+ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD
+  9.0   yfu             7/6  11:27   0+00:00:00 I  0   0.0  hostname
+ 12.0   yfu             7/6  12:34   0+00:01:18 R  0   0.0  runfactory -c etc/
+ 13.0   yfu             7/6  12:34   0+00:00:00 H  0   0.0  glidein_wrapper.sh
+ 14.0   yfu             7/6  12:35   0+00:00:00 H  0   0.0  glidein_wrapper.sh
+ 15.0   yfu             7/6  12:35   0+00:00:00 H  0   0.0  glidein_wrapper.sh
+</pre>
+%ENDTWISTY%
+
+The output of =condor_q -hold= displayed the hold reason: =Failed to start GAHP=.
+%TWISTY{
+mode="div"
+showlink="Show..."
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[yfu@submit1 ~]$ condor_q -hold
+
+
+-- Submitter: submit1.ufhpc : <128.227.253.69:43314> : submit1.ufhpc
+ID      OWNER           HELD_SINCE HOLD_REASON
+ 13.0   yfu             7/6  12:34 Failed to start GAHP
+ 14.0   yfu             7/6  12:35 Failed to start GAHP
+ 15.0   yfu             7/6  12:35 Failed to start GAHP
+ 16.0   yfu             7/6  12:36 Failed to start GAHP
+ 17.0   yfu             7/6  12:36 Failed to start GAHP
+ 18.0   yfu             7/6  12:37 Failed to start GAHP
+ 19.0   yfu             7/6  12:37 Failed to start GAHP
+ 20.0   yfu             7/6  12:38 Failed to start GAHP
+ 21.0   yfu             7/6  12:38 Failed to start GAHP
+ 22.0   yfu             7/6  12:39 Failed to start GAHP
+ 23.0   yfu             7/6  12:39 Failed to start GAHP
+ 24.0   yfu             7/6  12:40 Failed to start GAHP
+ 25.0   yfu             7/6  12:40 Failed to start GAHP
+ 26.0   yfu             7/6  12:41 Failed to start GAHP
+ 27.0   yfu             7/6  12:41 Failed to start GAHP
+ 28.0   yfu             7/6  12:42 Failed to start GAHP
+ 29.0   yfu             7/6  12:42 Failed to start GAHP
+ 30.0   yfu             7/6  12:43 Failed to start GAHP
+</pre>
+%ENDTWISTY%
+
+%RED%*Solution:*%ENDCOLOR% Condor changed the location of glite from the 7.5 release to the 7.6 release.  The =condor_config.factory= had the old location.  Setting =GLITE_LOCATION = $(LIBEXEC)/glite= in the condor_config.factory fixed the issue.  [[http://sourceforge.net/apps/trac/campusfactory/ticket/13][Bug]].  Fixed, and released a bug fix release, 0.4.1.
+
+---++ Symptom: Still no jobs running.
+=condor_status= did not show any glideins reporting to the Collector, causing no jobs to start.
+
+The !CollectorLog had a few entries that said =PERMISSION DENIED=.
+%TWISTY{
+mode="div"
+showlink="Show..."
+hidelink="Hide"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="file">
+07/07/11 08:44:00 Got QUERY_STARTD_ADS
+07/07/11 08:44:00 (Sending 0 ads in response to query)
+07/07/11 08:44:10 ZKM: 1: attempting to map 'yfu'
+07/07/11 08:44:10 ZKM: 2: mapret: 0 included_voms: 0 canonical_user: anonymous@claimtobe
+07/07/11 08:44:10 ZKM: successful mapping to anonymous@claimtobe
+07/07/11 08:44:10 PERMISSION DENIED to anonymous@claimtobe from host 10.13.20.101 for command 67 (CCB_REGISTER), access level DAEMON: reason: cached result for DAEMON; see first case for the full reason
+</pre>
+%ENDTWISTY%
+
+=ALLOW_WRITE= was correct:
+<pre class="screen">
+condor_config_val ALLOW_WRITE
+submit1.ufhpc  yfu@ufhpc 10.13.* ufl.edu 128.227.221.* 128.227.253.* submit1
+</pre>
+
+%RED%*Solution:*%ENDCOLOR% When running =condor_restart=, it was using the external interface.  The configuration was correct, but the collector was not picking up the new configurations since the collector was not allowing Yu to restart it.  Needed to add =ALLOW_ADMINISTRATOR = yfu@submit.hpc.ufl.edu= to the condor_config.factory.  This allowed Yu to restart condor by issuing the command =condor_restart=.  Fixed in Campus Factory [[http://campusfactory.git.sourceforge.net/git/gitweb.cgi?p=campusfactory/campusfactory;a=commit;h=d02082befb456a1f3c2bcd856cc09e74be922f3f][commit]].
+
+---++ Symptom: Remotely submitted jobs not starting
+=condor_q= showed remotely submitted jobs where staying idle.
+
+The ShadowLog on the remote server showed that it was unable to connect to the worker node.
+<pre class="file">
+7/7 21:47:55 (pid:1147) Match record (15599@r8a-s9.ufhpc <10.13.20.34:54794?CCBID=10.13.54.11:9618#285> for yfu@ihepa.ufl.edu, 3.6) deleted
+<strong>7/7 21:47:55 (pid:1147) attempt to connect to <10.13.23.213:9618> failed: Connection refused (connect errno = 111).</strong>
+7/7 21:47:55 (pid:1147) Failed to send REQUEST_CLAIM to startd 16814@r14b-s10.ufhpc <10.13.23.213:46875?CCBID=10.13.54.11:9618#279> for yfu@ihepa.ufl.edu: SECMAN:2003:TCP connection to startd 16814@r14b-s10.ufhpc <10.13.23.213:46875?CCBID=10.13.54.11:9618#279> for yfu@ihepa.ufl.edu failed.
+7/7 21:47:55 (pid:1147) Match record (16814@r14b-s10.ufhpc <10.13.23.213:46875?CCBID=10.13.54.11:9618#279> for yfu@ihepa.ufl.edu, 3.7) deleted
+</pre>
+
+The Bold line was especially odd.  It was trying to connect to 9618 on the Worker Node?  
+
+%RED%*Solution:*%ENDCOLOR% Update the remote submission machine to Condor 7.4+.  It was running 7.2.4, which did not support the CCB that the Campus Factory uses.  Documentation was updated to reflect this.
+
+
+
+
+
+-- Main.DerekWeitzel - 08 Jul 2011
