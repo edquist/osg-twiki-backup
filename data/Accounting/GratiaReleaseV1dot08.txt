@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="PhilippeCanal" date="1310580748" format="1.1" reprev="1.12" version="1.12"}%
+%META:TOPICINFO{author="PhilippeCanal" date="1310592249" format="1.1" reprev="1.13" version="1.13"}%
 %META:TOPICPARENT{name="WebHome"}%
 <!--
 These are general in nature and should be changed in the this template if the location changes:
@@ -18,9 +18,6 @@ These are specific to a release and require changing:
 
    * Set BUILD_DIRECTORY = /home/weigand/cdcvs/gratia-%CURRENT_RELEASE%
 
-
-
-
 -->
 ---+!! Gratia Release %CURRENT_RELEASE% (%RELEASE_DATE%)%BR% 
 
@@ -30,44 +27,130 @@ These are specific to a release and require changing:
 %STARTINCLUDE%
 ---+ Overview
 
-<!--The main purpose of this release (%CURRENT_RELEASE%) is to add support for authenticated connection between Probe and Collector.-->
+The main purpose of this release (%CURRENT_RELEASE%) is to enhance the database schema and to add a record of the whole Gratia ecosystem's health.
 
 ---++Main Features:
-   * Increase the range of the dbid for the raw data (from 32 bits to 64 bits integer), virtually removing any size limitation (beside the limitation of the database engine or hardware).
-   * Complete revamping of the gathering of information about the status and performance of the Collector (see [[GratiaReleaseV1dot08#Collector_Improvements][details]] below)
 
----++ Misc.
+   * Introduced support for monitoring and display any potential backlog of any of the Gratia components (See [[GratiaReleaseV1dot08#Probe_Improvements][probe details]] and  [[GratiaReleaseV1dot08#Collector_Improvements][collector details]])
+   * Increased the range of the dbid for the raw data (from 32 bits to 64 bits integer), virtually removing any size limitation (beside the limitation of the database engine or hardware).
+   * Completed revamping of the gathering of information about the status and performance of the Collector (see [[GratiaReleaseV1dot08#Collector_Improvements][details]] below)
 
----++ Email Reports
+---++ Notices
 
----++ Probe Improvements:
+   * First restart will be slow due to the significant database schema upgrade required.
+   * The duplicate detection on SE, CE, and Subcluster was replaced at the request of HCC and OSG (due to the fact we really don't want duplicate detection here but "transition detection").
 
+---++ Report Improvements
+
+   * Static reports upgrade to no longer produce non-truncated PDF.
+   * Daily pre-generated reports are now PDF files.
+   * Upgraded to BIRT 2.6.1
+
+---++ Probe Improvements
+
+   * Add new functionality to allow delegation of the lifetime of transient input files to Gratia so that there are deleted only in case the record is properly saved and backed-up.   This feature is now used in the Condor probe.
+   * Add upload of information about the amount of data still needing to be processed or uploaded by a Probe to the Collector.
+   * Add interface (GratiaCore::RegisterEstimatedServiceBacklog) to to let the probe tell the system how much work is left to do (Individual probes still need to be updated to take advantage of this feature).
+   * Update GratiaCore to upload both the amount 
+   * Allow delegation of lifetime of input file to the Gratia Core library for easier deletion only in case of full success ; this fixes a problem with file accumulation with the condor probe.
    * Checking on number of inodes and disk space used by the urCollector par of the PBS/LSF Probe (to prevent overflow)
    * Extra status reporting
    * Support for HTPC jobs
    * Support for CREAM (by supporting blahp.log to provide certificate information).
    * Repaired SGE probe.
-   * Allow delegation of lifetime of input file to the Gratia Core library for easier deletion only in case of full success ; this fixes a problem with file accumulation with the condor probe.
+   * Merged the GlideInWMS probe into the Condor probe.
+   * Added support in the PBS probe for ‘array jobs’.
+   * Added support for Torque stores old accounting logs in .gz files. 
+   * Removed dependency on SQLAlchemy and setup tools.
+   * Add support for ancient python version (2.3.4)
+   * Several fixed for dcache probe.
 
----+++ Details
-
----++ Collector Improvements:
-
-   * Increase the range of the dbid for the raw data (from 32 bits to 64 bits integer)
+---++ Collector Improvements
+  
+   * General improvement in the response time both of the administration page and of the enabling/disabling of the Collector features.
+   * Housekeeping is now automatically paused if the number of record in one of the queue reach the value of 'max.housekeeping.nrecords' in the configuration file.  The housekeeping service is restarted if the number of record in each queues goes back under 'min.housekeeping.nrecords'.
+   * Increased the range of the dbid for the raw data (from 32 bits to 64 bits integer)
       * The collector schema will be automatically updated the first time the collector is restarted, this will involve (essentially) a complete rewrite of all the data table and thus can be quire time consuming.
+   * Improved XML error handling when parsing the incoming data (i.e. eliminate potential data loss in case of non standard record being uploaded)
+   * New administration page listing the performance of Collector and containing: 
+      * current uploading rate
+      * current incoming rate
+      * recovery estimate
+      * recovery estimate including estimated backlog on the service side
+      * housekeeping status and recovery rate
+   * New administration pages detailing the current backlog content:
+      * Backlog of any probe or collector sending information to the local Collector.
+      * Historical information on those backlog
+      * Details on which probes still has data files in the local queue
    * Improve information available in Status page, add collector-status.html page to get the state of the sub-system.  See [[https://twiki.grid.iu.edu/bin/view/Accounting/Monitoring][documentation page]] for details. 
-   * Improve response time of Status page.
+   * Greatly improved response time and stability of the Status page.
 
----+++ Pending explicit request from Stakeholders.
-   * Automatic table optimization (schedulable, abortable, triggerable) [Insert will be disabled during optimization]
-   * Automatic sync of !VONameCorrection table and info OIM.
+---+++ Technical information
 
----+++ Notices
+   * The file name used to stage the incoming data in the Collector's thread directory now encodes the name of the origin and the number of records (i.e. job#randomnumber#.#origin#.#numberOfRecords#.xml where
+  the origin is the sender collector or probe with all : and / replaced with underscores.)
+   * The way the Collector gathers and displays the statistics and performance information has been completely revamped.
+      * The Status and !MonitorStatus administration pages have been updated to take advantage of the new tables and are now fast even under heavy load.
+      * 4 tables now participates: !TableStatistics, !TableStatisticsSnapshots, !TableStatisticsHourly, !TableStatisticsDaily
+         * !TableStatistics contains for each record type (JobUsage, Metric, etc.) the number of records that are currently in the database and the number of records that have been processed (even if they have been deleted since).   For each, the table not only the number of good record but also the number of duplicates and the number of ‘errorneous’ records (‘Qualifier’). The main new feature in this table is the addition of the ‘lifetime’ number in addition to the current numbers.
+         * !TableStatisticsSnapshots contains a copy of the content of TableStatistics taken every five minutes (customizable) and kept for a day (default)
+         * !TableStatisticsHourly contains a summary of the snapshots taken during a given hour.   For each entry (current/lifetime,RecordType,Qualifier), the table records the exact start and end time it covers, the minimum, maximum and average number of records during the period.  The default is to keep those hourly summary for one year.
+         * !TableStatisticsDaily contains a summary of the snapshots taken during a given day.   For each entry (current/lifetime,RecordType,Qualifier), the table records the exact start and end time it covers, the minimum, maximum and average number of records during the period.  The default is to keep those daily summary indefinitely. 
+    * A new class, !TableStatisticsManager, is introduced to manage the lifetime of the rows in the new statistics tables and to do/schedule the copying and summarizing.  2 new MYSQLl functions are also introduced for this purpose: table_statictics_hourly_summary and table_statictics_daily_summary.
+   * The Collector now and displays the current and historical information about its backlog and the backlog of its providers.
+      * The backlog details administration pages have been created to take advantage of the new tables
+      * 4 tables now participates: !BacklogStatistics, !BacklogStatisticsSnapshots, !BacklogStatisticsHourly, !BacklogStatisticsDaily
+         * !BacklogStatistics contains for each providers the number of records and xml files (and tar files) currently in their Gratia as well as an estimate of the amount of information about the service (for example number of batch jobs) the Probe still need to process.   In addition, the table records the bundle size used by the provider to upload its records and the maximum size allowed for its queue. 
+         * !BacklogStatisticsSnapshots contains a copy of the content of BacklogStatistics taken every fifteen minutes (customizable) and kept for a day (default).
+         * !BacklogStatisticsHourly contains a summary of the snapshots taken during a given hour.   For each entry (EntityType/Name), the table records the exact start and end time it covers, the minimum, maximum and average number of records during the period.  The default is to keep those hourly summary for one year.
+         * !BacklogStatisticsDaily contains a summary of the snapshots taken during a given day.   For each entry (EntityType/Name)), the table records the exact start and end time it covers, the minimum, maximum and average number of records during the period.  The default is to keep those daily summary indefinitely. 
+   * A new class, !BacklogtatisticsManager, is introduced to manage the lifetime of the rows in the new statistics tables and to do/schedule the copying and summarizing.  2 new MYSQLl functions are also introduced for this purpose: backlog_statictics_hourly_summary and backlog_statictics_daily_summary.
+   * These 2 new set of features are customizable via the following configuration entry:
+<pre class="screen">#
+# Table Statistics history 
+#
+# frequency of the snapshots, 0 disable the history recording.
+# In number of minutes between snapshots
+#
+tableStatistics.snapshots.wait = 5
+#
+# How long to keep the individual snap shots of the table statistics
+#
+service.lifetime.TableStatisticsSnapshots = 1 day
+#
+# How long to keep the hourly summary of the table statistics
+#
+service.lifetime.TableStatisticsHourly = 1 year
+#
+# How long to keep the daily summary of the table statistics
+#
+service.lifetime.TableStatisticsDaily = UNLIMITED
+#
+# input queue control - whether or not to monitor queue sizes.
+#
+#
+# Backlog Statistics history 
+#
+# frequency of the snapshots, 0 disable the history recording.
+# In number of minutes between snapshots
+#
+backlogStatistics.snapshots.wait = 15
+#
+# How long to keep the individual snap shots of the backlog statistics
+#
+service.lifetime.BacklogStatisticsSnapshots = 1 day
+#
+# How long to keep the hourly summary of the backlog statistics
+#
+service.lifetime.BacklogStatisticsHourly = 1 year
+#
+# How long to keep the daily summary of the backlog statistics
+#
+service.lifetime.BacklogStatisticsDaily = UNLIMITED
+#
+# input queue control - whether or not to monitor queue sizes.
+#</pre>
 
-   * Anecdotical evidence that GRAM is losing cert info under heavy load
-   * Web Services *must* be improved to pass the cert info along to the Gratia Accounting Probes.
-
----++ Additional Features:
 
 <!--   -------------------------------------------- -->
 ---+ Anticipated downtime
