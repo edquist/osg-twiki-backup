@@ -1,17 +1,17 @@
-%META:TOPICINFO{author="StevenTimm" date="1305834335" format="1.1" version="1.43"}%
+%META:TOPICINFO{author="RobertEngel" date="1310660606" format="1.1" reprev="1.44" version="1.44"}%
 %META:TOPICPARENT{name="ComputeElementInstall"}%
 %DOC_STATUS_TABLE%
 
 ---+!! Managed Fork
-%TOC%
+%TOC{}%
 
 ---+ About this Document
 
-%ICON{hand}% This document is for system administrator of a %LINK_GLOSSARY_CE%. It describes the function and installation of the !ManagedFork job manager.
+%ICON{hand}% This document is for system administrators of a %LINK_GLOSSARY_CE%. It describes the function and installation of the !ManagedFork job manager.
 
 ---+ About !ManagedFork
 
-[[Documentation/GlossaryC#DefsManagedFork][!ManagedFork]] is an optional service which replaces the default fork jobmanager with Condor to manage incoming fork requests.  Commands such as =condor_q= and =condor_history= can be used to see the actual command lines of the fork jobs during and after execution, providing an important logging capacity.  More importantly, the number of fork jobs can be controlled with a configurable policy to help ensure that the CE is not overwhelmed by fork jobs.  This is a very important consideration: the standard fork manager allows a user to accidentally or maliciously "fork bomb" a CE.  As such, Managed Fork is highly recommended.
+[[Documentation/GlossaryC#DefsManagedFork][!ManagedFork]] is an optional service which replaces the default fork job manager with Condor to manage incoming fork requests.  Commands such as =condor_q= and =condor_history= can be used to see the actual command lines of the fork jobs during and after execution, providing an important logging capacity.  More importantly, the number of fork jobs can be controlled with a configurable policy to help ensure that the CE is not overwhelmed by fork jobs.  This is a very important consideration: the standard fork manager allows a user to accidentally or maliciously "fork bomb" a CE.  As such, Managed Fork is highly recommended.
 
 We will cover the steps of installing ManagedFork, configuring ManagedFork, enabling ManagedFork, and using ManagedFork.
 
@@ -20,80 +20,91 @@ We will cover the steps of installing ManagedFork, configuring ManagedFork, enab
 
 ---+ Requirements
 
-The base OSG compute element install (http://software.grid.iu.edu/osg-1.2:ce) must be installed with Pacman before the managed fork
-job manager is installed.  See ComputeElementInstall for this procedure.  [[Documentation/GlossaryC#DefsCondor][Condor]] is also required but if you do not have it the VDT will install it automatically.  Both cases are covered below.
+   * a %LINK_PACMAN% Installation
+   * a [[ReleaseDocumentation/ComputeElementInstall][Compute Element Installation]]
+   * a stand alone [[Documentation/GlossaryC#DefsCondor][Condor]] Installation (optional)
 
----+ Install using Condor from the VDT
-If you want to use Condor from the VDT, installation is simple:
-<pre class="screen">
-cd $VDT_LOCATION
-source $VDT_LOCATION/setup.sh
-pacman -get  %CACHE%:ManagedFork
-source $VDT_LOCATION/setup.sh
-</pre>
-Sourcing setup.sh a second time is to load the Condor environment after !ManagedFork is installed.  
-
-Note that installing %CACHE%:ManagedFork will install a local Condor that is only used for ManagedFork jobs.
-
----+ Install using an existing Condor
-
-Many site administrators have a pre-existing Condor (for the cluster's batch system, eg.) and wish to use it, rather than another copy of Condor, for Managed Fork jobmanger. The installation process is similar, but make sure you have =VDTSETUP_CONDOR_LOCATION= and =VDTSETUP_CONDOR_CONFIG= defined as discussed in PreparingComputeElement in order to specify your Condor installation.  The installation is done in same directory as the OSG CE software.   Setup these variables, then do:
-<pre class="rootscreen">
-# The variables in %RED%red%ENDCOLOR% are the likely defaults if you installed Condor via RPM.  Adjust them if necessary
-VDTSETUP_CONDOR_LOCATION=%RED%/usr%ENDCOLOR%
-VDTSETUP_CONDOR_CONFIG=%RED%/etc/condor/condor_config%ENDCOLOR%
-
-cd $VDT_LOCATION
-source $VDT_LOCATION/setup.sh
-pacman -get  %CACHE%:ManagedFork
-</pre>
-
-The above step will give you all the files needed to run Managed Fork jobs but it does not make
-Managed Fork the default.
-
-
----+ Enabling Managed Fork 
-
----++ Enabling using configure-osg
-In the [Managed Fork] section of the config.ini file, 
-just put in 
-
-=enabled = %(enable)s=
-
-and the correct commands to enable the managed fork job manager will be executed for you via the configure-osg utility.  
-
-
-
----++ Enabling manually
-
-To configure the default jobmanager to be the Managed Fork jobmanager, execute the following command.
+The installation routine will install Condor as provided by the %LINK_VDT% _unless+ two environment variables are defined pointing to the _existing_ Condor installation and its configuration file:
 
 <pre class="rootscreen">
-source $VDT_LOCATION/setup.sh
-$VDT_LOCATION/vdt/setup/configure_globus_gatekeeper --managed-fork y --server y
+%UCL_PROMPT_ROOT% export VDTSETUP_CONDOR_LOCATION=%RED%&lt;Path to Local Condor Installation&gt;%ENDCOLOR%
+%UCL_PROMPT_ROOT% export VDTSETUP_CONDOR_CONFIG=%RED%&lt;Path to Local Condor Configuration File&gt;%ENDCOLOR%
 </pre>
 
-The =--server y= option ensures that the globus-gatekeeper file is copied to /etc/xinetd.d when vdt-control --on globus-gatekeeper
-is done.  The =--managed-fork y= option modifies the service definition in $VDT_LOCATION/globus/etc/services/jobmanager-fork
-such that it points to the managed fork jobmanager perl modules rather than the regular fork modules, making it the default job manager.
-Until this step is done, the default job manager is the fork job manager, allowing the user to run as many arbitrary commands at once 
-as they want.
+---+ Installation
 
+The installation consists of following steps:
 
----++ Configuration suggestions
-By default, the Managed Fork jobmanager will behave just like the fork jobmanager.  If you wish to restrict it, you need to modify your local Condor configuration.  If you're using Condor from the VDT this can be done by editing =$VDT_LOCATION/condor/local.&lt;hostname&gt;/condor_config.local=.   Here are some configuration suggestions:
+   1 change your working directory to your local VDT installation
+   1 use %LINK_PACMAN% to install !ManagedFork
+   1 update your environment
 
-   * Only allow 20 local universe jobs to execute concurrently: 
-<pre class="programlisting">
-   START_LOCAL_UNIVERSE = TotalLocalJobsRunning < 20
-</pre>
-   * Set a hard limit on most jobs, but always let grid monitor jobs run (strongly recommended):
-<pre class="programlisting">
-   START_LOCAL_UNIVERSE = TotalLocalJobsRunning < 20 || GridMonitorJob =?= TRUE
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% cd $VDT_LOCATION
+%UCL_PROMPT_ROOT% pacman -get  %CACHE%:ManagedFork
+%UCL_PROMPT_ROOT% source $VDT_LOCATION/setup.sh
 </pre>
 
-If condor is already running when you make these modifications, then execute the command condor_reconfig
-to pick up the new setting.
+---+ Configuration
+
+---++ Enable !ManagedFork 
+
+There exist two ways to enable the !ManagedFork job manager on your %LINK_GLOSSARY_CE%:
+
+   1 edit =config.ini= and use =configure-osg= _(preferred method)_
+   1 use =configure_globus_gatekeeper= _(manual method)_
+
+---+++ 1. Use the Preferred Method
+
+Open the main configuration file =%UCL_CWD%/osg/etc/config.ini= and _enable_ !ManagedFork in the =[Managed Fork]= section:
+
+<pre class="file">
+;===================================================================
+;                              Managed Fork
+;===================================================================
+
+[Managed Fork]
+; The enabled setting indicates whether managed fork is in use on the system
+; or not. You should set this to True or False
+enabled = %(enable)s
+</pre>
+
+then execute =configure-osg= in the root directory of your VDT installation:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% configure-osg
+</pre>
+
+---+++ 2. Use the Manual Method
+
+To configure the default jobmanager to be the Managed Fork jobmanager, execute the following command:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% $VDT_LOCATION/vdt/setup/configure_globus_gatekeeper --managed-fork %GREEN%y%ENDCOLOR% --server %GREEN%y%ENDCOLOR%
+</pre>
+
+   * the =--managed-fork y= option modifies the service definition in =$VDT_LOCATION/globus/etc/services/jobmanager-fork=
+   * the =--server y= option ensures that the =globus-gatekeeper= file is copied to =/etc/xinetd.d= 
+
+---++ Fine Tuning
+
+By default the !ManagedFork job manager will behave just like the fork job manager. To adjust the behavior two steps are required:
+
+   1 Edit the Condor Configuration file
+   1 Reconfigure Condor by using =condor_reconfig=
+
+Here are two examples:
+
+   * Allow only 20 local universe jobs to execute concurrently:<pre class="file">
+   START_LOCAL_UNIVERSE = TotalLocalJobsRunning < 20</pre>
+   * Set a hard limit on most jobs, but always let grid monitor jobs run (strongly recommended):<pre class="file">
+   START_LOCAL_UNIVERSE = TotalLocalJobsRunning < 20 || GridMonitorJob =?= TRUE</pre>
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% condor_reconfig
+</pre>
+
+%NOTE% In case Condor has been installed by the VDT the configuration file is located at =$VDT_LOCATION/condor/local.&lt;hostname&gt;/condor_config.local=.
 
 
 ---+ Disabling Managed Fork
