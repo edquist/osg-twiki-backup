@@ -1,9 +1,9 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1311189496" format="1.1" version="1.29"}%
+%META:TOPICINFO{author="TimCartwright" date="1311197958" format="1.1" version="1.30"}%
 ---+ RPM Development Guide
 
 This page documents technical guidelines and details about RPM development for the OSG Software Stack. The procedures, conventions, and policies defined within are used by the OSG Software Team, and are recommended to all external developers who wish to contribute to the OSG Software Stack.
 
-%RED%Status:%ENDCOLOR% This page was spun off of the [[NPTransition][Native Packaging Transition]] page. We expect the details herein to change significantly and frequently over the next few weeks (late June – early July, 2011) as our understanding of the problems and possible solutions becomes more clear.
+%RED%Status:%ENDCOLOR% As of mid-July 2011, the contents of this page are becoming more settled. Further changes are likely, but all development should follow the policies described below unless otherwise stated.
 
 ---++ Principles
 
@@ -11,10 +11,21 @@ The principles below guide the design and implementation of the technical detail
 
    * Packages should adhere to community standards (e.g., [[http://fedoraproject.org/wiki/PackagingGuidelines][Fedora Packaging Guidelines]]) when possible, and significant deviations must be documented
    * Every released package must be reproducible from data stored in our system
+   * Source code for software should be clearly separable from the packaging of that software
    * Upstream source files (which should not be modified) should be clearly separated from files owned by the OSG Software Team
    * Building source and binary packages from our system should be easy and efficient
    * External developers should have a clear and effective system for developing and contributing packages
    * We should use standard tools from relevant packaging and development communities when appropriate
+
+---++ Contributing Packages
+
+We encourage all interested parties to contribute to OSG Software, and all the infrastructure described on this page should be friendly to external contributors.
+
+*However*, not all of the infrastructure is in place yet: you must gather a few authorizations. We will be working to decrease the extra steps necessary.
+
+   * To participate in the packaging community: You must subscribe to the osg-software@opensciencegrid.org email list. Subscribing to an OSG email list is [[http://listserv.fnal.gov/users.asp#subscribe%20to%20list][described here]].
+   * To create and edit packages: [[http://vdt.cs.wisc.edu/internal/svn.html][Obtain access to VDT SVN]].
+   * To upload new source tarballs: You must have a cs.wisc.edu account with write access to the VDT source tarball directory. Email the osg-software list and request permission.
 
 ---++ Development Infrastructure
 
@@ -26,22 +37,13 @@ This section documents most of what a developer needs to know about our RPM infr
    * Development Tools — other tools to aid development
    * Yum Repository — the location and organization of our Yum repository, and how to promote packages through it
 
----+++ Becoming a Contributor
-
-We encourage all interested parties to contribute to OSG Software, and all the infrastructure described on this page should be friendly to external contributors.
-
-*However*, not all of the infrastructure is in place yet: you must gather a few authorizations.  We will be working to decrease the extra steps necessary:
-   * To participate in the packaging community: You must subscribe to the osg-software@opensciencegrid.org email list.  Subscribing to an OSG email list is [[http://listserv.fnal.gov/users.asp#subscribe%20to%20list][described here]].
-   * To create and edit packages: [[http://vdt.cs.wisc.edu/internal/svn.html][Obtain access to VDT SVN]].
-   * To upload new source tarballs: You must have a cs.wisc.edu account with write access to the VDT source tarball directory.  Email the osg-software list and request permission.
-
 ---+++ Upstream Source Cache
 
 One of our principles (every released package must be reproducible from data stored in our system) creates a potential issue: If we keep all historical source data, especially upstream files like source tarballs and source RPMs, in our revision control system, we may face large checkouts and consequently long checkout and update times.
 
 Our solution is to cache all upstream source files in a separate filesystem area, retaining historical files indefinitely. To avoid tainting upstream files, our policy is to leave them unmodified after download.
 
-%RED%Proposed extension:%ENDCOLOR% Immediately after caching an upstream source file, save its hash in a file of the same name with a hash-appropriate extension. This extra step could be added at any time in the future.
+When we start pushing RPMs into koji, it will become our authoritative source for _released_ upstream files.
 
 ---++++ Locating Files in the Cache
 
@@ -58,13 +60,20 @@ where:
 | <code><em>%GREEN%version%ENDCOLOR%</em></code> | Upstream version string used to identify the release | =3.6.4= |
 | <code><em>%GREEN%file%ENDCOLOR%</em></code> | Upstream filename itself (unless filename conflicts force a change, which should be exceedingly rare) | =ndt-3.6.4.tar.gz= |
 
-The authoritative cache is the VDT webserver, which is fully backed up. Other developers can create a local cache for efficient development. %RED%Need submission process.%ENDCOLOR%
+The authoritative cache is the VDT webserver, which is fully backed up. Other developers can create a local cache for efficient development.
 
 Upstream source files are referenced from within the revision control system; see below for details.
 
+---++++ Contributing Upstream Files
+
+If you are using a local cache during development, you must make sure that any new upstream source files are cached on the VDT webserver before declaring the package to be ready for testing. You have two options:
+
+   * If you have access to a UW–Madison CSL machine, you can scp the source files directly into the AFS locations using that machine
+   * If you do not have such access, write to the osg-software list to find someone who will post the files for you
+
 ---+++ Revision Control System
 
-All packages that the OSG Software Team releases are checked into our revision control system (currently Subversion %RED%but leaning toward git%ENDCOLOR%). We %RED%will%ENDCOLOR% allow collaborators to commit to the repository.
+All packages that the OSG Software Team releases are checked into our revision control system (currently Subversion but with the option to change at a later date).
 
 ---++++ Subversion Access
 
@@ -80,13 +89,34 @@ Or, from a UW–Madison Computer Sciences machine:
 
 The current SVN directory housing our work-in-progress native package work is =$repo/native= (where =$repo= is one of the ways of accessing our SVN repository above). For example, to check out the current Subversion repository via https, do:
 
-<pre class="screen">
-svn co https://vdt.cs.wisc.edu/svn/native
-</pre>
+<pre class="screen">svn co https://vdt.cs.wisc.edu/svn/native</pre>
 
----++++ Top-Level Directory Organization
+---++++ OSG-Owned Software
 
-The top levels of our Subversion directory hierarchy are as follows:
+OSG-owned software goes into Subversion as follows:
+
+<blockquote><code>software/<em>%GREEN%package%ENDCOLOR%</em>/<em>%GREEN%section%ENDCOLOR%</em></code></blockquote>
+
+where:
+
+%TABLE{sort="off"}%
+| *Symbol* | *Definition* | *Example* |
+| <code><em>%GREEN%package%ENDCOLOR%</em></code> | Our name for the software package | =vdt-system-profiler= |
+| <code><em>%GREEN%section%ENDCOLOR%</em></code> | Development section | Standard Subversion sections like =trunk=, =branches/*=, and =tags/*= |
+
+Within a section directory, files are organized as the developer sees fit.
+
+It is strongly recommended that each software package include a top-level Makefile with at least the following targets:
+
+%TABLE{sort="off"}%
+| *Symbol* | *Purpose* |
+| =install= | Install the software into final FHS locations rooted at =DESTDIR= |
+| =dist= | Create a distribution source tarball (in the current section directory) for a release |
+| =upstream= | Install the distribution source tarball into the upstream source cache (default to VDT AFS, but override the upstream root with =UPSTREAM= |
+
+---++++ Packaging Top-Level Directory Organization
+
+The top levels of our Subversion directory hierarchy for packaging are as follows:
 
 <blockquote><code>native/<em>%GREEN%os%ENDCOLOR%</em>/<em>%GREEN%section%ENDCOLOR%</em>/<em>%GREEN%package%ENDCOLOR%</em></code></blockquote>
 
@@ -95,7 +125,7 @@ where:
 %TABLE{sort="off"}%
 | *Symbol* | *Definition* | *Example* |
 | <code><em>%GREEN%os%ENDCOLOR%</em></code> | Major operating system release | =redhat= (only supported value, currently) |
-| <code><em>%GREEN%section%ENDCOLOR%</em></code> | Development section | %RED%May be one of the standard Subversion sections like =trunk=, =branches/*=, and =tags/*= %ENDCOLOR% |
+| <code><em>%GREEN%section%ENDCOLOR%</em></code> | Development section | Standard Subversion sections like =trunk=, =branches/*=, and =tags/*= |
 | <code><em>%GREEN%package%ENDCOLOR%</em></code> | Our standardized name for a source package | =ndt= |
 
 ---++++ Package Directory Organization
@@ -144,7 +174,6 @@ For example, the reference file for NDT’s source tarball is named =developer.tar
 
 The =osg= directory contains files that are owned by the OSG Software Team and that are used to create the final, released source package. It may contain a variety of development files:
 
-   * A =root= subdirectory, which contains files, organized in FHS subdirectories, to be installed by the package; only to be used when there is no =upstream= subdirectory for the given package
    * An RPM =.spec= file, which overrides any spec file from a referenced source
    * Patch (=.patch=) or replacement files, which override any same-named file from the top-level directory of a referenced source
    * Other files, which must be explicitly placed into the package by the spec file
@@ -171,15 +200,25 @@ A temporary directory used for the =batlab= task containing the files to be uplo
 
 ---+++++ Use Case 1: Packaging Our Own Code
 
-When the OSG Software Team contributes all of the files for a package, they are located in the <code>osg/root</code> directory, and then there is a spec file. For example, the OSG Software Team provides a debugging utility called <code>vdt-system-profiler</code> to collect system information that can be sent to the OSG Software Team to aid in debugging. Its package directory contains:
+When the OSG Software Team contributes all of the files for a package, they are located in the =software= project area. The =Makefile= therein creates an upstream source tarball in the standard location. All that remains is to define a =.source= reference to the upstream source tarball, and a =.spec= file. For example, the OSG Software Team provides a debugging utility called <code>vdt-system-profiler</code> to collect system information that can be sent to the OSG Software Team to aid in debugging. Its =software= directory contains:
+
+<blockquote>
+<pre>
+vdt-system-profiler/
+    Makefile
+    vdt-system-profiler
+</pre>
+</blockquote>
+
+Its packaging directory contains:
 
 <blockquote>
 <pre>
 vdt-system-profiler/
     osg/
-        root/usr/bin/vdt-system-profiler
-        root/usr/share/man/man1/vdt-system-profiler.1
         vdt-system-profiler.spec
+    upstream/
+        vdt.tarball.source
 </pre>
 </blockquote>
 
