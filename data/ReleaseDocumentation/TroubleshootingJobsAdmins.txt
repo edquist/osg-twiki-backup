@@ -1,35 +1,49 @@
-%META:TOPICINFO{author="RobertEngel" date="1310075185" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="RobertEngel" date="1311732141" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="TroubleshootJobsUsers"}%
 %DOC_STATUS_TABLE%
 
----+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
+---+!! Troubleshooting Grid User's Jobs
 %TOC%
 
+---+ About this Document
+<!-- useful variable definitions
+   * Local UCL_CWD = /opt/osg-%VERSION%
+   * Local UCL_HOST = ce
+-->
 
-
----+About this Document
-
-%ICON{hand}% This document is meant to help a site administrator debug why a users's jobs won't run at the site. It only addresses issues regarding basic running of jobs, and not data transfer or storage. There is a [[TroubleshootJobsUsers][companion document for users]] trying to figure out why their jobs won't run at a site.
+%ICON{hand}% This document is for system administrators. It provides step-by-step instructions to debug why a user's job won't run. The companion document for grid users can be found [[ReleaseDocumentation/TroubleshootJobsUsers][here]].
 
 ---+ Understanding Authentication and Authorization
 
-If a user can't run a basic =globusrun -a -r= against your site (this command just attempts to authenticate and authorize with Globus GRAM, but not run a job), then there are several common things to look at.
+_Authentication_ is the process that verifies the identity of a grid user:
 
-But before we describe the common errors, you should make sure that you understand the difference between authentication and authorization. Authentication is the process of verifying the identity of a user: it involves:
+   * the user has a valid %LINK_GLOSSARY_GRID_PROXY% or %LINK_GLOSSARY_VOMS_PROXY%
+   * the user's grid certificate was granted by a recognized %LINK_GLOSSARY_CA%
+   * the user's grid certificate wasn't revoked by the %LINK_GLOSSARY_CA%
 
-   * Verifying that the user has a valid proxy certificate
-   * Verifying that the user's certificate was granted by a recognized certificate authority (CA)
-   * Verifying that the user's certificate wasn't revoked by the CA. This normally requires that the CA's certificate authorization list is up to date. 
+_Authorization_ is the process that decides if a recognized grid user may use your site:
 
-Authorization happens after authentication, and it is the process of deciding that a recognized user may use your site. In OSG it happens either through a grid-mapfile (which is probably updated by the edg-mkgridmap program) or by GUMS.
+   * by looking up the user's %LINK_GLOSSARY_DN% in =/etc/grid-security/grid-mapfile= _or_
+   * by querying %LINK_GLOSSARY_GUMS% for the %LINK_GLOSSARY_DN%
+
+Authentication precedes Authorization.
+
+---+ Authentication and Authorization Test
+
+A grid user can successfully authenticate with a site and is authorized to use it if _he_ can execute following command:
+
+<pre class="screen">
+%UCL_PROMPT% globusrun -a -r %RED% %UCL_HOST_FQDN% %ENDCOLOR%
+GRAM Authentication test successful
+</pre>
 
 ---+ Authentication Failures
 
-Here is a sample authentication failure. It's from $GLOBUS_LOCATION/var/globus-gatekeeper.log. There are other ways that it can manifest itself, but it's usually a cryptical GSS error:
+Consult the %LINK_GLOSSARY_GRAM% log file located at =$VDT_LOCATION/globus/var/globus-gatekeeper.log= and look for _GSS authentication failure_:
 
 <pre class="file">
 Failed reading length 0
-    GSS authentication failure 
+    %RED%GSS authentication failure%ENDCOLOR% 
     globus_gss_assist token :3: read failure: Connection closed
 Failure: GSS failed Major:01090000 Minor:00000000 Token:00000003
 
@@ -39,91 +53,47 @@ TIME: Sat Apr 28 02:58:57 2007
 
 Common reasons for authentication failure include:
 
-1.  Your clock isn't synchronized with the user's. The best thing here is to make sure that both you and the user are use NTP to keep your clocks accurate.
+   1. Verify that the system clocks both on the client _and_ the server site are synchronized using the [[http://en.wikipedia.org/wiki/Network_Time_Protocol][Network Time Protocol]].
+   1. Verify that the %LINK_GLOSSARY_CA% of the grid user is recognized at your site:<BR>The %LINK_GLOSSARY_DN% of the grid user contains the name of the Certificate Authority who signed the grid user certificate:<BR><pre class="screen">
+%UCL_PROMPT% grid-proxy-info -identity
+/DC=org/DC=%RED%doegrids%ENDCOLOR%/OU=People/CN=First Last
+</pre>Verify that the associated CA Certificate is installed in =$VDT_LOCATION/globus/TRUSTED_CA=:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% grep -i "%RED%doegrids%ENDCOLOR%" $VDT_LOCATION/globus/TRUSTED_CA/*.signing_policy
+1c3f2ca8.signing_policy:#  The DOEGrids CA signs certificates for doegrids.org 
+%RED%1c3f2ca8%ENDCOLOR%.signing_policy: access_id_CA      X509         '/DC=org/DC=%RED%DOEGrids%ENDCOLOR%/OU=Certificate Authorities/CN=DOEGrids CA 1'
+1c3f2ca8.signing_policy: cond_subjects     globus     	'"/DC=org/DC=DOEGrids/*" "/DC=org/DC=doegrids/*" "/O=DOEGrids.org/*" "/O=doegrids.org/*"'
+...
+</pre>Verify that the CA Certificate is valid using:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% openssl x509 -in %RED%1c3f2ca8%ENDCOLOR%.0 -text -noout
+</pre>If you don't find the CA Certificate you will need to either [[ReleaseDocumentation/CaCertificatesInstall][install]] or [[ReleaseDocumentation/CaCertificatesInstall#Enable_Updates_of_the_CA_Certifi][update]] your CA certificates.
+   1. Verify that the %LINK_GLOSSARY_CRL% of the Certificate Authority has not expired:<BR><pre class="rootscreen">
+%UCL_PROMPT_ROOT% openssl crl -in $VDT_LOCATION/globus/TRUSTED_CA/%RED%1c3f2ca8%ENDCOLOR%.r0 -lastupdate -nextupdate -noout
+lastUpdate=Jul 25 20:25:01 2011 GMT
+nextUpdate=Aug 24 20:25:01 2011 GMT
+</pre>Make sure the automatic update of the Certificate Revocation List is [[ReleaseDocumentation/CaCertificatesInstall#Enable_Updates_of_the_Certificat][enabled]]. A quick and dirty fix is to _delete_ the file =$VDT_LOCATION/globus/TRUSTED_CA/%RED%1c3f2ca8%ENDCOLOR%.r0=.
 
-2. You do not recognize the CA that granted the user's certificate. If you know the user's distinguished name, you can usually figure out the CA. For example, the certificate for /CN=Invigo Service00/OU=Purdue TeraGrid/O=Purdue University/ST=Indiana/C=US was granted by the Purdue TeraGrid CA. The certificate for /DC=org/DC=doegrids/OU=People/CN=Alain Roy 424511 was granted by the DOEGrids CA.
+---+ Authorization Failures: edg-mkgridmap
 
-      To see if you accept the CA for a certificate, you can look at all the certificates installed in $VDT_LOCATION/globus/TRUSTED_CA. For example:
+[[ReleaseDocumentation/LocalAuthPreConfig][Edg-mkgridmap]] queries VOMS servers to generate entries for grid users in =/etc/grid-security/grid-mapfile=. Common failures include:
 
-<pre class="screen">
-%UCL_PROMPT% cd $VDT_LOCATION/globus/TRUSTED_CA
-%UCL_PROMPT% grep -i "Purdue TeraGrid" *.signing_policy  #That's the bit from the user's DN
-67e8acfa.signing_policy:access_id_CA    X509    '/CN=Purdue TeraGrid RA/OU=Purdue TeraGrid/O=Purdue University/ST=Indiana/C=US'
-67e8acfa.signing_policy:cond_subjects   globus  '"/CN=*/OU=Purdue TeraGrid/O=Purdue University/ST=Indiana/C=US"'
-95009ddc.signing_policy:cond_subjects   globus  '/CN=Purdue TeraGrid RA/OU=Purdue TeraGrid/O=Purdue University/ST=Indiana/C=US' 
-%UCL_PROMPT% openssl x509 -in 67e8acfa.0 -text -noout
-Certificate:
-    Data:
-        Version: 3 (0x2)
-        Serial Number:
-            6f:d6:70:f8:df:f8:2d:08
-        Signature Algorithm: sha1WithRSAEncryption
-        Issuer: CN=PurdueCA, O=Purdue University, ST=Indiana, C=US
-        Validity
-            Not Before: Sep  8 13:18:31 2004 GMT
-            Not After : Sep  6 13:28:31 2014 GMT
-        Subject: CN=Purdue TeraGrid RA, OU=Purdue TeraGrid, O=Purdue
-        University, ST=Indiana, C=US
- ...
-</pre>
-
-      There are two CAs here, 67e8cfa and 95009ddc. Don't worry that there are two: this is an adminstrative detail for the Purdue CA. For this DN, it was signed by 67e8cfa, but that was granted by 95009ddc: they both need to be recognized CAs.
-
-      If you don't find the CA, you probably need to update your CA certificates. The official VDT CA distribution contains all IGTF CAs and TeraGrid CAs. If the CA isn't one of those, you may need to add it manually, if you trust it.
-
-3. The certificate revocation list (CRL) for the CA exists, but is expired. (If it doesn't exist, it's not a problem.) You can check the CRL by doing something like this:
-
-<pre class="screen">
-%UCL_PROMPT% cd $VDT_LOCATION/globus/TRUSTED_CA
-%UCL_PROMPT% openssl crl -in 67e8acfa.r0 -lastupdate -nextupdate -noout
-lastUpdate=Apr 30 02:00:02 2007 GMT
-nextUpdate=May  1 04:00:02 2007 GMT
-</pre>
-
-      If the nextUpdate is in the past (or, theoretically, if the lastUpdate is in the future) compared to your system's time), the CRL is out of date, and authentication will fail. For a quick fix, delete the CRL file (the .r0 file). For a better fix, download an updated version (the URL is in the .crl_url file). For the best fix, figure out out the fetch-crl program is failing to get you the latest CRL. 
-
----+ Authorization Failures: the grid-mapfile case
-
-Most OSG sites that use grid-mapfiles also use edg-mkgridmap. When using edg-mkgridmap, most users will be filled in autotmatically, though extra users can be specified.
-
-Common failures include:
-
-1. The user is not in the grid-mapfile. You might see something like this in your $GLOBUS_LOCATION/var/globus-gatekeeper.log:
-<pre class="file">
+   1. The %LINK_GLOSSARY_DN% of the grid user is not listed in =/etc/grid-security/grid-mapfile=. In this case the %LINK_GLOSSARY_GRAM% log file =$GLOBUS_LOCATION/var/globus-gatekeeper.log= will contain:<pre class="file">
 TIME: Sat Apr 28 22:13:28 2007
  PID: 3056 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=Alain Roy 424511
 Failure: globus_gss_assist_gridmap() failed authorization. gridmap.c:globus_l_gss_assist_gridmap_lookup:2035:
-Gridmap lookup failure: Could not map /DC=org/DC=doegrids/OU=People/CN=Alain Roy 424511
-
-TIME: Sat Apr 28 22:13:28 2007
- PID: 3056 -- Failure: globus_gss_assist_gridmap() failed authorization. gridmap.c:globus_l_gss_assist_gridmap_lookup:2035:
-Gridmap lookup failure: Could not map /DC=org/DC=doegrids/OU=People/CN=Alain Roy 424511
-</pre>
-Check /etc/grid-security/grid-mapfileto see if the user is listed. If not, verify the configuration for edg-mkgridmap.
-
-2. The user doesn't exist on your system. For example, if the user doesn't exist on the gatekeeper host, you might see the following error message in your $GLOBUS_LOCATION/var/globus-gatekeeper.log:
-
-<pre class="file">
+%RED%Gridmap lookup failure: Could not map /DC=org/DC=doegrids/OU=People/CN=Alain Roy 424511%ENDCOLOR%
+</pre>Refer to the [[ReleaseDocumentation/LocalAuthPreConfig][Edg-mkgridma Guide]] to verify your configuration.
+   1. The Unix username specified in =/etc/grid-security/grid-mapfile= doesn't exist on your system. In that case you might see the following error message in your =$GLOBUS_LOCATION/var/globus-gatekeeper.log=:<pre class="file">
 TIME: Sat Apr 28 22:19:26 2007
  PID: 3777 -- Notice: 5: Authorized as local user: roy
-Failure: getpwname() failed to find roy
-TIME: Sat Apr 28 22:19:26 2007
- PID: 3777 -- Failure: getpwname() failed to find roy
-</pre>
-Make sure that the user exists on the gatekeeper and on all worker nodes. 
-
----+ Authorization Failures: the PRIMA/GUMS case
-One caveat problem when using PRIMA/GUMS is that when running with the logLevel attribute (prima-authz.conf) set to info, you do not see the FQAN being used. If you run with it set t\
-o 'debug' you can find the FQAN in some of the informational messages.
-
-Common failures include:
-
-1. The user is not authorized (i.e. does not have a mapping in GUMS):
-
-With debugLevel = info:
+%RED%Failure: getpwname() failed to find roy%ENDCOLOR%
+</pre>Please verify that the username exists on the %LINK_GLOSSARY_GATEKEEPER% and every %LINK_GLOSSARY_WN%. 
 
 
-<pre class="file">
+---+ Authorization Failures: GUMS
+
+%NOTE% Depending on the =logLevel= set in =$VDT_LOCATION/post-install/prima-authz.conf= (info|debug) the content of the gatekeeper log file =$GLOBUS_LOCATION/var/globus-gatekeeper.log= slightly differs. Common failures include:
+
+   1. The %LINK_GLOSSARY_DN% of the grid user is not authorized by GUMS (debugLevel = info):<BR><pre class="file">
 PID: 15279 -- Notice: 5: Authenticated globus user: /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491
 PID: 15279 -- PRIMA ERROR  prima_module.c:408  Identity Mapping Service did not permit mapping
 Dailure: globus_gss_assist_gridmap() failed authorization. gridmap.c:globus_gss_assist_map_and_authorize:1910:
@@ -131,11 +101,9 @@ Wrror invoking callout
 Flobus_callout.c:globus_callout_handle_call_type:727:
 Rhe callout returned an error
 Prima_module.c:Globus Gridmap Callout:430:
-Gridmap lookup failure: Could not retrieve mapping for /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491 from identity mapping server
-</pre>
-
-With debugLevel = debug: (reformatted to be readable)
-%TWISTY{%TWISTY_OPTS_OUTPUT%}%
+%RED%Gridmap lookup failure: Could not retrieve mapping for /DC=org/DC=doegrids/OU=People/CN=John Weigand 458491 from identity mapping server%ENDCOLOR%
+</pre>debugLevel = debug:
+%TWISTY{%TWISTY_OPTS_MORE%}%
 <verbatim class="file">
 PID: 25365 -- PRIMA DEBUG prima_soap_client.c:37
 <Request xmlns="urn:oasis:names:tc:SAML:1.0:protocol"
@@ -194,7 +162,6 @@ Gridmap lookup failure: Could not retrieve mapping for /DC=org/DC=doegrids/OU=Pe
 </verbatim>
 %ENDTWISTY%
 
-You will find the user's distinguished name (DN) in the NameIdentifier element, and if the user has a VOMS proxy, you will find the user's roles in the AttributeValue.
 
 2. The user doesn't exist on the system. (Same as grid-mapfile error). The globus-gatekeeper log will have:
 
