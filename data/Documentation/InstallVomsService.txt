@@ -1,0 +1,147 @@
+%META:TOPICINFO{author="TanyaLevshina" date="1311891994" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="RPMTempDocuments"}%
+%LINKCSS%
+
+---+!! %SPACEOUT{ "%TOPIC%" }%
+%TOC%
+---+ Introduction
+<!-- conventions used in this document
+   * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="voms"}%
+-->
+The Virtual Organization Membership Service (VOMS - https://twiki.cnaf.infn.it/cgi-bin/twiki/view/VOMS/WebHome) has three main parts:
+    MySQL database which is a persistent repository for VO membership information,
+    VOMS admin which provides the Web UI/services to maintain the VO membership. This requires Apache/Tomcat.
+    VOMS server, a daemon process which services the voms-proxy-init requests. 
+---+ Requirements
+   * pristine node
+   * root access
+   *  OS is SL 32 or 64 Bit
+   * host certificate
+---+ Install
+   1. Install the VDT repos:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% rpm -Uvh http://vdt.cs.wisc.edu/repos/3.0/el5/development//x86_64/vdt-release-3.0-2.noarch.rpm
+</pre> or <pre class="rootscreen">
+%UCL_PROMPT_ROOT% rpm -Uvh http://vdt.cs.wisc.edu/repos/3.0/el5/development//i386/vdt-release-3.0-2.noarch.rpm
+</pre> 
+   1. Enable VDT repos by editing ==/etc/yum.repos.d/vdt-development.repo==:<pre class="file">
+[vdt-development]
+name=Virtual Data Toolkit for Enterprise Linux 5 - Development - $basearch
+baseurl=http://vdt.cs.wisc.edu/repos/3.0/el5/development/$basearch
+#mirrorlist=http://mirrors.fedoraproject.org/mirrorlist?repo=testing-epel5&arch=$basearch
+failovermethod=priority
+enabled=%RED%1%ENDCOLOR%
+</pre>
+   1. Download and install EPEL repo:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%wget http://download.fedoraproject.org/pub/epel/5/x86_64/epel-release-5-4.noarch.rpm
+</pre>
+   1. Install osg-voms:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%yum install osg-voms
+</pre>
+   1. Install  xml-commons-apis:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%yum install xml-commons-apis
+</pre>
+---+ !MySQL Database
+Before you will be able configure VOMS you will need to have access to !MySQL database.!MySQL software is  installed with osg-voms package. By default it will be using port 3306 and will not have password for ==root==. If you want to modify port you will need to edit ==/etc/my.cnf== file and add a new por (eg. 5123)t:<pre class="file">
+[mysqld]
+datadir=/var/lib/mysql
+socket=/var/lib/mysql/mysql.sock
+port=%RED%PORT_NUMBER%ENDCOLOR%
+</pre>It is also wise to set  password for ==root== user. Run the following command to set the password:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%mysqladmin -u root password %RED%top_secret%ENDCOLOR%
+</pre> 
+---+ Configure
+Now, you can create database and configure VOMS-core and VOMS-admin:
+   1. VOMS-core daemon is running as user ==voms==. You will need to have a pair of service or host certificate for this user. You need to do the following:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%cd /etc/grid-security
+%UCL_PROMPT_ROOT%cp hostcert.pen voms/vomscert.pem
+%UCL_PROMPT_ROOT%cp hostkey.pen voms/vomskey.pem
+%UCL_PROMPT_ROOT%chown -R voms.voms voms
+</pre>
+   1. Run ==voms-admin-configure== script:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%voms-admin-configure install --dbtype mysql --vo %RED%VO_NAME%ENDCOLOR% \
+    --createdb --deploy-database  --dbauser root  --dbapwd %RED%MYSQL_ROOT_PASSD%ENDCOLOR% \
+    --dbusername  admin-%RED%VO_NAME%ENDCOLOR% --dbpassword %RED%secret %ENDCOLOR% \
+    --port %RED%VOMS_PORT%ENDCOLOR%  --mail-from %RED%email%ENDCOLOR% --smtp-host %RED%smtp.domain%ENDCOLOR% \
+    --sqlloc /usr/lib%RED%64%ENDCOLOR%/voms/libvomsmysql.so --cert /etc/grid-security/voms/vomscert.pem \
+    --key  /etc/grid-security/voms/vomskey.pem --read-access-for-authenticated-clients 
+</pre> For example::<pre class="rootscreen">
+%UCL_PROMPT_ROOT%voms-admin-configure install --dbtype mysql --vo test1 --createdb \
+     --deploy-database --dbauser root --dbapwd  top_secret \
+     --dbusername admin_test1 --dbpassword secret 
+     --port 15001 --mail-from tlevshin@fnal.gov --smtp-host smtp.fnal.gov \
+     --sqlloc /usr/lib64/voms/libvomsmysql.so --cert /etc/grid-security/voms/vomscert.pem \
+     --key  /etc/grid-security/voms/vomskey.pem --read-access-for-authenticated-clients 
+</pre>
+   1. Now, you need add a local admin:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%/usr/sbin/voms-db-deploy.py add-admin --vo %RED%VO_NAME%ENDCOLOR%  \
+        --dn  %RED%HOST_CERT_SUBJECT%ENDCOLOR% \
+        --ca %RED%HOST_CERT_ISSUER%ENDCOLOR% 
+</pre>For example::<pre class="rootscreen">
+%UCL_PROMPT_ROOT%/usr/sbin/voms-db-deploy.py add-admin --vo test1 \
+     --dn /DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov \
+     --ca "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1"
+</pre>
+   1. You have to configure tomcat in order to enable EMI trustmanager:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%/var/lib/trustmanager-tomcat/configure.sh
+Info: using default install root: /
+Info: using default configuration file: //var/lib/trustmanager-tomcat/config.properties
+Info: using default configuration directory: //var/lib/trustmanager-tomcat
+Info: you can clean up using the following commands
+      mv -f /etc/tomcat5/server.xml.old-trustmanager /etc/tomcat5/server.xml
+      rm -f /usr/share/tomcat5/server/lib/bcprov*.jar
+      rm -f /usr/share/tomcat5/server/lib/log4j*.jar
+      rm -f /usr/share/tomcat5/server/lib/trustmanager-*.jar
+      rm -f /etc/tomcat5/log4j-trustmanager.properties
+      rm -f //var/lib/trustmanager-tomcat/server.xml
+</pre>
+
+---+ Start
+   1. You need updated CRL before you can use voms, so do<pre class="rootscreen">
+%UCL_PROMPT_ROOT%fetch-crl
+</pre>
+
+   1. Start voms server<pre class="rootscreen">
+%UCL_PROMPT_ROOT%service voms start
+</pre>
+   1, Start tomcat:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%service tomcat5 start
+</pre>
+   1. Start voms-admin:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%service voms-admin start
+</pre>
+---+ Test
+---++ Voms-admin test
+Add member(yourself) to VO. Do the following:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%voms-admin --vo %RED%VO_NAME%ENDCOLOR% --host %RED%HOST_NAME%ENDCOLOR% \
+       --nousercert create-user %RED%USER_CERT_SUBJECT%ENDCOLOR% %RED%USRT_CERT_ISSUER%ENDCOLOR% \
+       %RED%USER_COMMON_NAME%ENDCOLOR% %RED%email%ENDCOLOR% 
+</pre> For example:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%voms-admin --vo test1 --host fermicloud002 --nousercert create-user \
+   "/DC=org/DC=doegrids/OU=People/CN=Joe Doe 12345" "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1" 
+   "Joe Doe" jdoe@fnal.gov
+</pre>
+
+Check !WebUI by accessing ==https://%RED%hostname%ENDCOLOR%:8443/vomses==
+---++ Voms-core test:
+Use ==voms-proxy-init== to generate proxy. Login as user, create vomses file:<pre class="file">
+"%RED%alias%ENDCOLOR%" "%RED%HOST_NAME%ENDCOLOR%" "%RED%PORT%ENDCOLOR%" "%RED%HOST DN%ENDCOLOR%" "%RED%VO_NAME%ENDCOLOR%"
+</pre> For example:
+<pre class="file">
+"test1" "fermicloud002.fnal.gov" "15001" "/DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov" "test1"
+</pre> Generate voms proxy<pre class="screen">
+$ voms-proxy-init -voms %RED%VO_NAME%ENDCOLOR% -vomses ~/vomses
+</pre>
+---+ Stop
+   1. Stop voms server<pre class="rootscreen">
+%UCL_PROMPT_ROOT%service voms stop
+</pre>
+   1. Stop voms-admin:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%service voms-admin stop
+</pre>
+   1. Stop tomcat:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%service tomcat5 stop
+</pre>
+---+ References
+   1. [[https://twiki.cern.ch/twiki/bin/view/EMI/EMIVomsAdminUserGuide261][VOMS Admin EMI Guide]]
+
+-- Main.TanyaLevshina - 28 Jul 2011
