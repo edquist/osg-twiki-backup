@@ -1,0 +1,463 @@
+%META:TOPICINFO{author="EricVaandering" date="1312232765" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="SummerWorkshopTutorials2011"}%
+<style type="text/css" media="all">
+  pre {
+    text-align: left; padding: 10px; color: black; font-size: 12px;
+  }
+
+pre.dummy {background-color: lightgrey;}
+pre.code {background-color: lightpink;}
+pre.output {background-color: lightgreen;}
+pre.command {background-color: lightblue;}
+
+
+  div{
+    font-family:arial,verdana,sans-serif; font-size:13px; margin-top:15px; margin-bottom:15px;
+    width: 100%;
+    white-space: pre-wrap;       /* css-3 */
+    white-space: -moz-pre-wrap;  /* Mozilla, since 1999 */
+    white-space: -pre-wrap;      /* Opera 4-6 */
+    white-space: -o-pre-wrap;    /* Opera 7 */
+    word-wrap: break-word;       /* Internet Explorer 5.5+ */
+  }
+
+div.dummy {background-color: lightgrey;}
+div.code {background-color: lightpink;}
+div.output {background-color: lightgreen;}
+div.command {background-color: lightblue;}
+
+</style>
+
+---+ Running CMSSW code on the Grid using !CRAB
+
+---++ WARNINGs
+   * *You should always use the [[https://twiki.cern.ch/twiki/bin/view/CMS/SWGuideCrab#How_to_get_CRAB][latest production CRAB version]]*
+   * *This is not a general purpose CRAB tutorial.* The purpose is to get some jobs running on GlideIn so they can be inspected. The latest CRAB tutorial is better for general purposes and can be found at https://twiki.cern.ch/twiki/bin/view/CMSPublic/WorkBookCRABTutorial?redirectedfrom=CMS.WorkBookCRABTutorial
+   * *This tutorial may be outdated* since it was prepared for a live lesson at a specific time and thus refers to a particular dataset and CMSSW version that may not be available when you read this (and where you try it).
+      
+Contents: %TOC%
+
+#PreRequisites
+---++ Prerequisites to run the tutorial
+   * to have a valid Grid certificate  
+   * to be registered to the CMS virtual organization
+      * *to get the Grid certificate and to register to VO CMS please follow the [[https://twiki.cern.ch/twiki/bin/view/CMS/SWGuideRunningGridPrerequisites][CRAB howto instructions]]*
+   * to be registered to the siteDB
+      * *please follow the instruction at [[https://twiki.cern.ch/twiki/bin/view/CMS/SiteDBForCRAB][siteDB registration for CRAB]]*
+
+#SetUpEnv1
+---++ Recipe for the tutorial
+For this tutorial we will refer to !CMS software:
+
+   * *CMSSW_3_9_9_patch1*
+
+and we will use an already prepared CMSSW analysis code to analyze the sample:
+
+   * The tutorial will focus on the basic workflow using the dataset: _RelValProdTTbar/JobRobot-MC_3XY_V24_JobRobot-v1/GEN-SIM-DIGI-RECO_  (MC dataset).
+   * An example on how to run on real dataset is reported in the section: [[#RealData][CRAB configuration file for real data with lumi mask]] <!-- _/Mu/Run2010A-Nov4ReReco_v1/RECO_  (real data) -->
+
+We will use the central installation of CRAB available at FNAL:
+    
+   * *CRAB_2_7_8_patch1*
+
+The example is written to use the _csh_ shell family. If you want to use the Bourne Shell replace _csh_ with _sh_.
+
+*Legend of colors for this tutorial*
+
+<verbatim style="font-size: 13px" class="command">
+BLUE background for the commands to execute  (cut&paste)
+</verbatim>
+<verbatim style="font-size: 13px" class="output">
+GREEN background for the output sample of the executed commands (nearly what you should see in your terminal)
+</verbatim>
+<verbatim style="font-size: 13px" class="code">
+PINK background for the configuration files  (cut&paste)
+</verbatim>
+
+#SetUpEnv
+---++ Setup local  Environment  and prepare user analysis code 
+
+Everywhere you see a source command, these are for FNAL. If you are trying this from your own system you will need to use different paths.
+
+We're going to use a 32-bit version of CMSSW. 64 bit is now the default on most systems, so we have to set up the CMSSW software a little differently:
+<verbatim class="command">
+setenv SCRAM_ARCH slc5_ia32_gcc434
+source /uscmst1/prod/sw/cms/cshrc prod
+</verbatim>
+
+In order to submit jobs to the Grid, you *must* have an access to a gLite User Interface (gLite UI). It will allow you to access WLCG-affiliated resources in a fully transparent way. FNAL LPC users issue this command
+<verbatim class="command">
+source /uscmst1/prod/grid/gLite_SL5.csh
+</verbatim>
+
+Install CMSSW project in a directory of your choice. In this case we create a "Tutorial" directory:
+
+<verbatim class="command">
+scram project CMSSW CMSSW_3_9_9_patch1
+cd CMSSW_3_9_9_patch1/src/
+cmsenv
+#cmsenv is an alias for scramv1 runtime -csh
+</verbatim>
+
+For this tutorial we are going to use as CMSSW configuration file, the tutorial.py:
+
+<verbatim class="code">
+import FWCore.ParameterSet.Config as cms
+process = cms.Process('Slurp')
+
+process.source = cms.Source("PoolSource", fileNames = cms.untracked.vstring())
+process.maxEvents = cms.untracked.PSet( input       = cms.untracked.int32(10) )
+process.options   = cms.untracked.PSet( wantSummary = cms.untracked.bool(True) )
+
+process.output = cms.OutputModule("PoolOutputModule",
+    outputCommands = cms.untracked.vstring("drop *", "keep TriggerResults_*_*_*"),
+    fileName = cms.untracked.string('outfile.root'),
+)
+process.out_step = cms.EndPath(process.output)
+</verbatim>
+
+Use your editor to save a file =tutorial.py= with these contents.
+
+#SetUpCRABEnv
+---++ !CRAB setup
+
+Set up the latest version of CRAB. After the source of the script it's possible to use !CRAB from any directory (typically use it on your CMSSW working directory).
+<verbatim class="command">
+source /uscmst1/prod/grid/CRAB/crab.csh
+</verbatim>
+
+*Warning*: in order to have the correct environment, the order to source env files has always to be 
+   * setup CMS software
+   * source of UI env
+   * cmsenv for specific CMSSW software version
+   * source of !CRAB env 
+
+#LocateCfg
+---++ Locate the dataset and prepare !CRAB submission
+
+In order to run our analysis over a whole dataset, we have to find first the data name and then put it on the !crab configuration file.
+
+
+#SelectData
+---+++ Data  selection
+
+To select data you want to access, use the *DBS* web page where available datasets are listed [[https://cmsweb.cern.ch/dbs_discovery/][DBS Data Discovery]].
+For this tutorial we'll use : 
+ %SYNTAX{ syntax="sh" style="width:200"}%
+/RelValProdTTbar/JobRobot-MC_3XY_V24_JobRobot-v1/GEN-SIM-DIGI-RECO (MC data)
+%ENDSYNTAX%
+   * Beware: datasets availability as sites changes with time, if you are trying to follow this tutorial after the date it was given, you may need to use another one
+
+You can see that this dataset is widely distributed because it's used for JobRobot testing.
+
+#SetConfiguration
+---++ !CRAB configuration
+
+Modify the !CRAB configuration file =crab.cfg= according to your needs: a fully documented template is available at =$CRABPATH/full_crab.cfg=, a template with essential parameters is available at =$CRABPATH/crab.cfg= . The default name of configuration file is crab.cfg, but you can rename it as you want.
+
+*Copy one of these files in your local area*. 
+
+For guidance, see the list and description of configuration parameters in the on-line crab documentation ([[https://twiki.cern.ch/twiki/bin/view/CMS/SWGuideCrab#CRAB_on_line_manual_and_tutorial][first point of this page]]) . For this tutorial, the only relevant sections of the file are  =[CRAB]=, =[CMSSW]=, =[GRID]= and =[USER]= .
+
+#MainConfiguration
+---+++ Configuration parameters
+The list of the main parameters you need to specify on your crab.cfg:
+   * *pset*: the CMSSW configuration file name;
+   * *output_file*: the output file name produced by your pset; if in the !CMSSW pset the output is defined in !TFileService, the file is automatically handled by !CRAB, and there is no need to specify it on this parameter;
+   * *datasetpath*: the full dataset name you want to analyze;
+   * <i><b>Jobs splitting</b></i>: 
+      * By event: only for MC data. You need to specify 2 of these parameters: *total_number_of_events*, *number_of_jobs*, *events_per_job*
+         * specify the _total_number_of_events_ and the _number_of_jobs_: this will assing to each jobs a number of events equal to _total_number_of_events/number_of_jobs_;
+         * specify the _total_number_of_events_ and the _events_per_job_: will assing to each jobs the number _events_per_job_ and will calculate the number of jobs by _total_number_of_events/events_per_job_;
+         * or you can specify the _number_of_jobs_ and the _events_per_job_...;
+      * By lumi: real data require it. You need to specify 2 of these parameters:  *total_number_of_lumis*, *lumis_per_job*, *number_of_jobs*
+         * because jobs in split by lumi mode process entire rather than partial files, you will often end up with fewer jobs processing more lumis than expected. Additionally, a single job cannot analyze files from multiple blocks in DBS. So these parameters are "advice" to CRAB rather than determinative.
+         * specify the _lumis_per_job_ and the _number_of_jobs_ the total number of lumis processed will be number_of_jobs x lumis_per_job.
+         * or you can specify the _total_number_of_lumis_ and the _number_of_jobs_ .....
+         * *lumi_mask*:  the filename of a JSON file that describes which runs and lumis to process. CRAB will skip luminosity blocks not listed in the file.
+   * *return_data*: this can be 0 or 1; if it is one you will retrieve your output files to your local working area;
+   * *copy_data*: this can be 0 or 1; if it is one you will copy your output files to a remote Storage Element;
+   * *local_stage_out*: this can be 0 or 1; if this is one your produced output is copied the closeSE in the case of failure of the copy to the SE specified in your crab.cfg  
+   * *publish_data*: this can be 0 or 1; if it is one you can publish your produced data to a local !DBS; 
+   * *use_server*: one of the available servers will be used depending on the client release;
+   * *scheduler*: the name of the scheduler you want to use;
+   * *jobtype*: the type of the jobs.
+
+#SeCopy
+---++ Run CRAB on CMS.MonteCarlo data 
+
+<!--#Conf1-->
+---+++ !CRAB configuration file for CMS.MonteCarlo data
+You can find more details on this at the corresponding link on the [[https://twiki.cern.ch/twiki/bin/view/CMS/SWGuideCrabFaq#How_to_store_output_with_CRAB_2][Crab FAQ page]].
+
+The !CRAB configuration file (default name crab.cfg) should be located at the same location as the !CMSSW parameter-set to be used by !CRAB with the following content:
+
+<verbatim class="code">
+[CMSSW]
+total_number_of_events  = -1
+number_of_jobs          = 1
+pset                    = tutorial.py
+datasetpath             = /RelValProdTTbar/JobRobot-MC_3XY_V24_JobRobot-v1/GEN-SIM-DIGI-RECO 
+output_file              = outfile.root
+
+[USER]
+return_data             = 1
+
+copy_data               = 0
+
+[CRAB]
+scheduler               = glidein
+jobtype                 = cmssw
+use_server              = 1
+
+[GRID]
+se_white_list = T2_US_UCSD
+</verbatim>
+
+
+#SetRunCrab
+---+++Run Crab
+Once your =crab.cfg= is ready and the whole underlying environment is set up, you can start running !CRAB.
+!CRAB supports command line help which can be useful for the first time. You can get it via:
+<verbatim class="command">
+crab -h
+</verbatim>
+
+
+#JobCreation
+---+++ Job Creation
+The job creation checks the availability of the selected dataset and prepares *all* the jobs for submission according to the selected job splitting specified in the crab.cfg
+
+   * By default the creation process creates a !CRAB project directory (default: crab_0_date_time) in the current working directory, where the related crab configuration file is cached for further usage,  avoiding  interference with other (already created) projects
+
+   * Using the [USER] _ui_working_dir_ parameter in the configuration file !CRAB allows the user to chose the project name, so that it can be used later to distinguish multiple !CRAB projects in the same directory.
+
+<verbatim class="command">
+crab -create  
+</verbatim>
+which takes by default the configuration file called crab.cfg associated for this tutorial with MC data.
+
+The creation command could ask for proxy/myproxy passwords the first time you use it and it should produce a similar screen output like:
+
+<verbatim style="font-size: 13px" class="output">
+[lxplus209] ~/scratch0/TEST_RELEASE/TUTORIAL $ crab -create
+crab:  Version 2.7.7 running on Thu Feb 17 17:26:57 2011 CET (16:26:57 UTC)
+
+crab. Working options:
+        scheduler           glidein
+        job type            CMSSW
+        server              ON (use_server)
+        working directory   /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/
+
+Cannot find file or dir: /afs/cern.ch/user/f/fanzago/.glite/vomses
+Enter GRID pass phrase:
+Your identity: /DC=ch/DC=cern/OU=Organic Units/OU=Users/CN=fanzago/CN=610896/CN=Federica Fanzago
+Creating temporary proxy .............................................. Done
+Contacting  voms.cern.ch:15002 [/DC=ch/DC=cern/OU=computers/CN=voms.cern.ch] "cms" Done
+Creating proxy ......................... Done
+Your proxy is valid until Fri Feb 25 17:27:02 2011
+crab:  Your proxy will expire in:
+        0 hours 00 minutes 00 seconds
+
+Your identity: /DC=ch/DC=cern/OU=Organic Units/OU=Users/CN=fanzago/CN=610896/CN=Federica Fanzago
+Enter GRID pass phrase for this identity:
+Creating proxy .............................. Done
+Proxy Verify OK
+Your proxy is valid until: Thu Feb 24 17:27:05 2011
+A proxy valid for 168 hours (7.0 days) for user /DC=ch/DC=cern/OU=Organic Units/OU=Users/CN=fanzago/CN=610896/CN=Federica Fanzago now exists on myproxy.cern.ch.
+crab:  Contacting Data Discovery Services ...
+crab:  Accessing DBS at: http://cmsdbsprod.cern.ch/cms_dbs_prod_global/servlet/DBSServlet
+crab:  Requested dataset: /RelValProdTTbar/JobRobot-MC_3XY_V24_JobRobot-v1/GEN-SIM-DIGI-RECO has 300000 events in 1 blocks.
+
+crab:  May not create the exact number_of_jobs requested.
+crab:  1 job(s) can run on 3000000 events.
+
+crab:  List of jobs and available destination sites:
+
+Block     1: jobs                  1-5: sites: T2_HU_Budapest, T2_CH_CSCS, T2_ES_IFCA, T2_FR_CCIN2P3, T2_IT_Bari, T2_PT_LIP_Lisbon, T2_KR_KNU, T2_UK_SGrid_Bristol, T2_FR_GRIF_LLR, T2_RU_INR, T2_CN_Beijing, T2_IT_Pisa, T2_US_MIT, T2_RU_PNPI, T2_AT_Vienna, T2_TR_METU, T2_UK_London_IC, T2_DE_DESY, T2_TW_Taiwan, T2_US_UCSD, T2_RU_RRC_KI, T2_PL_Warsaw, T2_RU_SINP, T2_US_Caltech, T2_PT_NCG_Lisbon, T2_BR_SPRACE, T2_BR_UERJ, T2_IT_Rome, T2_US_Purdue, T2_BE_IIHE, T2_IT_Legnaro, T2_ES_CIEMAT, T2_DE_RWTH, T2_RU_JINR, T2_FR_GRIF_IRFU, T2_UA_KIPT, T2_UK_SGrid_RALPP, T2_PK_NCP, T2_UK_London_Brunel, dp0015.m45.ihep.su, T2_IN_TIFR, T2_US_Florida, T3_CH_PSI, T2_RU_ITEP, T3_TW_NCU, T2_FR_IPHC, T2_BE_UCL, T2_US_Wisconsin, T2_US_Nebraska, T3_UK_London_RHUL, T2_FI_HIP, T2_EE_Estonia
+
+crab:  Checking remote location
+crab:  Creating 1 jobs, please wait...
+crab:  Total of 1 jobs created.
+
+Log file is /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/log/crab.log
+
+</verbatim>
+
+   * the project directory called crab_0_101028_123033 is created
+
+
+#CMS.JobSubmission
+---+++ Job Submission
+
+With the submission command it's possible to specify a combination of jobs and job-ranges separated by comma (e.g.: =1,2,3-4), the default is all.
+To submit all jobs of  the last created project with the default name, it's enough to execute the following command:
+<verbatim class="command">
+crab -submit 
+</verbatim>
+to submit a specific project:
+<verbatim class="command">
+crab -submit -c  <dir name>
+</verbatim>
+
+which should produce a similar screen output like:
+
+<verbatim  class="output" style="font-size: 13px">
+
+[lxplus209] ~/scratch0/TEST_RELEASE/TUTORIAL $ crab -submit
+crab:  Version 2.7.7 running on Thu Feb 17 17:28:09 2011 CET (16:28:09 UTC)
+
+crab. Working options:
+        scheduler           glidein
+        job type            CMSSW
+        server              ON (default)
+        working directory   /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/
+
+crab:  Registering credential to the server : crab1.ba.infn.it
+crab:  Your credential for the required server will expire in:
+        0 hours 00 minutes 00 seconds
+
+crab:  Please renew MyProxy delegated proxy:
+
+Your identity: /DC=ch/DC=cern/OU=Organic Units/OU=Users/CN=fanzago/CN=610896/CN=Federica Fanzago
+Enter GRID pass phrase for this identity:
+Creating proxy ................................. Done
+Proxy Verify OK
+Your proxy is valid until: Thu Feb 24 17:28:48 2011
+A proxy valid for 168 hours (7.0 days) for user /DC=ch/DC=cern/OU=Organic Units/OU=Users/CN=fanzago/CN=610896/CN=Federica Fanzago now exists on myproxy.cern.ch.
+crab:  Credential successfully delegated to the server.
+
+crab:  Starting sending the project to the storage dot1-prod-2.ba.infn.it...
+crab:  Task crab_0_110217_172656 successfully submitted to server crab1.ba.infn.it
+
+crab:  Total of 5 jobs submitted
+Log file is /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/log/crab.log
+</verbatim>
+
+
+#JobStatusCheck
+---+++ Job Status Check
+Check the status of the jobs in the latest !CRAB project with the following command:
+<verbatim class="command">
+crab -status 
+</verbatim>
+to check a specific project:
+<verbatim class="command">
+crab -status -c  <dir name>
+</verbatim>
+
+which should produce a similar screen output like:
+<verbatim  style="font-size: 13px" class="output">
+[lxplus209] ~/scratch0/TEST_RELEASE/TUTORIAL $ crab -status
+crab:  Version 2.7.7 running on Thu Feb 17 17:41:30 2011 CET (16:41:30 UTC)
+
+crab. Working options:
+        scheduler           glidein
+        job type            CMSSW
+        server              ON (default)
+        working directory   /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/
+
+crab:  
+ID    END STATUS            ACTION       ExeExitCode JobExitCode E_HOST
+----- --- ----------------- ------------  ---------- ----------- ---------
+1     N   Running           SubSuccess                           cream01.lcg.cscs.ch
+2     N   Ready             SubSuccess                           ce02.lcg.cscs.ch
+3     N   Ready             SubSuccess                           pg.ihepa.ufl.edu
+4     N   Running           SubSuccess                           lcg02.sinp.msu.ru
+5     N   Ready             SubSuccess                           osg.hpc.ufl.edu
+
+crab:   5 Total Jobs 
+ >>>>>>>>> 3 Jobs Ready 
+        List of jobs Ready: 2-3,5 
+ >>>>>>>>> 2 Jobs Running 
+        List of jobs Running: 1,4 
+
+crab:  You can also follow the status of this task on :
+        CMS Dashboard: http://dashb-cms-job-task.cern.ch/taskmon.html#task=fanzago_crab_0_110217_172656_h4l0m2
+        Server page: http://crab1.ba.infn.it:8888/logginfo
+        Your task name is: fanzago_crab_0_110217_172656_h4l0m2 
+
+Log file is /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/log/crab.log
+</verbatim>
+
+
+%BLUE%Also, you can have a look at the web page of the server where you can see the status progress of you job.%ENDCOLOR%
+Simply, execute the command:
+<verbatim class='command'>
+crab -printId
+</verbatim><verbatim class='command'>
+crab -printId -c <dir name>
+</verbatim>
+And you will get the unique id of your jobs:
+
+<verbatim style="font-size: 13px" class="output">
+[lxplus209] ~/scratch0/TEST_RELEASE/TUTORIAL $ crab -printId
+crab:  Version 2.7.7 running on Thu Feb 17 17:30:57 2011 CET (16:30:57 UTC)
+
+crab. Working options:
+        scheduler           glidein
+        job type            CMSSW
+        server              ON (default)
+        working directory   /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/
+
+crab:  
+Task Id = fanzago_crab_0_110217_172656_h4l0m2     
+--------------------------------------------------------------------------------------------
+
+crab:  You can also follow the status of this task on :
+        CMS Dashboard: http://dashb-cms-job-task.cern.ch/taskmon.html#task=fanzago_crab_0_110217_172656_h4l0m2
+        Server page: http://crab1.ba.infn.it:8888/logginfo
+        Your task name is: fanzago_crab_0_110217_172656_h4l0m2 
+
+Log file is /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/log/crab.log
+</verbatim>
+
+
+#JobOutputRetrieval
+---+++ Job Output Retrieval
+For the jobs which are in the "Done" status it is possible to retrieve the output files of the jobs.
+The following command retrieves the log files of all "Done" jobs of the last created !CRAB project:
+<verbatim class="command">
+crab -getoutput 
+</verbatim>
+to get the output of a specific project:
+<verbatim class="command">
+crab -getoutput -c  <dir name>
+</verbatim>
+
+the job results will be copied in the =res= subdirectory of your crab project:
+
+<verbatim style="font-size: 13px" class="output">
+[lxplus209] ~/scratch0/TEST_RELEASE/TUTORIAL $ crab -get
+crab:  Version 2.7.7 running on Thu Feb 17 18:11:34 2011 CET (17:11:34 UTC)
+
+crab. Working options:
+        scheduler           glidein
+        job type            CMSSW
+        server              ON (default)
+        working directory   /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/
+
+crab:  Only 4 jobs will be retrieved  from 5 requested.
+        (for details: crab -status)
+crab:  Starting retrieving output from server dot1-prod-2.ba.infn.it...
+crab:  Results of Jobs # 1 are in /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/res/
+crab:  Results of Jobs # 3 are in /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/res/
+crab:  Results of Jobs # 4 are in /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/res/
+crab:  Results of Jobs # 5 are in /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/res/
+Log file is /afs/cern.ch/user/f/fanzago/scratch0/TEST_RELEASE/TUTORIAL/crab_0_110217_172656/log/crab.log
+</verbatim>
+
+#MoreDoc
+---++ Where to find more on !CRAB
+   * [[https://twiki.cern.ch/twiki/bin/view/CMSPublic/WorkBookCRABTutorial?redirectedfrom=CMS.WorkBookCRABTutorial][CRAB Tutorial]] will show you how to store data remotely, run on real data, and publish the output of your jobs. Basically how a "real user" will use CRAB.
+   * [[https://twiki.cern.ch/twiki/bin/view/CMS/SWGuideCrab][CRAB Home]]
+   * [[SWGuideCrabHowTo][HowTos]]
+   * [[https://twiki.cern.ch/twiki/bin/view/CMS/SWGuideCrabFaq][CRAB FAQ]]
+   * [[https://twiki.cern.ch/twiki/bin/view/CMS/WorkBookGridJobDiagnosisTemplate][WorkBookGridJobDiagnosisTemplate]]: Steps to identify the problems you experience with your grid analysis jobs.
+   * [[https://hypernews.cern.ch/HyperNews/CMS/get/crabFeedback.html][CRAB mailing list]] where to send feedback and ask support in case of jobs problem (please send to us your crab.cfg file and the job stderr - stdout - log otherwise we are not able to provide support)
+
+Note also that all CMS members using the Grid must subscribe to the [[https://hypernews.cern.ch/HyperNews/CMS/get/gridAnnounce.html][Grid Annoucements CMS.HyperNews forum]].
+
+
+
+-- Main.EricVaandering - 01 Aug 2011
