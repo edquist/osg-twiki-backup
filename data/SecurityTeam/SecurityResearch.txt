@@ -1,0 +1,188 @@
+%META:TOPICINFO{author="MineAltunay" date="1312923925" format="1.1" reprev="1.1" version="1.1"}%
+---++Software Security Assessment Steps
+   * Gather the security policy of the system. The security policy tells us what is malicious behavior; that is anything not allowed by the policy. 
+      * Who are the authorized users? Who controls this list? 
+      * What are the authorized user actions? Which privileges are given? Which privileges are given to software services/components? 
+      * List all the roles and the privileges given to them. E.g a regular user should not modify configuration file but a daemon user can. 
+   * High-level Security goals
+      * What are the security goals in the system? For example, a goal of the VOMS-Admin is to protect the integrity of membership data. Another goal is to provide appropriate attributes to members. 
+      * Are there any confidential data in the system? E.g. user credentials? 
+      * Are there any data its integrity is important
+      * What are the system’s availability requirements?
+   * Perform architectural analysis
+      * Identify software components
+      * Draw a process flow diagram that shows interactions between the software components. The interactions should show the data transferred between the components as well as the actions taken over the data. Jim's tutorial on this step is really good. The detailed steps described there can be incorporated into this list. 
+      * Identify the resources accessed by components
+      * Label the privileges necessary to access these resources. 
+      * Re-draw the process flow diagram to show how resources are accessed during the component interactions
+   * Trust analysis. List all assumptions (implicit or explicit) made during the process flow diagram. To identify the trust relationships:
+      * For any interaction that involves data transfer, consider the security properties of the data: Confidentiality, Integrity, Availability, Authorization and Authentication. Are there any assumptions over any of these properties? For example, a user sending his password to an email server trusts the server protects the confidentiality of his password. The email server assumes network layer protects the integrity of the password data. 
+      * To understand the authorization assumptions, list the actions expected on the data and the actions not allowed on the data. 
+      * To understand authentication assumptions, list what actions are required to prove one’s identity.  For example, a web server assume that only the authorized user has access to his web cookie. Sending his web cookie to the server proves the user’s identity. 
+    * Identify high value assets
+      * The resources and processes identified during step: High Level Security Goals. These resources are highly likely to be critical to the system security. 
+      * Processes running with high level system privileges. Resources that directly or indirectly interact with these processes.
+    * Component Analysis
+      * Start with verifying the trust assumptions in the code. Start with assumptions about high-value assets. 
+
+---++ Security Policy of Condor -- derived from identified Vulnerabilities 
+1.	2005-0001 Condor check_point server runs under condor account. It allows any user to read/write condor-owned files including /etc/passwd. 
+
+Policy Rule Violated (1): No user should have read/write access to condor owned files. 
+Policy Rule Violated (2): Condor user should not have read/write access to files that are owned by root, such as /etc/passwd or condor_configuration files which is executed with root privileges to start condor daemon.
+
+2.	2005-0003 Shadow and gridmanager daemons do not sanitize/check user inputs properly. This allows a user to execute arbitrary code under condor account privileges. Due to a violation of Rule (2), a user can execute arbitrary commands with root privileges. 
+
+Policy Rule Violated (2): Condor user should not have read/write access to files that are owned by root
+Policy Rule Violated (3): A user cannot execute arbitrary commands under any privileged accounts such as condor.
+Policy Rule Violated (4): A user can only execute arbitrary jobs under his own authorized account. (I do not think this is a universal rule because most software does not allow user’s to run any arbitrary commands at all.)
+  
+3.	2005-0004 Condor daemons have ownership over condor configuration files. Condor daemons are started as root processes. Daemons are only allowed to change the configuration parameters to certain authorized values. However, there are no checks enforced. If the condor account is compromised, this can lead to compromise of root account since condor daemon is started as root. 
+
+Policy Rule Violated (2): Condor should not have read/write access to files that are executed with root privileges. 
+Policy Rule Violated (5): Configuration values should be checked against an authorized list.  
+
+4.	2005-0006 Startd authenticates the schedd only based on host-ip. Startd runs a user job under any account name sent by the schedd. A user can spoof the ip address of an authorized schedd and submit a job under any account. Due to a violation of Rule (2), a user can execute arbitrary commands with root privileges. 
+
+Policy Rule Violated (2): Condor user should not have read/write access to files that are owned by root
+Policy Rule Violated (3): A user cannot execute arbitrary commands under any privileged accounts such as condor. 
+Policy Rule Violated (4): A user can only execute arbitrary jobs under his own account.
+
+5.	2006-0001 User can inject arbitrary commands into stork server. This allows executing arbitrary code under user’s account on the stork server. If the stork server is configured to run under condor account, then user can execute arbitrary code under condor user. Due to a violation of Rule (2), a user can execute arbitrary commands with root privileges. 
+
+Policy Rule Violated (2): Condor user should not have read/write access to files that are owned by root
+Policy Rule Violated (3): A user cannot execute arbitrary commands under any privileged accounts such as condor. 
+
+6.	2006-0003 and 2006-0004 User is allowed to execute some external scripts under a special directory (/condor/scripts) if an execution host allows it. User input to ClassAds is not sanitized/checked. User can execute arbitrary code under condor privileges. Due to a violation of Rule (2), a user can execute arbitrary commands with root privileges. 
+
+Policy Rule Violated (2): Condor user should not have read/write access to files that are owned by root
+Policy Rule Violated (3): A user cannot execute arbitrary commands under any privileged accounts such as condor. 
+Policy Rule Violated (6): A user can only execute external scripts defined in the /condor/scripts directory. 
+
+7.	2006-0005 A user can modify the condor_schedd log file. When schedd restarts, it uses the log file to start jobs. User can execute arbitrary code with condor privileges or any other user privileges. Due to a violation of Rule (2), a user can execute arbitrary commands with root privileges.
+
+Policy Rule Violated (1): No user should have read/write access to condor owned files
+Policy Rule Violated (2): Condor user should not have read/write access to files that are owned by root
+Policy Rule Violated (3): A user cannot execute arbitrary commands under any privileged accounts such as condor.
+Policy Rule Violated (4): A user can only execute jobs under his own account.
+Policy Rule Violated (7): A user cannot start/stop/restart any daemon with a higher privilege such as schedd.
+Policy Rule Violated (8): A user is not permitted to execute condor queue management commands. 
+
+8.	2006-0006 A user can spoof identity of any user in the system due to condor’s file system based authentication. The user cannot spoof root user because condor startd does not run any user job with root privileges. However, the user can submit jobs with condor privileges which then can run as root. 
+Policy Rule Violated (2).
+Policy Rule Violated (3): A user cannot execute arbitrary commands under any privileged accounts such as condor
+Policy Rule Violated (4): A user can only execute jobs under his own account.
+
+9.	2006-0008 On some platforms, a temporary configuration file is created under /tmp. An attacker can take advantage of a race condition and modify the configuration file. Attacker can execute arbitrary code as privileged user. (Rule: users should not run under privileged accounts)
+Policy Rules Violated: 1, 2, 3, 4
+ 
+10.	2006-0009 Condor negotiator does not check/sanitize the input values sent by startd that can lead to buffer overflow attacks. Any user can invoke the vulnerable function call because negotiator only performs host-based authentication of startd and schedd hosts. 
+
+Policy Rule Violated (9): A user cannot directly invoke function calls (condor_advertise) to the condor negotiator. Only authorized startd and schedd daemons can send input to negotiator.
+ 
+11.	Undisclosed vulnerability. Condor startd does not kill all the processes spawned from a user’s command. An attacker can use leftover processes to communicate with other user’s jobs that are mapped into the same user account. An attacker can use leftover processes to consume system resources
+Note this attack does not violate Policy Rule (4): A user can only execute arbitrary jobs under his own authorized account. The attacker obeys this rule by only running processes in his authorized account, which happens to be shared by another user. 
+Policy Rule Violated (10): A user cannot read, write or communicate with another user’s files and processes. 
+Policy Rule Violated (11): A user cannot consume the CPU and other resources of an execution host indefinitely. 
+
+---++ Trust Relationships Identified in Condor 
+1.      Ordered List ItemCheckpoint server (runs as condor) trusts all users with its privilege level. Checkpoint server grants everyone read/write access to condor owned files. 
+
+2.	Root user trusts the condor user for reading and writing to root owned files.
+
+3.	Condor (shadow) trusts user input (email address) does not contain any executable scripts, shell meta-characters, or system calls. 
+
+4.	Condor (shadow) trusts user gives an email address where user has read access to, not someone else’s email. (User can use condor as a spam-bot where it sends unsolicited emails to anyone)
+
+5.	Condor user is trusted to change its configuration parameters to only allowed values. Condor user is trusted to execute only condor owned executables. 
+
+6.	Condor startd trusts schedd to perform user authentication. 
+
+7.	Startd trusts that any machine with a certain IP address to be the schedd server. In other words, startd trusts that only schedd owns a certain IP address. 
+
+8.	Startd trusts schedd to map a user into an un-privileged user account.
+
+9.	Stork server trusts user input does not contain any executables. In other words, Stork server trusts that the user input is a filename that is constructed with POSIX portable filename character set. 
+
+10.	 Condor negotiator and shadow daemons trust that a user will only execute an authorized list of external scripts (/condor/scripts/)
+
+11.	Condor negotiator and shadow daemons trust that a user will only provide input that does not contain any shell metacharacters. 
+
+12.	 Condor schedd trusts the user with write access to the log file. 
+
+13.	 Schedd trusts the user that user will not cause condor to crash.
+
+14.	Condor starter trusts the file system allows only the creator of a file to be the owner of that file.
+
+15.	Condor starter trusts SSL libraries to perform authentication. SSL trusts that a message signed with a RSA private key (with exponent 3) only belongs to the holder of the private key. (This assumption is incorrect due to exponent 3.)
+
+16.	 Condor negotiator trusts that only Condor daemons own certain IP addresses. (Host-based authentication) 
+
+17.	 Condor negotiator trusts that input from startd to be smaller than a certain size.  
+
+---++ Trust Relationships in VOMS-Admin
+
+     <img src="%ATTACHURLPATH%/voms-admin-trust-1.jpg" alt="voms-admin-trust-1.jpg" width='562' height='208' />    
+
+TR1) Users Trusts “VOMS-Admin” server identity. step1
+
+TR2) User Trusts data (Data1, HTML response) sent from the Server only perform authorized actions; data is not corrupted; and data is sent by the VOMS_Admin server. User trusts “Data1” for (Integrity, Authenticity, Authorization) properties
+
+TR3) VOMS-Admin Trusts data (Data2, certificate and the request) from the user  only performs authorized activity (nothing other than registering or removing user’s own account) and VOMS-Admin trusts that Data2 is sent by the user owning the DN in the request. 
+VOMS-Admin trusts Data2 for (Authorization, Authenticity, Integrity)
+
+     <img src="%ATTACHURLPATH%/voms-admin-trust-2.jpg" alt="voms-admin-trust-2.jpg" width='546' height='353' />    
+
+Because of TR2 and TR3, a user trusts data submitted from all other users. 
+
+TR4) A user  trusts “Data4”
+sent from another user to only perform authorized actions. This is relationship has the assumption that Data1 may have an effect on Data2, and Data4 has an affect on Data3. Otherwise, the trust relationship is not held true. 
+
+     <img src="%ATTACHURLPATH%/voms-admin-trust-3.jpg" alt="voms-admin-trust-3.jpg" width='530' height='176' />    
+
+TR5) Voms-Admin trusts that the email address is not malicious (has no malicious script) 
+
+TR6) VOMS-Admin assumes only user can have access to the email address
+
+TR7) SMTP server trusts email address is not malicious (has no malicious script)
+
+TR8) User trusts the email is from VOMS-Admin (not spoofed) 
+
+TR9) User trusts the email has no malicious links (the link for confirmation takes the user to the real VOMS-Admin web page and Does not try to compromise user’s computer)
+
+     <img src="%ATTACHURLPATH%/voms-admin-trust-4.jpg" alt="voms-admin-trust-4.jpg" width='528' height='176' />    
+
+TR10) VOMS-Admin Trusts that the email address of VO-Admin is not malicious (does 
+Not contain a script).
+
+TR11) VOMS-Admin Trusts only the VO-Admin can access the email address 
+
+TR12) The VO-Admin Trusts the email really come from the VOMS-Admin (not spoofed)
+
+TR13) VO-Admin Trusts that the email has no malicious links or scripts 
+
+TR14) VOMS-Admin Trusts only VO-Admin can access approval/rejection portal. VOMS-Admin 
+Trusts the browser cookie of VO-Admin. VOMS-Admin assumes nobody can access the 
+cookie except the VO-Admin 
+ 
+====== Things to Look at/ TODO ======
+  * Try to express the trust relationships in an existing language such as defined in Needham's or Abadi's work.
+Find out what other languages logics have been proposed to evaluate access control models. Although our scope is bigger than access control, these languages already have constructs like believe, say and on behalf of. 
+  * Catherine Meadows survey of formal verification of crypto protocols.
+  * Abadi. calculus for access control in distributed systems
+  * Abadi, needham. logic of authentication
+  * Syverson, survey of logic authentication
+  * How do we identify the trust relationships in a given system. 
+  * Find out the security policies of other software evaluated by MIST. Are there any common rules across all the software? Can we create a simple policy template and present to the developers so that they can create a security policy for their systems.  
+
+
+   
+-- Main.MineAltunay - 09 Aug 2011
+
+
+
+
+%META:FILEATTACHMENT{name="voms-admin-trust-1.jpg" attachment="voms-admin-trust-1.jpg" attr="" comment="" date="1312923728" path="voms-admin-trust-1.jpg" size="35691" stream="voms-admin-trust-1.jpg" tmpFilename="/usr/tmp/CGItemp42725" user="MineAltunay" version="1"}%
+%META:FILEATTACHMENT{name="voms-admin-trust-2.jpg" attachment="voms-admin-trust-2.jpg" attr="" comment="" date="1312923843" path="voms-admin-trust-2.jpg" size="59237" stream="voms-admin-trust-2.jpg" tmpFilename="/usr/tmp/CGItemp42860" user="MineAltunay" version="1"}%
+%META:FILEATTACHMENT{name="voms-admin-trust-3.jpg" attachment="voms-admin-trust-3.jpg" attr="" comment="" date="1312923855" path="voms-admin-trust-3.jpg" size="25791" stream="voms-admin-trust-3.jpg" tmpFilename="/usr/tmp/CGItemp42736" user="MineAltunay" version="1"}%
+%META:FILEATTACHMENT{name="voms-admin-trust-4.jpg" attachment="voms-admin-trust-4.jpg" attr="" comment="" date="1312923867" path="voms-admin-trust-4.jpg" size="27947" stream="voms-admin-trust-4.jpg" tmpFilename="/usr/tmp/CGItemp42604" user="MineAltunay" version="1"}%
