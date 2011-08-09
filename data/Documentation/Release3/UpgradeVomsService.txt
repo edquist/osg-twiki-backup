@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1312485995" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="BrianBockelman" date="1312913854" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="RPMTempDocuments"}%
 %LINKCSS%
 
@@ -9,9 +9,7 @@
    * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="voms"}%
 -->
 
-%ICON{warning}%This is a draft document. It is not fully tested!
-
-This document describes how to upgrade from VOMS.VOMS-Admin installed from osg-1.2 (pacman chache) to new osg-voms package:
+This document describes how to upgrade from VOMS-Admin installed from osg-1.2 (pacman chache) to new osg-voms package (installed via yum):
 We assume that you are currently running:
    * VOMS Admin 2.0.15-1                                
    * VOMS Server 1.8.8-2p1  
@@ -22,6 +20,9 @@ The new version of VOMS-Admin and VOMS-Server will be installed during the upgra
 If you want to do a fresh installation please consult [[https://twiki.grid.iu.edu/bin/view/Documentation/InstallVomsService][VOMS Installation Guide]] instead.
 
 ---+ Preparing For Upgrade
+
+%ICON{warning}% *WARNING*: VOMS-Admin assumes =hostname= resolves to the fully-qualified domain name; if it does not, the upgrade will fail in mysterious ways.  Type =hostname= and verify it is of the form _voms.example.com_ and not _voms_.  If your pacman-based install was installed with the wrong hostname, you may have to contact osg-software for expert help if the upgrade fails.
+
 In order to prepare for upgrade you will need to stop all the services and create complete myslqdump of your voms databases.  You have to perform the following steps:
    1. Login on the node where voms is install
    1. setup VDT_LOCATION<pre class="rootscreen">
@@ -35,11 +36,14 @@ In order to prepare for upgrade you will need to stop all the services and creat
 %UCL_PROMPT_ROOT%vdt-control -on mysql5
 </pre>
    1. Create database dump:<pre class="rootscreen">
-%UCL_PROMPT_ROOT%  mysqldump --all-databases --flush-privileges >  /opt/voms_database_dump.sql
+%UCL_PROMPT_ROOT%  mysqldump --all-databases --flush-privileges >  ~/voms_database_dump.sql
 </pre>
    1. Stop !MySql server<pre class="rootscreen">
 %UCL_PROMPT_ROOT%vdt-control -off mysql5
 </pre>
+   1. The VDT pollutes the environment of your shell.  Log out of this one.
+
+For the remainder of this document, *all pacman-based services should remain off*.
 
 ---+ OSG-VOMS Installation
 
@@ -54,39 +58,56 @@ In order to prepare for upgrade you will need to stop all the services and creat
 %INCLUDE{"InstallVomsService" section="PrepareServiceCertificates"}%
 ---++ Restore Old Database
 Restore database for the database dump:<pre class="rootscreen">
-%UCL_PROMPT_ROOT%  mysql < /opt/voms_database_dump.sql
+%UCL_PROMPT_ROOT%  mysql -p < ~/voms_database_dump.sql
 </pre>
+If =mysql= has no root password (we highly recommend a root password), you will have to drop the =-p= option.
 
 ---++ Configure VOMS and VOMS-Admin
-In order to configure database you will need to figure out the password and admin name of the database you have used before. In the other  window  check ==$VDT_LOCATION/glite/etc/voms/%RED%VO_NAME%ENDCOLOR%/voms.conf== and search for *--username* attribute (e.g *--username=test1_adm*) and *--port* (e.g *--port=1500*) then check ==$VDT_LOCATION/glite/etc/voms/%RED%VO_NAME%ENDCOLOR%/voms.pass== file for password (e.g *secret*)
+In order to configure database you will need to figure out the password and admin name of the database you have used before.  Gather information from the following files:
+   * ==%RED%VDT_LOCATION%ENDCOLOR%/glite/etc/voms/%RED%VO_NAME%ENDCOLOR%/voms.conf== 
+      * OLD_USER_NAME: Search for *--username* attribute (e.g *--username=test1_adm*)
+      * OLD_VOMS_PORT: Seach for *--port* (e.g *--port=15000*)
+   * ==%RED%VDT_LOCATION%ENDCOLOR%/glite/etc/voms/%RED%VO_NAME%ENDCOLOR%/voms.pass== 
+      * OLD_USER_PASSWORD: This file contains the previous !MySQL user password (e.g *secret*).
+   * ==/etc/my.conf==
+      * MYSQL_PORT: Look for "port"; if it is not set in this file, it is 3306.
 
 Run ==voms-admin-configure== script:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% voms-admin-configure install --dbtype mysql --vo %RED%VO_NAME%ENDCOLOR% \
-    --dbauser root  --dbapwd %RED%MYSQL_ROOT_PASSD%ENDCOLOR% \
-    --dbusername  %RED%OLD_ADMIN_NAME%ENDCOLOR% --dbpassword %RED%OLD_ADMIN_PASSWORD%ENDCOLOR% \
-    --port %RED%VOMS_OLD_PORT%ENDCOLOR%  --mail-from %RED%email%ENDCOLOR% --smtp-host %RED%smtp.domain%ENDCOLOR% \
+    --dbauser root  --dbapwd %RED%MYSQL_ROOT_PASSD%ENDCOLOR% --dbport %RED%MYSQL_PORT%ENDCOLOR% \
+    --dbusername  %RED%OLD_USER_NAME%ENDCOLOR% --dbpassword %RED%OLD_USER_PASSWORD%ENDCOLOR% \
+    --port %RED%OLD_VOMS_PORT%ENDCOLOR%  --mail-from %RED%email%ENDCOLOR% --smtp-host %RED%smtp.domain%ENDCOLOR% \
     --sqlloc /usr/lib%RED%64%ENDCOLOR%/voms/libvomsmysql.so --cert /etc/grid-security/voms/vomscert.pem \
     --key  /etc/grid-security/voms/vomskey.pem --read-access-for-authenticated-clients 
 </pre> For example:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% voms-admin-configure install --dbtype mysql --vo test1 \
-     --dbauser root --dbapwd  top_secret \
+     --dbauser root --dbapwd  top_secret --dbport 3306 \
      --dbusername test1_adm --dbpassword secret
      --port 15000 --mail-from tlevshin@fnal.gov --smtp-host smtp.fnal.gov \
      --sqlloc /usr/lib64/voms/libvomsmysql.so --cert /etc/grid-security/voms/vomscert.pem \
      --key  /etc/grid-security/voms/vomskey.pem --read-access-for-authenticated-clients 
 </pre>
  
-Disable CSRF checking (this should be done so old version of voms-admin works with this new installation as well). To do so, edit file ==i /etc/voms-admin/%RED%VO_NAME%ENDCOLOR%/voms.service.properties== by adding the following line:<pre class=file>
+If your VO:
+   * Has Custom-made scripts for managing voms-admin, or
+   * Uses VOMRS,
+These items might be broken due to new CSRF security checks (Cross Site Request Forgery).  Affected VOs may chose to disable these security checks.  To do this, edit ==/etc/voms-admin/%RED%VO_NAME%ENDCOLOR%/voms.service.properties== and include the following line:<pre class=file>
 #### Add other options after this line
 voms.csrf.log_only = true
 </pre>
+
+We recommend that unaffected VOs *do not* make this change.
 
 ---++ Upgrade Database Schema<pre class="rootscreen">
 %UCL_PROMPT_ROOT%voms-admin-configure upgrade --vo test1
 </pre>
 
+---++ Configure System Tomcat
+
 %INCLUDE{"InstallVomsService" section="ConfigureTrustManager"}%
+
 %INCLUDE{"InstallVomsService" section="StartVOMSServices"}%
+
 ---+ Verification
 ---++ Voms-Server Test
 If you are the member of this VO you should be able to get voms proxy certificate  Login as user on the machine where you have you certificate and key,
@@ -102,6 +123,4 @@ You should get back the list of VOMS member that  matches the old list.
  
 Check the access to WEB UI by ==http://%RED%VO_HOST%ENDCOLOR%:8443/vomses==
 
-
 %INCLUDE{"InstallVomsService" section="StopVOMSServices"}%
--- Main.TanyaLevshina - 04 Aug 2011
