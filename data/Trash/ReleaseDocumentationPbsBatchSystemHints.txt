@@ -1,61 +1,70 @@
-%META:TOPICINFO{author="RobertEngel" date="1287676544" format="1.1" version="1.14"}%
+%META:TOPICINFO{author="RobertEngel" date="1313093466" format="1.1" reprev="1.15" version="1.15"}%
 %SHOW_DOC_STATUS_TABLE%
 
----+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
-%TOC%
+---+!! Portable Batch System (PBS) Hints
+%TOC{}%
 
----++ Purpose
-      To enable the !PBS batch scheduler to work with the !OSG software stack
+---+ About this Document
+<!-- useful variable definitions
+   * Local UCL_HOST = ce
+-->
 
----++ Word To The Wise
-   * Install the !PBS server (or flavours thereof) on a different node than the !OSG gatekeeper node to avoid problems in the gatekeeper node bringing down the batch scheduler
-   * You can have multiple gatekeepers talking to a single !PBS server/scheduler (eg: Production and !ITB) with different scheduling rules
-   * However, Gratia accounting system and WS-GRAM both assume that the PBS master is on the same node as the gatekeeper.  To get around this, all you need to do is to NFS-export your PBS server logs and accounting logs from the PBS master to the gatekeeper.  On a cluster where the top level directory is in /var/spool/pbs, you would have to export the directories /var/spool/pbs/server_priv/accounting and /var/spool/pbs/server_logs.  
+%ICON{"hand"}% This document is for System Administrators of a %LINK_GLOSSARY_CE%. It describes all necessary steps to enable the [[http://en.wikipedia.org/wiki/Portable_Batch_System][Portable Batch System]] to work with the !OSG software stack.
 
----++ !PBS Configuration
- !PBS *does not* stream stdout and stderr. It maintains stderr and stdout at the local cluster node and copies back these files at the end of the job.
-   * Copy back, *by default*, is done using the =pbs_rcp= command which might not be supported or might not want to be supported on most clusters.
-   * If your home directories are mounted across cluster nodes, use the =$usecp= directive to manage copy back.
+---+ Requirements
 
-&nbsp;&nbsp;&nbsp;&nbsp;Edit =/var/spool/pbs/mom_priv/config= and add
-      <verbatim>
-      $usecp *.my.sub.domain:/home /home
-      </verbatim>
+   1 working !PBS installation
+   1 [[ReleaseDocumentation/ComputeElementInstall][Compute Element Installation]]
+   1 [[ReleaseDocumentation/ComputeElementInstall#Instructions_for_PBS][Additional Installation Instructions for PBS]]
 
----++ Gatekeeper Configuration
+---+ General Recommendations
 
- =$VDT_LOCATION/globus/lib/perl/Globus/GRAM/JobManager/pbs.pm= is the !Perl script that the preWS gatekeeper uses to translate RSL to the !PBS submit script.  The PBS script, by default, does not insert any queue, it assumes you will use the default queue.  It is possible to get PBS directives applied to all the jobs you submit by editing the pbs.pm file.
+   * Do not install the !PBS server and the !OSG %LINK_GLOSSARY_GATEKEEPER% on the same host to avoid problems with the gatekeeper bringing down the batch scheduler.
+   * Export =/var/spool/pbs/server_priv/accounting= and =/var/spool/pbs/server_logs= from your !PBS server to the %LINK_GLOSSARY_GATEKEEPER% in order for Gratia and WS-GRAM to function correctly.
+   * Multiple !OSG gatekeepers can be configured to access a single !PBS server.
 
----+++Making a default queue
-I modify the pbs.pm to add the following line #PBS -q osg.  This means that any 
-job that does not have a queue defined by default will get sent to the osg queue.
-If the user specifies the (queue=xxxxx) command in the RSL, then it will go to whatever
-queue is specified.
-<pre>
+---+ !PBS Configuration
+
+!PBS maintains _stdout_ and _stderr_ on the execution node of the job; both are copied back to the !PBS server host upon completion of the job using =pbs_rcp= by default. If user home directories are shared across cluster nodes, you can edit =/var/spool/pbs/mom_priv/config= to manage copy-back by adding:
+
+<pre class="file">
+$usecp *.%UCL_HOST_FQDN%:/home /home
+</pre>
+
+%NOTE% Adjust the regular expression =*.%UCL_HOST_FQDN%= to match the node names and domain of your node network!
+
+---+ Gatekeeper Configuration
+
+The !Perl script =$VDT_LOCATION/globus/lib/perl/Globus/GRAM/JobManager/pbs.pm= translates a Globus !RSL to the !PBS submission script. By _default_ the !Perl script assumes that the _default_ queue will be used. To change the queue name or any other !PBS directive, edit =$VDT_LOCATION/globus/lib/perl/Globus/GRAM/JobManager/pbs.pm=. 
+
+---++ Create a Default Queue
+
+Edit =$VDT_LOCATION/globus/lib/perl/Globus/GRAM/JobManager/pbs.pm= and add =#PBS -q %RED%&lt;queue name&gt;%ENDCOLOR%= to the file:
+
+<pre class="file">
 #! /bin/sh
 # PBS batch job script built by Globus job manager
 #
 #PBS -S /bin/sh
-#PBS -q osg
+#PBS -q %RED%&lt;queue name&gt;%ENDCOLOR%
 EOF
 </pre>
----+++Making a dynamic OSG_WN_TMP directory
-Under PBS it takes two steps to do this:  a prologue to actually create the directory 
-and a modification to pbs.pm where OSG_WN_TMP is set:
-<pre>
+
+%NOTE% Change %RED%&lt;queue name&gt;%ENDCOLOR% with the name of the queue to be used by default. Grid users who specify a queue during job submission will not be effected by this setting. 
+
+---++ Create a Dynamic OSG_WN_TMP Directory
+
+   1 Create a prologue script that creates the temporary directory
+   1 Modify =$VDT_LOCATION/globus/lib/perl/Globus/GRAM/JobManager/pbs.pm=
+
+<pre class="file">
 #!/bin/bash
-## Create a /scratch/jobid dir for every job run, and copy a user's keytab file
-from the
-## PBS head node.
+# Create a /scratch/jobid dir for every job run, and copy a user's keytab file from the PBS head node.
 #
-# Updated October 31  2006 by sether@fnal.gov, added lots and lots of error chec
-king.
-#
-# 11/06/2006 - Jason Allen <jallen@fnal.gov> Modified script to use a separate s
-cratch filesystem for each job
-#
-# 12/15/2006 - JA - Write critical errors to ERROR_FILE to mom health script
-# will pick it and set the node offline
+# 10/31/2006 - <sether@fnal.gov> added lots and lots of error checking
+# 11/06/2006 - <jallen@fnal.gov> modified script to use a separate scratch filesystem for each job
+# 12/15/2006 - <jallen@fnal.gov> write critical errors to ERROR_FILE to mom health script
+# 05/04/2007 - Steven Timm add output at the end of script
 
 JOBID=$1
 USERNAME=$2
@@ -197,36 +206,29 @@ chmod 777 ${SCRATCH_DIR}/${JOBID}
 echo "End CAB Prolouge `date`"
 echo -e "---------------------------------------------------------\n"
 
-</pre>
-<pre>
-#   Steve Timm, 5/4/07
 #   OSG_WN_TMP now set dynamically on this cluster to /scratch/${PBS_JOB_ID}
-    print JOB "OSG_WN_TMP_OLD=\${OSG_WN_TMP}\n";
-    print JOB "export OSG_WN_TMP_OLD\n";
-    print JOB "OSG_WN_TMP=/scratch/\${PBS_JOBID}\n";
-    print JOB "export OSG_WN_TMP \n";
+print JOB "OSG_WN_TMP_OLD=\${OSG_WN_TMP}\n";
+print JOB "export OSG_WN_TMP_OLD\n";
+print JOB "OSG_WN_TMP=/scratch/\${PBS_JOBID}\n";
+print JOB "export OSG_WN_TMP \n";
 </pre>
 
----++ Troubleshooting
-   *  Oftentimes a globus-job-run will fail against a PBS cluster because it is missing an RSL statement.  There are three types of jobtype, single, multiple, and MPI.  The default is multiple.  Unless you have configured your cluster with ssh key-pairs so that all the parts of the multiple job can be launched with the gatekeeper, the job will fail and you will get this error:
+---+ Troubleshooting
 
-<pre>
+   * A simple grid job submission:<pre class="screen">
+%UCL_PROMPT_SHORT% globus-job-run %UCL_HOST_FQDN%:2119/jobmanager-pbs /bin/hostname
+</pre> will fail if the %RED%jobtype%ENDCOLOR% argument is not specified as part of the !RSL. The jobtype can be _single_, _multiple_ and _PBS_. The correct syntax is:<pre class="screen">
+%UCL_PROMPT_SHORT% globus-job-run %UCL_HOST_FQDN%:2119/jobmanager-pbs -x '(%RED%jobtype%ENDCOLOR%=single)' /bin/hostname
+</pre>
+
+   * Unless ssh key-pairs have been configured for _all_ users, so that all the parts of the _multiple_ job can be launched with the gatekeeper, the job will fail with following error:<pre class="screen">
 Host key verification failed.
 /var/spool/pbs/mom_priv/jobs/302232.gaia.SC: line 87: [: too many arguments
 </pre>
+   *  If a !PBS job exceeds resource limits (_resources_default.mem_, _resources_default.walltime_) it will get killed unless the job explicitly request higher resource limits using the !RSL.
+   *  If the job gets submitted to a !PBS queue that has reached its queue limit, the submission will fail and the job will be held with =Globus error 17=.
 
-   *  The correct syntax is =globus-job-run <hostname>/jobmanager-pbs -x '(jobtype=single)' <command>=
-   *   Note that if a PBS job goes over a resource such as resources_default.mem, it will get killed
-   *  Note also that if you are submitting to a PBS queue that is already full to its queue limit, the submission will fail and the job will be held with Globus error 17.
-
-
-
-%BR%
-
-
----++ *Comments*
-| The resource limits are resources_default.mem, resources_default.walltime, etc, not resources_max.  Resources_max is the maximum resource levels that a jobs is allowed to request.  If a job does not explicitly request a higher resource limit, the limits in effect come from resources_default. | Main.CharlesWaldman | 15 Jun 2010 - 21:13 |
-| Charles&#39; comment fixed 9/30/10.  Steve&#60;br /&#62; | Main.StevenTimm | 30 Sep 2010 - 21:33 |
+---+ *Comments*
 %COMMENT{type="tableappend"}%
 
 <!-- CONTENT MANAGEMENT PROJECT
@@ -266,12 +268,10 @@ Host key verification failed.
    ======================
 
    Thank for reviewing this document! Please fill in your FirstLast name here:
-   * Local REVIEWER       = SarahWilliams
+   * Local REVIEWER       = RobertEngel
   
    Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local REVIEW_PASSED  = %IN_PROGRESS%
-
-
+   * Local REVIEW_PASSED  = %YES%
  
 -->
 
