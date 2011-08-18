@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1313436715" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1313685976" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="RPMTempDocuments"}%
 %LINKCSS%
 
@@ -13,8 +13,308 @@
 %TOC%
 
 %STARTINCLUDE%
-%EDITTHIS%
 
+---+ VDT Test Inventory
+
+This is a quick listing of the tests we run for the Pacman VDT and anything interesting we do in them.
+
+---++ Summary 
+
+   * Most of the tests run shell commands (possibly piping output) and either check stdout against a regex or check the retcode.
+   * Several require running commands or editing files as root.
+   * Most of the tests do not start up services on their own, but assume the framework has set them up. The framework sets environment variables pointing to the service location (i.e. hostname:port).
+   * Some tests have a timeout, implemented by trapping SIGALRM. In particular, the framework's watch_log() does this.
+   * Some of the tests run condor jobs. A sub in the test framework creates a submit file from a hash, then puts it into a scratch directory and submits. We run standard universe jobs if we have standard universe, but we don't really detect that except by matching the uname.
+   * There's a lot of pacman-specific stuff. I think files.t is entirely that.
+   * Half of install.t can be replaced by =rpm -V=.
+   * Some tests do depend on previous tests, notably =glexec.t= depends on =gums.t=
+   * Some of the tests have hardcoded userids/home directories.
+   * Some of the tests need wget/curl.
+   * =gums.t= uses Expect to send a password to mysql, since mysql expects it from a terminal, not stdin.
+   * =userpicking.t= relies on WHAT existing.
+   * We check to see if some services are running by attempting to connect to them directly (via =IO::Socket::INET=).
+
+---++ Wishlist - things that would be nice to have in our new tests.
+
+   * Should run a local universe job for the condor tests. Right now the code is there, but commented out.
+   * DCCP should have a non-trivial test.
+   * EDG-Make-Gridmap should have a non-trivial test.
+   * gLite FTS Client should have a non-trivial test.
+   * Gratia should have a non-trivial test.
+   * !MySQL should have some more thorough tests if we continue shipping it ourselves.
+   * !OpenLDAP should have some non-trivial tests if we continue shipping it ourselves.
+   * Pegasus should have a non-trivial test.
+   * =unit.t= runs self-tests for two of our scripts. It would be nice if _all_ of our scripts had self-tests in them.
+   * check_require_vomsadmin() (checks for a working VOMS-Admin) is commented out, can we fix it?
+   * Some of the check_requirement_X() subs only do a =ps|grep=, can we make them be more thorough.
+
+
+---++ Details
+
+---+++!! bestman.t 
+
+Assume bestman and gsiproxy started up.
+
+srm-ping to self on port 10443, check retcode for success.
+srm-copy a file to self, check output against regex for success.
+srm-copy the same file back, check output against regex for success.
+Diff the two files.
+
+---+++!! certs-updater.t 
+
+Run vdt-update-certs, check retcode.
+Sed =$VDT/vdt/var/certs-updater-status= as root.
+Run vdt-update-certs via wrapper as root, check retcode.
+Grep for pattern in logfile.
+
+(nothing else interesting)
+
+---+++!! certs.t 
+
+Make a dir in scratch.
+Run openssl verify on *.0 in the trusted_ca_dir, search outputs for error message; use this to find bad certs.
+
+---+++!! collector.t 
+
+Assume gratia_reporting and condor are running.
+
+Grep for =localhost:8880= in =gratia/probe/condor/ProbeConfig=
+
+<verbatim>
+globus-job-submit $hostname:2199/jobmanager-condor /bin/hostname
+</verbatim>
+get jobid from output.
+
+Sleep 10, then =condor_reschedule= as root.
+
+Until a timeout is hit, repeatedly run =globus-job-status= until it returns that the job is done.
+
+Verify a file exists.
+
+Send http post with an sql query to the =GratiaReporting= server. Check result against regexes.
+
+
+---+++!! condor.t 
+
+Assume condor is running.
+
+Run a condor job - see run_condor_job() in =VDTTestFramework.pm=.
+Also see watch_log().
+Run scheduler universe job. Run standard universe job if not a clipped condor.
+There is also code to run a local universe job but that's commented out.
+*Wishlist:* Run local universe job?
+
+---+++!! condor_g.t 
+
+Use =get_server_location()=
+If standard universe is installed, condor_compile something.
+Run condor jobs.
+
+
+---+++!! configure-osg.t 
+
+As root, make a testing dir the user can write to.
+As user, run test_*.py and grep for nonzero retcode.
+
+---+++!! dccp.t 
+
+Run dccp without any arguments and make sure it doesn't segfault.
+*Wishlist:* Actual tests for DCCP.
+
+---+++!! edg-gridftp-client.t 
+
+Assume alocal gridftp server and gsiproxy are running. Use edg-* tools
+to interact with it; check retcodes.
+
+
+---+++!! edg.t 
+
+Run fetch-crl into a temp dir, check retcode.
+Make sure fetch-crl produced some *.r0 files in temp dir.
+Run =edg-mkgridpool --help=
+*Wishlist:* Actual tests for EDG-Make-Gridmap.
+
+
+---+++!! files.t 
+
+This looks like pacman-specific stuff.
+
+
+---+++!! fts.t 
+
+grep =vdt-version= for 'gLite FTS Client', check retcode.
+Run =glite-transfer-submit -V=, make sure it doesn't segfault and returns the same version vdt-version gave us.
+*Wishlist:* Actual tests for gLite FTS Client.
+
+
+---+++!! gip.t 
+
+Make a symlink, chown some stuff as root.
+Run gip's unit tests =test_gip.py=, check retcode.
+Clean up afterward (as root).
+
+
+---+++!! glexec.t 
+
+*NB* Comment says to make sure test runs after =gums.t=.
+Backs up, modifies config files, as root.
+Run =grid-proxy-info -issuer=, use the output as the subject, add a mapping manually.
+Set GLEXEC_CLIENT_CERT. Assumes userid is 1000. Runs glexec /usr/bin/id, checks retcode.
+Removes mapping.
+Restores config files as root.
+
+
+---+++!! globus-ws.t 
+
+Skipping because GT5 doesn't have web services?
+
+
+---+++!! globus.t 
+
+Pick a *.0 file from TRUSTED_CA dir; run grid-cert-info on it and check retcode.
+Verify rls.jar exists.
+Run ldd on globus/libexec/slapd and make sure the output matches a pattern.
+Do globus-jub-run with several jobmanager setups. Check output.
+Run condor_compile if standard universe installed.
+Run globus-url-copy. Check retcode. Copy file back. Check retcode. Diff the files.  Grep logfiles.
+Do the same thing but with uberftp.
+Run gsiscp to transfer a file.
+Run a simple command via gsissh and match output.
+
+
+---+++!! gratia.t 
+
+Run python -c 'import Gratia'
+*Wishlist:* Actual tests for Gratia?
+
+
+---+++!! gums.t 
+
+Runs voms.t explicitly to set up some stuff in the database.
+Pass some stuff through grid-proxy-init. Get subject via grid-proxy-info.
+Run gums-add-mysql-admin to add the subject. *Uses Expect to send the password to mysql*. Check retcode.
+As root, add a static mapping by editing some config files. Make a world-readable copy of a config file, then cat it.
+Run gums manualGroupAdd ...
+A few more runs of grid-* tools.
+Run gums generateGridMapfile
+Run gums mapUser
+
+
+---+++!! httpd.t 
+
+Runs wget to get stuff.
+For one part, uses curl to test https because curl lets the script pass the passphrase on the command line. Greps the output html file.
+
+
+---+++!! install.t 
+
+Half of this can probably be replaced by 'rpm -V'
+
+Runs ldd of a few files.
+Runs perl -c.
+Finds a whole bunch of *.py files and runs pylint on them. Checks return code for fatal or error codes.
+Check for RPATHS by running objdump.
+Check for bad strings in files (runs strings and greps the results)
+
+
+---+++!! job-env.t 
+
+nothing special
+
+
+---+++!! lfc.t 
+
+Nothing we haven't seen before. Run several commands as root, checks return codes.
+Runs python-interface-validation.py, checks stdout.
+
+
+---+++!! logrotate.t 
+
+Tests to see if state file exists, then produces a file and runs our script to rotate it (checks retcode).
+
+
+---+++!! myproxy.t 
+
+Nothing new, other than using pipes in some of the system calls.
+
+
+---+++!! mysql.t 
+
+This just checks to see if we can connect to the server and comments are valid.
+*Wishlist:* Add more thorough tests? (Maybe not, if we don't ship mysql ourselves anymore).
+
+
+---+++!! openldap.t 
+
+Tests to see if we segfault.
+*Wishlist:* Add some openldap tests (if we continue shipping it)
+
+
+---+++!! pegasus.t 
+
+Right now we just check --help.
+*Wishlist:* Add some real pegasus tests.
+
+---+++!! prima.t 
+
+We configure prima ourselves (call out to configure_prima as root).
+Run some gums commands. =/home/vdttest= is hardcoded in some places (looks for =.globus= dir in there).
+
+
+---+++!! procd.t 
+
+We run procd's self tests.
+
+
+---+++!! pyglobus.t 
+
+We run pyglobus-url-copy to upload, download and then compare the results.
+
+---+++!! rls.t 
+
+Nothing new.
+
+---+++!! rsv.t 
+
+A bit complicated, but nothing new. We use rsv-control ourselves.
+
+---+++!! squid.t 
+
+Only thing of note is that it needs to be able to read from the vdt webserver.
+
+---+++!! subversion.t 
+
+Nothing new. Probably not going to use since we're not going to ship it.
+
+---+++!! unit.t 
+
+Runs vdt-control and configure_voms's unit tests.
+*Wishlist:* All of our scripts should have unit tests.
+
+---+++!! userpicking.t 
+
+Relies on 'what' existing.
+
+---+++!! vdt.t 
+
+Nothing new here.
+
+---+++!! voms.t 
+
+Nothing new here.
+
+
+---++ !VDTTestFramework.pm 
+
+   * Functions for checking to see if something's installed (pacman-specific); checking to see if a service is running; checking for a grid proxy with 4+ hours left.
+   * Looks for several servers by using =IO::Socket::INET= to try and connect to them (e.g. gridftp, apache, gatekeeper, gsissh).
+   * *Wishlist:* check_requirement_vomsadmin seems to be broken and commented out. Should be fixed.
+   * *Wishlist:* Some check_requirement_X functions only do a =ps|grep=; can we be more thorough?
+   * run_as_root() very important, hope we can replicate somehow, but uses some perl magic to connect to a run_as_root() server and send it some code to be executed.
+   * run_condor_job() creates a submit file from a hash that's passed in, and submits. Also works around some Condor bugs? Runs condor_reschedule 5 seconds after submitting each job for performance reasons?
+   * watch_log() reads a log file until it finds the pattern it's been given or it times out (catches SIGALRM in an eval).
+   * get_server_location(), get_password() don't do anything clever, just read from environment vars set by the test harness.
+   * skip_condor_standard_test() just tests =uname= to see if it's a platform we install standard universe on.
 
 
 
