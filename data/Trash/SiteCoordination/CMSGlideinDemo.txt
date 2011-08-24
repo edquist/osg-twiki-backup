@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JeffDost" date="1313190811" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="JeffDost" date="1314202308" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="SummerWorkshopTutorials2011"}%
 ---+ CMS Glidein Demo
 
@@ -10,7 +10,7 @@ While not all of the demonstration can be reproduced without having access to th
 
 A wealth of information can be found at the [[http://dashboard.cern.ch/cms/][CMS Dashboard]].  Here are a few examples.
 
----+++ Find the Worker Node a User Job Lands On
+---+++ Find the Worker Node a user job lands on
 
    1. Click on [[http://dashb-cms-job.cern.ch/dashboard/request.py/jobsummary][Interactive view]]
    1. Select the site of interest from the *any site* pull down menu on the left
@@ -20,4 +20,81 @@ A wealth of information can be found at the [[http://dashboard.cern.ch/cms/][CMS
 
 This shows a list of users below currently running glideins at the site of interest.  If you click on any of the numbers in the columns *Run*, *Term*, *Done*, etc you will get a new page titled *job detailed view* with a table of lots of information.  If you click on the first column, *JobId* you will get even more details.  Of particular use here for admins might be *GridCertificate* to see the user's DN.  On the *job detailed view* the second to last column titled *HostName* lists the worker node. 
 
+---++ Things you can do at the Worker Node
+
+Currently the only way to see the real user behind the glidein is to find out from the Worker Node the job is running on (see above).  This is because from the batch system point of view the job owner is the glidein user and any proxy info available from the CE will be that of the pilot, not the real user.
+
+*NOTE*: Some directory paths and user mappings in this section may differ considerably on your site.  These examples are specific to Worker Nodes at UCSD but the procedures should be the same.
+
+*NOTE*: Some of the outputs have been edited to remove user specific information and replaced with generic names in %RED%RED%ENDCOLOR%.
+
+---+++ Given a real user's DN find the glidein the job started on
+
+*NOTE*: To do this a site must have glexec installed.
+
+On the worker node, see the =gums_interface= log in =/var/log/glexec/=.
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% less /var/log/glexec/gums_interface.log
+</pre>
+
+You will see lines like:
+
+<pre class="file">
+glegumsi[19776#19774] 2011-08-24T06:31:37Z Caller account (36065,36065)
+glegumsi[19776#19774] 2011-08-24T06:31:37Z Base subject  '/DC=org/DC=doegrids/OU=People/CN=%RED%User CN%ENDCOLOR%/CN=proxy/CN=proxy/CN=proxy/CN=proxy/CN=limited proxy'
+glegumsi[19776#19774] 2011-08-24T06:31:37Z Found subject '/DC=org/DC=doegrids/OU=People/CN=%RED%User CN%ENDCOLOR%'
+glegumsi[19776#19774] 2011-08-24T06:31:37Z    Primary   FQAN '/cms/Role=NULL/Capability=NULL'
+glegumsi[19776#19774] 2011-08-24T06:31:37Z GUMS mapped to user '%RED%uscmsXXXX%ENDCOLOR%'
+glegumsi[19776#19774] 2011-08-24T06:31:37Z Mapped as (36101,36137)
+glegumsi[19776#19774] 2011-08-24T06:31:37Z Launching monitor /glexec/glexec-osg/contrib/glexec_monitor/glexec_monitor
+glegumsi[19776#19774] 2011-08-24T06:31:37Z Using tracking GID 36121
+</pre>
+
+Look for the DN corresponding to the user of interest, and the  =(UID,GID)= of the pilot user on the worker node is on the line above it containing =Caller account=.
+
+<pre class="file">
+glegumsi[19776#19774] 2011-08-24T06:31:37Z Caller account (36065,36065)
+...
+glegumsi[19776#19774] 2011-08-24T06:31:37Z Found subject '/DC=org/DC=doegrids/OU=People/CN=%RED%User CN%ENDCOLOR%'
+</pre>
+
+From there you can use the =getent= command to figure out the username of the glidein.
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /var/log/glexec# getent passwd 36065
+cuser19:x:36065:36065::/data1/localusers/cuser19:/bin/bash
+</pre>
+
+If a site does not have glexec installed, this is not impossible to find out, but a site admin will have to use some combination of the method discussed next and clever scripting to invert the results.  This is beyond the scope of this tutorial.
+
+---+++ Given a misbehaving glidein job find the real user
+
+While the above example is useful for demonstration purposes, a more useful technique for site admins is to know is the converse; you know the glidein user and where the job is running but you need to look up the real user.
+
+*NOTE*: this technique works whether or not glexec is installed at the site
+
+In the startup directory the glidein always creates a subdirectory called =glide_XXXXXX= where =XXXXXX= is a random string.  Inside the glidein directory is a log directory that contains all of the information the glidein tracks over its lifetime.
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% ls -l /data7/condor_local/execute/dir_2272/glide_mf2327/log/
+total 648
+-rw------- 1 cuser19 cuser19      0 Aug 24 06:10 InstanceLock
+-rw-r--r-- 1 cuser19 cuser19   2853 Aug 24 07:10 MasterLog
+prw------- 1 cuser19 cuser19      0 Aug 24 08:38 procd_address
+prw------- 1 cuser19 cuser19      0 Aug 24 08:38 procd_address.watchdog
+-rw-r--r-- 1 cuser19 cuser19 429796 Aug 24 08:38 ProcLog
+-rw-r--r-- 1 cuser19 cuser19 195378 Aug 24 08:37 StartdLog
+-rw-r--r-- 1 cuser19 cuser19  22431 Aug 24 08:37 StarterLog
+</pre>
+
+Look inside the !StartdLog.  The lines starting with =x509userproxysubject= reveal the DN subject of the real user running on the glidein.  Note there can be multiple =x509userproxysubject= lines.  This is because a single glidein runs multiple user jobs sequentially over its lifetime, each with a potentially different real user.
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% grep '^x509userproxysubject' /data7/condor_local/execute/dir_2272/glide_mf2327/log/StartdLog 
+x509userproxysubject = "/DC=org/DC=doegrids/OU=People/CN=%RED%User CN%ENDCOLOR%"
+x509userproxysubject = "/DC=org/DC=doegrids/OU=People/CN=%RED%Another User CN%ENDCOLOR%"
+x509userproxysubject = "/DC=org/DC=doegrids/OU=People/CN=%RED%User CN%ENDCOLOR%"
+...
+</pre>
 -- Main.JeffDost - 12 Aug 2011
