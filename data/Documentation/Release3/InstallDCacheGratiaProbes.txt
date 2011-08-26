@@ -1,0 +1,115 @@
+%META:TOPICINFO{author="TanyaLevshina" date="1314389186" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="RPMTempDocuments"}%
+%LINKCSS%
+
+---+!! %SPACEOUT{ "%TOPIC%" }%
+%TOC%
+---+ Introduction
+<!-- conventions used in this document
+   * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="dCache-admin"}%
+-->
+The probes report storage related information to [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GratiaSiteCollector][the central Gratia collector]]. There are two types of probes:
+   * The dCache-transfer probe reports to Gratia the details of each file transfer into or out of a dCache file server. 
+   * The dCache-storage probe is responsible for reporting storage capacity and storage usage to the central Gratia collector. The information reported is:
+      * The storage capacity and amount used for each dCache pool.
+      * The storage capacity and amount used for each SRM Space reservation.
+
+---+ Requirements
+   * You have to install probe on the dCache admin node or you have configure postgres database that is running on dCache-admin node to allow remote access.
+   * Root access
+   * OS is Scientific Linux 32 or 64 bit<br>In theory it should work on Red Hat Enterprise Linux 5 or !CentOS 5 but we have not yet tested there.
+   * Host certificate
+---+ Install
+%INCLUDE{"InstallVDTRepo" headingoffset="1"}%
+%INCLUDE{"InstallCACerts" headingoffset="1"}%
+Install  dcache gratia probes:
+   1. Enable OSG repos by editing ==/etc/yum.repos.d/osg-testing.repo==:<pre class="file">
+[osg-testing]
+name=OSG Software for Enterprise Linux 5 - Development - $basearch
+baseurl=http://vdt.cs.wisc.edu/repos/3.0/el5/testing/$basearch
+failovermethod=priority
+priority=98
+enabled=%RED%1%ENDCOLOR%
+</pre>
+   1. Install dcache gratia probes:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install dcache-gratia-probe
+</pre>
+
+---+ Configure
+
+To configure dCache transfer probe you will need to modify configuration ==/etc/gratia/dCache-transfer/ProbeConfig :<pre class="file">
+    CollectorHost="gratia-osg-%RED%itb%ENDCOLOR%.opensciencegrid.org:80"
+    SSLHost="gratia-osg-%RED%itb%ENDCOLOR%.opensciencegrid.org:443"
+    SSLRegistrationHost="gratia-osg-%RED%itb%ENDCOLOR%.opensciencegrid.org:80"
+
+    SiteName="%RED%YOUR SITE NAME%ENDCOLOR%"
+    Grid="OSG-%RED%ITB%ENDCOLOR%"
+    EnableProbe="%RED%1%ENDCOLOR%"
+     DBHostName="%RED%dcache-adminhost%ENDCOLOR%"
+</pre>
+%ICON{warning}% If you are installing on dCache admin node you don't need to change DBHostName (localhost is a default)
+To configure dCache storage probe you will need to modify configuration ==/etc/gratia/dCache-storage/ProbeConfig :<pre class="file">
+    CollectorHost="gratia-osg-%RED%itb%ENDCOLOR%.opensciencegrid.org:80"
+    SSLHost="gratia-osg-%RED%itb%ENDCOLOR%.opensciencegrid.org:443"
+    SSLRegistrationHost="gratia-osg-%RED%itb%ENDCOLOR%.opensciencegrid.org:80"
+
+    SiteName="%RED%YOUR SITE NAME%ENDCOLOR%"
+    Grid="OSG-%RED%ITB%ENDCOLOR%"
+    EnableProbe="%RED%1%ENDCOLOR%"
+    InfoProviderUrl="http://%RED%dcache-adminhost%ENDCOLOR%:2288/info"
+</pre>
+%ICON{warning}% Please use ITB for testing.
+
+You will also need to configure ==/etc/gums/gums-client.properties== in order to accurately collect grid resource usage and metrics by VO for transfer submitted using grid proxies or where voms proxy information is not available.<pre class="file">
+gums.location=https://%RED%GUMS_HOST%ENDCOLOR%:8443/gums/services/GUMSAdmin
+gums.authz=https://%RED%GUMS_HOST%ENDCOLOR%:8443/gums/services/GUMSXACMLAuthorizationServicePort
+</pre>
+%ICON{warning}% if you are not using a default port (8443) you have to change it as well.
+---+ Start
+   1. To start the transfer probe:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service  gratia-dcache-transfer start
+Starting gratia-dcache-transfer:                           [  OK  ]
+</pre>
+   1. The Gratia dCache-storage probe is a cronjob . The cron file ==gratia-probe-dcache-storage.cron== is located in ==/etc/cron.d==.
+If you want to test it you can run it manually:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /usr/share/gratia/dCache-storage/dCache-storage_meter.cron.sh
+</pre>
+---+Stop
+   1. To start the transfer probe:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service  gratia-dcache-transfer stop
+Stop gratia-dcache-transfer:                           [  OK  ]
+</pre>
+    2. Comment the cron job ==/etc/cron.d/gratia-probe-dcache-storage.cron==:<pre class="file">
+#0 * * * * root "perl -e 'sleep rand 3600' && /usr/share/gratia/dCache-storage/dCache-storage_meter.cron.sh"
+</pre>
+---+ Test
+  1. First make sure that transfer probe is running:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%  ps auxww|grep gratia-dcache-transfer
+root      2680  2.3  0.2 174584 11080 ?        S    14:32   0:19 /usr/bin/python /usr/share/gratia/dCache-transfer/gratia-dcache-transfer
+</pre>
+   1. Check the log files, located under ==/var/log/gratia==
+   1. Verify that you can see the reports in gratia collector you have specified in configuration. Be aware that it could some delay due to Collector being under heavy load is possible. So, be patient. 
+
+To access the information about Gratia dCache-transfer probe, go to http://[gratia_host]:[gratia_port]/gratia-reporting/, click on "Custom SQL Query" on the left site menu frame, and enter the following query into provided text box:
+<pre class="file">
+select * from MasterTransferSummary where ProbeName like 'dCache-transfer:%RED%dcache_adminhost%ENDCOLOR%';
+</pre>
+click on "Execute Query" and you will see the total number of transfers per user.
+
+
+To access the information about the Gratia dCache-storage probe, go to http://[gratia_host]:[gratia_port]/gratia-reporting/, click on "Custom SQL Query" on the left site menu frame, and enter the following query into provided text box:
+<pre class="file">
+select * from StorageElement where ProbeName like 'dCache-storage:%RED%dcache_adminhost%ENDCOLOR%';
+</pre>
+
+click on "Execute Query" and you will see the storage information. 
+
+To check ITB Gratia collector click here [[http://gratia-osg-itb.opensciencegrid.org/gratia-reporting/][ITB Gratia]].
+
+To check OSG Gratia collector click here [[http://gratia-osg-transfer.opensciencegrid.org/gratia-reporting/][OSG Gratia]].
+       
+
+
+-- Main.TanyaLevshina - 26 Aug 2011
+
+%META:TOPICMOVED{by="TanyaLevshina" date="1314384584" from="Documentation.InstalldChacheGratiaProbes" to="Documentation.InstallDCacheGratiaProbes"}%
