@@ -1,5 +1,7 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1314728751" format="1.1" version="1.4"}%
----+!! %SPACEOUT{ "%TOPIC%" }%
+%META:TOPICINFO{author="MarcoMambelli" date="1314749889" format="1.1" reprev="1.5" version="1.5"}%
+%DOC_STATUS_TABLE%
+
+---+!! Install VOMS
 %TOC%
 
 <!-- conventions used in this document
@@ -35,7 +37,7 @@ To get assistance please use [[HelpProcedure][this page]].
 ---+ Requirements
    * A host to install the VOMS Service (Pristine node)
    * OS is Red Hat Enterprise Linux 5 32 and 64 bit and variants (Scientific Linux 5 and !CentOS 5). Currently most of our testing has been done on Scientific Linux 5.
-   * OSG and EPEL yum repositories must be enabled. [[][Here]] are instruction to install and enable the repositories.
+   * OSG and EPEL yum repositories must be enabled. YumRepositories contains instructions to install and enable the repositories.
    * Root access
    * Host certificate. [[][Here]] are instructions to request a host certificate.
    * VOMS and Tomcat service certificats (optional, you can use the host certificate instead)
@@ -48,7 +50,7 @@ To get assistance please use [[HelpProcedure][this page]].
 
 ---+ Installation Procedure
 Install one of set of CA certificates:
-%INCLUDE{"InstallCACerts" headingoffset="1"}%
+%INCLUDE{"Documentation.InstallCACerts" headingoffset="1"}%
 
 %STARTSECTION{"InstallOSGVomsRPMs"}%
 Make sure that the OSG repository is enabled:
@@ -113,7 +115,7 @@ Make sure that you have the VOMS and Tomcat service certificates/keys in the rig
 %ENDSECTION{"PrepareServiceCertificates"}%
 
 %STARTSECTION{"ConfigureVoms"}%
-Now, you can create database and configure VOMS-core and VOMS-admin:
+Now, you can create the database and configure VOMS-core and VOMS-admin:
    1. Run ==voms-admin-configure== script:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% voms-admin-configure install --dbtype mysql --vo %RED%VO_NAME%ENDCOLOR% \
     --createdb --deploy-database  --dbauser root  --dbapwd %RED%MYSQL_ROOT_PASSD%ENDCOLOR% \
@@ -129,11 +131,11 @@ Now, you can create database and configure VOMS-core and VOMS-admin:
      --sqlloc /usr/lib64/voms/libvomsmysql.so --cert /etc/grid-security/voms/vomscert.pem \
      --key  /etc/grid-security/voms/vomskey.pem --read-access-for-authenticated-clients 
 </pre>
-   1. Now, you need add a local admin:<pre class="rootscreen">
+   1. Add a local admin:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% /usr/sbin/voms-db-deploy.py add-admin --vo %RED%VO_NAME%ENDCOLOR%  \
         --dn  %RED%HOST_CERT_SUBJECT%ENDCOLOR% \
         --ca %RED%HOST_CERT_ISSUER%ENDCOLOR% 
-</pre>For example::<pre class="rootscreen">
+</pre>For example:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% /usr/sbin/voms-db-deploy.py add-admin --vo test1 \
      --dn /DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov \
      --ca "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1"
@@ -142,7 +144,7 @@ Now, you can create database and configure VOMS-core and VOMS-admin:
 
 %STARTSECTION{"ConfigureTrustManager"}%
 Configure Tomcat's trust manager:
-   1. You have to configure tomcat in order to enable EMI trustmanager:<pre class="rootscreen">
+   1. You have to configure Tomcat in order to enable EMI trustmanager:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% /var/lib/trustmanager-tomcat/configure.sh
 Info: using default install root: /
 Info: using default configuration file: //var/lib/trustmanager-tomcat/config.properties
@@ -155,11 +157,80 @@ Info: you can clean up using the following commands
       rm -f /etc/tomcat5/log4j-trustmanager.properties
       rm -f //var/lib/trustmanager-tomcat/server.xml
 </pre>
-%ICON{warning}% This script also creates ==/etc/grid-security/http== directory and copy there host certificate and key files. It set the ownership to ==tomcat== user. If you already have http certificate make sure that they belong to ==tomcat== and have right permission.
 %ENDSECTION{"ConfigureTrustManager"}%
 
+---+ Services Startup/Shutdown
+VOMS has its persistent repository in a !MySQL database, that requires =mysql= to be running in order to be queried.
+All grid interactions require updated CA certificates and CRLs.
+Then the _voms server_ is a daemon servicing authentication requests and _voms-admin_, requiring Tomcat, is a Web UI/service to manage the VO membership. 
+
+%STARTSECTION{"StartVOMSServices"}%
+To start VOMS you need to start several services:
+   1. You need an updated CRL before you can use VOMD, to do so<pre class="rootscreen">
+%UCL_PROMPT_ROOT% fetch-crl
+</pre>
+   1. !MySQL server needs to be running if it is not already:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service mysqld start
+</pre>
+   1. Start voms server<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service voms start
+</pre>
+   1, Start Tomcat, required by voms-admin:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service tomcat5 start
+</pre>
+   1. Start voms-admin:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service voms-admin start
+</pre>
+%ENDSECTION{"StartVOMSServices"}%
+
+%STARTSECTION{"StopVOMSServices"}%
+To stop VOMS you need to stop voms and voms-admin, and also the services they use if nothing else is using them:
+   1. Stop voms-admin:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service voms-admin stop
+</pre>
+   1. Stop voms server<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service voms stop
+</pre>
+   1, Stop Tomcat, if no other application is using it:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service tomcat5 stop
+</pre>
+   1. Stop !MySQL server if no other application is using it:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service mysql stop
+</pre>
+%ENDSECTION{"StopVOMSServices"}%
 
 
+---+ Test
+To test VOMS you can add a member (her/his certificate) to a VO using voms-admin, login in the Web UI and then use the voms server to generate a proxy for that certificate. 
+
+---++ Voms-admin test
+Add a member(yourself) to the VO:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin --vo %RED%VO_NAME%ENDCOLOR% --host %RED%HOST_NAME%ENDCOLOR% \
+       --nousercert create-user %RED%USER_CERT_SUBJECT%ENDCOLOR% %RED%USRT_CERT_ISSUER%ENDCOLOR% \
+       %RED%USER_COMMON_NAME%ENDCOLOR% %RED%email%ENDCOLOR% 
+</pre> For example:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin --vo test1 --host fermicloud002 --nousercert create-user \
+   "/DC=org/DC=doegrids/OU=People/CN=Joe Doe 12345" "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1" 
+   "Joe Doe" jdoe@fnal.gov
+</pre>Assign VOAdmin role to yourself, so you can manage the VO using the Web UI:<pre class="rootscreen">
+voms-admin --vo %RED%VO_NAME%ENDCOLOR% --host %RED%HOST_NAME%ENDCOLOR% \
+    --nousercert assign-role  %RED%/VO_NAME%ENDCOLOR%  VO-Admin  \
+      %RED%USER_CERT_SUBJECT%ENDCOLOR% %RED%USRT_CERT_ISSUER%ENDCOLOR% 
+</pre>For example:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin --vo test1 --host fermicloud002 --nousercert assign-role /test1   VO-Admin  \
+   "/DC=org/DC=doegrids/OU=People/CN=Joe Doe 12345" "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1" </pre>
+
+Check the Web UI by accessing ==https://%RED%hostname%ENDCOLOR%:8443/vomses==. If you have your certificate loaded into the browser you will be able to manage the VO.
+
+---++ Voms-core test:
+Use ==voms-proxy-init== to generate proxy. Login as user, create ==vomses== file (e.g. =~/.vomses=):<pre class="file">
+"%RED%alias%ENDCOLOR%" "%RED%HOST_NAME%ENDCOLOR%" "%RED%PORT%ENDCOLOR%" "%RED%HOST DN%ENDCOLOR%" "%RED%VO_NAME%ENDCOLOR%"
+</pre> For example:
+<pre class="file">
+"test1" "fermicloud002.fnal.gov" "15001" "/DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov" "test1"
+</pre> Generate voms proxy<pre class="screen">
+%UCL_PROMPT% voms-proxy-init -voms %RED%VO_NAME%ENDCOLOR% -vomses ~/vomses
+</pre>
 
 %STOPINCLUDE%
 
@@ -209,10 +280,10 @@ https://edms.cern.ch/file/973684/1/voms-guide.pdf
    * Local INCLUDE_TEST   = %YES%
 
  change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
-   * Local REVIEW_READY   = %NO%
+   * Local REVIEW_READY   = %YES%
 
  change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
-   * Local TEST_READY   = %NO%
+   * Local TEST_READY   = %YES%
 
  change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
    * Local RELEASE_READY  = %NO%
@@ -222,7 +293,7 @@ https://edms.cern.ch/file/973684/1/voms-guide.pdf
  ======================
 
  Thank for reviewing this document! Please fill in your FirstLast name here:
-   * Local REVIEWER       = TerrenceMartin
+   * Local REVIEWER       = TanyaLevshina
  Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local REVIEW_PASSED  = %IN_PROGRESS%
 
@@ -238,4 +309,4 @@ DEAR DOCUMENT TESTER
 ############################################################################################################
 -->
 
-%META:TOPICMOVED{by="MarcoMambelli" date="1314655314" from="Documentation.Rel3InstallVomsService" to="Documentation.Rel3InstallVoms"}%
+%META:TOPICMOVED{by="MarcoMambelli" date="1314748373" from="Documentation.Rel3InstallVoms" to="Documentation/Release3.InstallVoms"}%
