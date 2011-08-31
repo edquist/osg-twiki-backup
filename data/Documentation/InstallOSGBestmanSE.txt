@@ -1,0 +1,139 @@
+%META:TOPICINFO{author="DouglasStrain" date="1314820629" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="RPMTempDocuments"}%
+%LINKCSS%
+---+!! %SPACEOUT{ "Install !BeStMan SE" }%
+%TOC%
+
+---+ Installing the !BeStMan Storage Element from RPMs
+
+This page explains how to install the stand-alone !BeStMan Storage Element server.
+
+---++ Requirements
+A RHEL5 (or !CentOS 5, SL5) machine with [[http://fedoraproject.org/wiki/EPEL][EPEL]] repos enabled.
+
+---++ Install Instructions
+
+%INCLUDE{"InstallVDTRepo" headingoffset="1"}%
+
+!GridFTP requires a certificate package to run.  If you require a specific certificate package, follow the InstallCACerts instructions to install it.  
+If you do not install a grid certificate package first, the install procedure will install one for you as part of its dependencies.  (usually osg-ca-certs).
+
+First, you will need to install the !BeStMan Storage element meta-package:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum --enablerepo=osg-development --nogpgcheck install osg-se-bestman
+</pre> 
+
+---+++ Configuring !GridFTP GUMS support
+
+By default, !GridFTP uses a gridmap file, found in =/etc/grid-security/gridmap-file=.
+If you want to use GUMS security (recommended), you will need to enable using the following steps:
+
+First, edit =/etc/grid-security/gsi-authz.conf= and uncomment the globus callout.
+<pre class="file">
+globus_mapping /usr/lib64/liblcas_lcmaps_gt4_mapping.so lcmaps_callout
+</pre> 
+This should be =/usr/lib64= for x86_64 architectures and =/usr/lib= for i386 architectures.
+
+Next edit =/etc/lcmaps.db= to edit your gums information:
+<pre class="file">
+# Module definitions
+path = /usr/lib64/modules
+
+...
+gumsclient = "lcmaps_gums_client.mod"
+             "-resourcetype ce"
+             "-actiontype execute-now"
+             "-capath /etc/grid-security/certificates"
+             "-cert   /etc/grid-security/hostcert.pem"
+             "-key    /etc/grid-security/hostkey.pem"
+             "--cert-owner root"
+# Change this URL to your GUMS server
+             "--endpoint https://*gums.fnal.gov:8443*/gums/services/GUMSXACMLAuthorizationServicePort"
+</pre> 
+
+If you would like to run SAZ, you will need to enable the relevant lines in the above file as well (more documentation to be added later).
+
+---++Edit Bestman Settings
+
+Bestman settings and environment variables are stored in =/etc/bestman2/conf/bestman2.rc=.
+You should review these settings to make sure all of them comply with your environment.
+In particular, you will likely need to modify the following settings:
+<pre class="file">
+BESTMAN_GUMSCERTPATH=/etc/grid-security/http/httpcert.pem
+BESTMAN_GUMSKEYPATH=/etc/grid-security/http/httpkey.pem
+...
+localPathListAllowed=/tmp
+CertFileName=/etc/grid-security/http/httpcert.pem
+KeyFileName=/etc/grid-security/http/httpkey.pem
+GUMSserviceURL=https://GUMS_HOST:8443/gums/services/GUMSAuthorizationServicePort
+</pre>
+
+!BeStMan requires two sets of certificate pairs.  One is for host services.  When clients connect to !BeStMan,
+they will receive this certificate (*CertFileName*, *KeyFileName*) as proof of the server's identity.  The second
+certificate pair (*BESTMAN_GUMSCERTPATH* and *BESTMAN_GUMSKEYPATH*) 
+is used to communicate with Gums when verifying identity information.  Note: these two can 
+(and usually will be) the same files, but can be split if your Gums setup requires a specific identity.
+
+*localPathListAllowed* determines which paths users will be able to access via SRM.
+
+Modify *GUMSserviceURL* to use your local Gums installation.
+
+---+++ Modify =/etc/sudoers=
+
+!BeStman requires the "sudo" command in order to write information as the proper user.
+You will need to give the bestman user the proper permissions to run these commands.
+
+Modify =/etc/sudoers= and comment the following line.
+<pre class="file">
+#Defaults    requiretty
+</pre>
+
+Then add the following lines at the end of the =/etc/sudoers= file.
+<pre class="file">
+Cmnd_Alias SRM_CMD = /bin/rm, /bin/mkdir, /bin/rmdir, /bin/mv, /bin/cp, /bin/ls
+Runas_Alias SRM_USR = ALL, !root
+bestman   ALL=(SRM_USR) NOPASSWD: SRM_CMD
+</pre>
+
+---+++ (Optional) Copying certificates to a bestman location
+
+!BeStMan requires a certificate pair to function.  In order to use lcg-utils, this must be a host
+certificate (rather than a service certificate).  The following shows how to copy your certificates
+<pre class="rootscreen">
+cp /etc/grid-security/hostkey.pem /etc/grid-security/bestman/bestmankey.pem
+cp /etc/grid-security/hostcert.pem /etc/grid-security/bestman/bestmancert.pem
+chown -R bestman:bestman /etc/grid-security/bestman/
+</pre> 
+Then modify *CertFileName*, *KeyFileName* in =/etc/bestman2/conf/bestman2.rc=.
+
+
+---++ Starting and Stopping !GridFTP
+
+Starting !GridFTP:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service globus-gridftp-server start
+</pre> 
+
+
+Stopping !GridFTP:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service globus-gridftp-server stop
+</pre> 
+
+---++ Starting and Stopping !BeStMan
+
+Starting !BeStMan:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service bestman2 start
+</pre> 
+
+Stopping !BeStMan:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service bestman2 stop
+</pre> 
+
+
+
+
+-- Main.DouglasStrain - 29 Aug 2011
