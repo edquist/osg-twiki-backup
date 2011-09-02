@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DouglasStrain" date="1314912849" format="1.1" reprev="1.3" version="1.3"}%
+%META:TOPICINFO{author="DouglasStrain" date="1314975078" format="1.1" reprev="1.4" version="1.4"}%
 %META:TOPICPARENT{name="RPMTempDocuments"}%
 %LINKCSS%
 ---+!! %SPACEOUT{ "Install !Bestman Xrootd SE" }%
@@ -98,8 +98,54 @@ Note: If you have not run gridftp yet, this file may be in =/etc/gridftp.conf.de
 load_dsi_module posix
 </pre> 
 
----++ Coming soon: xrootdfs
+---++ Configuring xrootdfs
 
+Though the DSI module will work for !GridFTP, you 
+
+Modify ==/etc/fstab== by adding the following entries:
+<pre class="file">
+....
+xrootdfs                %RED%/mnt/xrootd%ENDCOLOR%              fuse    rdr=xroot://%RED%redirector1.domain.com%ENDCOLOR%:1094/%RED%/path/redirector1%ENDCOLOR%,uid=xrootd 0 0
+</pre>
+Replace =/mnt/xrootd= with the path that you would like to access with !BeStMan.  This should also match the !GridFTP settings for the =XROOTD_VMP= local path.
+
+Once you are finished, you can mount it:
+<pre class="file">
+mount /mnt/xrootd
+</pre>
+
+You should now be able to run UNIX commands such as =ls /mnt/xrootd= to see the contents of the !XRootD server.
+
+---+++ (Optional) Configuring secured xrootdfs
+
+If you want to enable security for access to xrootd via xrootdfs you will need to modify xrootd  configuration and perform several steps to make xrootdfs secured.
+   1. On the node where you have installed xrootd-server rpm execute the following command:<pre class="rootscreen">$ xrdsssadmin -k  %RED%my_key_name%ENDCOLOR% -u anybody -g usrgroup add %RED%keyfile%ENDCOLOR% </pre> e.g:<pre class="rootscreen">xrdsssadmin -k top_secret  -u anybody -g usrgroup add /etc/xrootd/xrootd.key</pre>
+   1. Set ownership<pre class="rootscreen">chown xrootd.xrootd /etc/xrootd/xrootd.key</pre> 
+   1. On the node where xrootdfs is installed modify ==/etc/fstab== add security information:<pre class="rootscreen">
+xrootdfs                %RED%/mnt/xrootd%ENDCOLOR%              fuse    rdr=xroot://%RED%redirector1.domain.com%ENDCOLOR%:1094/%RED%/path/redirector1%ENDCOLOR%,uid=xrootd,sss=%RED%keyfile%ENDCOLOR%  0 0</pre>
+   1. Modify xrootd configuration (==/etc/xrootd/xrootd-clustered.cfg==) on every data server by adding the following segment: <pre class="file">
+     # ENABLE_SECURITY_BEGIN
+        xrootd.seclib /usr/lib64/libXrdSec.so
+        #the line below should be before "sec.protocol ... unix"
+        %RED%sec.protocol /usr/lib64  sss -s keyfile%ENDCOLOR%
+        sec.protocol /usr/lib64 unix
+        # this specify that we use the 'unix' authentication module, additional one can be specified.
+        # this is the authorization file
+        acc.authdb /etc/xrootd/auth_file
+        ofs.authorize
+        # ENABLE_SECURITY_END
+</pre>
+   1. Copy  %RED%keyfile%ENDCOLOR%  on every data server node. Restart xrootd cluster by following [[https://twiki.grid.iu.edu/bin/view/SoftwareTeam/HowToInstallXrootd][these instructions]]
+   1. on xroodfs node execute mount:<pre class="rootscreen">
+$ mount %RED%/mnt/xrootd%ENDCOLOR%
+</pre>
+   1. Verify that you can access the mount point (df,ls) and can not write into unauthorized path, e.g:<pre class="rootscreen">
+$ cp /bin/sh /mnt/xrootd/tlevshin/test1
+cp: cannot create regular file `/mnt/xrootd/tlevshin/test1': Permission denied
+</pre> Login as yourself and try, e.g:<pre class="rootscreen">
+$ su - tlevshin
+$ cp /bin/sh /mnt/xrootd/tlevshin/test1
+</pre>
 
 
 ---++Edit Bestman Settings
@@ -108,13 +154,14 @@ Bestman settings and environment variables are stored in =/etc/bestman2/conf/bes
 You should review these settings to make sure all of them comply with your environment.
 In particular, you will likely need to modify the following settings:
 <pre class="file">
-BESTMAN_GUMSCERTPATH=/etc/grid-security/http/httpcert.pem
-BESTMAN_GUMSKEYPATH=/etc/grid-security/http/httpkey.pem
+BESTMAN_GUMSCERTPATH=%RED%/etc/grid-security/http/httpcert.pem%ENDCOLOR%
+BESTMAN_GUMSKEYPATH=%RED%/etc/grid-security/http/httpkey.pem%ENDCOLOR%
 ...
-localPathListAllowed=/tmp
-CertFileName=/etc/grid-security/http/httpcert.pem
-KeyFileName=/etc/grid-security/http/httpkey.pem
-GUMSserviceURL=https://GUMS_HOST:8443/gums/services/GUMSAuthorizationServicePort
+%RED%supportedProtocolList=gsiftp://host1.domain.tld%ENDCOLOR%
+%RED%localPathListAllowed=/mnt/xrootd%ENDCOLOR%
+CertFileName=%RED%/etc/grid-security/http/httpcert.pem%ENDCOLOR%
+KeyFileName=%RED%/etc/grid-security/http/httpkey.pem%ENDCOLOR%
+GUMSserviceURL=https://%RED%GUMS_HOST:8443%ENDCOLOR%/gums/services/GUMSAuthorizationServicePort
 </pre>
 
 !BeStMan requires two sets of certificate pairs.  One is for host services.  When clients connect to !BeStMan,
