@@ -1,5 +1,12 @@
-%META:TOPICINFO{author="JohnWeigand" date="1315490940" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="JohnWeigand" date="1315593453" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="AccountingAndWLCG"}%
+<!--
+   * Set SummaryRecords = [[https://wiki.egi.eu/wiki/APEL/MessageFormat#Summary_Job_Records][Summary Job Records]]
+   * Set JobRecords = [[https://wiki.egi.eu/wiki/APEL/MessageFormat#Job_Records][individual Job Records]]
+   * Set SummarySyncRecords =[[https://wiki.egi.eu/wiki/APEL/MessageFormat#Summary_Sync_Records][Summary Sync Records]]
+-->
+
+
 ---+ Accounting Systems Interoperability Questions And Issues
 %TOC%
 ---++ Introduction
@@ -19,21 +26,16 @@ This page references a record publisher component which, on the surface, sounds 
 [[https://wiki.egi.eu/wiki/APEL/SSMOverview][SSM Overview]]:
 This messaging system will replace the current direct access SQL DML update/access to the APEL database table for OSG (OSG_CN_DATA).
 
-[[https://wiki.egi.eu/wiki/APEL/SSMInstallation][SSM Installation]]
+[[https://wiki.egi.eu/wiki/APEL/SSMInstallation][SSM Installation]] - Questions related to the installation of the necessary software are documented in this [[#SSM_Installation][section]].
 
-[[https://wiki.egi.eu/wiki/APEL/APELSSMExternalTesting][SSM External Testing]]
+[[https://wiki.egi.eu/wiki/APEL/MessageFormat][APEL/SSM Message format]] - Questions related to the new messaging protocol are documented in this [[#APEL_SSM_message_format][section]]
 
-[[https://wiki.egi.eu/wiki/APEL/MessageFormat][APEL/SSM Message format]]
+[[https://wiki.egi.eu/wiki/APEL/APELSSMExternalTesting][SSM External Testing]] - Question related to testing are documented in this [[#SSM_External_Testing][section]].
  
-[[http://activemq.apache.org/python.html][ActiveMQ]]
-
-
-
-<a href="./gratia/APEL-SSM-testing.html">APEL-SSM testing (gr7x0)</a>
-
+[[http://activemq.apache.org/python.html][ActiveMQ]] - purely for reference are this time.
 
 ---+++ Release date
-Is there a hard "drop-dead" date when the current direct access to the APEL accounting will no longer be supported?
+%BLUE%Is there a hard "drop-dead" date when the current direct access to the APEL accounting will no longer be supported?%ENDCOLOR%
 
 ---+++ [[https://wiki.egi.eu/wiki/APEL/SSMInstallation][SSM Installation]]
 This section contains some questions specific to this document.
@@ -67,8 +69,7 @@ __Running the SSM__ / __Stopping the SSM__ %BR%
 Based on the description this sounds like a daemon process that is periodically checking a messages directory for files.%BR%
 %BLUE%Is there a plan to allow this to be run from init.d services?%ENDCOLOR%%BR%
 
----+++ [[https://wiki.egi.eu/wiki/APEL/MessageFormat][APEL SSM message format]]
----++++ Current interface
+---+++ Direct DB Access vs Messaging
 The approach taken with the current  interface was to keep it as simple as possible allowing for an easy means of correcting changing data in the OSG Gratia accounting system.  On a daily basis, the interface performs:
    * DELETE from OSG_CN_DATA where Month = mm and Year = yy %BR%
      (this removes all interfaced OSG resource group data for the month)
@@ -82,24 +83,94 @@ This approach could be used for the the following reasons:
    * The required  granularity of the APEL/EGI data is monthly summaries by Site,  VO and DN. 
    * The OSG site's data is segregated from other EGI sites by being stored in an OSG specific table (OSG_CN_DATA).  
 
----++++ New interface
+The new interface is a messaging based layer which no longer provides us direct access to our data.  It is our understanding that the messages will result  in a database table update (SQL DML REPLACE)  based on certain key fields.  Since we send summary data by site, vo and user DN, and not detail data, we will be sending 
+[[https://wiki.egi.eu/wiki/APEL/MessageFormat#Summary_Job_Records][Summary Job Records]]. 
 
+The problem, from the Gratia end of things, is that this now makes it extremely difficult to correct any changes made in Gratia to correct in the APEL/EGI database.  There are (and have been from the beginning) capabilities in Gratia to make corrections in the accounting data collected for things like site and vo.   Individual job records are collected by Gratia and recorded.  Those records themselves rarely change but how the data collected is reported in terms of site and vo  can be changed.  
 
-
-
-
----++ Examples of changes in Gratia affecting data
----+++ VONameCorrection
-on 9/8/11%BR%
+A recent example of this (although it does not affect the VOs we are currently reporting) is this request (there is a similar correction table for sites).
 <blockquote>
-NEES users being mapped to Engage rather than engage.  In the VONameCorrection table, the VOid is pointing to Engage (92) instead of engage (114).  Can you please change the VOid in the VONameCorrection table to point to engage for the VOName:
+NEES users being mapped to Engage rather than engage.  In the !VONameCorrection table, the VOid is pointing to Engage (92) instead of engage (114).  Can you please change the VOid in the !VONameCorrection table to point to engage for the VOName:
 /Engage/NEES/Role=NULL/Capability=NULL 
 /Engage/UCSDGrid/Role=NULL/Capability=NULL 
 </blockquote>
 
+The point of this is that when something like this is effected, the summary data we retrieve  reflects the current state.  If a site or vo were to change, we would have no means of knowing what it was yesterday and the data previously sent would still exist in APEL/EGI.   For us to insure the data in APEL/EGI is reflective of the current Gratia data, we would have to  perform some delta between the previous state and the current state and make adjustments accordingly.  This process would add unneeded complexity and be prone to error.
+
+__Request__ : %BLUE%Can there be a message format that would allow for removing (as in our old DELETE) based on site and yr/mos?  This would simplify processing on our end immensely.  We recognize that we would still have to keep track of changes in site but that is something more manageable. %ENDCOLOR%
+
+The only option we see available, to achieve the same result, would be to create 2nd file/message  of %SummaryRecords% with the same set of "keys" with all time/job fields set to zero.  Then, for each update, we would send this 2nd file (from the previous run) up first.  Then we send the "real" updates for the current run.  
+%BLUE%The question then is "Will they be processed sequentially on the APEL end?".%ENDCOLOR%
 
 
+
+---+++ [[https://wiki.egi.eu/wiki/APEL/MessageFormat][APEL SSM message format]]
+Gratia will not be sending individual job records to APEL/EGI.  As today, Gratia will be sending summary data based on site, vo and user DN.   
+
+Questions related to the %SummaryRecords%.
+<OL>
+    <LI> !WallDuration/CPUDuration%BR%
+      Currently, the "times" sent up for these fields are in a time scale of hours.  The %JobRecords%  explicitly state these are to be in seconds.   
+%BLUE%Are these in hours or seconds?  And can that be stated in the referenced documentation page?%ENDCOLOR%
+
+     <LI> !NormalisedWallDuration/!NormalisedCpuDuration%BR%
+      Currently, Gratia is sending normalized data using a !SpecInt value.  The %JobRecords% provide for specifying a  !NormalizationFactorUnit. The %SummaryRecords% do not.     We can provide either but would prefer !HepSpec as that is what all new processors are evaluated with.  
+%BLUE%Can we assume it is the !HepSpec value that is required? Can the document reflect this?%ENDCOLOR%
+
+     <LI>Group/Role%BR%
+      In the %SummaryRecords%, there are 2 new fields that we have not been required to populate with the current interface: Group and Role.  We are assuming these are optional and at the discretion of the VOs which, in our case, are cms/atlas/alice.  The documentation indicates that if these are not "published", they will set to "None" in the database. 
+%BLUE%Is there any problem if we always "publish" them with a string value of "None"?%ENDCOLOR%
+</OL>
+
+Questions related to the %SummarySyncRecords%:<OL>
+    <LI> %BLUE%Is this file/message also required?%ENDCOLOR%
+</OL>
+
+
+---+++ [[https://wiki.egi.eu/wiki/APEL/APELSSMExternalTesting][SSM External Testing]]
+We have subscribed to the mailing list but have gone no further as yet but do have some preliminary questions.
+<OL>
+  <LI>In the Usage section, the interface sounds like it is an asynchronous protocol. %BR%
+        %BLUE%Are there plans for this to be synchronous in nature when it goes to production? (in terms of both the message and, more importantly, the database update)?%ENDCOLOR%
+
+<LI>It appears the test environment is limited to just the messaging and database update.
+%BLUE%Will there be an environment which tests the complete data flow inclusive of the EGI portal UI?%ENDCOLOR%
+</OL>
  
+
+---+++ Retrieval/Publishing of APEL/EGI data
+Currently, after the daily update of APEL is performed, we do a retrieval of the data using a SQL select of the data for the following tables:
+   * OSG_CN_DATA
+   * org_Tier1
+   * org_Tier2
+
+This retrieval uses the SQL client capability to output the table data in html, dat and xml formats for access by other OSG applications.  This data is currently used in these OSG site pages:
+   * [[http://red-web.unl.edu/gratia/wlcg_reporting#atlas][OSG WLCG Reporting]]
+   * [[http://gratia-osg-prod-reports.opensciencegrid.org/gratia-data/interfaces/apel-lcg/][Gratia-APEL WLCG Interface]] (also accessible from the main [[http://gratia-osg-prod-reports.opensciencegrid.org/gratia-reporting][Gratia reporting page]] menu on the left side.)
+
+---++++ Topology data (aka org_Tier1/2 tables)
+It is our understanding that the org_Tier1/2 tables are being replaced by the [[http://wlcg-rebus.cern.ch/apps/topology/][WLCG REBUS Topology]].  This site has the capability to "export" the data is a csv format.  This will probably be adequate since the amount of data is relatively small.
+
+There are still a couple questions relative to how this topology data is used. 
+It is our understanding that for the data to be reflected in the Tier1/2 views a WLCG Site (OSG resource group) must be registered with LCG accounting and an MOU agreement in effect.
+The site will then be populated in the WLCG Topology and only those Sites will have their data reflected in that view under the appropriate Country/Federation Name/Federation Accounting Name in the hierarchy.  Some of these questions have come up as the WLCG Topology does not appear to be time sensitive and Sites can come and go over time.
+<OL>
+<LI>If a site (OSG resource group) is being removed from service, we assume that site must remain in the topology or any historical data associated with its contribution toward the Federation Accounting Name will be lost.  We recently had this case with a site MWT2_IU being replaced by site MWT2.   We advised them __not__ to have the MWT2_IU removed.
+%BLUE%Were we correct in this assumption?%ENDCOLOR%
+
+<LI>In the past (or maybe still), the org_Tier1/2 tables determined if a site was displayed in the EGI portal under the appropriate view/hierarchy.  There were also 1 or 2 other tables/configuration files (not viewable by us) that took care of this "removal of a site" from service but allowed the historical data to still be visible.  An example of this was a Purdue-Lear site back in 2008 and its data was still viewable by using these other tables/files. 
+%BLUE%Are any other tables/configuration files still being used or is the WLCG Topology the sole driver of the data?%ENDCOLOR%%BR%
+
+<LI>%BLUE%When a site is registered in LCG and an MOU agreement reached, should the data for past periods be sent up or does the date of the registration mark the start of the data requirement?%ENDCOLOR%
+
+<LI>While documenting all this and in viewing the data on the EGI portal, there appears to be no data prior to April 2009.  We have been sending data up since at least March 2008. 
+%BLUE%Is there an "archival" process in effect that we should be aware of?%ENDCOLOR%
+</OL>
+
+---++++ OSG site data (aka OSG_CN_DATA)
+As mentioned in the  earlier, Gratia needs visibility to the APEL data we publish.  It has been mentioned that the EGI portal allows for the downloading of the data in a csv format using the link at the bottom of the currently displayed table.  However, there does not appear to be a programmatic means of doing this.  The link executes a javascript that apparently access what ever criteria was used to display the page. 
+%BLUE%Are there any plans to provide an API for data retrieval? With some criteria?  This is a really much needed requirement.%ENDCOLOR%
+
 
 
 
