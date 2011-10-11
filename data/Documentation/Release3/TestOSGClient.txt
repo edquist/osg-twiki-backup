@@ -1,17 +1,182 @@
-%META:TOPICINFO{author="IgorSfiligoi" date="1318041097" format="1.1" reprev="1.14" version="1.14"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1318348299" format="1.1" version="1.15"}%
 %META:TOPICPARENT{name="WebHome"}%
-%LINKCSS%
-
-<!-- This is the default OSG documentation template. Please modify it in -->
-<!-- the sections indicated to create your topic.                        --> 
-
-<!-- By default the title is the WikiWord used to create this topic. If  -->
-<!-- you want to modify it to something more meaningful, just replace    -->
-<!-- %TOPIC% below with i.e "My Topic".                                  -->
+%DOC_STATUS_TABLE%
 
 ---+!! Testing the OSG Client
 %TOC%
 
+---+ About this Document
+
+<!-- conventions used in this document
+   * Local UCL_CWD  = %URLPARAM{"INPUT_CWD" encode="quote" default="~"}%
+   * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="client"}%
+   * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="user"}%
+   * Local UCL_DOMAIN = %URLPARAM{"INPUT_DOMAIN" encode="quote" default="opensciencegrid.org"}%
+   * Local UCL_CE = %URLPARAM{"INPUT_CE" encode="quote" default="ce.opensciencegrid.org"}%
+-->
+
+%ICON{hand}% This document is for OSG users. Simple tests will be introduced which may help testing the correct authentication with and operation of grid resources. This document also provides a _step-by-step guide_ to determine the approximate cause of an error followed by recommendations when a ticket with the %LINK_GOC_OPEN_TICKET% should be opened. 
+
+%NOTE% This document does not demonstrate how the Open Science Grid should be used for production runs. None of the techniques presented will _scale_ to production levels! %RED%Do not use these tools for large scale productions runs%ENDCOLOR%, as these will cause the remote site to crash and possible get your account banned - [[Documentation/CondorSubmittingSingleJob][Condor-G]] will work much better.
+
+---+ Customize this Document
+This form allows you to customize the content of the examples in this document.
+
+<form action="%SCRIPTURLPATH{"view"}%/%WEB%/%TOPIC%">
+<table>
+  <tr>
+    <td>
+      Server (CE) Host Name
+    </td>
+    <td>
+      <input type="text" name="INPUT_CE" value="%UCL_CE%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      Client Host Name
+    </td>
+    <td>
+      <input type="text" name="INPUT_HOST" value="%UCL_HOST%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      Client Login Name
+    </td>
+    <td>
+      <input type="text" name="INPUT_USER" value="%UCL_USER%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+     &nbsp;
+     <input type="submit" class="twikiSubmit" value="Customize" />
+    </td>
+  </tr>
+</table>
+</form>
+
+---+ Introduction
+
+Using a grid resource involves a series of steps that differ from the steps taken on a Unix resource. The following sections introduce and demonstrate each step required to run a basic grid job submission scenario. By understanding these simple tests you will be well prepared to understand, operate and debug complex grid scenarios. The series of tests are:
+
+   1 [[#Authentication_Test][Authentication Test]]: create and verify your grid proxy used to authenticate yourself with a grid resource
+   1 [[#Data_Transfer_Test][Data Transfer Test]]: copy data to and from a grid resource
+   1 [[#Job_Submission_Test][Job Submission Test]]: execute a program on a grid resource
+
+%NOTE% The *Data Transfer Test* and the *Job Submission Test* depend on the successful completion of the *Authentication Test*. Both tests are independent of each other for the purpose of this document and require access to a %LINK_GLOSSARY_CE%, which is the terminology used in the OSG to describe a grid resource that can run jobs. 
+
+---+ Requirements
+
+   1 access to a resource that has [[InstallOSGClient][OSG client tools]] installed
+   1 a [[Documentation.CertificateWhatIs][grid user certificate]] installed on the same resource in =$HOME/.globus=
+   1 access to a potential test resource ( see next paragraph )
+
+---+ Choose a Test Resource
+
+%ICON{hand}% Except for the [[#Authentication_Test][Authentication Test]] all tests require a grid resource to test against. Consider [[Documentation.FindAvailableResource][this guide]] for choosing an OSG grid resource to run the tests. Make sure to know what your membership %LINK_GLOSSARY_VO% is and that the grid resource you choose supports this VO! This document uses =%UCL_CE%= as an example. It can be customized in the form above. The default is =ce.opensciencegrid.org= which should not be used to run your tests!
+
+
+---+ Authentication Test
+
+The purpose of your [[Documentation.CertificateWhatIs][grid certificate]] is to authenticate yourself with every service provided by a %LINK_GLOSSARY_CE%. The authentication process is based on the [[http://en.wikipedia.org/wiki/X.509][X.509 Public Key Infrastructure]] which consists of a private key (=userkey.pem=) and a public key (=usercert.pem=). Both files together form your _certificate_ and are by default located in =$HOME/.globus=:
+
+<pre class="screen">
+%UCL_PROMPT% ls -al $HOME/.globus
+total 68
+drwxr-x---  4 %UCL_USER% %UCL_USER%  4096 Mar 18 18:50 .
+drwx------ 29 %UCL_USER% %UCL_USER% 12288 Jul 28 08:38 ..
+drwxrwxr-x  5 %UCL_USER% %UCL_USER%  4096 Jul 20 11:18 .gass_cache
+drwx------  4 %UCL_USER% %UCL_USER%  4096 Mar 27 12:14 job
+-rw-r-----  1 %UCL_USER% %UCL_USER%  1724 Dec 16  2008 usercert.pem
+-r--------  1 %UCL_USER% %UCL_USER%  1919 Dec 16  2008 userkey.pem
+</pre>
+
+Your certificate can be used to create a limited life-time %LINK_GLOSSARY_GRID_PROXY% or a %LINK_GLOSSARY_VOMS_PROXY%. You should use a VOMS Proxy if your membership %LINK_GLOSSARY_VO% supports VOMS Proxies and is providing a VOMS Server. Some OSG sites may require the use of a VOMS Proxy and will reject authentication requests using Grid Proxies.
+
+%NOTE% If uncertain please contact the *VO Manager* for your membership *VO*.
+
+%STARTSECTION{"AuthenticationTest"}%
+---%SHIFT%++ Authentication using a Grid Proxy
+
+To display detailed information about your grid proxy =grid-proxy-info= can be used:
+
+<pre class="screen">
+%UCL_PROMPT% grid-proxy-info
+subject  : /DC=org/DC=doegrids/OU=People/CN=Firstname Lastname 392994/CN=1692124231
+issuer   : /DC=org/DC=doegrids/OU=People/CN=Firstname Lastname 392994
+identity : /DC=org/DC=doegrids/OU=People/CN=Firstname Lastname 392994
+type     : Proxy draft (pre-RFC) compliant impersonation proxy
+strength : 512 bits
+path     : /tmp/x509up_u500
+timeleft : 291:11:00  (12.1 days)
+</pre>
+
+_Identity_ is sometimes also referred to as _Grid Identity_ or more frequently as %LINK_GLOSSARY_DN%. The last line of the output above indicates how long your current grid proxy will be valid. A grid proxy is said to have _expired_ if there is not time left on it. To _renew_  your grid proxy the program =grid-proxy-init= is used together with your grid password:
+
+<pre class="screen">
+%UCL_PROMPT% grid-proxy-init -valid 500:00
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Firstname Lastname 392994
+Enter GRID pass phrase for this identity:
+Creating proxy ................................. Done
+Your proxy is valid until: Tue Aug 18 08:06:35 2009
+</pre>
+
+---%SHIFT%++ Authentication using a VOMS Proxy
+
+To display detailed information about your voms proxy =voms-proxy-info= can be used:
+
+<pre class="screen">
+%UCL_PROMPT% voms-proxy-info -all
+WARNING: Unable to verify signature! Server certificate possibly not installed.
+Error: Cannot verify AC signature!
+subject   : /DC=org/DC=doegrids/OU=People/CN=Firstname Lastname 392994/CN=proxy
+issuer    : /DC=org/DC=doegrids/OU=People/CN=Firstname Lastname 392994
+identity  : /DC=org/DC=doegrids/OU=People/CN=Firstname Lastname 392994
+type      : proxy
+strength  : 1024 bits
+path      : /tmp/x509up_u506
+timeleft  : 388:18:27
+%RED%=== VO LIGO extension information ===
+VO        : LIGO
+subject   : /DC=org/DC=doegrids/OU=People/CN=Firstname Lastname 392994
+issuer    : /DC=org/DC=doegrids/OU=Services/CN=voms.ligo.org
+attribute : /LIGO/Role=NULL/Capability=NULL
+timeleft  : 0:00:00
+uri       : voms.phys.uwm.edu:15001%ENDCOLOR%
+</pre>
+
+_Identity_ is sometimes also referred to as _Grid Identity_ or more frequently as %LINK_GLOSSARY_DN%. Note the display of the %RED%extended attributes%ENDCOLOR% The first line marked =timeleft= of the output above indicates how long your current voms proxy will be valid. A voms proxy is said to have _expired_ if there is not time left on it. To _renew_  your voms proxy the program =voms-proxy-init= is used together with your grid password:
+
+<pre class="screen">
+%UCL_PROMPT% voms-proxy-init %RED%-voms LIGO:/LIGO%ENDCOLOR% -valid 500:00
+Enter GRID pass phrase:
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Firstname Lastname 392994
+Creating temporary proxy ................................ Done
+Contacting  voms.phys.uwm.edu:15001 [/DC=org/DC=doegrids/OU=Services/CN=voms.ligo.org] "LIGO" Done
+Creating proxy ......................................................... Done
+</pre>
+
+%NOTE% The command line option =%RED%-voms LIGO:/LIGO%ENDCOLOR%= tells =voms-proxy-init= to contact the VOMS server for the LIGO VO. This may be different for your VO. Locate a file named =vomses= on your submission host to find out more about available VOMS servers. 
+%ENDSECTION{"AuthenticationTest"}%
+
+%STARTSECTION{"MappingTest"}%
+---%SHIFT%++ Mapping Test
+
+A valid grid proxy does not guarantee that you may successfully authenticate with a remote grid resource. For a successful authentication your %LINK_GLOSSARY_DN% must be _mapped_ on the remote resource. A simple and quick way to check if your *DN* is mapped is to use =globus-run=:
+
+<pre class="screen">
+%UCL_PROMPT% globusrun -a -r %UCL_CE%
+
+GRAM Authentication test successful
+</pre>
+
+%NOTE% This example requires the _Grid Resource Allocation Manager (%LINK_GLOSSARY_GRAM%)_ to be available on the resource. This is usually the case on a %LINK_GLOSSARY_CE%, but not on a  %LINK_GLOSSARY_SE%. If you want to test authentication with a Storage Element, use the next example instead.
+%ENDSECTION{"MappingTest"}%
+
+
+<!-- MM TORM:
 ---++ Install the Test machine
 Follow the instructions on the [[InstallOSGClient][Install OSG Client web page]].
 
@@ -54,7 +219,61 @@ attribute : /hcc/Role=NULL/Capability=NULL
 attribute : /hcc/testgroup/Role=NULL/Capability=NULL
 timeleft  : 11:55:36
 uri       : hcc-voms.unl.edu:15000</pre>
+-->
 
+---+ Job Submission Test
+
+---++ Job Submission using GRAM
+
+The <b>G</b>rid <b>R</b>esource <b>A</b>llocation <b>M</b>anager (%LINK_GLOSSARY_GRAM%) is a service running on a %LINK_GLOSSARY_CE% that services your job submission request and which puts your job into execution after successful authentication.
+
+Here we use the =globus-job-run= command to execute the =id= command on the remote resource using the default *fork* %LINK_GLOSSARY_JM%:
+ 
+<pre class="screen">
+%UCL_PROMPT% globus-job-run %UCL_CE% /usr/bin/id
+uid=506(ligo) gid=506(ligo) groups=506(ligo)
+</pre>
+
+Upon success =/usr/bin/id= returns information about the user account which has been used to execute the program itself on the grid resource. This is the account that your %LINK_GLOSSARY_DN% is mapped to. Unlike the [[#Mapping_Test][Mapping Test]] this test also verifies that the account exists and that the job manager was able to run the command on your behalf on the compute element.
+
+%NOTE%  If you have a restrictive firewall in place, some of this testing will not work, and you will likely get Globus error 74 or 43. See the [[InstallOSGClient#Firewall_tunning][Condor firewall tuning]] section on how to solve this.<br>
+Moreover, if your client is on a home network behind a NAT, you will also need to configure a GLOBUS_TCP_SOURCE_RANGE (range of non privileged ports) on your home router to forward them to the server.
+
+%NOTE% Please open a ticket with the %LINK_GOC_OPEN_TICKET% for the resource in case all your configurations are correct and the command did not succeed.
+
+---+++ Test the Availability of a Job Manager
+
+A %LINK_GLOSSARY_JM% is a process running on the %LINK_GLOSSARY_CE% which is managing the execution of your job. By default the job manager =fork= will be used to _fork_ your program directly on the compute element. As a general rule of thumb you should %RED%avoid to use fork%ENDCOLOR% and to execute programs on the compute element unless that is your intention. A not complete list of job managers includes =fork=, =managedfork=, =ccs=, =condor=, =lsf=, =pbs= and =sge=. Depending on the setup of the grid resource more than one job manager may be supported.
+
+Just like in the previous example we can use =globus-job-run= to verify that the =fork= job manager is available and used for the execution:
+
+<pre class="screen">
+%UCL_PROMPT% globus-job-run %UCL_CE%/jobmanager-fork /usr/bin/id
+uid=506(ligo) gid=506(ligo) groups=506(ligo)
+</pre>
+
+Notice how we append =/jobmanager-fork= to the grid resource to explicitly request it. This can be used to detect if a certain job managers such as =condor= is available:
+
+<pre class="screen">
+%UCL_PROMPT% globus-job-run %UCL_CE%/jobmanager-condor /bin/hostname
+dom118
+</pre>
+
+Because the job is scheduled to be executed through %LINK_GLOSSARY_CONDOR% this command will likely require more time to complete. Here we used the =/bin/hostname= command to return the _hostname_ of the worker node executing the job.
+
+To specify a job manager that is not supported by the grid resource creates a convenient way to find out what job managers are supported by the resource from the comfort of the command line:
+
+<pre class="screen">
+%UCL_PROMPT% globus-job-run %UCL_CE%/jobmanager-pbs /bin/hostname
+GRAM Job submission failed because the gatekeeper failed to find the requested service (error code 93)
+%UCL_PROMPT% echo $?
+93
+</pre>
+
+%NOTE% The <b>names for job managers are case sensitive</b> and are <b>all lower case for %LINK_GLOSSARY_GRAM%</b>.
+
+
+<!-- MM TORM:
 ---+++ Test Simple Job Submission
 This test section is optional. If you are not interested in submitting jobs, skip to the next section.
 
@@ -64,6 +283,7 @@ uid=1761(hcc) gid=4001(grid) groups=4001(grid)</pre>
 
 *NOTE*  If you have a restrictive firewall in place, some of this testing will not work, and you will likely get globus error 74 or 43. See [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/InstallOSGClient#Firewall_tunning][Condor firewall tuning]] section on how to solve this.<br>
 Moreover, if your client is on a home network behind a NAT, you will also need to configure a GLOBUS_TCP_SOURCE_RANGE on your home router.
+-->
 
 ---+++ Testing the Condor Install
 This section only applies, if you have installed Condor. Skip to the next section else.
