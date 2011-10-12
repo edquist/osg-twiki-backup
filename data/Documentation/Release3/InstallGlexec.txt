@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AlainRoy" date="1318389284" format="1.1" reprev="1.6" version="1.6"}%
+%META:TOPICINFO{author="DaveDykstra" date="1318449681" format="1.1" reprev="1.7" version="1.7"}%
 %DOC_STATUS_TABLE%
 
 ---+!! Glexec Installation Guide
@@ -51,7 +51,7 @@ These are the requirements that must be met on a worker node before proceeding w
 
    1 The OSG worker node base software.  First install all the base software by following the instructions at InstallWNClient, including the instructions for CA Certificates.
    1 Local user "glexec".  If you want control over the local "glexec" user's uid and gid you should create it before you install the package.  If you don't create it, it will be automatically created.
-   1 Group ids for tracking purposes.  Glexec also requires a range of <b>group ids</b> for tracking purposes.  You don't actually have to create the group entries but it is recommended to do so in order to reserve the gids and so they can be associated with names in the 'id' command.  The recommended names are 'glexecNN' where NN is a number starting from 00.
+   1 Group ids for tracking purposes.  Glexec also requires a range of <b>group ids</b> for tracking purposes.  You don't actually have to create the group entries but it is recommended to do so in order to reserve the gids and so they can be associated with names in the =/usr/bin/id= command.  The recommended names are 'glexecNN' where NN is a number starting from 00.
       * Define at least 4 group ids per batch slot per worker node.   A conservative way to handle this is to multiply the number of batch slots on the largest worker node by 6 and then share the group ids between all the worker nodes.
       * They must be consecutive and in any range (default range is 65000-65049, configured in post-install section below).   
       * The same group ids can be used on every worker node.
@@ -90,20 +90,34 @@ gumsclient -> glexectracking
 
 ---+Testing the Installation of glexec
 
-Now, __as a non-privileged user (not root)__ , do the following (where "yourvo" is your VO,  and "NNN" is your uid):
+Now, __as a non-privileged user (not root)__ , do the following (where %RED%yourvo%ENDCOLOR% is your VO,  and %RED%NNN%ENDCOLOR% is your uid as reported by =/usr/bin/id=):
 <pre class="screen">
-%UCL_PROMPT% voms-proxy-init -voms yourvo:/yourvo -file /tmp/x509_u%RED%NNN%ENDCOLOR%
-%UCL_PROMPT% export GLEXEC_CLIENT_CERT=/tmp/x509_u%RED%NNN%ENDCOLOR%
+%UCL_PROMPT% voms-proxy-init -voms %RED%yourvo%ENDCOLOR%:/%RED%yourvo%ENDCOLOR%
+%UCL_PROMPT% export GLEXEC_CLIENT_CERT=/tmp/x509up_u%RED%NNN%ENDCOLOR%
 %UCL_PROMPT% /usr/sbin/glexec /usr/bin/id
 uid=13160(fnalgrid) gid=9767(fnalgrid) groups=65000(glexec00)
 </pre>
-If glexec is successful, it will print out the uid and gid that your proxy would normally be mapped to by your GUMS server, plus a supplementary tracking group. (The actual names and numbers will be different from what you see above.)
+If =glexec= is successful, it will print out the uid and gid that your proxy would normally be mapped to by your GUMS server, plus a supplementary tracking group. (The actual names and numbers will be different from what you see above.)
 
 ---+ Glexec log files
 
-MORE INFORMATION ABOUT HOW TO SET UP syslog-ng IS NEEDED HERE
+=Glexec= sends all its log information by default to syslog.  Where it goes from there depends on your syslog configuration, but by default they go to =/var/log/messages=.  Here are some sample messages:  <pre class="file">
+Oct 10 17:17:32 itb-c001 glexec[25238]: lcmaps.mod-lcmaps_startPluginManager(): initializing plugin /usr/lib64/modules/glexectracking (db entry 3)
+Oct 10 17:17:32 itb-c001 glexec[25238]: lcmaps.mod-PluginInit(): plugin /usr/lib64/modules/glexectracking not found (arguments: )
+Oct 10 17:17:32 itb-c001 glexec[25238]: lcmaps.mod-lcmaps_startPluginManager(): error initializing plugin: /usr/lib64/modules/glexectracking
+</pre>
+These particular messages are pretty common, caused by forgetting to uncomment the beginning of the glexectracking rule in =/etc/lcmaps.db=.
 
-Glexec sends all its log information by default to syslog.  The file that it goes into depends on your syslog configuration.  With standard syslog it is difficult to get all of the glexec-related messages collected into a single file, but syslog-ng can do it because all of the messages have the string "glexec" in the name.   
+
+The syslog facility used is "daemon", and that's not configurable.  With standard syslog it isn't possible to separate out the glexec-related messages into its own separate file, but syslog-ng (available in the epel repository) can do it by matching all the messages that have the string "glexec" in the name.   These rules in =/etc/syslog-ng/syslog-ng.conf= will separate the glexec messages into =/var/log/glexec.log=: <pre class="file">
+destination d_glexec { file("/var/log/glexec.log"); };
+filter f_glexec { program("^glexec"); };
+filter f_notglexec { not program("^glexec"); };
+log { source(s_sys); filter(f_glexec); destination(d_glexec); };
+</pre>
+Then later, in the log rule writing sending to "d_mesg," add a "filter(f_notglexec);" before the destination rule to keep glexec messages out of =/var/log/messages=: <pre class="file">
+log { source(s_sys); filter(f_default); filter(f_notglexec); destination(d_mesg); };
+</pre>
 
 %BR%
 
@@ -138,7 +152,7 @@ Glexec sends all its log information by default to syslog.  The file that it goe
    * Local INCLUDE_TEST   = %YES%
 
    change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
-   * Local REVIEW_READY   = %NO%
+   * Local REVIEW_READY   = %YES%
 
    change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
    * Local TEST_READY     = %NO%
