@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1318373235" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1318637481" format="1.1" version="1.3"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 ---+ Notes on Koji-Hub Setup (WIP)
 
@@ -6,14 +6,145 @@
 
 koji is run on =koji-hub.batlab.org=; right now a single machine is used for the hub (koji-hub), the web frontend (koji-web), repo generation (kojira), and building (kojid).
 
-Two partitions are used specifically for koji: a 35G partition mounted on =/var/lib/mock= for the builder, and a 120G partition mounted on =/mnt/koji= for everything else.
+As instructions for setting up the machine, I'm just going to take the Fedora guide at [[http://fedoraproject.org/wiki/Koji/ServerHowTo]], and add modifications / comments to suit our setup.
 
-The server was generally put together using the instructions at [[http://fedoraproject.org/wiki/Koji/ServerHowTo]]. We didn't use the instructions there to create a certs, but got some from DOEGrids instead. (Note that we had to run =dos2unix= on the certs we got from DOEGrids before they would work).
+---+++ Prereqs
+<verbatim>
+== PreReqs of Knowledge ==
+* For an overview of yum, mock, Koji (and all its subcomponents), mash, and how they all work together, see the excellent slides put together by Steve Traylen at CERN http://indico.cern.ch/event/55091
+
+== PreReqs of Packages ==
+'''On the server (koji-hub/koji-web)'''
+* httpd
+* mod_ssl
+* postgresql-server
+* mod_python (>= 3.3.1 for Kerberos authentication)
+
+'''On the builder (koji-builder)'''
+* mock
+* setarch (for some archs you'll require a patched version)
+* rpm-build
+* createrepo
+</verbatim>
+We use one machine for both these roles, so all of the above has to be installed.
+
+---+++ Filesystems
+<verbatim>
+== A note on filesystem space ==
+Koji will consume copious amounts of disk space under the primary KojiDir directory (as set in the kojihub.conf file).
+</verbatim>
+This is =/mnt/koji= by default. Koji keeps _all RPMs built_ in here so a complete history is kept.
+In addition, repositories are kept here. A repository is just a set of text files, but since a new one is generated for every build, the space will add up.
+Koji does clean up the repositories once they get old enough.
+For =koji-hub.batlab.org=, we allocated a 120G partition for =/mnt/koji=.
+
+<verbatim>
+However, as koji makes use of mock on the backend to actually create build roots and perform the builds in those build roots, it might come to a surprise to users that a running koji server will consume large amounts of disk space under /var/lib/mock and /var/cache/mock as well.
+</verbatim>
+=kojid= (the builder daemon) will refuse to start a build if it does not have sufficient space under =/var/lib/mock=.
+By default, this is an 8G surplus, but we lowered it to 4G for =koji-hub.batlab.org=.
+The build roots will be wiped after successful builds, but the build roots for failed builds will be kept around for 2 weeks (?); as a result, disk usage of =/var/lib/mock= can swing wildly.
+For =koji-hub.batlab.org=, we have allocated 35G for =/var/lib/mock=.
+=/var/cache/mock= doesn't use up that much space, so we didn't make a separate partition for it, it just uses what's under =/=.
+
+---+++ Authentication
+<verbatim>
+== Koji Authentication Selection ==
+</verbatim>
+Most of this section can be skipped.
+We got our certs from !DOEGrids. *Note* that we had to run =dos2unix= on them before they would work.
 
 We have 2 certs, with the following subjects:
    * =/DC=org/DC=doegrids/OU=Services/CN=koji-hub.batlab.org= (for koji-hub, koji-web, and kojid)
    * =/DC=org/DC=doegrids/OU=Services/CN=kojira/koji-hub.batlab.org= (for kojira)
 kojid needed a different cert than kojira because the two would connect to koji-hub at the same time and log each other off.
+
+Clients connecting to koji-hub need a file containing the CA certs; this is just a concatenation of the !ESNet and !DOEGrids CA certs, which can be obtained by doing the following:
+   * Install the =osg-ca-certs= RPM onto a host.
+   * Concatenate ESNet and DOEGrids CA Certificates into a bundle: <pre>%UCL_PROMPT_ROOT%cat /etc/grid-security/certificates/d1b603c3.0 /etc/grid-security/certificates/1c3f2ca8.0 > osg-ca-bundle.crt</pre>
+
+We made a =kojiadmin= user, but we didn't make a cert for it so we just used user/pass authentication until we set up our own accounts and then disabled =kojiadmin=.
+
+---+++ Postgres Database
+
+   * Install postgres: <pre>%UCL_PROMPT_ROOT%yum install postgresql-server</pre>
+   * Init the db: <pre>%UCL_PROMPT_ROOT%su - postgres -c "PGDATA=/var/lib/pgsql/data initdb</pre>
+   * Start the db: <pre>%UCL_PROMPT_ROOT%service postgresql start</pre>
+   * Make a koji account: <pre>%UCL_PROMPT_ROOT%useradd koji; passwd -d koji</pre>
+<verbatim>
+'''Setup PostgreSQL and populate schema:'''
+
+The following commands will create the '''koji''' user within PostgreSQL
+and will then create the koji database using the schema within
+the /usr/share/doc/koji*/docs/schema.sql directory
+<pre>
+root@localhost$ su - postgres
+postgres@localhost$ createuser koji
+Shall the new role be a superuser? (y/n) n
+Shall the new role be allowed to create databases? (y/n) n
+Shall the new role be allowed to create more new roles? (y/n) n
+postgres@localhost$ createdb -O koji koji
+postgres@localhost$ logout
+root@localhost$ su - koji
+koji@localhost$ psql koji koji < /usr/share/doc/koji*/docs/schema.sql
+koji@localhost$ exit
+</pre>
+
+'''NOTE:''' When issuing the command to import the psql schema into
+the new database it is important to ensure that the directory
+path /usr/share/doc/koji*/docs/schema.sql remains intact and is
+not resolved to a specific version of koji. In test it was
+discovered that when the path is resolved to a specific version
+of koji then not all of the tables were created correctly
+</verbatim>
+
+<verbatim>
+'''Authorize Koji-web and Koji-hub resources:'''
+</verbatim>
+
+Make the following additions to =/var/lib/pgsql/data/pg_hba.conf=:
+<pre>
+# access for koji
+host    koji        postgres    127.0.0.1/32          trust
+host    koji        koji        127.0.0.1/32          trust
+host    koji        koji        128.104.100.41/32     trust
+host    koji        koji        ::1/128               trust
+</pre>
+The IP addresses you use may not be the same.
+
+<verbatim>
+'''Bootstrapping the initial koji admin user into the PostgreSQL database:'''
+</verbatim>
+Once again, we used user/pass authentication for the kojiadmin user until we disabled it.
+All database commands should be done as the =koji= user:<pre>%UCL_PROMPT_ROOT%sudo -u koji psql</pre>
+<pre>
+koji=> insert into users (name, password, status, usertype) values \
+('kojiadmin', 'some-throwaway-admin-password-in-plain-text', 0, 0);
+koji=> insert into user_perms (user_id, perm_id, creator_id) values \
+((select id from users where name='kojiadmin'), 1, \
+(select id from users where name='kojiadmin'));
+</pre>
+
+---+++ Koji-Hub
+
+<verbatim>
+Koji-hub is the center of all Koji operations.
+It is an XML-RPC server running under mod_python in Apache.
+koji-hub is passive in that it only receives XML-RPC calls and
+relies upon the build daemons and other components to initiate
+communication.  Koji-hub is the only component that has direct
+access to the database and is one of the two components that
+have write access to the file system.
+</verbatim>
+
+Config files we care about:
+   * =/etc/httpd/conf/httpd.conf=
+   * =/etc/httpd/conf.d/kojihub.conf=
+   * =/etc/httpd/conf.d/ssl.conf=
+   * =/etc/koji-hub/hub.conf=
+Install the necessary packages. <pre>%UCL_PROMPT_ROOT%yum install koji-hub httpd mod_ssl mod_python</pre>
+
+*TODO* I AM HERE, at the Required Configuration section under koji-hub.
 
 ---++ Tags
 
@@ -76,4 +207,3 @@ These tags were made for Mats Rynge of the Pegasus project to build into.
 
 ---++++ kojira-fake
 TODO: Ask Brian what this was used for and if it's still necessary.
-
