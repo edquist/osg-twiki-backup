@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DouglasStrain" date="1318978742" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="DouglasStrain" date="1319234709" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="InstallBestPractices"}%
 %LINKCSS%
 ---+!! Install !BeStMan SE 
@@ -10,7 +10,38 @@
 This page explains how to install the stand-alone !BeStMan Storage Element server.
 
 ---++ Requirements
-A RHEL5 (or !CentOS 5, SL5) machine with [[http://fedoraproject.org/wiki/EPEL][EPEL]] repos enabled.
+
+!BeStMan requires at least one node with following components to be installed: 
+   * !BeStMan implements SRM v2.2 
+   * !GridFTP server 
+   * [[GratiaTransferProbe][Gratia gridftp transfer probe]] (optional) - a cron job reporting file transfers to the [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GratiaSiteCollector][Gratia collector]]
+
+   1. A RHEL5 (or !CentOS 5, SL5) machine with [[http://fedoraproject.org/wiki/EPEL][EPEL]] repos enabled.
+   1. all procedures in this document require _root_ privileges
+   1. the operation of !BeStMan requires a valid service certificate. If you are planning to support access to your SE by [[LcgUtilities][LCG-Utils tools]] this certificate *must* be the copy of the host certificate. Otherwise use a valid service certificate.
+   1. the service certificate must be owned by the Unix user that is running !BeStMan
+   1. the firewall must allow incoming connections to the !BeStMan ports (default:8443)
+   1. the firewall must allow incoming connections to the !GridFTP port (default 2811)
+   1. outgoing connections must be allowed from high ports ( typically in range 32769-65535 ). 
+   1. Grid users will authenticate with your site using their grid certificates. The users have to be authorized in order to access your SE. You'll need to determine the authorization mode you wish to use before you can proceed with installation.
+   1. the server must have a fully qualified domain name and a valid host certificate installed in =/etc/grid-security=
+
+
+---++ Engineering Considerations
+
+Please answer following questions before you proceed with installation and configuration of !BeStMan storage element: 
+
+   $ Q. _What authorization mechanism do you prefer?_ : Decide between a grid-mapfile or a [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/InstallConfigureAndManageGUMS][GUMS]] server for authorization. %BR% We recommend to use GUMS as the most flexible solution; most large sites use GUMS.
+
+   $ Q. _How many !GridFTP servers you will need?_: Choose to run multiple !GridFTP servers for load balancing and better performance. We recommend to install additional !GridFTP servers if your Storage Element: 
+   * is serving data to more than 250 cores for VOs that use storage heavily (e.g. CMS, ATLAS, CDF, and D0)
+   * is managing more than 50 TB of disk space
+   * has more than 1Gbps bandwidth: plan on at least one !GridFTP server for each 4Gbps of available bandwidth to maximize throughput 
+
+   $ Q. _Do you need to enable Gratia gridftp-transfer probes?_ : The Gratia gridftp-transfer probes provide OSG storage statistics for accounting purposes. More details can be found at the  [[https://twiki.grid.iu.edu/bin/view/Accounting/WebHome][Gratia Home Page]]. The reports include the source and destination of transfers, certificate subject of transfer initiator, as well as the size and status of the transferred file. %BR% The probe needs to be installed on every !GridFTP server which may be different from your !BeStMan server.
+
+   $ Q. _What kind of storage do you like to provide to your users?_: Choose between a *volatile cache* (files are stored for a fixed amount of time), a *custodial cache* (files are stored until deleted) or provide *both*. You can also allow users to write to storage areas that are outside the storage space managed by !BeStMan.
+
 
 ---++ Install Instructions
 
@@ -97,6 +128,78 @@ chown -R bestman:bestman /etc/grid-security/bestman/
 Then modify *CertFileName*, *KeyFileName* in =/etc/bestman2/conf/bestman2.rc=.
 
 %ENDSECTION{"Certificate"}%
+
+---++ (Optional) !BeStMan Fullmode
+
+The above procedure installs !BeStMan in gateway mode which is sufficient for most purposes
+in the Open Science Grid.  !BeStMan also includes a full-mode capability with the following
+features:
+
+   * Includes full SRM implementation
+   * Includes Dynamic space reservation
+   * Request queue management
+   * Enhanced plug-in support
+
+Note that full-mode capability may not be updated in future releases and will be supported
+only on a best-effort capacity.  For those who absolutely need this functionality to support
+legacy systems, information is attached below.
+
+%TWISTY{
+mode="div"
+showlink="Click here for bestman fullmode information."
+hidelink="Hide fullmode information"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+
+Modify =/etc/bestman2/conf/WEB-INF/server-config.wsdd= and change 
+"TSRMServiceGateway" to "TSRMService".
+<pre class="file">
+ &lt;parameter name="className" value="gov.lbl.srm.impl.TSRMService" /&gt;
+</pre>
+Modify the following options in =/etc/bestman2/conf/bestman2.rc=.
+<pre class="file">
+BESTMAN_GATEWAYMODE_ENABLED=no
+BESTMAN_FULLMODE_ENABLED=yes
+pathForToken=false
+disableSpaceMgt=false
+useBerkeleyDB=true
+noCacheLog=false
+</pre>
+
+Delete these entries
+<pre class="file">
+checkSizeWithFS=true
+checkSizeWithGsiftp=false
+</pre>
+
+Add these entries:
+<pre class="file">
+MaxNumberOfUsers=100
+MaxNumberOfFileRequests=1000000
+Concurrency=40
+MaxConcurrentFileTransfer=10
+GridFTPNumStreams=1
+GridFTPBufferSizeBytes=1048576
+DefaultFileSizeMB=500
+DefaultVolatileFileLifeTimeInSeconds=1800
+PublicTokenMaxFileLifetimeInSeconds=1800
+InactiveTxfTimeOutInSeconds=300
+PublicSpaceProportion=80
+DefaultMBPerToken=1000
+CacheLogLocation=/var/log/bestman2
+srmcacheKeywordOn=true
+uploadQueueParameter=40:10
+</pre>
+You may need to tweak some of the performance options to your installations.
+
+Also add the following line with your Replica Storage Locations:
+<pre class="file">
+ReplicaQualityStorageMB=[20000]path=/var/run/bestman2/cache;
+</pre>
+This should be semi-colon delimited in the form of "[size_in_mb]path=/path/to/replica/storage".
+
+%ENDTWISTY% 
 
 ---++ Starting and Stopping Services
 
@@ -236,8 +339,7 @@ You could find log and configuration files for each of the module in the followi
 
 The following ports are opened for the installed services
 |*Module Name*|*Port Number*| *Protocol*|
-|!BeStMan| default 10080| tcp|
-||default 10443|tcp|
+|!BeStMan| default 8443| tcp|
 |!GridFTP|2811|tcp|
 ||lowPort,maxPort if needed to control outbound globus connections|tcp|  
 
