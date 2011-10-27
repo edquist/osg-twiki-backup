@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JeffDost" date="1319741559" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="JeffDost" date="1319750710" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="NavAdminStorage"}%
 ---+!! *Hadoop 20*
 %DOC_STATUS_TABLE%
@@ -404,34 +404,25 @@ Example:
 The !GridFTP server for Hadoop can be very memory-hungry, up to 500MB/transfer in the default configuration.
 You should plan accordingly to provision enough !GridFTP servers to handle the bandwidth that your site can support.
 
-The installation includes the latest CA Certificates package from the OSG as well as the fetch-crl CRL updater. *NOTE* the fetch-crl service does not start by default after installing !GridFTP.  To have fetch-crl update automatically, run:
+The installation includes the latest CA Certificates package from the OSG as well as the fetch-crl CRL updater.
 
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% service fetch-crl-cron start
-</pre>
+%INCLUDE{"InstallCertAuth" section="FetchCRLConfig" TOC_SHIFT="+"}%
 
-cron will check for CRL updates every 6 hours.  If this is your first time installing you may need to run it immediately:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% /usr/sbin/fetch-crl -r 20  -a 24 --quiet
-</pre>
-
-*Note:* You do not need FUSE mounted on !GridFTP nodes,
+*Note:* You do not need FUSE mounted on !GridFTP nodes
 
 ---++ Installation
 
 To install gridftp-hdfs server, run:
 
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install gridftp-hdfs
+%UCL_PROMPT_ROOT% yum install osg-gridftp-hdfs
 </pre>
 
 Updates can be installed with:
 
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum upgrade gridftp-hdfs
+%UCL_PROMPT_ROOT% yum upgrade osg-gridftp-hdfs
 </pre>
-
 
 ---++ Configuration
 
@@ -439,14 +430,12 @@ The installation of gridftp-hdfs and its dependencies creates several directorie
 In addition to the Hadoop installation files, you will also find:
 
 | Log files | =/var/log/gridftp-auth.log=, =/var/log/gridftp.log= |
-| xinetd files | =/etc/xinetd.d/gridftp-hdfs= |
-| runtime config files | =/etc/gridftp-hdfs/*= |
-| System binaries | =/usr/bin/gridftp-hdfs*= |
+| init.d script | =/etc/init.d/globus-gridftp-server= |
+| runtime config files | =/etc/gridftp-hdfs/*=, =/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= |
+| System binaries | =/usr/bin/gridftp-hdfs-standalone=, =/usr/sbin/globus-gridftp-server= |
 | System libraries | =/usr/lib64/libglobus_gridftp_server_hdfs.so*= |
-| GUMS client (called LCMAPS) configuration | =/etc/lcmaps/lcmaps.db= |
+| GUMS client (called LCMAPS) configuration | =/etc/lcmaps.db= |
 | CA certificates | =/etc/grid-security/certificates/*= |
-
-=lcmaps.db= is provided by the globus-mapping-osg package.
 
 gridftp-hdfs reads the Hadoop configuration file to learn how to talk to Hadoop.
 As per the prerequisites section, you should have already edited =/etc/sysconfig/hadoop= and run =service hadoop-firstboot start=.
@@ -454,17 +443,13 @@ If you did not follow the directions, please do that now.
 
 It is *not* necessary to start any Hadoop services with =service hadoop start= if you are running a dedicated !GridFTP server (that is, no datanode or namenode services will be run on the host).
 
-In =/etc/lcmaps/lcmaps.db= you will need to enter the URL for your GUMS server, as well as the path to your host certificate and key:
-
-<pre class="file">
-             "--endpoint https://%RED%gums.hostname%ENDCOLOR%:8443/gums/services/GUMSXACMLAuthorizationServicePort"
-</pre>
+%INCLUDE{"InstallOSGGridFTP" section="Gums"}%
 
 The default settings in =/etc/gridftp-hdfs/*.conf= should be ok for most installations.
-The file =gridftp-inetd.conf= is used by the xinetd service for starting up the !GridFTP server.
-The file =gridftp.conf= is used by =/usr/bin/gridftp-hdfs-standalone= for starting up the !GridFTP server in a testing mode.
-=gridftp-hdfs-local.conf= contains additional site-specific environment variables that are used by the gridftp-hdfs dsi module in both the xinetd and standalone !GridFTP server.
-Some of the environment variables that can be used in =gridftp-hdfs-local.conf= include:
+The file =gridftp.conf= is used by the init.d script for starting up the !GridFTP server.
+The file =gridftp-debug.conf= is used by =/usr/bin/gridftp-hdfs-standalone= for starting up the !GridFTP server in a testing mode.
+=/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= contains additional site-specific environment variables that are used by the gridftp-hdfs dsi module in both the init.d and standalone !GridFTP server.
+Some of the environment variables that can be used in =/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= include:
 
 | Option Name | Needs Editing? | Suggested value|
 | GRIDFTP_HDFS_REPLICA_MAP | No | File containing a list of paths and replica values for setting the default # of replicas for specific file paths |
@@ -475,17 +460,13 @@ Some of the environment variables that can be used in =gridftp-hdfs-local.conf= 
 | GRIDFTP_LOAD_LIMIT | No | !GridFTP will refuse to start new transfers if the load on the !GridFTP host is higher than this number; defaults to 20. |
 | TMPDIR | Maybe | The temp directory where the file-based buffers are stored.  Defaults to /tmp. |
 
-=gridftp-hdfs-local.conf= is also a good place to increase per-process resource limits. For example, many installations will require more than the default number of open files (=ulimit -n=).
+=/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= is also a good place to increase per-process resource limits. For example, many installations will require more than the default number of open files (=ulimit -n=).
 
 ---++ Running !GridFTP 
 
-If you were not already running the xinetd service (by default it is not installed on RHEL5), then you will need to start it with the command:
+To run the !GridFTP service use the following commands:
 
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% service xinetd restart
-</pre>
-
-Otherwise, the gridftp-hdfs service should be configured to run automatically as soon as the installation is finished.
+%INCLUDE{"InstallOSGGridFTP" section="Starting"}%
 
 ---++ Validation
 
@@ -1148,6 +1129,19 @@ To start the FUSE mount in debug mode, you can run the FUSE mount command by han
 </pre>
 
 Debug output will be printed to stderr, which you will probably want to redirect to a file.  Most FUSE-related problems can be tackled by reading through the stderr and looking for error messages.
+
+---++ !GridFTP
+
+#GridFTPStand
+---+++ Starting !GridFTP in Standalone Mode
+
+If you would like to test the gridftp-hdfs server in a debug standalone mode, you can run the command:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% gridftp-hdfs-standalone
+</pre>
+
+The standalone server runs on port 5002, handles a single !GridFTP request, and will log output to stdout/stderr.
 
 ---++ Known Issues
 
