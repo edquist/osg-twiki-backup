@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JeffDost" date="1319750710" format="1.1" reprev="1.6" version="1.6"}%
+%META:TOPICINFO{author="JeffDost" date="1319785326" format="1.1" reprev="1.7" version="1.7"}%
 %META:TOPICPARENT{name="NavAdminStorage"}%
 ---+!! *Hadoop 20*
 %DOC_STATUS_TABLE%
@@ -555,21 +555,11 @@ Make sure that you modify =localPathListAllowed= to use the Hadoop mount  in =/e
 
    1 !GridFTP is installed and working
 
-The Gratia probe requires the file =osg-user-vo-map.txt= to exist and be up to date. We provide an rpm package that takes care of creating this file as needed.  To get it run:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install osg-vo-map
-</pre>
-
-It will pull in the =gums-client= rpm as a dependency. 
+The Gratia probe requires the file =user-vo-map= to exist and be up to date. This file is created and updated by the =gums-client= package that comes in as a dependency of =osg-gridftp-hdfs=.
 
 ---++ Installation
 
-To install the Gratia Transfer Probe, run:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install gratia-probe-gridftp-transfer
-</pre>
+Assuming you installed !GridFTP using the =osg-gridftp-hdfs= rpm, the Gratia Transfer Probe will already be installed.
 
 Updates can be installed with:
 
@@ -577,22 +567,21 @@ Updates can be installed with:
 %UCL_PROMPT_ROOT% yum upgrade gratia-probe-gridftp-transfer
 </pre>
 
-
 ---++ Configuration
 
-This RPM *does not* use Linux-standard file locations.  Here are the most relevant file and directory locations:
+Here are the most relevant file and directory locations:
 
 | Purpose | Needs Editing? | Location |
-| Probe Configuration | Yes | /opt/vdt/gratia/probe/gridftp-transfer/ProbeConfig |
-| Probe Executables | No | /opt/vdt/gratia/probe/gridftp-transfer |
-| Log files | No | /opt/vdt/gratia/var/logs |
-| Temporary files | No | /opt/vdt/gratia/var/tmp |
+| Probe Configuration | Yes | /etc/gratia/gridftp-transfer/ProbeConfig |
+| Probe Executables | No | /usr/share/gratia/gridftp-transfer |
+| Log files | No | /var/log/gratia |
+| Temporary files | No | /var/lib/gratia/tmp |
 | Gums configuration | Yes | /etc/gums/gums-client.properties |
 
 The RPM installs the Gratia probe into the system crontab, but does not configure it.  The configuration of the probe is controlled by the file
 
 <verbatim>
-/opt/vdt/gratia/probe/gratia-transfer/ProbeConfig
+/etc/gratia/gridftp-transfer/ProbeConfig
 </verbatim>
 
 This is usually one XML node spread over multiple lines.  Note that comments (#) have no effect on this file.  You will need to edit the following:
@@ -603,7 +592,7 @@ This is usually one XML node spread over multiple lines.  Note that comments (#)
 | !SiteName | Yes | Set to the resource group name of your site as registered in OIM. |
 | !GridftpLogDir | Yes | Set to /var/log, or wherever your current gridftp logs are located |
 | !Grid | Maybe | Set to "ITB" if this is a test resource; otherwise, leave as OSG. |
-| !UserVOMapFile | Yes | Set to the location of your osg-user-vo-map.txt; see below for information about this file. |
+| !UserVOMapFile | No | This should be set to /var/lib/osg/user-vo-map; see below for information about this file. |
 | !SuppressUnknownVORecords| Maybe | Set to 1 to suppress any records that can't be matched to a VO; 0 is strongly recommended. |
 | !SuppressNoDNRecords | Maybe | Set to 1 to suppress records that can't be matched to a DN; 0 is strongly recommended. |
 | !EnableProbe | Yes | Set to 1 to enable the probe. |
@@ -616,9 +605,9 @@ The collector is the central server which logs the !GridFTP transfers into a dat
    1 *OSG-ITB Transfer Collector*: This is the test collector for transfers in the OSG.  Use !CollectorHost="gratia-osg-transfer.opensciencegrid.org:8881".
    1 *Site local collector*: If your site has set up its own collector, then your admin will be able to give you an endpoint to use.  Typically, this is along the lines of !CollectorHost="collector.example.com:8880".
 
----+++ Generating osg-user-vo-map.txt
+---+++ Generating user-vo-map
 
-The =osg-user-vo-map.txt= is a simple, space-separated format that contains 2 columns; the first is a unix username and the second is the VO which that username correspond to.  In order to create it you must install the =osg-user-vo-map-cron= rpm as mentioned above.  Once =osg-user-vo-map-cron= is installed you need to configure the gums client.
+The =user-vo-map= file is a simple, space-separated format that contains 2 columns; the first is a unix username and the second is the VO which that username correspond to.  In order to create it you need to configure the gums client.
 
 The primary configuration file for the gums-client utilities is located in =/etc/gums/gums-client.properties=.  The two properties that you must change are:
 
@@ -626,28 +615,40 @@ The primary configuration file for the gums-client utilities is located in =/etc
 | gums.location | Yes | This should be set to the admin URL for your gums server, usually of the form gums.location=https://GUMS_HOSTNAME:8443/gums/services/GUMSAdmin |
 | gums.authz | Yes | This should be set to the authorization interface URL for your gums server, usually of the form gums.authz=https://GUMS_HOSTNAME:8443/gums/services/GUMSXACMLAuthorizationServicePort |
 
-After =osg-user-vo-map-cron= is installed and the gums client is configured =osg-user-vo-map.txt= should be created in the following location:
+After the gums client is configured to generate the file run the following once by hand:
 
-<verbatim>/etc/grid-security/osg-user-vo-map.txt</verbatim>
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% gums-host-cron
+</pre>
+
+=user-vo-map= should be created in the following location:
+
+<verbatim>/var/lib/osg/user-vo-map</verbatim>
+
+To have cron regularly update this file start the following service:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service gums-client-cron start
+</pre>
 
 Make sure the *UserVOMapFile* field is set to this location in
 
-<verbatim>/opt/vdt/gratia/probe/gratia-transfer/ProbeConfig</verbatim>
+<verbatim>/etc/gratia/gridftp-transfer/ProbeConfig</verbatim>
 
-Without =osg-user-vo-map.txt= , all gridftp transfers will show up as belonging to the VO "Unknown".
+Without =user-vo-map= , all gridftp transfers will show up as belonging to the VO "Unknown".
 
 ---++ Validation
 
 Run the Gratia probe once by hand to check for functionality:
 
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /opt/vdt/gratia/probe/gridftp-transfer/gridftp-transfer_meter.cron.sh
+%UCL_PROMPT_ROOT% /usr/share/gratia/gridftp-transfer/gridftp-transfer_meter.cron.sh
 </pre>
 
-Look for any abnormal termination and report it if it is a non-trivial site issue.  Look in the log files in =/opt/vdt/gratia/var/logs/&lt;date&gt;.log= and make sure there are no error messages printed.
+Look for any abnormal termination and report it if it is a non-trivial site issue.  Look in the log files in =/var/log/gratia/&lt;date&gt;.log= and make sure there are no error messages printed.
 ---+ Installing Hadoop Storage Probe
 
-%NOTE% The Gratia Transfer Probe must be installed on the *Namenode*
+%NOTE% The Hadoop Storage Probe must be installed on the *Namenode*
 
 ---++ Installation
 
@@ -663,19 +664,19 @@ Updates can be installed with:
 
 ---++ Configuration
 
-This RPM *does not* using Linux-standard file locations.  Here are the most relevant file and directory locations:
+Here are the most relevant file and directory locations:
 
 | Purpose | Needs Editing? | Location |
-| Probe Configuration | Yes | /opt/vdt/gratia/probe/hadoop-storage/ProbeConfig |
-| Probe Executable | No | /opt/vdt/gratia/probe/hadoop-storage/hadoop_storage_probe |
-| Log files | No | /opt/vdt/gratia/var/logs |
-| Temporary files | No | /opt/vdt/gratia/var/tmp |
+| Probe Configuration | Yes | /etc/gratia/hadoop-storage/ProbeConfig |
+| Probe Executable | No | /usr/share/gratia/hadoop-storage/hadoop_storage_probe |
+| Log files | No | /var/log/gratia |
+| Temporary files | No | /var/lib/gratia/tmp |
 
 The RPM installs the Gratia probe into the system crontab, but does not configure it.  The configuration of the probe is controlled by two files
 
 <verbatim>
-/opt/vdt/gratia/probe/hadoop-storage/ProbeConfig
-/opt/vdt/gratia/probe/hadoop-storage/storage.cfg
+/etc/gratia/hadoop-storage/ProbeConfig
+/etc/gratia/hadoop-storage/storage.cfg
 </verbatim>
 
 ---+++ !ProbeConfig
@@ -724,6 +725,11 @@ Name = Hadoop /user
 Path = /user/*
 </pre>
 
+**NOTE These lines in the [gratia] section are wrong and need to be changed to the following by hand for now until the rpm is updated:*
+<pre class="file">
+gratia_location = /etc/gratia
+ProbeConfig = %(gratia_location)s/hadoop-storage/ProbeConfig
+</pre>
 
 ---+ Installing Hadoop Storage Reports (Optional)
 
