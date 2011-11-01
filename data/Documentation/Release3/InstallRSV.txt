@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1320090707" format="1.1" reprev="1.19" version="1.19"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1320106262" format="1.1" reprev="1.20" version="1.20"}%
 %META:TOPICPARENT{name="NavTechRSV"}%
 ---+!! Install RSV
 %DOC_STATUS_TABLE%
@@ -24,7 +24,7 @@ For documents on specific probes or on how to write your own probes please check
 %STARTSECTION{"RsvDefinition"}%
 ---+%SHIFT% Introduction
 The Resource and Service Validation (!RSV) software provides a scalable and easy to maintain resource/service monitoring infrastructure for an OSG site admin. The components of !RSV are:
-   * *RSV Client:* The client allows OSG site administrators to run tests against their CEs/SEs.  This provides a set of metrics to test the resource, Condor-Cron for scheduling,  and a Gratia infrastructure for collecting and storing the results.
+   * *RSV Client:* The client allows OSG site administrators to run tests against their CEs/SEs.  This provides a set of metrics to test the resource (on the same or different hosts), Condor-Cron for scheduling,  and a Gratia infrastructure for collecting and storing the results.
       * This is [[InstallComputeElement][included in the OSG CE]]</a>.
       * It is also available stand-alone.
       * The !RSV Client runs metrics at scheduled time intervals.  It produces a simple webpage of local !RSV results for a site administrator's viewing.  It also has the capability to upload those probe results to a central collector (addressed next).
@@ -39,7 +39,7 @@ To get assistance please use [[HelpProcedure][Help Procedure]].
 
 
 ---+ Requirements
-   * A host to install the VOMS Service (Pristine node)
+   * A host to install the RSV Service (pristine node or a CE)
    * OS is %SUPPORTED_OS%. Currently most of our testing has been done on Scientific Linux 5.
    * Root access
    * A RSV service certificate. [[InstallCertScripts][Here]] are instructions to request a service certificate.
@@ -54,24 +54,255 @@ To get assistance please use [[HelpProcedure][Help Procedure]].
 
 ---++ Install RSV
 To install !RSV:
-   * Install !RSV via RPMs.  Doing this will automatically create a user named =rsv= on your system.
-<pre class="screen">
+   1. Install !RSV via RPMs.  Doing this will automatically create a user named =rsv= on your system.<pre class="screen">
 %UCL_PROMPT_ROOT% yum  --enablerepo=osg-testing install rsv
 </pre>
-
-   * Install your service certificate at =/etc/grid-security/rsvcert.pem= and the service key at =/etc/grid-security/rsvkey.pem=.  Make these two files owned by the =rsv= user.  Adjust the permissions if necessary (cert needs to be readable by all, key needs to be readable by nobody but owner).
+   1. Install your service certificate at =/etc/grid-security/rsvcert.pem= and the service key at =/etc/grid-security/rsvkey.pem=.  Make these two files owned by the =rsv= user.  Adjust the permissions if necessary (cert needs to be readable by all, key needs to be readable by nobody but owner).
 
 
 ---+ Configuration 
-   1. Edit =/etc/osg/config.d/30-rsv.ini=.  There are detailed comments for each setting.  In the simplest case, if you just want to monitor a CE, put the (fully qualified) name of your CE in the =ce_hosts= variable..
+You can configure RSV using osg-configure:
+   1. Edit =/etc/osg/config.d/30-rsv.ini= following the instructions in the file.  There are detailed comments for each setting.  In the simplest case, if you just want to monitor a CE, put the (fully qualified) name of your CE in the =ce_hosts= variable. %TWISTY{showlink="Show rsv.ini example"}% <br>Here is a simple configuration file with only a CE enabled: <pre class="file">
+;===================================================================
+;                       IMPORTANT
+;===================================================================
+;
+; 
+; You can get documentation on the syntax of this file at:
+; https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/ConfigurationFileFormat
+; You can get documentation on the options for each section at:
+; https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/ConfigurationFileHelp
+;
+
+;===================================================================
+;                            RSV
+;===================================================================
+
+
+[RSV]
+; The enable option indicates whether RSV should be enabled or disabled.  It should
+; be set to True, False, or Ignore.  
+;
+; If you are using rsv-control to enable or disable specific metrics, you should set 
+; this to Ignore so that your configuration does not get overwritten each time that
+; configure-osg is run.
+enabled = True
+
+
+; This option will enable RSV record uploading to the central RSV collector at
+; the GOC.  This is required for WLCG availability reporting.
+;
+; Note: It no longer matters if your site is production or ITB.  All records
+;       will be reported to the same place.
+;
+; Set this to True or False
+enable_gratia = False
+
+; This option will set the gratia_collector you will report to.  Leave this 
+; option commented out to use the default Gratia collector.  If you want to
+; report to a different collector instead of the default OSG collector then
+; supply the hostname:port here.  Note: this must be of the form hostname:port
+; gratia_collector = <your host>:<your port>
+
+
+
+; You must use a certificate with RSV.  Either you can use a service certificate
+; or a user certificate.  Using a service certificate is highly recommended
+; because it will be automatically renewed for you with each job that runs.
+;
+; To use a service certificate, set the following variables:
+;   - service_cert
+;   - service_key
+;   - service_proxy
+;
+; To use a user certificate, set the following variable:
+;   - user_proxy
+
+; This setting will be used if you have enabled use_service_cert.  
+; This should point to the public key file (pem) for your service 
+; certificate.
+; 
+; If this is left blank or set to UNAVAILABLE  and the use_service_cert 
+; setting is enabled, it will default to /etc/grid-security/rsvcert.pem
+service_cert  = UNAVAILABLE
+
+; This setting will be used if you have enabled the use_service_cert.  
+; This should point to the private key file (pem) for your service 
+; certificate.
+;
+; If this is left blank or set to UNAVAILABLE and the use_service_cert 
+; setting is enabled, it will default to /etc/grid-security/rsvkey.pem
+service_key  = UNAVAILABLE
+
+
+; This setting will be used if you have enabled the use_service_cert.
+; This should point to the location of the RSV proxy file.
+;
+; If this is left blank or set to UNAVAILABLE and the use_service_cert 
+; setting is enabled, it will default to /tmp/rsvproxy
+service_proxy = UNAVAILABLE
+
+
+; If you don't use a service certificate for RSV, you will need to specify a 
+; proxy file that RSV should use in the user_proxy setting.  If you use this
+; option you need to renew this proxy file periodically.
+; This needs to be set if use_service_cert is disabled.  
+;user_proxy = UNAVAILABLE
+
+
+; The ce_hosts options lists the FQDN of the CEs that the RSV CE metrics should
+; run against.  This is a list of FQDNs separated by a comma, for example:
+;   ce_hosts = ce.example.com, ce2.example.com, ce3.example.com
+;
+; Leave this setting blank or set it to UNAVAILBLE to disable CE monitoring.
+ce_hosts = %RED%ce.mycluster.org%ENDCOLOR%
+
+
+; The gridftp_hosts options lists the FQDN of the gridftp servers that the RSV
+; GridFTP metrics should monitor.  This is be a list of FQDNs separated by a
+; comma, for example:
+; gridftp_hosts = gridftp.example.com, gridftp2.example.com, gridftp3.example.com
+;
+; If this option is commented out then the value of ce_hosts will be used.
+; If you want to disable the GridFTP probes then uncomment this entry and
+; set it to UNAVAILABLE
+;gridftp_hosts = UNAVAILABLE
+
+
+; The gridftp_dir option gives the directory on the gridftp servers that the 
+; RSV GridFTP probes should try to write and read from.
+;
+; This setting will be used if the enable_gridftp_probes option is enabled. It
+; will default to /tmp if left blank or set to UNAVAILABLE 
+gridftp_dir = UNAVAILABLE
+
+
+; This setting specifies which type of Gratia probes RSV should monitor.  Set
+; this to UNAVAILABLE to disable Gratia monitoring.  Otherwise, list the Gratia
+; types you wish to monitor separated by commas.  Valid metrics are:
+; metric, condor, pbs, lsf, sge, hadoop-transfer, gridftp-transfer.
+; 
+; If you are monitoring multiple CEs with different Gratia metrics you can
+; put them into lists using parentheses.  Each parenthesized entry corresponds
+; to the same entry in the ce_hosts option.  For example, here is the syntax
+; for monitoring 3 CEs:
+; gratia_probes = (condor, metric), (pbs, condor), (condor)
+;
+; Note: if you have multiple CEs but only one entry then that entry will be used
+; for each CE.  Otherwise, the number of CE hosts must match the number of
+; Gratia entries.
+; 
+; If you are monitoring a CE, you want to add the batch system used by that CE.
+; If you are monitoring a CE using RSV, add the 'metric' type
+; If you are monitoring a CE using managed-fork, add 'condor'
+;
+; For example, on a CE using PBS and Managed-Fork, you will probably use:
+; gratia_probes = metric, pbs, condor
+gratia_probes = UNAVAILABLE
+
+
+; The gums_hosts options lists the FQDN of the GUMS server that the RSV GUMS 
+; metrics should monitor.  This should be a list of FQDNs separated by a comma:
+; gums_hosts = gums.example.com, gums2.example.com, ce.example.com
+gums_hosts = UNAVAILABLE
+
+
+; The srm_hosts options lists the FQDN of the SRM servers that the RSV SRM
+; metrics should monitor. This should be a list of FQDNs separated by a comma.
+; You can specify the port on a host using host:port.  For example:
+; srm_hosts = srm.example.com:8443, srm2.example.com:10443, srm3.example.com
+srm_hosts = UNAVAILABLE
+
+; The srm_dir options gives the directory on the srm servers that the RSV SRM
+; probes should try to write and read from.  This should be a comma separated
+; list containing the same number of entries as srm_hosts (the first entry
+; in srm_hosts corresponds to the first entry in srm_dir, etc)
+srm_dir = UNAVAILABLE
+
+; This option gives the webservice path that SRM metrics need along with the
+; host: port. For dcache installations this should be set to srm/managerv2
+; However Bestman-Xrootd SEs normally use srm/v2/server as the web service
+; path, and so Bestman-Xrootd admins will have to pass this option with the
+; appropriate value (for example: "srm/v2/server") for the SRM metrics to work
+; on their SE.
+;
+; This is optional.  If it is set it should be a comma separated list containing
+; the same number of entries as srm_hosts (the first entry in srm_hosts
+; corresponds to the first entry in srm_webservice_path, etc)
+srm_webservice_path = UNAVAILABLE
+
+
+; enable_local_probes will enable metrics to run against the local host 
+; that RSV is running on.  Currently there are local probes to monitor the
+; validity of the hostcert and httpcert.
+enable_local_probes = True
+
+
+; The enable_nagios option indicates whether RSV will report information to a
+; local nagios instance.
+;
+; Set this to True or False
+enable_nagios = False
+
+; The nagios_send_nsca option chooses which script to use to send nagios
+; records.  If this is true then rsv2nsca.py will be used.  If this is false
+; then rsv2nagios.py will be used.  The default is rsv2nagios.py.  This value
+; is optional.
+nagios_send_nsca = False
+</pre>  %ENDTWISTY%
    1. Run osg-configure to complete the configuration: <pre class="rootscreen">
 %UCL_PROMPT_ROOT% osg-configure -v
 %UCL_PROMPT_ROOT% osg-configure -c
-</pre>
-   1. Enable the services: <pre class="rootscreen">
+</pre>  %TWISTY{%TWISTY_OPTS_DETAILED%}%  <br>The output is quite verbose and you should not worry about the warning messages during =osg-configure -c= :<pre class="rootscreen">
+%UCL_PROMPT_ROOT% osg-configure -v
+Configuration verified successfully
+%UCL_PROMPT_ROOT% osg-configure -c
+Enabling consumer html-consumer
+WARNING: No enabled consumers defined in consumers.conf
+WARNING: No enabled consumers defined in consumers.conf
+Creating configuration file '/etc/rsv/consumers.conf'
+Enabling metric 'org.osg.globus.gram-authentication' for host 'gc2-wn1.mwt2.org'
+Enabling metric 'org.osg.general.osg-version' for host 'gc2-wn1.mwt2.org'
+Enabling metric 'org.osg.general.vo-supported' for host 'gc2-wn1.mwt2.org'
+Enabling metric 'org.osg.batch.jobmanagers-available' for host 'gc2-wn1.mwt2.org'
+Enabling metric 'org.osg.general.ping-host' for host 'gc2-wn1.mwt2.org'
+Enabling metric 'org.osg.certificates.cacert-expiry' for host 'gc2-wn1.mwt2.org'
+Enabling metric 'org.osg.general.osg-directories-CE-permissions' for host 'gc2-wn1.mwt2.org'
+Creating configuration file '/etc/rsv/gc2-wn1.mwt2.org.conf'
+
+One or more metrics have been enabled and will be started the next time RSV is started.  To turn them on immediately run 'rsv-control --on'.
+Enabling metric 'org.osg.globus.gridftp-simple' for host 'gc2-wn1.mwt2.org'
+
+One or more metrics have been enabled and will be started the next time RSV is started.  To turn them on immediately run 'rsv-control --on'.
+Enabling metric 'org.osg.local.httpcert-expiry' for host 'gc2-wn3.mwt2.org'
+Enabling metric 'org.osg.local.hostcert-expiry' for host 'gc2-wn3.mwt2.org'
+Creating configuration file '/etc/rsv/gc2-wn3.mwt2.org.conf'
+
+One or more metrics have been enabled and will be started the next time RSV is started.  To turn them on immediately run 'rsv-control --on'.
+/usr/sbin/osg-configure completed successfully
+</pre> %ENDTWISTY%
+
+
+---+ Start/Stop Services
+RSV probes and consumers are run by default using Condor-cron and the HTML consumers uses a http server to display the data.
+So you need Condor-cron in order for RSV to work and you need the httpd server to view the pages produced.
+
+Start the services:
+   1. Start auxiliary services (httpd and Condor-cron): <pre class="rootscreen">
 %UCL_PROMPT_ROOT% /sbin/service httpd start
 %UCL_PROMPT_ROOT% /sbin/service condor-cron start
+</pre>
+   1. Start RSV: <pre class="rootscreen">
 %UCL_PROMPT_ROOT% /sbin/service rsv start
+</pre>
+
+Stop the services
+   1. Stop RSV: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service rsv stop
+</pre>
+   1. Stop the auxiliary services (httpd and Condor-cron) if desired: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service httpd stop
+%UCL_PROMPT_ROOT% /sbin/service condor-cron stop
 </pre>
 
 ---+ Test RSV
@@ -84,9 +315,9 @@ Your results will be available on !MyOSG (if you have the gratia-consumer enable
 
 ---+ Troubleshooting
 
-Metric log files: =/var/log/rsv/metrics=
-
-Consumer log files: =/var/log/rsv/consumers=
+Important files:
+   * Metric log files: =/var/log/rsv/metrics=
+   * Consumer log files: =/var/log/rsv/consumers=
 
 ---+ References
 RSV documents
@@ -125,10 +356,10 @@ Specific probes:
    * Local INCLUDE_TEST   = %YES%
 
  change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
-   * Local REVIEW_READY   = %NO%
+   * Local REVIEW_READY   = %YES%
 
  change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
-   * Local TEST_READY     = %NO%
+   * Local TEST_READY     = %YES%
 
  change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
    * Local RELEASE_READY  = %NO%
@@ -140,7 +371,7 @@ Specific probes:
  Thank for reviewing this document! Please fill in your FirstLast name here:
    * Local REVIEWER       = MarcoMambelli
  Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local REVIEW_PASSED  = %IN_PROGRESS%
+   * Local REVIEW_PASSED  = %YES%
 
 
  DEAR DOCUMENT TESTER
