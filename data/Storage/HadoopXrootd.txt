@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="X509_2fDC_3dorg_2fDC_3ddoegrids_2fOU_3dPeople_2fCN_3dWill_20Maier_20286302" date="1296510644" format="1.1" version="1.17"}%
+%META:TOPICINFO{author="BrianBockelman" date="1320193522" format="1.1" version="1.18"}%
 %META:TOPICPARENT{name="Hadoop"}%
 ---+!! *<noop>%SPACEOUT{ "%TOPIC%" }%*
 %TOC%
@@ -7,14 +7,15 @@
 
 ---++ Quick Start
 
-Quickstart for the impatient.  This assumes you already have [[HadoopInstallation][Hadoop and FUSE]] installed on the Xrootd server.
+Quickstart for the impatient.  This assumes you already have [[HadoopInstallation][Hadoop]] installed on the Xrootd server.
 
  <verbatim>
-rpm -ivh http://newman.ultralight.org/repos/hadoop/4/x86_64/caltech-hadoop-4-1.noarch.rpm
-yum install xrootd
-cp /etc/xrootd/xrootd_sample.cfg /etc/xrootd/xrootd.cfg # ...and edit appropriately (see below)
+rpm -Uhv https://repo.grid.iu.edu/osg-release-latest.rpm
+yum --enablerepo=osg-testing install xrootd-server
+vi /etc/xrootd/xrootd.cfg # Edit appropriately (see below)
 vi /etc/xrootd/Authfile # Edit appropriately (see below)
 service xrootd start
+service cmsd start
 </verbatim>
 
 ---++ Xrootd/HDFS architecture explanation
@@ -44,7 +45,7 @@ Of course, there are many more details to this; better descriptions of the algor
 The Xrootd server has the following prerequisites:
 
    1 You must also have already [[HadoopInstallation][installed and mounted]] Hadoop using FUSE.
-   1 Xrootd is preconfigured to look for the host certificate and key in =/etc/grid-security/xrd/xrd*.pem=.  These files must exist and be readable by the xrootd user.  Using certificates in a different directory or with different names will require modifying =/etc/xrootd/xrootd.cfg=.  Make sure =/etc/grid-security/xrd/xrdcert.pem= exists with mode 644, and =/etc/grid-security/xrd/xrdkey.pem= exists with mode 400 (not 600!)
+   1 Xrootd is preconfigured to look for the host certificate and key in =/etc/grid-security/xrd/xrd*.pem=.  These files must exist and be readable by the =xrootd= user.  Using certificates in a different directory or with different names will require modifying =/etc/xrootd/xrootd.cfg=.  Make sure =/etc/grid-security/xrd/xrdcert.pem= exists with mode 644, and =/etc/grid-security/xrd/xrdkey.pem= exists with mode 400 (not 600; xrootd is unnecessarily picky here!)
    1 The installation includes the latest CA Certificates package from the OSG as well as the fetch-crl CRL updater.
    1 It is highly recommended that you make sure your CRLs in =/etc/grid-security/certificates= exist and are up to date by running fetch-crl manually before starting xrootd the first time.  Otherwise xrootd will attempt to download CRLs itself when it starts up.
    1 The rpm/yum installation will create a 'xrootd' system account and group (uid,gid < 500) on the host system for running the xrootd process. If you would like to control the uid/gid that is used, then you should create the 'xrootd'' user and group manually before installing the rpms.
@@ -53,21 +54,15 @@ The Xrootd server has the following prerequisites:
 
 Remember, in order to use xrootd, you must have the [[HadoopInstallation][Hadoop and the FUSE kernel module]] already installed on your system in order to use the yum installer.
 
-Currently, there is a bug which requires FUSE to be mounted on the xrootd node.  This will go away in the future, but FUSE is only used for "stat" calls, not data movement.
-
 To configure your local installation for the yum repository, [[HadoopInstallation#Yum_install][follow the advice here]] to install the correct =caltech-hadoop= package for your site.
 
-After installing the caltech-hadoop yum configuration package, you can install the xrootd server with:
+After installing the osg-release yum configuration package, you can install the xrootd server with:
 
 <verbatim>
-yum install xrootd
+yum install --enablerepo=osg-testing xrootd-server
 </verbatim>
 
-Updates can be installed with:
-
-<verbatim>
-yum upgrade xrootd
-</verbatim>
+This will install release 3.1.0 or later; unfortunately, due to packaging errors, "yum upgrade" won't work for releases prior to 3.1.0.  You must remove then reinstall.  We apologize profusely - please join the OSG campfire or XMPP chat for live support to fix this.
 
 ---+ Configuration
 
@@ -76,14 +71,13 @@ yum upgrade xrootd
 As much as possible, we attempt to use standard binary, library, and file locations in the RPM packaging.
 
 | *Location* | *Needs editing?* | *Description* |
-| /etc/xrootd/xrootd.cfg | Yes | The master configuration file for rooted and cmsd |
+| /etc/xrootd/xrootd.cfg | Yes | The master configuration file for xrootd and cmsd |
 | /etc/xrootd/Authfile | Yes | The site's authorization file |
-| /etc/grid-security/grid-mapfile | Maybe | DN-to-unix username mapping |
+| /etc/xrootd/lcmaps.cfg | Maybe | LCMAPS configuration for GUMS callout |
 | /etc/grid-security/xrd/xrdcert.pem | Yes | Certificate file, PEM formatted |
 | /etc/grid-security/xrd/xrdkey.pem | Yes | Certificate keyfile, PEM formatted |
 | /var/run/xrootd | No | Inter-process communication sockets and PID files |
 | /var/log/xrootd | No | Log files |
-| /mnt/hadoop | No | Mount point of HDFS on this node; we assume this location is used in the sample configs. |
 
 ---++ Xrootd.cfg
 
@@ -94,32 +88,31 @@ This configuration file, if used, will have your server join the global cluster 
 <verbatim>
 # Port specifications; only the redirector needs to use a well-known port
 # "any" will cause rooted to bind to any available port.  Change as needed for firewalls.
-xrd.port any
-xrd.port 1094 if xrootd.unl.edu
+xrd.port 1094
 
 # The roles this server will play.
 all.role server
 all.role manager if xrootd.unl.edu
+
 # The known managers
-all.manager xrootd.unl.edu:1213
-#all.manager xrootd.ultralight.org:1213
+all.manager srm.unl.edu:1213
 
 # Allow any path to be exported; this is further refined in the authfile.
-all.export /
+all.export / nostage
 
 # Hosts allowed to use this xrootd cluster
 cms.allow host *
-
-# Keep this as a work-around for an xrootd bug
-oss.localroot /mnt/hadoop
 
 ### Standard directives
 # Simple sites probably don't need to touch these.
 # Logging verbosity
 xrootd.trace emsg login stall redirect
-ofs.trace all -debug
+ofs.trace none
 xrd.trace conn
 cms.trace all
+
+# Integrate with CMS TFC, placed in /etc/storage.xml
+oss.namelib /usr/lib64/libXrdCmsTfc.so file:/etc/xrootd/storage.xml?protocol=hadoop
 
 # Turn on authorization
 ofs.authorize 1
@@ -127,16 +120,21 @@ acc.authdb /etc/xrootd/Authfile
 acc.audit deny grant
 
 # Security configuration
-sec.protocol /usr/lib gsi -certdir:/etc/grid-security/certificates -cert:/etc/grid-security/xrd/xrdcert.pem -key:/etc/grid-security/xrd/xrdkey.pem -crl:3
+sec.protocol /usr/lib64 gsi -certdir:/etc/grid-security/certificates -cert:/etc/grid-security/xrd/xrdcert.pem -key:/etc/grid-security/xrd/xrdkey.pem -crl:1 -authzfun:libXrdLcmaps.so -authzfunparms:--osg,--lcmapscfg,/etc/xrootd/lcmaps.cfg,--loglevel,0|useglobals -gmapopt:10 -gmapto:0
 
-# Integrate with CMS TFC, placed in /etc/storage.xml
-#oss.namelib /usr/lib/libXrdCmsTfc.so file:/etc/storage.xml?protocol=hadoop
-
-xrootd.seclib /usr/lib/libXrdSec.so
-xrootd.fslib /usr/lib/libXrdOfs.so
-ofs.osslib /usr/lib/libXrdHdfs.so
+xrootd.seclib /usr/lib64/libXrdSec.so
+xrootd.fslib /usr/lib64/libXrdOfs.so
+ofs.osslib /usr/lib64/libXrdHdfs.so
 all.adminpath /var/run/xrootd
-cms.pidpath /var/run/xrootd
+all.pidpath /var/run/xrootd
+
+cms.delay startup 10
+cms.fxhold 60s
+
+if exec xrootd
+  xrd.report xrootd.t2.ucsd.edu:9931 every 30s all
+  xrootd.monitor all auth flush 30s mbuff 1472 window 5s dest files io info user xrootd.t2.ucsd.edu:9930
+fi
 </verbatim>
 
 For now, write the following into Authfile:
@@ -152,7 +150,7 @@ When using LCMAPS, note that it is necessary to replace the default value for th
 
 <verbatim>
 sec.protocol /usr/lib64 gsi -certdir:/etc/grid-security/certificates -cert:/etc/grid-security/xrd/xrdcert.pem -key:/etc/grid-security/xrd/xrdkey.pem -crl:3 -
-authzfun:libXrdLcmaps.so -authzfunparms:--osg,--lcmapscfg,/etc/xrootd/lcmaps.cfg,--loglevel,0 --gmapopt:2 --gmapto:0
+authzfun:libXrdLcmaps.so -authzfunparms:--osg,--lcmapscfg,/etc/xrootd/lcmaps.cfg,--loglevel,0 -gmapopt:10 -gmapto:0
 </verbatim>
 
 ---++ Running Xrootd
@@ -161,12 +159,14 @@ Start the xrootd and cmsd servers with one command
 
 <verbatim>
 service xrootd start
+service cmsd start
 </verbatim>
 
 To start xrootd automatically at boot time:
 
 <verbatim>
-chkconfig xrootd on
+chkconfig xrootd on --level 345
+chkconfig cmsd on --level 345
 </verbatim>
 
 ---++ Validation and Debugging
