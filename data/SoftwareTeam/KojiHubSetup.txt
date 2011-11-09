@@ -1,8 +1,8 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1318883354" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1320880147" format="1.1" reprev="1.5" version="1.5"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 %TOC%
 
----+ Notes on Koji-Hub Setup (WIP)
+---+ Notes on Koji-Hub Setup
 
 ---++ Machine setup
 
@@ -67,11 +67,13 @@ We have 2 certs, with the following subjects:
    * =/DC=org/DC=doegrids/OU=Services/CN=kojira/koji-hub.batlab.org= (for kojira)
 kojid needed a different cert than kojira because the two would connect to koji-hub at the same time and log each other off.
 
+Copies of the certs exist in AFS at =/p/condor/home/certificates/koji-hub/=
+
 Clients connecting to koji-hub need a file containing the CA certs; this is just a concatenation of the !ESNet and !DOEGrids CA certs, which can be obtained by doing the following:
    * Install the =osg-ca-certs= RPM onto a host.
    * Concatenate ESNet and DOEGrids CA Certificates into a bundle: <pre>user@localhost$ cat /etc/grid-security/certificates/d1b603c3.0 \
-/etc/grid-security/certificates/1c3f2ca8.0 > ca-bundle.crt</pre>
-We have a =ca-bundle.crt= in =/etc/pki/tls/certs/ca-bundle.crt= on =koji-hub=
+/etc/grid-security/certificates/1c3f2ca8.0 > doe-chain.crt</pre>
+We have a =doe-chain.crt= in =/etc/pki/tls/certs/doe-chain.crt= on =koji-hub=
 
 We made a =kojiadmin= user, but we didn't make a cert for it so we just used user/pass authentication until we set up our own accounts and then disabled =kojiadmin=.
 
@@ -163,7 +165,7 @@ This file contains the configuration information for the hub.
 You will need to edit this configuration to point Koji Hub to the database you are using and to setup Koji Hub to utilize the authentication scheme you selected in the beginning.
 </blockquote>
 We made multiple changes to this config file.
-A snapshot will be attached to this page. =[= *TODO*: Do that =]=
+A snapshot is be attached to this page.
 
 Notable changes:
    * We turned off =LoginCreatesUser=
@@ -199,15 +201,16 @@ Instead, we add the following:
 If using SSL you will also need to add the needed SSL options for apache.
 These options should point to where the certificates are located on the hub.
 </blockquote>
+
 These are the config lines we use:
 <pre>SSLCertificateFile /etc/pki/tls/certs/doegrids_hostcert.crt</pre>
 The host cert for koji-hub.
 <pre>SSLCertificateKeyFile /etc/pki/tls/private/doegrids_hostkey.key</pre>
 The private key for koji-hub.
 <pre>SSLCertificateChainFile /etc/pki/tls/certs/doe-chain.crt</pre>
-*TODO* What was this?
-<pre>SSLCACertificateFile /etc/pki/tls/certs/ca-bundle.crt</pre>
 The concatenation of the !ESNet and !DOEgrids CA certs we made above.
+<pre>SSLCACertificateFile /etc/pki/tls/certs/ca-bundle.crt</pre>
+All the CA certs on the system.
 <pre>
 SSLVerifyClient require
 SSLVerifyDepth  10
@@ -217,20 +220,24 @@ Restart apache after doing this ( =service restart httpd= )
 ---++++ Adding a real admin user
 
 At this point, SSL should be set up on Koji Hub.
-Create an account for yourself (your DN).
-Give yourself the admin bit.
-After that, remove the admin bit from =kojiadmin=, block the user, and remove its password from the database.
-*TODO* Provide instructions on how to do that.
+Create an account for yourself (your DN): <pre>koji add-user 'Your Name 123456'</pre>
+Give yourself the admin bit.<pre>koji grant-permission admin 'Your Name 123456'</pre>
+
+*Once you're done with all the setup*, you should remove the admin bit from =kojiadmin=, block the user, and remove its password from the database.
+<pre>koji revoke-permission admin kojiadmin
+koji disable-user kojiadmin</pre>
+In the database:
+<pre>update users set password = null where name='kojiadmin';</pre>
 
 ---++++ Koji filesystem
 
 =KojiDir= is =/mnt/koji=, so the following tree should be created:
 <pre>
-mkdir -p /mnt/koji/{packages,repos,work,scratch}
-chown apache:apache *
+root@koji-hub$ mkdir -p /mnt/koji/{packages,repos,work,scratch}
+root@koji-hub$ chown apache:apache *
 </pre>
 
-*TODO* Attach /etc/koji.conf
+=/etc/koji.conf= is attached.
 
 ---++++ Accounts for kojira and kojid
 
@@ -259,7 +266,7 @@ root@koji-hub$ yum install koji-web mod_ssl
 </pre>
 
 Configuration:
-*TODO* Attach =/etc/httpd/conf.d/kojiweb.conf= except for the password.
+=/etc/httpd/conf.d/kojiweb.conf= is attached.
 
 ---+++ Kojid
 
@@ -269,11 +276,21 @@ root@koji-hub$ yum install koji-builder
 </pre>
 Note that we use a patched koji-builder, so be sure to install what's in the OSG repository. (The patch is not likely to be accepted upstream).
 
-*TODO* Attach =/etc/kojid/kojid.conf=
+=/etc/kojid/kojid.conf= is attached.
 
 ---++++ SSL certs
 
-*TODO*
+The following files should be in the =/etc/pki/tls= tree:
+
+   $ =/etc/pki/tls/private/doegrids_hostkey.key=: the host key from doegrids
+   $ =/etc/pki/tls/private/kojiweb.pem=: doegrids_hostcert.crt catted together with doegrids_hostkey.key (public key first)
+   $ =/etc/pki/tls/private/kojira.key=: kojira's private key from doegrids
+   $ =/etc/pki/tls/private/kojira.pem=: kojira.crt catted together with kojira.key (public key first)
+   $ =/etc/pki/tls/cert.pem=: symlink to certs/ca-bundle.crt
+   $ =/etc/pki/tls/certs/ca-bundle.crt=: all certs available on the system; the !ESNet and !DOEgrids certs should be in here
+   $ =/etc/pki/tls/certs/kojira.crt=: kojira's cert
+   $ =/etc/pki/tls/certs/doegrids_hostcert.crt=: the host cert from doegrids
+   $ =/etc/pki/tls/certs/doe-chain.crt=: the !ESNet root cert and !DOEgrids CA cert catted together
 
 ---++++ Adding koji-builder host to database
 <pre>
@@ -290,9 +307,24 @@ root@koji-hub$ /sbin/service kojid start
 </pre>
 Check =/var/log/kojid.log= to make sure everything started up.
 
----++++ 
+---+++ Kojira
 
-*TODO* I AM HERE
+Installing:
+<pre>
+root@koji-hub$ yum install koji-utils
+</pre>
+=/etc/kojira/kojira.conf= is attached.
+
+Kojira also needs a user
+<pre>
+kojiadmin@koji-hub$ koji add-user kojira
+kojiadmin@koji-hub$ koji grant-permission repo kojira
+</pre>
+
+Start it up
+<pre>
+root@koji-hub$ /sbin/service kojira start
+</pre>
 
 ---++ Tags
 
@@ -329,9 +361,10 @@ This contains the builds in the osg-release repo.
 It inherits from el5-osg.
 
 ---+++ el5-gt52-experimental and el5-gt52-experimental-build
-These tags were made for Brian Bockelman's work on Globus 5.2 packages.
+They were made for Brian Bockelman's work on Globus 5.2 packages.
 Since they were a large update composed of multiple packages, having the packages live in a separate tag was necessary to avoid breaking the development repo for other people.
 The el5-gt52-experimental target built from el5-gt52-experimental-build to el5-gt52-experimental.
+These tags are no longer in use, and the el5-gt52-experimental target was removed.
 
 ---+++ el5-gt52b and el5-gt52b-build
 These tags were made for Matyas Selmeci's work on some Globus 5.2 updates.
@@ -344,6 +377,8 @@ When the updates were finished, we had el5-osg-development inherit from el5-gt52
 However, this turned out not to be enough, since Koji preferred builds in the tag to builds that were inherited, regardless of version or priority.
 So all of the updated Globus builds had to be retagged.
 
+For the second set of Globus updates, all the packages were untagged from el5-gt52b and the gt52b-external repo had the URL changed to http://bamboo.globus.org/browse/GT512-RPMCENTOS5-110/artifact/repo/centos/5/$arch/
+
 ---+++ el5-osg-contrib
 This contains the builds in the osg-contrib repo.
 
@@ -354,4 +389,11 @@ Experimental, used for EL 6 work.
 These tags were made for Mats Rynge of the Pegasus project to build into.
 
 ---+++ kojira-fake
-TODO: Ask Brian what this was used for and if it's still necessary.
+This tag and target were created because kojira does not automatically regenerate a repo unless it's the source of another repo.
+Without this, el5-osg-development wouldn't get regenerated automatically after a build.
+
+%META:FILEATTACHMENT{name="hub.conf" attachment="hub.conf" attr="" comment="/etc/koji-hub/hub.conf" date="1320879923" path="hub.conf" size="2759" stream="hub.conf" tmpFilename="/usr/tmp/CGItemp39326" user="MatyasSelmeci" version="1"}%
+%META:FILEATTACHMENT{name="koji.conf" attachment="koji.conf" attr="" comment="/etc/koji.conf" date="1320879977" path="koji.conf" size="592" stream="koji.conf" tmpFilename="/usr/tmp/CGItemp39299" user="MatyasSelmeci" version="1"}%
+%META:FILEATTACHMENT{name="kojid.conf" attachment="kojid.conf" attr="" comment="/etc/kojid/kojid.conf" date="1320880014" path="kojid.conf" size="2027" stream="kojid.conf" tmpFilename="/usr/tmp/CGItemp39281" user="MatyasSelmeci" version="1"}%
+%META:FILEATTACHMENT{name="kojira.conf" attachment="kojira.conf" attr="" comment="/etc/kojira/kojira.conf" date="1320880036" path="kojira.conf" size="806" stream="kojira.conf" tmpFilename="/usr/tmp/CGItemp39188" user="MatyasSelmeci" version="1"}%
+%META:FILEATTACHMENT{name="kojiweb.conf" attachment="kojiweb.conf" attr="" comment="/etc/httpd/conf.d/kojiweb.conf" date="1320880056" path="kojiweb.conf" size="2136" stream="kojiweb.conf" tmpFilename="/usr/tmp/CGItemp39371" user="MatyasSelmeci" version="1"}%
