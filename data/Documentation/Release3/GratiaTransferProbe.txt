@@ -1,92 +1,106 @@
-%META:TOPICINFO{author="DouglasStrain" date="1318282097" format="1.1" version="1.1"}%
-
-
+%META:TOPICINFO{author="DouglasStrain" date="1320863962" format="1.1" reprev="1.2" version="1.2"}%
 ---+!! *<nop>%SPACEOUT{ "%TOPIC%" }%*
 %DOC_STATUS_TABLE%
 %TOC{depth="3"}%
-%STARTINCLUDE%
 
 ---+ About this Document
 
-%ICON{hand}% This document is for System Administrators who are planning to enable Gratia !GridFTP  transfer probe installed with installation of !BeStMan service  or stand-alone !GridFTP  service. Gratia !GridFTP  transfer probe generates accounting  information about file transfers and reports it to  [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GratiaSiteCollector][the central Gratia collector]].
+%ICON{hand}% This document is for System Administrators who are planning to enable Gratia !GridFTP  transfer probe installed with installation of !BeStMan service,  stand-alone !GridFTP service, or with !GridFTP on top of another storage system such as Hadoop or Xrootd. Gratia !GridFTP  transfer probe generates accounting  information about file transfers and reports it to the central Gratia collector.
 
-This document applies to the latest release %RED% OSG-%OSG_VERSION% %ENDCOLOR%. All procedures presented in this document in general require _root_ privileges.
+All procedures presented in this document in general require _root_ privileges.
 
 %INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="Header"}%
 %INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="CommandLine"}%
+
 ---++ Introduction
 
-The !BeStMan server is using !GridFTP server to transfer files to/from  any Posix compliant file system. Gratia !GridFTP  transfer probe monitor these transfer  by parsing the Globus !GridFTP server logs and reports it to Gratia Collector.
-This document describes the Gratia !GridFTP transfer probe configuration procedure. This procedure must be repeated once for every stand-adlone !GridFTP server that is installed for the !BeStMan service.
+The !BeStMan server is using !GridFTP server to transfer files to/from any Posix compliant file system. Gratia !GridFTP  transfer probe monitor these transfer  by parsing the Globus !GridFTP server logs and reports it to Gratia Collector.  This document describes the Gratia !GridFTP transfer probe configuration procedure. This procedure must be repeated once for every stand-alone !GridFTP server that is installed.
+
+---++ Installing Gratia !GridFTP transfer probe
+
+Gratia !GridFTP  transfer probe is installed simultaneously with any meta-packages containing globus-gridftp-server.  If you have installed =osg-se-bestman=, =osg-se-bestman-xrootd=, =osg-gridftp=, or followed the Hadoop installation instructions, you probably already have these problems.
+
+If you have not followed any of these instructions, the probe can be installed using:
+<pre class="rootscreen">
+yum install gratia-probe-gridftp-transfer
+</pre>
 
 ---++ Configuring Gratia !GridFTP transfer probe
 
-Gratia !GridFTP  transfer probe is installed simultaneously with [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/BestmanGateway][BeStMan]] or [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/GsiFtpStandAlone][standalone GridFTP server]]. It is not enabled by default. In order to see what is installed from %CACHE% execute the following commands (%ICON{warning}% ==VDT_LOCATION== is the name of the directory where you have previously installed !BeStMan):
+
+%STARTSECTION{"Configuration"}%
+
+Here are the most relevant file and directory locations:
+
+| Purpose | Needs Editing? | Location |
+| Probe Configuration | Yes | /etc/gratia/gridftp-transfer/ProbeConfig |
+| Probe Executables | No | /usr/share/gratia/gridftp-transfer |
+| Log files | No | /var/log/gratia |
+| Temporary files | No | /var/lib/gratia/tmp |
+| Gums configuration | Yes | /etc/gums/gums-client.properties |
+
+The RPM installs the Gratia probe into the system crontab, but does not configure it.  The configuration of the probe is controlled by the file
+
+<verbatim>
+/etc/gratia/gridftp-transfer/ProbeConfig
+</verbatim>
+
+This is usually one XML node spread over multiple lines.  Note that comments (#) have no effect on this file.  You will need to edit the following:
+
+| Attribute | Needs Editing | Value |
+| !ProbeName | Maybe | This should be set to "gridftp-transfer:&lt;hostname&gt;", where &lt;hostname&gt; is the fully-qualified domain name of your gridftp host. |
+| !CollectorHost | Maybe | Set to the hostname and port of the central collector.  By default it sends to the OSG collector.  See below. |
+| !SiteName | Yes | Set to the resource group name of your site as registered in OIM. |
+| !GridftpLogDir | Yes | Set to /var/log, or wherever your current gridftp logs are located |
+| !Grid | Maybe | Set to "ITB" if this is a test resource; otherwise, leave as OSG. |
+| !UserVOMapFile | No | This should be set to /var/lib/osg/user-vo-map; see below for information about this file. |
+| !SuppressUnknownVORecords| Maybe | Set to 1 to suppress any records that can't be matched to a VO; 0 is strongly recommended. |
+| !SuppressNoDNRecords | Maybe | Set to 1 to suppress records that can't be matched to a DN; 0 is strongly recommended. |
+| !EnableProbe | Yes | Set to 1 to enable the probe. |
+
+---+++ Selecting a collector host
+
+The collector is the central server which logs the !GridFTP transfers into a database.  There are usually three options:
+
+   1 *OSG Transfer Collector*: This is the primary collector for transfers in the OSG.  Use !CollectorHost="gratia-osg-transfer.opensciencegrid.org:80".
+   1 *OSG-ITB Transfer Collector*: This is the test collector for transfers in the OSG.  Use !CollectorHost="gratia-osg-transfer.opensciencegrid.org:8881".
+   1 *Site local collector*: If your site has set up its own collector, then your admin will be able to give you an endpoint to use.  Typically, this is along the lines of !CollectorHost="collector.example.com:8880".
+
+*Note:* if you are installing on an itb site, use *gratia-osg-itb.opensciencegrid.org* instead of "gratia-osg-transfer.opensciencegrid.org* above.
+
+
+---+++ Using GUMS authorization mode
+
+The =user-vo-map= file is a simple, space-separated format that contains 2 columns; the first is a unix username and the second is the VO which that username correspond to.  In order to create it you need to configure the gums client.
+
+The primary configuration file for the gums-client utilities is located in =/etc/gums/gums-client.properties=.  The two properties that you must change are:
+
+| Attribute | Needs Editing | Value |
+| gums.location | Yes | This should be set to the admin URL for your gums server, usually of the form gums.location=https://GUMS_HOSTNAME:8443/gums/services/GUMSAdmin |
+| gums.authz | Yes | This should be set to the authorization interface URL for your gums server, usually of the form gums.authz=https://GUMS_HOSTNAME:8443/gums/services/GUMSXACMLAuthorizationServicePort |
+
+After the gums client is configured to generate the file run the following once by hand:
 
 <pre class="rootscreen">
-cd &lt;VDT_LOCATION&gt;
-. setup.sh
-vdt-control --list
-[root@fg0x1 itb_bestman]# vdt-control --list
-Service            | Type   | Desired State
--------------------+--------+--------------
-fetch-crl          | cron   | enable
-vdt-rotate-logs    | cron   | enable
-vdt-update-certs   | cron   | enable
-gsiftp             | inetd  | enable
-gratia-gridftp-tran| cron   | do not enable
-bestman            | init   | enable
-edg-mkgridmap      | cron   | do not enable
-gums-host-cron     | cron   | do not enable
-</pre>  
+%UCL_PROMPT_ROOT% gums-host-cron
+</pre>
 
-To configure Gratia !GridFTP transfer probe do the following:
+=user-vo-map= should be created in the following location:
+
+<verbatim>/var/lib/osg/user-vo-map</verbatim>
+
+To have cron regularly update this file start the following service:
+
 <pre class="rootscreen">
-cd &lt;VDT_LOCATION&gt;
-. setup.sh
-$VDT_LOCATION/vdt/setup/configure_gratia  \
- --probe gridftp-transfer \
- --report-to &lt;gratia_host:gratia_port&gt; \
- --probe-cron --site-name &lt;SiteName&gt;
-</pre>
-To view more options, do following
-<pre class="rootscreen">
-cd &lt;VDT_LOCATION&gt;
-. setup.sh
-$VDT_LOCATION/vdt/setup/configure_gratia  \
- --help
-</pre>
-Where ==gratia_host== is FQDN of [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/AccountingServices][Gratia collector]], ==gratia_port== is Gratia Collector port and  ==site-name== is your site name.
-For ITB collector use the following values:<br/>
-==gratia_host== gratia-osg-itb.opensciencegrid.org<br/>
-==gratia_port== 8881<br/>
-
-For OSG collector use the following values:<br/>
-==gratia_host==  gratia-osg-transfer.opensciencegrid.org<br/>
-==gratia_port==  80<br/>
-
-If you want to do additional changes in configuration, eg change location of gridftp logs or name of the Grid (default is OSG) you can edit ==ProbConfig== file  located in
-==$VDT_LOCATION/gratia/probe/gridftp-transfer== directory.
-
-%ICON{warning}% Due to a bug in the latest release you will need to modify ==ProbeConfig== file  located in
-==$VDT_LOCATION/gratia/probe/gridftp-transfer== directory and add the location of !GridFTP logs<pre class="file">
-    GridftpLogDir="&lt;VDT_LOCATION&gt;/globus/var/log"
+%UCL_PROMPT_ROOT% service gums-client-cron start
 </pre>
 
----++  Creating osg-user-vo-map.txt
+Make sure the *UserVOMapFile* field is set to this location in
 
-Please read  [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/OsgSupportedVos][this page]] about files that are required to accurately collect grid resource usage and metrics by VO for transfer submitted using grid proxies or where voms proxy information is not available. 
+<verbatim>/etc/gratia/gridftp-transfer/ProbeConfig</verbatim>
 
----+++ Using GUMS based authorization mode
+Without =user-vo-map= , all gridftp transfers will show up as belonging to the VO "Unknown".
 
-In order to enable generation of osg-user-vo-map.txt from GUMS  do the following:
-<pre class="rootscreen">
-cd &lt;VDT_LOCATION&gt;
-. setup.sh
-vdt-control --enable gums-host-cron
-vdt-control --on gums-host-cron
-$VDT_LOCATION/gums/scripts/gums-host-cron
-</pre>
 
 ---+++ Using Gridmap based authorization mode
 
@@ -94,53 +108,28 @@ Note: If you are using this mode for authorization, make sure the files /etc/gri
 
 In order to enable generation of grid-mapfile and  osg-user-vo-map.txt by using the edg-mkgridmap cron process to get information form VOMS servers do the following:
 <pre class="rootscreen">
-cd &lt;VDT_LOCATION&gt;
-. setup.sh
-vdt-control --enable edg-mkgridmap
-vdt-control --on edg-mkgridmap
-$VDT_LOCATION/edg/sbin/edg-mkgridmap 
+edg-mkgridmap 
 </pre>
+If you have not installed this package, you will need to run =yum install edg-mkgridmap= first.
 
----++ Enable Gratia !GridFTP Transfer probe
+%ENDSECTION{"Configuration"}%
 
-You will now need to enable Gratia !GridFTP transfer probe:
+---++ Validation
+
+%STARTSECTION{"Validation"}%
+
+Run the Gratia probe once by hand to check for functionality:
+
 <pre class="rootscreen">
-cd &lt;VDT_LOCATION&gt;
-. setup.sh
-vdt-control --enable gratia-gridftp-transfer
+%UCL_PROMPT_ROOT% /usr/share/gratia/gridftp-transfer/gridftp-transfer_meter.cron.sh
 </pre>
 
-----++ Starting/Stopping Gratia !GridFTP transfer probe
+Look for any abnormal termination and report it if it is a non-trivial site issue.  Look in the log files in =/var/log/gratia/&lt;date&gt;.log= and make sure there are no error messages printed.
 
-  1. Gratia  !GridFTP  probe installed on !BeStMan or !GridFTP nodes could be started together with all other services by issuing ==vdt-control --on== command. If you want to start it separately do the following:<pre class="rootscreen">
-cd &lt;VDT_LOCATION&gt;
-. setup.sh
-vdt-control --on gratia-gridftp-transfer
-</pre>
-  1. Gratia  !GridFTP probe installed on !BeStMan or !GridFTP nodes could be stopped together with all other services by issuing ==vdt-control --off== command. If you want to stop it separately do the following:<pre class="rootscreen">
-cd &lt;VDT_LOCATION&gt;
-. setup.sh
-vdt-control --off gratia-gridftp-transfer
-</pre>
-The detailed description of all the options available to start/stop services could be found [[ReleaseDocumentation/StartingServices][here]].
+%ENDSECTION{"Validation"}%
 
-----++ Log files and configuration location
 
-You could find log and configuration files related to probe at the following  location on a relevant node: 
-
-| *Module Name* |  *Configuration files* | *Log files* | 
-|Gratia !GridFTP probe|$VDT_LOCATION/gratia/probe/gridftp-transfer/ProbeConfig|$VDT_LOCATION/gratia/var/logs|
-|Gridmap file||/etc/grid-security/grid-mapfile|
-|OSG User VO Map file||$VDT_LOCATION/osg/etc/osg-user-vo-map.txt|
-
----++ Sanity Check
-
-If you turned on !GridFTP Gratia transfer probes you should be able to see the accounting information by accessing your Gratia collector. Keep in mind that probe collection is executed by a cron job, so check the time
-the cron job will be executed:
-<pre class="rootscreen">
-crontab -l
-5,15,25,35,45,55 * * * * &lt;VDT_LOCATION&gt;/gratia/probe/gridftp-transfer/gridftp-transfer_meter.cron.sh > &lt;VDT_LOCATION&gt;/gratia/var/logs/gratia-probe-gridftp-transfer.log 2>&1
-</pre>
+---++ Viewing information
 
 To access the information, go to http://&lt;gratia_host&gt;:&lt;gratia_port&gt;/gratia-reporting/, click on "Custom SQL Query" on the left site menu frame, enter the following query into provided text box:
 <pre class="screen">
@@ -158,10 +147,6 @@ To check ITB Gratia collector click here [[http://gratia-osg-itb.opensciencegrid
 
 To check OSG Gratia collector click here [[http://gratia-osg-transfer.opensciencegrid.org/gratia-reporting/][OSG Gratia]].
 
-
-
-
-%STOPINCLUDE%
 
 
 ---++ *Comments*
