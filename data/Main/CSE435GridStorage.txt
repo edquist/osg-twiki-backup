@@ -1,0 +1,301 @@
+%META:TOPICINFO{author="BrianBockelman" date="1321370436" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="BrianBockelman"}%
+---+!!Data Management Exercises (Part II) 
+%TOC{depth="3"}%
+
+---+ Introduction
+In the second part of our exercises we will continue to work with BLAST application, now adding storage into the picture.
+
+---+ Customize this Document
+
+<!-- OSG Summer School 2011 Defaults
+   * Local VO= %URLPARAM{"INPUT_VO" encode="quote" default="hcc"}%
+   * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="hcc-group6"}%
+   * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="bbockelm"}%
+   * Local UCL_DOMAIN = %URLPARAM{"INPUT_DOMAIN" encode="quote" default="unl.edu"}%
+   * Local GATEKEEPER = %URLPARAM{"INPUT_GATEKEEPER" encode="quote" default="red.unl.edu"}%
+   * Local UCL_CWD= %URLPARAM{"INPUT_CWD" encode="quote" default="~/grid_dm"}%
+   * Local BATCH_SYSTEM = %URLPARAM{"BATCH_SYSTEM" encode="quote" default="condor"}%
+   * Local REMOTE_ROOT = %URLPARAM{"INPUT_REMOTE_ROOT" encode="quote" default="/mnt/hadoop/user"}%
+   * Local REMOTE_SRM = %URLPARAM{"INPUT_SRM" encode="quote" default="red-srm1.unl.edu:8443"}%
+   * Local REMOTE_GRIDFTP= %URLPARAM{"INPUT_GRIDFTP" encode="quote" default="red-gridftp12.unl.edu"}%
+   * Local SURL = srm://%REMOTE_SRM%/srm/v2/server?SFN=%REMOTE_ROOT%
+   * Local TURL= gsiftp://%REMOTE_GRIDFTP%/%REMOTE_ROOT%
+   * Local OSG_DATA=%URLPARAM{"INPUT_OSG_DATA" encode="quote" default="/osg/data"}%
+-->
+
+%ICON{"warning"}% %RED% Please change your user name and click on the Customize button!%ENDCOLOR%
+<form action="%SCRIPTURLPATH{"view"}%/%WEB%/%TOPIC%">
+<table>
+  <tr>
+    <td>
+      VO
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_VO" value="%VO%"/>
+    </td>
+  <tr>
+    <td>
+      Host Name
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_HOST" value="%UCL_HOST%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      Domain Name
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_DOMAIN" value="%UCL_DOMAIN%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      Login Name
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_USER" value="%UCL_USER%"/>
+    </td>
+  </tr>
+    <td>
+      Exercise Path
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_CWD" value="%UCL_CWD%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      Remote SE root directory
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_REMOTE_ROOT" value="%REMOTE_ROOT%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      SRM host endpoint
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_SRM" value="%REMOTE_SRM%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      !GridFTP host endpoint
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_GRIDFTP" value="%REMOTE_GRIDFTP%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+     &nbsp;
+     <input type="submit" class="twikiSubmit" value="Customize" />
+    </td>
+  </tr>
+</table>
+</form>
+
+---+ Exercises 
+---++ Prerequisite 
+
+   * Login on submission node <pre class="screen">
+ssh %UCL_USER%@%UCL_HOST%.%UCL_DOMAIN%
+</pre>
+   * Obtain proxy certificate, if you have not done so already <pre class="screen">
+voms-proxy-init -voms %VO%:/%VO%
+</pre>
+   * Make a directory for this exercise<pre class="screen">
+mkdir -p %UCL_CWD%
+cd %UCL_CWD%
+</pre>
+
+---++ Hands-on with SRM and !GridFTP
+
+As discussed in the lecture, the primary protocol for accessing storage on the OSG is SRM.  SRM is an XML-based protocol that provides users with the ability to:
+   1 Invoke Unix-like metadata commands on the storage (ls, rm, mkdir).
+   1 Load-balance file transfers done via other "transfer" protocols.  The most common transfer protocol on the OSG is !GridFTP.
+   1 Manage storage reservations.
+
+<div style="margin-left: 1em; margin-right: 1em; background-color: #ffff66; border: 1px solid black; padding: 0.5em;">
+Food for thought: !GridFTP, being built on top of the venerable FTP protocol, also can invoke metadata commands.  Why is SRM necessary?
+%TWISTY{
+showlink="Show the answer!"
+hidelink="Ok, move on..."
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+While !GridFTP *can* perform metadata commands, SRM still retains some advantages:
+   1 Ability to perform load-balancing, including across more common protocols such as HTTP.
+   1 Ability to queue some metadata commands.  Listing a directory, in particular, can cause heavy loads on the remote system if enough clients do it at once.  SRM has the ability to ask clients to back off and perform the request later.
+   1 !GridFTP has no ability to manage space reservations.  This is used heavily by some VOs on grids that interoperate with the OSG, although it's not common in smaller OSG VOs.
+%ENDTWISTY%
+</div>
+
+For the school, and in this exercise, you will utilize a suite of SRM clients called =lcg-utils=.  =lcg-utils= is a mature, multi-protocol package originally written for the LHC Computing Grid (LCG).  Because of this, all of the commands we will perform will have a few extra flags necessary to have the client work on OSG.
+
+---+++ File Movement: Upload
+We'll need to generate a few input files to play with.  Let's fill a few files with random noise:
+<pre class="screen">
+dd if=/dev/urandom of=/tmp/input_file_%UCL_USER%_1 bs=1MB count=10
+dd if=/dev/urandom of=/tmp/input_file_%UCL_USER%_2 bs=1MB count=100
+dd if=/dev/urandom of=/tmp/input_file_%UCL_USER%_3 bs=1MB count=200
+</pre>
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ dd if=/dev/urandom of=/tmp/input_file_%UCL_USER%_1 bs=1MB count=10
+10+0 records in
+10+0 records out
+10000000 bytes (10 MB) copied, 2.97662 seconds, 3.4 MB/s
+[%UCL_USER%@%UCL_HOST% ~]$ dd if=/dev/urandom of=/tmp/input_file_%UCL_USER%_2 bs=1MB count=100
+100+0 records in
+100+0 records out
+100000000 bytes (100 MB) copied, 22.6203 seconds, 4.4 MB/s
+[%UCL_USER%@%UCL_HOST% ~]$ dd if=/dev/urandom of=/tmp/input_file_%UCL_USER%_3 bs=1MB count=200
+200+0 records in
+200+0 records out
+200000000 bytes (200 MB) copied, 42.8626 seconds, 4.7 MB/s
+</pre>
+%ENDTWISTY%
+
+We'll place these on the remote gridftp storage.
+
+---+++ File Movement: !GridFTP
+On other grids, !GridFTP may be more common than SRM.  Let's take a moment to use the most common !GridFTP client, =globus-url-copy= directly.
+
+=globus-url-copy= has a simple usage syntax of =globus-url-copy [OPTIONS] SOURCE_URL DEST_URL=.  The source and destination must be either be prefixed with =file://= (designating a file on the local disk) or =gsiftp://= (designating a file on a remote server).  You can see what the various OPTIONS are by looking at the output of =-help=; we'll be using =-vb= in the examples to increase the verbosity of the client.
+
+First, let's copy a file to the remote !GridFTP server:
+<pre class="screen">
+globus-url-copy -cd -vb file:/tmp/input_file_%UCL_USER%_1 %TURL%/%VO%/%UCL_USER%.gridftp/input_file_1
+</pre>
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ globus-url-copy -cd -vb file:/tmp/input_file_%UCL_USER%_1 %TURL%/%VO%/%UCL_USER%.gridftp/input_file_1
+Source: file:/opt/workshop/dm_exercises/part2/
+Dest:   %TURL%/%VO%/%UCL_USER%.gridftp/
+  drosoph.aa
+      1048576 bytes         2.67 MB/sec avg         2.67 MB/sec inst
+</pre>
+Note that the =-cd= command line flag is required to create the destination directory.
+%ENDTWISTY%
+
+Next, let's copy it back to the local disk:
+<pre class="screen">
+globus-url-copy -vb %TURL%/%VO%/%UCL_USER%.gridftp/input_file_1 file:/tmp/read_gridftp_input_file_%UCL_USER%_1
+</pre>
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ globus-url-copy -vb %TURL%/%VO%/%UCL_USER%.gridftp/input_file_1 file:/tmp/read_gridftp_input_file_%UCL_USER%_1
+Source: %TURL%/%VO%/%UCL_USER%.gridftp/
+Dest:   file:/tmp/
+  drosoph.aa  ->  drosoph.aa.%UCL_USER%
+      4194304 bytes         2.00 MB/sec avg         2.00 MB/sec inst
+</pre>
+%ENDTWISTY%
+
+Finally, we can use =md5sum= to verify the contents:
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ md5sum %BLAST_DB_SUBMIT%/drosoph.aa /tmp/drosoph.aa.%UCL_USER% 
+a0689a9b03257c1be05fe555bd6e1d3c  %BLAST_DB_SUBMIT%/drosoph.aa
+a0689a9b03257c1be05fe555bd6e1d3c  /tmp/drosoph.aa.%UCL_USER%
+</pre>
+As long as the hash results are the same for both files, they should be identical!
+
+---+++ List Files
+
+Listing of a single file or the contents of a directory can be done with =lcg-ls=.  If you pass the =-l= flag, it will print out some additional information (analogous to =ls -l=).
+
+<pre class="screen">
+lcg-ls -b -D srmv2 -l %SURL%/%VO%/%UCL_USER%
+</pre>
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ lcg-ls -b -D srmv2 -l %SURL%/%VO%/%UCL_USER%
+----------   1     2     2 8498541              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa
+----------   1     2     2 1781790              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.phr
+----------   1     2     2  114720              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.pin
+----------   1     2     2  114648              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.pnd
+----------   1     2     2     492              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.pni
+----------   1     2     2  436372              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.psd
+----------   1     2     2   10001              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.psi
+----------   1     2     2 7193188              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.psq
+----------   1     2     2 124327488              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt
+----------   1     2     2  190733              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nhr
+----------   1     2     2   14116              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nin
+----------   1     2     2    9360              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nnd
+----------   1     2     2      84              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nni
+----------   1     2     2   32880              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nsd
+----------   1     2     2     822              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nsi
+----------   1     2     2 31368306              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nsq
+----------   1     2     2 3399727              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa
+----------   1     2     2  624891              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.phr
+----------   1     2     2   50456              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.pin
+----------   1     2     2   50384              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.pnd
+----------   1     2     2     244              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.pni
+----------   1     2     2  199316              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.psd
+----------   1     2     2    4538              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.psi
+----------   1     2     2 2980337              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.psq
+----------   1     2     2 12308631              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt
+----------   1     2     2    2305              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nhr
+----------   1     2     2     280              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nin
+----------   1     2     2     136              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nnd
+----------   1     2     2      52              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nni
+----------   1     2     2     456              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nsd
+----------   1     2     2      64              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nsi
+----------   1     2     2 3038769              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nsq
+</pre>
+%ENDTWISTY%
+
+---+++ Remove files
+
+We won't actually need the file we uploaded directly to the gridftp server.  Let's delete it using =lcg-del=.  After going through the previous =lcg-cp= examples, you can probably guess the command line invocation; the only hiccup is the need for the =-l= flag.
+
+<pre class="screen">
+lcg-del -l -b -D srmv2 -v %SURL%/%VO%/%UCL_USER%.gridftp/input_file_1
+</pre>
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ lcg-del -l -b -D srmv2 -v %SURL%/%VO%/%UCL_USER%.gridftp/input_file_1
+VO name: %VO%
+SE type: SRMv2
+%SURL%/%VO%/%UCL_USER%.gridftp/input_file_1 - DELETED
+</pre>
+%ENDTWISTY%
+
+---+++ Example Exercise
+
+In the [[Education/OSGSS2011StorageEx][OSG Summer School exercise]], we give an example of how to integrate file staging via SRM with a job wrapper script.  You may want to study this example closely, as the solution posted there might significantly help with your Assignment 6.
