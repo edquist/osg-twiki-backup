@@ -1,0 +1,211 @@
+%META:TOPICINFO{author="AlainRoy" date="1322774067" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+---+ Validate the Compute Element
+
+%DOC_STATUS_TABLE%
+%TOC%
+
+---+ 1.0 About this document
+This document will help you validate that your Compute Element is working correctly. 
+
+This document assumes that you have already [[InstallComputeElement][installed and configured your CE]].
+
+---++ 1.1 Conventions
+
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="See conventions..."}%
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="Header"}%
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="CommandLine"}%
+%ENDTWISTY%
+
+---+ 2.0 Validate authorization
+
+You should validate that your Compute Element can authorize users. This will exercise either GUMS or your grid-mapfile (and therefore edg-mkgridmap) and ensure that the authorization mechanisms work. 
+
+   1. Double-check your configuration to make sure that you are allowed (specifically, your credentials are allowed) to access your CE. This will either be in your GUMS server or in your =edg-mkgridmap= configuration. 
+   1. Create a proxy with =voms-proxy-init= or =grid-proxy-init=. For example: <pre class="screen">
+%UCL_PROMPT% voms-proxy-init -voms %RED%GLOW%ENDCOLOR%
+Enter GRID pass phrase for this identity:
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Alain Roy 424511
+Creating temporary proxy ................................................................................. Done
+Contacting  glow-voms.cs.wisc.edu:15001 [/DC=org/DC=doegrids/OU=Services/CN=glow-voms.cs.wisc.edu] "GLOW" Done
+Creating proxy ..................................................................... Done
+
+Your proxy is valid until Fri Dec  2 01:32:47 2011
+</pre>You'll substitute your own VO, of course.
+   1. Use =globusrun= to ensure that you are authorized. For example: <pre class="screen">
+%UCL_PROMPT% globusrun -a -r %RED%fermicloud081.fnal.gov%ENDCOLOR%
+
+GRAM Authentication test successful
+</pre> You'll substitute your own hostname, of course.
+
+An example failure that could indicate that you are not in the =grid-mapfile=:
+<pre class="screen">
+%UCL_PROMPT% globusrun -a -r %RED%fermicloud081.fnal.gov%ENDCOLOR%
+
+GRAM Authentication test failure: authentication with the remote server failed
+</pre>
+
+An example failure that could indicate that you are in authorized, but your user account on the CE is not correct (among other reasons):
+<pre class="screen">
+%UCL_PROMPT% globusrun -a -r %RED%fermicloud081.fnal.gov%ENDCOLOR%
+
+GRAM Authentication test failure: the gatekeeper failed to run the job manager
+</pre>
+
+---++ 3.0 Validate that you can run a job
+
+You should test that you can run a job. 
+
+   1. Create a proxy (see above).
+   1. Run a job against your fok job manager. That is, it will run it directly on the CE:<pre class="screen">
+%UCL_PROMPT% globus-job-run %RED%fermicloud081.fnal.gov /bin/hostname%ENDCOLOR%
+fermicloud081.fnal.gov
+</pre>
+   1. Submit a job to your batch system. For example, if you have Condor:<pre class="screen">
+%UCL_PROMPT% globus-job-run %RED%fermicloud081.fnal.gov%ENDCOLOR%/jobmanager-%RED%condor%ENDCOLOR% /bin/hostname
+fermicloud081.fnal.gov
+</pre>
+      * If you are using Torque/PBS, change "condor" to "pbs"
+      * If you are using SGE, change "condor" to "sge"
+      * If you are using LSF, change "condor" to "lsf"
+
+---++ 4.0 Validate that you can transfer a file
+
+You should test that you can transfer a file to and from your compute element.
+
+   1. Create a proxy (see above).
+   1. Copy a file to your CE: <pre class="screen">
+%UCL_PROMPT%  globus-url-copy file:///proc/cpuinfo gsiftp://%RED%fermicloud081.fnal.gov%ENDCOLOR%/tmp/cpuinfo-deleteme</pre>If successful, this will exit silently.
+   1. Copy a file from your CE: <pre class="screen">
+%UCL_PROMPT% globus-url-copy gsiftp://%RED%fermicloud081.fnal.gov%ENDCOLOR%/proc/version file:///tmp/version-deleteme
+%UCL_PROMPT% cat /tmp/version-deleteme
+Linux version 2.6.18-238.19.1.el5 (gcc version 4.1.2 (Red Hat 4.1.2-50)) #1 SMP Fri Jul 15 00:48:58 EDT 2011
+%UCL_PROMPT% rm -f /tmp/version-deleteme</pre>
+
+---++ 5.0 Validate you accept the correct VOs
+
+When you set up your site, you decide which VOs can access your site. In order to be sure that all of these VOs can access your site, you need to verify that:
+   * You have configured the VOs to be allowed
+   * All appropriate accounts have been created.
+   * All the local storage areas defined for your CE node are accessible by the VO members' accounts.
+
+When you are satisfied that you have met the 3 criteria above, you can be reasonably confident that all VO members you intend to support will be able to access the services provided by your CE node.
+
+The sections below will refer to files that are automatically created by either =edg-mkgridmap= or =gums-host-cron= (depending on your authorization mode). Make sure they have run before you look at it. It should list the VOs that you think you wish to accept.
+
+---++ 5.1 Verifying that the appropriate VOs are supported
+
+The =/var/lib/osg/supported-vo-list= file shows the list of OSG VOs to which your site will allow access.
+
+If the =osg-supported vo-list.txt= file matches the output from the command shown below, then you are assured that at least one member of every VO will be able to run a job via your CE: <pre class="screen">
+%UCL_PROMPT% wget -q -O - 'http://oim.grid.iu.edu/pub/vo/show.php?format=plain-text' | cut -f1 -d ','</pre>
+
+---++ 5.2 Verifying that all UNIX accounts are created and accessible
+
+The =/var/lib/osg/undefined-accounts= file shows any accounts are configured for use by incoming VOs, but do not actually exist on your system. If all configured accounts exist, there should be *no* accounts listed and this file  should be empty. If it is not empty, you have a configuration problem that you should fix. 
+
+In addition, you need to verify that the =$HOME= directories for all the accounts are read/write accessible on both the CE and the worker nodes. They should have permissions 755.
+
+---++ 5. 3 Verifying OSG local storage access
+The other factor that will affect a VO member's ability to run successfully on your site is the accessibility to the OSG defined local storage:=$OSG_APP= and (if used) =$OSG_DATA=. Ensure that the directory permissions allow users from each VO to read and write files. You may wish to use the sticky bit to ensure that other users cannot delete each others files.
+
+
+---+ 6.0 Validate that you are reporting site information correctly
+
+Your site should report site information. Most sites will use CEMon and the GIP to collect and forward data to both the BDII (LDAP server) at the GOC and RESS (Condor collector) at Fermilab. 
+
+---++ 6.1 Validate BDII
+
+   1. First, check the [[http://myosg.grid.iu.edu/wizardgipstatus/index?datasource=gipstatus&summary_attrs_showservice=on&summary_attrs_showrsvstatus=on&summary_attrs_showfqdn=on&gip_status_attrs_showtestresults=on&gip_status_attrs_showfqdn=on&account_type=cumulative_hours&ce_account_type=gip_vo&se_account_type=vo_transfer_volume&start_type=7daysago&start_date=02%2F23%2F2009&end_type=now&end_date=03%2F02%2F2009&all_resources=on&gridtype=on&gridtype_1=on&service=on&service_1=on&active_value=1&disable_value=1][GIP validator at MyOSG]] to see if data for your site is being reported.
+   1. Next, use LDAP to query the BDII. Make sure to substitute your site name (not the CE's host name) in this command: <pre class="screen">
+%UCL_PROMPT% ldapsearch -x -LLL -p 2170 -h is.grid.iu.edu -b mds-vo-name=%RED%WISC-OSG-EDU%ENDCOLOR%,mds-vo-name=local,o=grid
+n: Mds-Vo-name=WISC-OSG-EDU,Mds-Vo-name=local,o=grid
+objectClass: GlueTop
+objectClass: Mds
+Mds-Vo-name: WISC-OSG-EDU
+... lots more output trimmed ...
+</pre>
+   1. If the information if not being reported correctly, run =/usr/bin/gip_info= on your CE. If the information does not appear to be correct, you may need to adjust your configure in =/etc/osg/config.d/=.
+
+---++ 6.2 Validate RESS
+
+RESS is a Condor collector: it collects "ClassAds" from each site. You can use Condor commands both to see your !ClassAds and verify that your !ClassAd appears to be correct. You can do two easy checks. They are only briefly described here, but you can read [[ResourceSelection.ReSSClassadValidationMechanism][a more detailed description]].
+
+   1. To see that your !ClassAds are being reported, you can look at them directly with the following command. Substitute your site name (not your CE host name). <pre class="screen">
+%UCL_PROMPT% condor_status -l -pool osg-ress-1.fnal.gov  -constraints 'GlueSiteName == "%RED%FNAL_FERMIGRID%ENDCOLOR%"'
+GlueCEStateWorstResponseTimeOriginal = 86400
+GlueSiteSecurityContact = "mailto: fermigrid-help@listserv.fnal.gov"
+GlueClusterUniqueID = "d0cabosg1.fnal.gov"
+... more output trimmed ...
+</pre>
+   1. To see if !ReSS thinks your !ClassAds are valid, you can print out just the portion of the !ClassAd that indicates validity. Again, substitue your host name. _0_ means it's not valid, while _1_ means it is. <pre class="screen">
+% condor_status -pool osg-ress-1.fnal.gov -format '%d\n' isClassadValid -constraints 'GlueSiteName == "%RED%FNAL_FERMIGRID%ENDCOLOR%"' | uniq
+1
+</pre>
+
+Please note that due to some complications beyond the scope of this document, your site's !ClassAd may appear to be invalid while they are actually valid. 
+
+---+ 7.0 Validate accounting (Gratia)
+
+The Gratia probes on your CE report accounting information to OSG. You should verify that Gratia data is being properly reported.
+
+   1. Submit a job to your CE and have it run in your batch system. Allow at least 10 minutes to elapse
+   1. Check the [[http://gratia-osg-prod-reports.opensciencegrid.org/gratia-reporting/][Gratia web site]] for your site and make sure jobs are showing up.
+   1. If you are still unable to find evidence that your site has reported accounting information, download [[https://twiki.grid.iu.edu/twiki/bin/viewfile/Accounting/TroubleShootingInstructions?filename=gratia-site-diag][<tt>gratia-site-diag</tt>]] and run it to diagnose possible problems. Report any problems immediately; see [[Accounting.TroubleShootingInstructions][Gratia troubleshooting instructions]] for more details.
+
+<!-- CONTENT MANAGEMENT PROJECT
+
+   DEAR DOCUMENT OWNER
+   ===================
+
+   Thank you for claiming ownership for this document! Please fill in your FirstLast name here:
+   * Local OWNER          = AlainRoy
+
+   Please define the document area, choose one of the defined areas from the next line
+   DOC_AREA = (ComputeElement|Storage|VO|Security|User|Monitoring|General|Integration|Operations|Tier3)
+   * Local DOC_AREA       = ComputeElement
+
+   define the primary role the document serves, choose one of the defined roles from the next line
+   DOC_ROLE = (Scientist|Student|Developer|SysAdmin|VOManager)
+   * Local DOC_ROLE       = SysAdmin
+
+   Please define the document type, choose one of the defined types from the next line
+   DOC_TYPE = (Troubleshooting|Training|Installation|HowTo|Planning|Navigation|Knowledge)
+   * Local DOC_TYPE       = HowTo
+   
+   Please define if this document in general needs to be reviewed before release ( %YES% | %NO% )
+   * Local INCLUDE_REVIEW = %YES%
+
+   Please define if this document in general needs to be tested before release ( %YES% | %NO% )
+   * Local INCLUDE_TEST   = %YES%
+
+   change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
+   * Local REVIEW_READY   = %YES%
+
+   change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
+   * Local TEST_READY     = %YES%
+
+   change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
+   * Local RELEASE_READY  = %NO%
+
+
+   DEAR DOCUMENT REVIEWER
+   ======================
+
+   Thank for reviewing this document! Please fill in your FirstLast name here:
+   * Local REVIEWER       = MarcoMambelli
+  
+   Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local REVIEW_PASSED  = %IN_PROGRESS%
+
+
+   DEAR DOCUMENT TESTER
+   ====================
+
+   Thank for testing this document! Please fill in your FirstLast name here:
+   * Local TESTER         = MarcoMambelli
+  
+   Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local TEST_PASSED    = %IN_PROGRESS%
+ 
+-->
