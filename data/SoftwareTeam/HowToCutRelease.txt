@@ -1,104 +1,157 @@
-%META:TOPICINFO{author="AlainRoy" date="1323136268" format="1.1" reprev="1.5" version="1.5"}%
+%META:TOPICINFO{author="AlainRoy" date="1323209723" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="InternalDocs"}%
+<!--
+   * Set VERSION = %URLPARAM{"version"}%
+-->
+
 ---+ How to Cut a Release
 
-%RED%<b>This document is a work in progress. It's missing a lot. Some notes Alain has taken for updates later include:</b>%ENDCOLOR%
+%RED%<b>This document is a work in progress.</b>%ENDCOLOR%
 
-   * Update the osg-version RPM. (Just the spec file's version/release number & changelog.)
-   * Update to pre-release: <pre class="screen">
-%UCL_PROMPT% koji-tag-diff el5-osg-testing el5-osg-release > pkgs-to-release; 
-%UCL_PROMPT %RED%edit%ENDCOLOR% pkgs-to-release to remove incorrect packages
-%UCL_PROMPT% xargs -a 3.0.4-pre-release-pkgs koji tag-pkg el5-osg-prerelease
-%UCL_PROMPT%  koji regen-repo el5-osg-prerelease
-</pre>
-   * Test fresh install: VM1 <pre class="screen">
-%UCL_PROMPT% wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
-%UCL_PROMPT% chmod 0755 bootstrap-osg-test
-%UCL_PROMPT% ./bootstrap-osg-test testing
-%UCL_PROMPT% osg-test -vai osg-ce-condor -r osg-prerelease
-</pre>
-   * Test update: VM2
- <pre class="screen">
-%UCL_PROMPT% wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
-%UCL_PROMPT% chmod 0755 bootstrap-osg-test
-%UCL_PROMPT% ./bootstrap-osg-test testing
-%UCL_PROMPT% yum install osg-ce-condor
-%UCL_PROMPT% yum update --enablerepo=osg-prerelease
-%UCL_PROMPT% osg-test -va
-</pre>
+It's clear that a lot of things can and should be scripts to simplify the process. Right now, it documents the process as we think it should be, and we can script it later when we know the process is correct.
 
----++ Step 0. Pre-work
+This document doesn't discuss the policy for deciding what goes into a release. [[SoftwareTeam.ReleasePolicy][The release policy is discussed elsewhere]].
 
-   * You should get a VM ready so you can do a test installation. 
-   * You need to know the tag for which you are going to do a release
-      * *Test Release:* =el5-osg-testing=
-      * *Production Release:* =el5-osg-release=
-   * Run =koji list-tagged --latest %RED%release-name%ENDCOLOR%=. Save the results in a file.
+---++ Step 1: Pick the version number
 
----++ Step 1. Find the list of packages 
+This page will help you get the various commands exactly right. To do this, enter the exact version number (such as %RED%3.0.5%ENDCOLOR%) and click submit. If you do not do this, the commands below will be missing essential text.
 
-You need to figure out which packages are going to be in the release. There are two parts to this. 
+<form action="https://twiki.grid.iu.edu/bin/view/SoftwareTeam/HowToCutRelease">
+Version: <input type="text" name="version" size="10" value="%URLPARAM{"version"}%"/>
+<input type="submit"/>
+</form>
 
----++ Part 1: The policy question
+---++ Step 2: Create two clean VMs
 
----++ Part 2: The technical details
+Make two VMs, probably in !FermiCloud, so you can do testing.
 
-Once you know which packages you want to release, you need to know the precise and full set of packages that need to be tagged. We should have a nice script to help you with this, but for now you can to do a lot of manual work. We use two processes in order to double-check the set. 
+---++ Step 3: Update the osg-version RPM
 
-Process 1: For each high-level package you want to release:
-   1. Add that package to the list.
-   1. =yumdownloader %RED%package-name%ENDCOLOR%=
-   1. * =rpm -qp --requires %RED%package-rpm-name%ENDCOLOR%=
-   1. For each package in the dependencies that is in our repository and not already released, go to step 1. (That is, add to the list, download, and search the dependencies)
-
-Process 2: For each high-level package you want to release:
-   1. On a clean VM, do =yum install %RED%package-name%ENDCOLOR%=
-   1. Look at the set of packages that yum lists, and the repository they are from. Compare the ones in our development/testing repository to the list from Process 1. Did you make any mistakes?
-   1. Note that you don't have to complete the install if you don't want to--you just need the list of RPMs from yum.
-
-Put each package name into a file (below it is =packages-to-update=), one package per line. You can verify you have a good set of names by running the following command:
+Edit the osg-version RPM's spec file to update the version number to %VERSION%. Build it in koji and push it to testing:
 
 <pre class="screen">
-%  xargs -a packages-to-update -n 1 koji buildinfo > package-check
+%UCL_PROMPT_SHORT% osg-build koji osg-version
+%UCL_PROMPT_SHORT% koji tag-pkg el5-osg-testing %VERSION%-1
 </pre>
 
-Then search the file =package-check= for the string =No such build=. If you see that, you have a mistake in your list of packages.
-   
----++ Step 2. Tag the packages
+---++ Step 4: Populate the osg-prerelease repository
 
 <pre class="screen">
-% xargs -a packages-to-update koji tag-pkg el5-osg-release 
-Enter PEM pass phrase: 
-Created task 8421
-Created task 8422
-Created task 8423
-Created task 8424
-Created task 8425
-Created task 8426
-Created task 8427
-Created task 8428
-Created task 8429
-Watching tasks (this may be safely interrupted)...
+%UCL_PROMPT_SHORT% koji-tag-diff el5-osg-testing el5-osg-release > pkgs-to-release
+%UCL_PROMPT_SHORT% %RED%edit%ENDCOLOR% pkgs-to-release to remove incorrect packages
+%UCL_PROMPT_SHORT% xargs -a pkgs-to-release koji tag-pkg el5-osg-prerelease
+%UCL_PROMPT_SHORT% koji regen-repo el5-osg-prerelease
 </pre>
+
+---++ Step 5: Test a fresh install in VM1 
+
+You will do a fresh installation. The =osg-test= command below will enable the =osg-prerelease= repository, and the =osg= repository will already be enabled. So packages will be taken from the =osg= repository unless there is a newer version in the =osg-prerelease= repository. 
 
 <pre class="screen">
-% koji list-tagged el5-osg-release
-Build                                     Tag                   Built by
-----------------------------------------  --------------------  ----------------
-...
-cilogon-ca-certs-1.0-1                    el5-osg-release       Anand Padmanabhan 75166
-cilogon-ca-certs-compat-1.0-1             el5-osg-release       Anand Padmanabhan 75166
-empty-ca-certs-1.0-1                      el5-osg-release       Alain Roy 424511
-...
+%UCL_PROMPT_SHORT% wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
+%UCL_PROMPT_SHORT% chmod 0755 bootstrap-osg-test
+%UCL_PROMPT_SHORT% ./bootstrap-osg-test testing
+%UCL_PROMPT_SHORT% osg-test -vai osg-ce-condor -r osg-prerelease
 </pre>
 
----++ Step 3. Check the release
+---++ Step 6: Test update: in VM2 
 
-Do a test installation in a clean VM. Fermicloud is a nice choice here, though certainly not required. We've already tested the software, so the goal is to make sure that you didn't miss any RPMs when you tagged.
+Now you will do an installation just from the =osg= repository, then update it from the =osg-prerelease= repository. This is an important double-check, because we want to know that updates work smoothly. Note that the =osg-test= command skips the installation.
 
----++ Step 4. Document the release
+<pre class="screen">
+%UCL_PROMPT_SHORT% wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
+%UCL_PROMPT_SHORT% chmod 0755 bootstrap-osg-test
+%UCL_PROMPT_SHORT% ./bootstrap-osg-test testing
+%UCL_PROMPT_SHORT% yum install osg-ce-condor
+%UCL_PROMPT_SHORT% yum update --enablerepo=osg-prerelease
+%UCL_PROMPT_SHORT% osg-test -va
+</pre>
 
-   * Run =koji list-tagged --latest %RED%release-name%ENDCOLOR%= and compare to the version you previously listed.
-   * Make [[Documentation.Release3.ReleaseNotes][release notes]]. Follow previous examples.Note that for RPMs that have been updated, you list the new and old version. 
+---++ Step 7: Wait
 
----++ Step 5. Announce the release
+Wait for clearance. The OSG Software Coordinator (in consultation with the Software Team and any testers) need to sign off on the update before it is released.
+
+---++ Step 8: Push from pre-release to release: 
+<pre class="screen">
+%UCL_PROMPT_SHORT% koji edit-tag --unlock el5-osg-release
+%UCL_PROMPT_SHORT% koji list-tagged --quiet el5-osg-prerelease | awk '{print $1}' > move-to-release # Can't pipe to xargs because it prompts you for your certificate passphrase
+%UCL_PROMPT_SHORT% xargs --arg-file move-to-release koji tag-pkg el5-osg-release
+%UCL_PROMPT_SHORT% koji regen-repo el5-osg-release
+</pre>
+
+---++ Step 9: Create a new repo for the new release.
+
+Create a new repo just for this release. This will normally not be seen by users, but can be used by them if necessary. It can also be used by us for testing purposes. <pre class="screen">
+%UCL_PROMPT_SHORT% koji clone-tag el5-osg-release el5-osg-release-%VERSION%
+%UCL_PROMPT_SHORT% koji regen-repo el5-osg-release%VERSION%
+</pre>
+
+---++ Step 10: Clear the osg-prerelease repo
+
+Remove everything from the prerelease repo. 
+
+<pre class="screen">
+%UCL_PROMPT_SHORT% koji list-tagged --quiet el5-osg-prerelease | awk '{print $1}' > untag-list # Can't pipe to xargs because it prompts you for your certificate passphrase
+%UCL_PROMPT_SHORT% xargs --arg-file untag-list koji untag-pkg el5-osg-prerelease
+%UCL_PROMPT_SHORT% koji regen-repo el5-osg-prerelease
+</pre>
+
+---++ Step 11: Lock the repositories
+
+Lock repositories so they can't be messed with. We use edit-tag instead of lock-tag because lock-tag doesn't seem to work.
+
+<pre class="screen">
+%UCL_PROMPT_SHORT% koji edit-tag --lock el5-osg-release
+%UCL_PROMPT_SHORT% koji edit-tag --lock el5-osg-release-%VERSION%
+</pre>
+
+---++ Step 12: Write release notes
+
+   1. Come up with a nice table of updated packages that you can copy and paste into the release notes twiki page. <pre class="screen">
+%UCL_PROMPT_SHORT% awk '{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=build&terms=" $1 "][" $1 "]]"}'  move-to-release > release-note-list
+</pre>
+   1. Write [[Documentation.Release3.ReleaseNotes][release notes]]. Use the package table you created in Step 1.
+
+---++ Step 13: Update the info we track for the releases
+
+   1. Copy the list of updated packages. <pre class="screen">
+%UCL_PROMPT_SHORT% scp move-to-release roy@library.cs.wisc.edu:/p/vdt/public/html/release-info/%VERSION%-updated.txt
+</pre>
+   1. Find the full list of packages in the new release and copy the list. <pre class="screen">
+%UCL_PROMPT_SHORT% koji list-tagged --latest el5-osg-release | awk '{print $1}' > new-packages
+%UCL_PROMPT_SHORT% scp new-packages roy@library.cs.wisc.edu:/p/vdt/public/html/release-info/%VERSION%-packages.txt
+</pre>
+   1. Find the full list of new RPMs in the new release and copy the list. <pre class="screen">
+%UCL_PROMPT_SHORT% xargs --arg-file new-packages koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | sort > new-rpms
+%UCL_PROMPT_SHORT% scp new-rpms roy@library.cs.wisc.edu:/p/vdt/public/html/release-info/%VERSION%-rpms.txt
+</pre>
+
+---++ Step 14: Announce the release
+
+<ol>
+<li>Write an announcement. Here is a sample you can edit:<div style="background: #E0F0E0; border: 1px solid gray; padding-right: 2px; padding-left: 2px; padding-top: .5em; padding-bottom: .5em;">
+Subject: OSG Software version %VERSION%
+
+Hello,
+
+I'm pleased to announced OSG Software version %VERSION%. This is the new OSG Software distributed via RPMs for Scientific Linux 5, !CentOS 5, and Red Hat Enterprise Linux 5. The changes in this release include changes that affect the %RED%SET-OF-METAPACKAGES (client, compute element, etc...)%ENDCOLOR%.
+
+   1. Major change 1
+   1. Major change 2
+   1. Major change 3
+
+Release notes and pointers to documentation can be found at:
+https://twiki.grid.iu.edu/bin/view/Documentation/Release3/Release304
+
+You can ask support via the usual channels. We look forward to your feedback on this new release. 
+
+-alain
+<br>--------------------------------------<br>
+Alain Roy<br>
+Open Science Grid Software Coordinator<br>
+roy@cs.wisc.edu<br>
+http://opensciencegrid.org
+</div>
+<li>Send this announcement to =vdt-discuss@opensciencegrid.org=.
+<li>Ask the GOC to distribute this announcement by [[https://ticket.grid.iu.edu/goc/other][opening a ticket]].
+</ol>
