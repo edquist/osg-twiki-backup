@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JamesWeichel" date="1323370433" format="1.1" version="1.3"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1323375946" format="1.1" reprev="1.4" version="1.4"}%
 ---+!! Installing Condor for your cluster
 %DOC_STATUS_TABLE%
 %TOC{depth="3"}%
@@ -20,10 +20,10 @@ We will use the latest stable release of Condor. As of %AS_OF_DATE%, this is %CO
 This installation uses the Condor RPM distribution. It can be downloaded from the Condor site or installed using a RPM or yum repository.
 The Condor team set up a yum repository that can be used for this installation.
 
-Condor needs to be installed (using the procedure below) on all nodes of the batch queue, the headnode and the worker nodes, and also on the interactive nodes used to submit Condor jobs.
+Condor needs to be installed (using the procedure below) on all nodes of the batch queue, the headnode (Condor central manager) and the worker nodes, and also on the interactive nodes used to submit Condor jobs.
 
 Certain operations, like the RPM installation and some system configuration, has to be repeated on each node.
-Some steps like the configuration of _condor_config_ are performed only once, e.g. on the head node =osg-ce=, others like the customization of the local condor configuration file is different for each node.
+Some steps like the configuration of _condor_config_ are performed only once, e.g. on the head node =osg-hn=, others like the customization of the local condor configuration file is different for each node.
 
 Sharing at least the directory hosting the configuration files allows to simplify a bit the configuration by making it easy to make cluster-wide configuration changes.
 Anyway this installation is possible also having no shared directories if the customized _condor_config_ file is replicated on all nodes of the queue.
@@ -72,7 +72,7 @@ yum install condor
 ---+++ Shared configuration files
 On the server exporting =/nfs/condor/condor-etc= (other nodes cannot write if you choose to export the directory with root squash) edit the following configuration files:
    * Create the cluster Condor configuration file =/nfs/condor/condor-etc/condor_config.cluster= with the following content:
-      * Copy the following content (also attached in [[%ATTACHURL%/condor_config.cluster][condor_config.cluster]]) changing the values to suite your cluster (yourdomain.org, gc1-ce.yourdomain.org, in %RED%red%ENDCOLOR%). You may find some suggestion in the local configuration file =/etc/condor/condor_config.local=:<pre class="file">
+      * Copy the following content (also attached in [[%ATTACHURL%/condor_config.cluster][condor_config.cluster]]) changing the values to suite your cluster (yourdomain.org, gc1-hn.yourdomain.org, in %RED%red%ENDCOLOR%). You may find some suggestion in the local configuration file =/etc/condor/condor_config.local=:<pre class="file">
 ## Condor configuration for OSG T3
 ## For more detial please see
 ## http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
@@ -85,8 +85,8 @@ COLLECTOR_NAME = "Tier 3 Condor at $(UID_DOMAIN)"
 FILESYSTEM_DOMAIN = $(UID_DOMAIN)
 ALLOW_WRITE = *.$(UID_DOMAIN)
 CONDOR_ADMIN = root@$(FULL_HOSTNAME)
-# The following should be the full name of the head node
-CONDOR_HOST = %RED%gc1-ce.yourdomain.org%ENDCOLOR%
+# The following should be the full name of the head node (Condor central manager)
+CONDOR_HOST = %RED%gc1-hn.yourdomain.org%ENDCOLOR%
 # Port range should be opened in the firewall (can be different on different machines)
 # This 9000-9999 is coherent with the iptables configuration in the T3 documentation 
 IN_HIGHPORT = 9999
@@ -109,33 +109,34 @@ SUSPEND = FALSE
 PREEMPT = FALSE
 KILL = FALSE
 </pre>
-      * Make sure that you have the following important line in the file <pre>CONDOR_HOST = gc1-ce</pre>
-         * Note: =CONDOR_HOST= can be set with or without the domain name: =gc1-ce= or =gc1-ce.yourdomain.org=
+      * Make sure that you have the following important line in the file <pre>CONDOR_HOST = gc1-hn</pre>
+         * Note: =CONDOR_HOST= can be set with or without the domain name: =gc1-ce= or =gc1-hn.yourdomain.org=
    *  On the NFS server create the files with the host configuration specific for the nodes using the following content. We will create 3 base configuration files: one for the headnode, one for worker nodes, one for the interactive nodes (user interface). (specific for the headnode) copying the following line:
-      * For the headnode, =/nfs/condor/condor-etc/condor_config.headnode=:<pre class="file">
+      * For the headnode (Condor central manager), =/nfs/condor/condor-etc/condor_config.headnode=:<pre class="file">
 ## OSG T3 host configuration
 ## For more info: http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
-# List of daemons on the node (headnode requires collector and negotiator, 
+# List of daemons on the node (Condor central manager requires collector and negotiator, 
 # schedd required to submit jobs, startd to run jobs)
 DAEMON_LIST = MASTER, COLLECTOR, NEGOTIATOR
 </pre>
       * For the worker nodes, =/nfs/condor/condor-etc/condor_config.worker=:<pre class="file">
 ## OSG T3 host configuration
 ## For more info: http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
-# List of daemons on the node (headnode requires collector and negotiator, 
+# List of daemons on the node (Condor central manager requires collector and negotiator, 
 # schedd required to submit jobs, startd to run jobs)
 DAEMON_LIST = MASTER, STARTD
 </pre>
-      * For the interactive nodes, =/nfs/condor/condor-etc/condor_config.interactive=:<pre class="file">
+      * For the interactive nodes or submit hosts (e.g. the gatekeeper of a CE), =/nfs/condor/condor-etc/condor_config.interactive=:<pre class="file">
 ## OSG T3 host configuration
 ## For more info: http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
-# List of daemons on the node (headnode requires collector and negotiator, 
+# List of daemons on the node (Condor central manager requires collector and negotiator, 
 # schedd required to submit jobs, startd to run jobs)
 DAEMON_LIST = MASTER, SCHEDD
 </pre>
    * Then, always on the NFS server, for each node create a link pointing to the template, e.g.:<pre class="screen">
 cd /nfs/condor/condor-etc/
-ln -s condor_config.headnode condor_config.gc1-ce
+ln -s condor_config.headnode condor_config.gc1-hn
+ln -s condor_config.interactive condor_config.gc1-ce
 ln -s condor_config.interactive condor_config.gc1-ui1
 ln -s condor_config.worker condor_config.gc1-c001
 ln -s condor_config.worker condor_config.gc1-c002
