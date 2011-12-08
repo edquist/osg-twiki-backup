@@ -1,0 +1,141 @@
+%META:TOPICINFO{author="MatyasSelmeci" date="1323367315" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="InternalDocs"}%
+---+ OSG Build Tools
+
+This page documents the tools used for RPM development for the OSG Software Stack.
+See [[SoftwareTeam.RPMDevelopmentGuide][the RPM development guide]] for the principles on which these tools are based.
+
+%RED%Status:%ENDCOLOR% work-in-progress
+
+---++ osg-build
+
+---+++ Overview
+
+This is the primary tool used in building source and binary RPMs.
+You can obtain it by either installing the =osg-build= package from the development repository, or checking out =software/osg-build/trunk= from SVN.
+
+---+++ Synopsis
+
+<blockquote><code>osg-build <em>task</em> [options] <em>package</em> [...]</code></blockquote>
+
+---+++ Commands
+
+---++++ =koji=
+
+Prebuilds the final source package, then builds it remotely using Koji at the UW-Madison Build and Test Lab (BatLab). This will push it into the development yum repo on the Koji host. (And eventually on =vdt.cs.wisc.edu=)
+
+This is the preferred method of building packages you expect to ship. (The mock build is a good way to test your build first.)
+
+---++++ =mock=
+
+Prebuilds the final source package, then builds it locally using =mock=, and stores the resulting source and binary RPMs in the package-specific =_build_results= directory.
+
+---++++ =prebuild=
+
+Prebuilds the final source package from upstream sources (if any) and local files (if any). May create or overwrite the =_upstream_srpm_contents= and =_final_srpm_contents= directories.
+
+---++++ =prepare=
+
+Prebuilds the final source package, then calls =rpmbuild -bp= on the result, extracting and patching the source files (and performing any other steps defined in the =%prep= section of the spec file.
+
+---++++ =rpmbuild=
+
+Prebuilds the final source package, then builds it locally using =rpmbuild=, and stores the resulting source and binary RPMs in the package-specific =_build_results= directory.
+
+---++++ =quilt=
+
+TODO
+
+---++++ =push= and =batlab=
+
+Versions of =osg-build= prior to 0.3.0 also supported the =push= task for moving RPMs to a repository and reindexing that repository, and a =batlab= task for submitting builds to the UW Madison Build and Test Lab (BATLab)'s Metronome system.
+These tasks have been removed, since we now use Koji for building and maintaining repositories.
+
+---++++ Options
+
+TODO
+
+---++++++ =--help=
+
+Prints the built-in usage information and exits without doing anything else.
+
+---++++++ =-c=, =--cache-prefix= _prefix_
+
+Sets the _prefix_ for upstream source cache references. The prefix must be a valid URI starting with either =http=, =https=, or =file=. The upstream source cache must be organized as described above. All files referenced by =.source= files in the affected packages must exist in the cache, or a runtime error will occur. If not specified, defaults to =http://vdt.cs.wisc.edu/upstream/=.
+
+---++++++ =-C=, =--config-file= _config_file_
+
+Sets the configuration file to load for the =osg-build= script, which can contain default values of options. The default path for the configuration file is =$HOME/.osg-build.ini=. A sample configuration file is provided at =/usr/share/doc/osg-build/sample-osg-build.ini= for an RPM install of =osg-build= or =tools/osg-build/sample-osgbuild.ini= for an SVN checkout.
+
+---++++++ =--distro-tag= _dist_
+
+Sets the distribution tag added on to the end of the release in the RPM. The default value for this is 'osg'.
+
+---++++++ =-e=, =--email= _email_
+
+Sets the email address to be used for notifications of job success/failure for the =batlab= task.
+
+---++++++ =-k=, =--kojilogin=
+
+Sets the login to use for the koji task. This should most likely be your CN. If not specified, will extract it from your =.koji/client.crt=
+
+---++++++ =--full-extract=
+
+If set, all upstream tarballs will be extracted into =_upstream_tarball_contents/= during the prebuild step.
+
+---++++++ =--loglevel= _loglevel_
+
+Sets the verbosity of the script. Valid values are: debug, info, warning, error and critical. If not specified, 'info' is default.
+
+---++++++ =-p=, =--push-to-yum=
+
+Adds resulting RPMs to a Yum repository, i.e. copies the RPMs and reindexes the affected repositories. Currently, the repository must be specified by =--yum-base=, but in the future a configuration file can specify this. See below for repository layout.
+
+---++++++ =--nop=, =--no-push-to-yum=
+
+Do not add resulting RPMs to a Yum repository.
+
+---++++++ =-q=, =--quiet=
+
+Do not display as much information. Equivalent to =--loglevel warning=
+
+---++++++ =-m=, =--mock-config= _path_
+
+Specifies the =mock= configuration file to use with the =mock= command. This file details how to set up the build environment used by mock for the build, including Yum repositories from which to install dependencies and certain predefined variables (e.g., the distribution tag =%dist=).
+
+The special value =AUTO= generates a configuration file that uses the VDT, Centos 5 and EPEL 5 repositories for the current architecture. Centos 5 will be changed to Scientific Linux 5 once a suitable mock config file is obtained.
+
+---++++++ =--nmi-submit-machine= _machine_
+
+The machine in the NMI Build and Test lab to submit jobs for the =batlab= task to.
+
+---++++++ =-v=, =--verbose=
+
+Display more information. Equivalent to =--loglevel debug=
+
+---++++++ =-w=, =--working-directory= _path_
+
+Use _path_ as the root directory of the files created by the script. For example, if _path_ is =$HOME/working=, and the package being built is =ndt=, the following tree will be created:
+   * $HOME/working/ndt/_upstream_srpm_contents
+   * $HOME/working/ndt/_upstream_tarball_contents
+   * $HOME/working/ndt/_final_srpm_contents
+   * $HOME/working/ndt/_build_results
+If _path_ is =TEMP=, a randomly named directory under =/tmp= is used as the working directory.
+
+---++++++ =-y=, =--yum-base= _path_
+
+Identifies the filesystem path at which the Yum repositories are based. For the commands that attempt to install source and binary RPMs into Yum, this prefix is used to locate the Yum repositories. Implies =--push-to-yum=.
+
+---++++++ =--init-repos=
+
+If the Yum repositories tree to write to doesn't exist (see =--yum-base=), create it.
+This invocation creates the following tree:
+
+<code>osg-build rpmbuild ndt --init-repos -y $HOME/repos</code>
+   * $HOME/repos/i386
+   * $HOME/repos/x86_64
+   * $HOME/repos/src
+
+---+++ Common Usage Patterns
+
+TODO
