@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1323367315" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1323380952" format="1.1" version="1.2"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 ---+ OSG Build Tools
 
@@ -18,13 +18,14 @@ You can obtain it by either installing the =osg-build= package from the developm
 
 <blockquote><code>osg-build <em>task</em> [options] <em>package</em> [...]</code></blockquote>
 
----+++ Commands
+---+++ Tasks
 
 ---++++ =koji=
 
-Prebuilds the final source package, then builds it remotely using Koji at the UW-Madison Build and Test Lab (BatLab). This will push it into the development yum repo on the Koji host. (And eventually on =vdt.cs.wisc.edu=)
-
-This is the preferred method of building packages you expect to ship. (The mock build is a good way to test your build first.)
+Prebuilds the final source package, then builds it remotely using the Koji instance at the UW-Madison Build and Test Lab (BatLab).
+Unless you specify a different koji tag/koji target, the resulting RPMs will end up in the =osg-minefield= repository.
+RPMs from the =osg-minefield= repository are regularly pulled to the =osg-development= repository hosted by the GOC at [[http://repo.grid.iu.edu]]
+This is the method used to build final versions of packages you expect to ship.
 
 ---++++ =mock=
 
@@ -37,6 +38,7 @@ Prebuilds the final source package from upstream sources (if any) and local file
 ---++++ =prepare=
 
 Prebuilds the final source package, then calls =rpmbuild -bp= on the result, extracting and patching the source files (and performing any other steps defined in the =%prep= section of the spec file.
+The resulting sources will be under =_final_srpm_contents=.
 
 ---++++ =rpmbuild=
 
@@ -44,76 +46,78 @@ Prebuilds the final source package, then builds it locally using =rpmbuild=, and
 
 ---++++ =quilt=
 
-TODO
+Collects the upstream local sources and spec file, then calls =quilt setup= on the spec file, extracting the source files and adding the patches to a quilt series file.
+See [[http://www.shakthimaan.com/downloads/glv/quilt-tutorial/quilt-doc.pdf][Quilt documentation (PDF link)]] for more information on quilt; also look at the example in the Usage Patterns section below (TODO)
+Similar to =prepare= (in fact, =quilt= calls =rpmbuild -bp= behind the scenes), but the source tree is in pre-patch state, and various quilt commands can be used to apply and modify patches.
 
----++++ =push= and =batlab=
+---++++ Removed tasks =push= and =batlab=
 
 Versions of =osg-build= prior to 0.3.0 also supported the =push= task for moving RPMs to a repository and reindexing that repository, and a =batlab= task for submitting builds to the UW Madison Build and Test Lab (BATLab)'s Metronome system.
 These tasks have been removed, since we now use Koji for building and maintaining repositories.
 
----++++ Options
+---+++ Options
 
 TODO
 
----++++++ =--help=
+---++++ =--help=
 
 Prints the built-in usage information and exits without doing anything else.
 
----++++++ =-c=, =--cache-prefix= _prefix_
+---++++ =--version=
 
-Sets the _prefix_ for upstream source cache references. The prefix must be a valid URI starting with either =http=, =https=, or =file=. The upstream source cache must be organized as described above. All files referenced by =.source= files in the affected packages must exist in the cache, or a runtime error will occur. If not specified, defaults to =http://vdt.cs.wisc.edu/upstream/=.
+Prints the version of =osg-build= and exits without doing anything else.
 
----++++++ =-C=, =--config-file= _config_file_
+---+++ Common Options
+
+---++++ =-a=, =--autoclean=, =--no-autoclean=
+
+Before each build, clean out the contents of the underscore directories (_build_results, _final_srpm_contents, _upstream_srpm_contents, _upstream_tarball_contents).
+By default, the directories are not cleaned up, which may lead to earlier builds of a package interfering with later ones.
+=--no-autoclean= will disable this.
+
+---++++ =-c=, =--cache-prefix= _prefix_
+
+Sets the _prefix_ for upstream source cache references.
+The prefix must be a valid URI starting with either =http=, =https=, or =file=, or one of the following special values:
+   * AFS (corresponds to =file:///p/vdt/public/html/upstream=, which is the location of the VDT cache using AFS from a UW CS machine).
+   * VDT (corresponds to =http://vdt.cs.wisc.edu/upstream=, which is the location of the VDT cache from off-site).
+   * AUTO (AFS if available, VDT if not)
+The upstream source cache must be organized as described above.
+All files referenced by =.source= files in the affected packages must exist in the cache, or a runtime error will occur.
+If not specified, defaults to =AUTO=.
+
+---++++ =-C=, =--config-file= _config_file_
 
 Sets the configuration file to load for the =osg-build= script, which can contain default values of options. The default path for the configuration file is =$HOME/.osg-build.ini=. A sample configuration file is provided at =/usr/share/doc/osg-build/sample-osg-build.ini= for an RPM install of =osg-build= or =tools/osg-build/sample-osgbuild.ini= for an SVN checkout.
 
 ---++++++ =--distro-tag= _dist_
 
-Sets the distribution tag added on to the end of the release in the RPM. The default value for this is 'osg'.
+Sets the distribution tag added on to the end of the release in the RPM.
 
----++++++ =-e=, =--email= _email_
+Default is =osg=.
 
-Sets the email address to be used for notifications of job success/failure for the =batlab= task.
-
----++++++ =-k=, =--kojilogin=
-
-Sets the login to use for the koji task. This should most likely be your CN. If not specified, will extract it from your =.koji/client.crt=
-
----++++++ =--full-extract=
+---++++ =--full-extract=
 
 If set, all upstream tarballs will be extracted into =_upstream_tarball_contents/= during the prebuild step.
+This flag makes most sense for the =prebuild= task, but is now mostly redundant with the =prepare= and =quilt= tasks.
 
----++++++ =--loglevel= _loglevel_
+---++++ =--loglevel= _loglevel_
 
 Sets the verbosity of the script. Valid values are: debug, info, warning, error and critical. If not specified, 'info' is default.
 
----++++++ =-p=, =--push-to-yum=
-
-Adds resulting RPMs to a Yum repository, i.e. copies the RPMs and reindexes the affected repositories. Currently, the repository must be specified by =--yum-base=, but in the future a configuration file can specify this. See below for repository layout.
-
----++++++ =--nop=, =--no-push-to-yum=
-
-Do not add resulting RPMs to a Yum repository.
-
----++++++ =-q=, =--quiet=
+---++++ =-q=, =--quiet=
 
 Do not display as much information. Equivalent to =--loglevel warning=
 
----++++++ =-m=, =--mock-config= _path_
+---++++ =-t=, =--target-arch= _arch_
 
-Specifies the =mock= configuration file to use with the =mock= command. This file details how to set up the build environment used by mock for the build, including Yum repositories from which to install dependencies and certain predefined variables (e.g., the distribution tag =%dist=).
+Specify an architecture to build packages for ( =rpmbuild= and =mock= tasks only ).
 
-The special value =AUTO= generates a configuration file that uses the VDT, Centos 5 and EPEL 5 repositories for the current architecture. Centos 5 will be changed to Scientific Linux 5 once a suitable mock config file is obtained.
-
----++++++ =--nmi-submit-machine= _machine_
-
-The machine in the NMI Build and Test lab to submit jobs for the =batlab= task to.
-
----++++++ =-v=, =--verbose=
+---++++ =-v=, =--verbose=
 
 Display more information. Equivalent to =--loglevel debug=
 
----++++++ =-w=, =--working-directory= _path_
+---++++ =-w=, =--working-directory= _path_
 
 Use _path_ as the root directory of the files created by the script. For example, if _path_ is =$HOME/working=, and the package being built is =ndt=, the following tree will be created:
    * $HOME/working/ndt/_upstream_srpm_contents
@@ -122,19 +126,57 @@ Use _path_ as the root directory of the files created by the script. For example
    * $HOME/working/ndt/_build_results
 If _path_ is =TEMP=, a randomly named directory under =/tmp= is used as the working directory.
 
----++++++ =-y=, =--yum-base= _path_
+Default is =.=
 
-Identifies the filesystem path at which the Yum repositories are based. For the commands that attempt to install source and binary RPMs into Yum, this prefix is used to locate the Yum repositories. Implies =--push-to-yum=.
+Has no effect with the =--svn= flag.
 
----++++++ =--init-repos=
+---+++ Mock-specific Options
 
-If the Yum repositories tree to write to doesn't exist (see =--yum-base=), create it.
-This invocation creates the following tree:
+---++++ =-m=, =--mock-config= _path_
 
-<code>osg-build rpmbuild ndt --init-repos -y $HOME/repos</code>
-   * $HOME/repos/i386
-   * $HOME/repos/x86_64
-   * $HOME/repos/src
+Specifies the =mock= configuration file to use.
+This file details how to set up the build environment used by mock for the build, including Yum repositories from which to install dependencies and certain predefined variables (e.g., the distribution tag =%dist=).
+
+The special value =AUTO= generates a configuration file that uses the VDT, Centos 5 and EPEL 5 repositories for the current architecture.
+
+Default is =AUTO=.
+
+See also =--mock-config-from-koji=.
+
+---++++ =--mock-config-from-koji= _build tag_
+
+Creates a mock config from a Koji build tag.
+This is the most accurate way to replicate the build environment that Koji will provide.
+The default build tag for EL5 builds (builds for Scientific Linux 5, !CentOS 5, or RHEL 5) is =el5-osg-build=.
+Requires mock 0.8 or greater, which is obtainable from EPEL.
+Also requires the Koji command-line tools (package =koji=), obtainable from the =osg-development= repository.
+Since this uses koji, some of the koji-specific options may apply, namely: =--koji-login= and =--koji-wrapper=.
+
+---+++ Koji-specific Options
+
+---++++ =-k=, =--koji-login=, =--kojilogin= _login_
+
+Sets the login to use for the koji task.
+This should most likely be your CN.
+If not specified, will extract it from your client cert (=~/.osg-koji/client.crt if you're using the =osg-koji= wrapper (default), or =~/.koji/client.crt= if not).
+
+---++++ =--koji-target= _target_
+
+The koji target to use for building.
+
+Default is =el5-osg=.
+
+---++++ =--koji-tag= _tag_
+
+The koji tag to add packages to.
+See the Koji Workflow guide (*TODO* add link)
+The special value =TARGET= uses the destination tag defined in the koji target.
+
+Default is =el5-osg=.
+
+---++++ =--koji-wrapper=, =--no-koji-wrapper=
+
+Use the =osg-koji= wrapper script around koji.
 
 ---+++ Common Usage Patterns
 
