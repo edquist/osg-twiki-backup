@@ -1,11 +1,13 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1323836356" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1323897817" format="1.1" version="1.8"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 ---+ OSG Build Tools
 
 This page documents the tools used for RPM development for the OSG Software Stack.
 See [[SoftwareTeam.RPMDevelopmentGuide][the RPM development guide]] for the principles on which these tools are based.
 
-%RED%Status:%ENDCOLOR% Manpage for osg-build is complete, but more example use cases need to be added, and the other tools such as osg-koji, osg-import-srpm, koji-tag-diff, and rpm-ripper need to be documented.
+%RED%Status:%ENDCOLOR% Needs review.
+
+---+ The tools
 
 ---++ osg-build
 
@@ -249,23 +251,63 @@ osg-build currently warns you if a non-scratch build is not build from SVN.
 Future versions of osg-build may issue an error instead.
 
 
----+++ Common Usage Patterns
+---++ koji-tag-diff
 
----++++ Verify that all files necessary to build the package are in the right place
+This script displays the differences between the latest packages in two koji tags.
+
+Example invocation: =koji-tag-diff el5-osg-development el5-osg-testing=
+
+This prints the packages that are in el5-osg-development but not in el5-osg-testing, or vice versa.
+
+---++ osg-build-test
+
+This script runs automated tests for =osg-build=.
+Only a few tests have been implemented so far.
+
+---++ osg-import-srpm
+
+This is a script to fetch an SRPM from a remote site, copy it into the upstream cache on AFS, and create an SVN package dir (if needed) with an =upstream/*.source= file and a =README= file.
+By default it will put downloaded files into the VDT upstream cache (/p/vdt/public/html/upstream), but you can pass =--upstream-root=<em>UPSTREAM_DIR</em>= to put them somewhere else.
+If called with the =--extract-spec= or =-e= argument, it will extract the spec file from the SRPM and place it into the =osg= subdir in SVN.
+If called with the =--diff-spec= or =-d= argument, it will extract the spec file and compare it to the existing spec file in the =osg= subdir.
+The script hasn't been touched in a while and needs a good deal of cleanup.
+A planned feature is to allow doing a three-way diff between the existing RPM before OSG modifications, the new RPM before OSG modifications and the existing RPM after OSG modifications.
+
+---++ osg-koji
+
+This is a wrapper script around the =koji= command line tool.
+It automatically specifies parameters to access the OSG's koji instance, and forces SSL authentication.
+It takes the same parameters as =koji= and passes them on.
+
+An additional command, =osg-koji setup= exists, which creates a koji configuration in =~/.osg-koji=.
+It also creates a CA bundle for verifying the server from either files in =/etc/grid-security/certificates= or a tarball downloaded from !DOEGrids.
+Finally, it creates a client cert file from =~/.globus/usercert.pem= and =~/.globus/userkey.pem=.
+
+---++ rpm-ripper
+
+This script takes an existing binary-only RPM, extract the files and put them into a tarball, and create a spec file using that tarball as input that would recreate the binary RPM.
+This script was written because the JDK packages we took from Oracle had an old RPM header format and we could not sign the RPMs.
+See the README file in the =jdk= package for more information about that.
+The script is not really meant for general use.
+
+
+---+ Common Usage Patterns
+
+---+++ Verify that all files necessary to build the package are in the right place
 
 Run =osg-build prebuild <em>packagedir</em>=.
 
----++++ Fetch and extract all source files for examination
+---+++ Fetch and extract all source files for examination
 
 Run =osg-build prebuild --full-extract <em>packagedir</em>=.
 Look inside the =_upstream_tarball_contents= directory.
 
----++++ Get a post-patch version of the upstream sources for examination
+---+++ Get a post-patch version of the upstream sources for examination
 
 Run =osg-build prepare <em>packagedir</em>=.
 Look inside the =_build_results= directory.
 
----++++ See which patches work with a new version of a package, update or remove them
+---+++ See which patches work with a new version of a package, update or remove them
 
    1. Place the new source tarball into the upstream cache, edit the version in the spec file and *.sources files as necessary
    1. Run =osg-build quilt <em>packagedir</em>=.
@@ -280,8 +322,23 @@ Look inside the =_build_results= directory.
    1. If you have changes to make to the source code that you want to save as a patch, type =quilt new <em>patchname</em>=, edit the files, type =quilt add <em>file</em>= on each file you edited, then type =quilt refresh= to recreate the patch.
    1. Once you're all done, copy the patches in the =patches/= directory to the =osg/= dir in SVN, run =quilt series= to get the application order and update the spec file accordingly.
 
----++ osg-koji
+---+++ See if a package builds successfully
 
-TODO
+   * If you have all the build dependencies of the package installed, run =osg-build rpmbuild <em>packagedir</em>=. The resulting RPMs will be in the =_build_results= directory.
+   * If you do not have all the build dependencies installed, or want to make sure you specified all of the necessary ones and the package builds from a clean environment, run =osg-build mock --mock-config-from-koji el5-osg-build <em>packagedir</em>=. The resulting RPMs will be in the =_build_results= directory.
+   * If you do not have mock installed, or want to exactly replicate the build environment on =koji-hub=, run =osg-build koji --scratch <em>packagedir</em>=. You may download the resulting RPMs from kojiweb [[https://koji-hub.batlab.org/koji]].
+
+---+++ Check for potential errors in a package
+
+Run =osg-build lint <em>packagedir</em>=.
+
+---+++ Create and test a final build of a package
+
+   1. =svn commit= your changes.
+   1. =svn update= the package dir.
+   1. Type =osg-build koji --svn <em>packagedir</em>=
+   1. Wait for the =osg-minefield= repo to be regenerated containing the new version of your package. You can run =osg-koji wait-repo el5-osg-development --build=<em>packagename-version-release</em>= and wait for that process to finish. Or, you can just check kojiweb [[https://koji-hub.batlab.org/koji]].
+   1. On your test machine, make sure the osg-minefield repo is enabled (edit =/etc/yum.repos.d/osg-minefield.repo=). Clean your cache (=yum clean all= followed by =yum clean expire-cache=).
+   1. Install your software, see if it works.
 
 <!-- vim:ft=twiki:tw=0 -->
