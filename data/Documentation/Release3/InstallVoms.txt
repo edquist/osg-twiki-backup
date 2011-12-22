@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1324505067" format="1.1" reprev="1.52" version="1.52"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1324517444" format="1.1" reprev="1.53" version="1.53"}%
 %META:TOPICPARENT{name="NavTechVOMS"}%
 %DOC_STATUS_TABLE%
 
@@ -23,6 +23,9 @@ We also describe how to remove a VO from VOMS if the need arises.
 
 The installation section will give you a bare-bones installation. In order to use VOMS you need to go through the configuration: run =configure_voms= to create your VO, probably enable read-only access to your VO and probably set a VO-admin to add/remove users.
 The other sections help in troubleshooting and knowing what is running.
+
+This is not a complete reference. If you need to administer a VO, please check the [[https://twiki.cern.ch/twiki/bin/view/EMI/EMIVomsAdminUserGuide261][VOMS User guide]] linked also in the [[#Reference][reference]] section.
+
 
 ---+ Introduction
 %STARTSECTION{"VomsDefinition"}%
@@ -180,14 +183,14 @@ Make sure that you have the VOMS and Tomcat service certificates/keys in the rig
 ---++ Configure VOMS
 %STARTSECTION{"ConfigureVoms"}%
 Now, you can create the database and configure VOMS-core and VOMS-admin:
-   1. Run ==voms-admin-configure== script:<pre class="rootscreen">
+   1. Run ==voms-admin-configure== script to create a new VO:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% voms-admin-configure install --dbtype mysql --vo %RED%VO_NAME%ENDCOLOR% \
     --createdb --deploy-database  --dbauser root  --dbapwd %RED%MYSQL_ROOT_PASSD%ENDCOLOR% \
     --dbusername  admin-%RED%VO_NAME%ENDCOLOR% --dbpassword %RED%secret %ENDCOLOR% --dbport  %RED%DB_PORT%ENDCOLOR% \
     --port %RED%VOMS_PORT%ENDCOLOR%  --mail-from %RED%email%ENDCOLOR% --smtp-host %RED%smtp.domain%ENDCOLOR% \
     --sqlloc /usr/lib%RED%64%ENDCOLOR%/voms/libvomsmysql.so --cert /etc/grid-security/voms/vomscert.pem \
     --key  /etc/grid-security/voms/vomskey.pem --read-access-for-authenticated-clients 
-</pre> For example::<pre class="rootscreen">
+</pre> For example for the test1 VO:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% voms-admin-configure install --dbtype mysql --vo test1 --createdb \
      --deploy-database --dbauser root --dbapwd  top_secret \
      --dbusername admin_test1 --dbpassword secret --dbport 3306 \
@@ -231,7 +234,7 @@ voms.csrf.log_only = true
 
 ---++ Configure Trust Manager
 %STARTSECTION{"ConfigureTrustManager"}%
-Configure Tomcat's trust manager:
+Configure Tomcat's trust manager. This must be done once, before starting up Tomcat for the first time:
    1. You have to configure Tomcat in order to enable EMI trustmanager:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% /var/lib/trustmanager-tomcat/configure.sh
 Info: using default install root: /
@@ -302,7 +305,7 @@ To stop VOMS you need to stop voms and voms-admin, and also the services they us
 | VOMS server | 15001 | The VOMS service responds to the voms-proxy-init command and to GUMS and edg-mkgridmap, it should be open to the Internet |
 | VOMS Admin | 8443 | VOMS Admin (which runs within Tomcat) is is the web interface, it must be available to VO administrators and users registering online |
 
-%NOTE% 15001 is the port specified in the [[InstallVoms#Configure_VOMS][configuration command]]. You can choose a different one or have multiple ones if you support multiple VOs.
+%NOTE% 15001 is the port specified in the [[#Configure_VOMS][configuration command]]. You can choose a different one or have multiple ones if you support multiple VOs.
 
 ---+ Advertise your VOMS server
 %STARTSECTION{"AdvertiseVOMS"}%
@@ -382,7 +385,7 @@ group vomss://cms-xen3.fnal.gov:8443/voms/VDT  vdt
 
 %NOTE% The =vdt= (3rd token) is an EDG format for the account name.   You will likely want to change it to the group unix account you want assigned for your CE node.  The example above is for a =group= account assignment.
 
-To test, you will need to do this on a CE node where the authorization mode is "gridmap" (PRIMA is not enabled):
+To test, you will need to do this on a CE node where the authorization mode is "gridmap" (lcmaps or PRIMA are not enabled):
    1. In some writable area, create a =edg-mkgridmap.conf= file and populate it with the example configuration file on your VOMS server.  It will be the only entry. <pre class="rootscreen">
 %UCL_PROMPT_ROOT% echo 'group vomss://cms-xen3.fnal.gov:8443/voms/VDT  vdt' >./edg-mkgridmap.conf
 </pre>
@@ -403,6 +406,15 @@ Unfortunately, there is no way of testing this except with an installed GUMS ser
 
 See [[ReleaseDocumentation.InstallConfigureAndManageGUMS][Install Configure and Manage GUMS]] for more information. 
 
+---++ Removing a VO
+If you added the VO just for testing purposes, you can remove it using =voms-admin-configure remove --vo %RED%VONAME%ENDCOLOR%= as documented in the [[https://twiki.cern.ch/twiki/bin/view/EMI/EMIVomsAdminUserGuide261#Removing_a_VO][user guide], e.g.: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin-configure remove --vo test1
+voms-admin-configure, version 2.6.1
+
+Removing vo  test1
+VO test1 succesfully removed.
+</pre>
+
 
 ---+ Troubleshooting
 
@@ -420,6 +432,12 @@ If you saw an error like "VOMS Server for VO_NAME not known!" probably you did n
 
 ---+++ Tomcat is not starting 
 If Tomcat is not starting and =/var/log/tomcat5/catalina.out= contains an error like "/usr/bin/tomcat5: line 331: /usr/lib/java/bin/java: No such file or directory", then you may have to uncomment the line ==JAVA_HOME="/usr/lib/jvm/java"== in ==/etc/tomcat5/tomcat5.conf==. The Jpackage repository is known to provide a misconfigured tomcat5 package.
+
+---+++ Problems running voms-admin
+Verify if voms-admin was configured and started correctly:
+   * If voms-admin is not responding and you get a "Socket error 111" try restartig tomcat5 and voms-admin
+   * If there are BC (bouncycastle) related errors in Tomcat's log file (=/var/log/tomcat5/catalina.out=), the trust manager may not be configured correctly. Try to run =/var/lib/trustmanager-tomcat/configure.sh=
+   * If you get an error like "Socket error: (1, 'error:14094416:SSL routines:SSL3_READ_BYTES:sslv3 alert certificate unknown')" probably you have no CRLs for your CA certificates. You can see in =/var/log/tomcat5/trustmanager.log= that Tomcat is discarding CA certificates without CRL. Run =fetch-crl=.
 
 
 ---+ References
