@@ -1,0 +1,528 @@
+%META:TOPICINFO{author="MarcoMambelli" date="1325194446" format="1.1" version="1.1"}%
+%DOC_STATUS_TABLE%
+
+---+!! Install VOMS
+%TOC%
+
+<!-- conventions used in this document
+   * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="voms"}%
+   * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="user"}%
+   * Local UCL_DOMAIN = %URLPARAM{"INPUT_DOMAIN" encode="quote" default="opensciencegrid.org"}%
+   * Set TWISTY_OPTS_DETAILED = mode="div" showlink="Show Detailed Output" hidelink="Hide" showimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleopen-small.gif" hideimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleclose-small.gif" remember="on" start="hide" 
+-->
+%STARTINCLUDE%
+%EDITTHIS%
+
+---+ About this Document
+This document is for VO System Administrators. 
+
+Here we describe how to install and configure VOMS on your Linux machine. When you install VOMS as described here, you get all three parts: !MySQL database, VOMS admin and VOMS server.  Instructions for creating your VO are also on this page, in the configuration section.
+
+We also describe how to remove a VO from VOMS if the need arises.
+
+The installation section will give you a bare-bones installation. In order to use VOMS you need to go through the configuration: run =configure_voms= to create your VO, probably enable read-only access to your VO and probably set a VO-admin to add/remove users.
+The other sections help in troubleshooting and knowing what is running.
+
+This is not a complete reference. If you need to administer a VO, please check the [[https://twiki.cern.ch/twiki/bin/view/EMI/EMIVomsAdminUserGuide261][VOMS User guide]] linked also in the [[#Reference][reference]] section.
+
+---+ Introduction
+%STARTSECTION{"VomsDefinition"}%
+The [[https://twiki.cern.ch/twiki/bin/view/EMI/EMIVomsDocumentation][Virtual Organization Membership Service]] allows to manage the members of a VO and their privileges (groups and roles).
+It has three main parts: 
+   * !MySQL database which is a persistent repository for VO membership information, 
+   * VOMS admin which provides the Web UI/services to maintain the VO membership. This requires Apache/Tomcat.
+   * VOMS server, a daemon process which services the <i>voms-proxy-init</i> requests.
+%ENDSECTION{"VomsDefinition"}%
+
+---+ How to get Help?
+To get assistance please use [[HelpProcedure][Help Procedure]].
+
+
+---+ Requirements
+   * A host to install the VOMS Service (Pristine node)
+   * OS is %SUPPORTED_OS%. Currently most of our testing has been done on Scientific Linux 5.
+   * Root access
+   * Host certificate. [[GetHostServiceCertificates][Here]] are instructions to request a host certificate.
+   * VOMS and Tomcat service certificates (optional, you can use the host certificate instead as explained in the [[#PrepareServiceCertificates][section below]])
+   * Allow inbound and outbound network connection _to all GUMS servers that may query this VOMS_
+   * Allow inbound and outbound network connection _to any clients who may need to voms-proxy-init_
+   * Testing Requirements:
+      * The Subject and Issuer of a voms admin certificate (it could be your certificate)
+      * Access to your own certificate if you want to create your voms proxy 
+      * Your certificate uploaded into a browser if you want to test voms-admin WEB UI
+
+%NOTE% The configuration and testing require some familiarity with openssl commands, e.g. to extract the subject (DN) and the issuer of a certificate. If you are  not familiar please check the guides in the [[#References][reference section]]: %TWISTY{%TWISTY_OPTS_DETAILED% showlink="click to show an example" }%   <pre class="screen"># to whom was it issued (subject/DN)
+%UCL_PROMPT% openssl x509 -noout -in /etc/grid-security/hostcert.pem -subject
+subject= /DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov
+# issuer
+%UCL_PROMPT% openssl x509 -noout -in /etc/grid-security/hostcert.pem -issuer
+issuer= /DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1
+</pre> %ENDTWISTY%
+
+---+ Installation Procedure
+
+%INCLUDE{"YumRepositories" section="OSGRepoBrief" TOC_SHIFT="+"}%
+
+%INCLUDE{"InstallCertAuth" section="OSGBriefCaCerts" TOC_SHIFT="+"}%
+
+%STARTSECTION{"InstallOSGVomsRPMs"}%
+---++ Install VOMS
+
+   1. Install OSG-VOMS:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install osg-voms
+</pre>  %TWISTY{%TWISTY_OPTS_DETAILED%}%   <pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install osg-voms
+Loaded plugins: kernel-module
+Setting up Install Process
+Resolving Dependencies
+--> Running transaction check
+---> Package osg-voms.noarch 0:3.0.0-1 set to be updated
+--> Processing Dependency: voms-mysql-plugin for package: osg-voms
+--> Processing Dependency: voms-server for package: osg-voms
+--> Processing Dependency: voms-admin-server for package: osg-voms
+--> Processing Dependency: voms-admin-client for package: osg-voms
+--> Processing Dependency: mysql-server for package: osg-voms
+...
+Dependencies Resolved
+
+=================================================================================================================================
+ Package                                Arch              Version                                Repository                 Size
+=================================================================================================================================
+Installing:
+ osg-voms                               noarch            3.0.0-1                                osg                       1.6 k
+Installing for dependencies:
+ PyXML                                  x86_64            0.8.4-4.el5_4.2                        fermi-security            1.0 M
+ alsa-lib                               x86_64            1.0.17-1.el5                           sl-base                   414 k
+...
+Transaction Summary
+=================================================================================================================================
+Install      67 Package(s)
+Upgrade       0 Package(s)
+
+Total download size: 247 M
+Is this ok [y/N]: y
+Downloading Packages:
+(1/67): osg-voms-3.0.0-1.noarch.rpm                                                                       | 1.6 kB     00:00     
+(2/67): geronimo-specs-compat-1.0-0.M2.2jpp.12.x86_64.rpm                                                 | 5.4 kB     00:00     
+(3/67): libXtst-1.0.1-3.1.x86_64.rpm                                                                      |  16 kB     00:00     
+(4/67): xml-commons-1.3.02-0.b2.7jpp.10.x86_64.rpm                                                        |  19 kB     00:00     
+...
+(67/67): jdk-1.6.0_26-fcs.x86_64.rpm                                                                      |  68 MB     00:02     
+---------------------------------------------------------------------------------------------------------------------------------
+Total                                                                                             14 MB/s | 247 MB     00:17     
+warning: rpmts_HdrFromFdno: Header V3 DSA signature: NOKEY, key ID 217521f6
+epel/gpgkey                                                                                               | 1.7 kB     00:00     
+Importing GPG key 0x217521F6 "Fedora EPEL <epel@fedoraproject.org>" from /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL
+Is this ok [y/N]: y
+Running rpm_check_debug
+Running Transaction Test
+Finished Transaction Test
+Transaction Test Succeeded
+Running Transaction
+  Installing     : perl-DBI                                                                                                 1/67 
+  Installing     : mysql                                                                                                    2/67 
+  Installing     : PyXML                                                                                                    3/67 
+...
+  Installing     : osg-voms                                                                                                67/67 
+
+Installed:
+  osg-voms.noarch 0:3.0.0-1                                                                                                      
+
+Dependency Installed:
+  PyXML.x86_64 0:0.8.4-4.el5_4.2                                 alsa-lib.x86_64 0:1.0.17-1.el5                                 
+  ant.x86_64 0:1.6.5-2jpp.2                                      antlr.x86_64 0:2.7.6-4jpp.2            
+...
+  xerces-j2.x86_64 0:2.7.1-7jpp.2.el5_4.2                        xml-commons.x86_64 0:1.3.02-0.b2.7jpp.10                       
+  xml-commons-apis.x86_64 0:1.3.02-0.b2.7jpp.10                  xml-commons-resolver.x86_64 0:1.1-1jpp.12                      
+
+Complete!
+</pre> %ENDTWISTY%
+
+%ENDSECTION{"InstallOSGVomsRPMs"}%
+
+---+ Configure
+
+%STARTSECTION{"ConfigureMysqlServer"}%
+
+---++ Configure !MySQL Database
+
+Before you will be able configure VOMS you will need to have access to !MySQL database.  The !MySQL software is installed with the =osg-voms= package. By default it will be using port 3306 and will not have password for ==root==. 
+
+It is not necessary to change the port number if you don't want to. If you want to modify the port you will need to edit ==/etc/my.cnf== file and add a new port:<pre class="file">
+[mysqld]
+datadir=/var/lib/mysql
+socket=/var/lib/mysql/mysql.sock
+port=%RED%MYSQL_PORT_NUMBER%ENDCOLOR%
+</pre>   
+It is wise to set a password for the ==root== user. Run the following command to set the password:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /etc/init.d/mysqld start
+%UCL_PROMPT_ROOT% mysqladmin -u root password %RED%top_secret%ENDCOLOR%
+</pre> 
+%ENDSECTION{"ConfigureMysqlSrever"}%
+
+%STARTSECTION{"PrepareServiceCertificates"}%
+---++ Setup the Service Certificates
+Make sure that you have the host, VOMS and Tomcat service certificates/keys in the right directories and with the correct owners and permissions (=600= for key and =644= the certificate). [[GetHostServiceCertificates][Host certificate]] is required and must be in =/etc/grid-security/hostcert.pem= and =hostkey.pem=. It is recommended to provide also service certificates for VOMS and Tomcat. If you don't, here are the instructions to copy the host certificate/key and set the correct owner (permissions are preserved).  Note that if you did not previously have a voms or tomcat user on your system, they were added during the RPM install:
+   1. VOMS-core daemon is running as user ==voms== and requires its service certificate and key in ==/etc/grid-security/voms==. To copy the host certificate/key for this service, you need to do the following:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% cd /etc/grid-security
+%UCL_PROMPT_ROOT% cp hostcert.pem voms/vomscert.pem
+%UCL_PROMPT_ROOT% cp hostkey.pem voms/vomskey.pem
+%UCL_PROMPT_ROOT% chown -R voms:voms voms
+</pre>
+   1. Tomcat service is running as user ==tomcat== and requires its service certificate and key in ==/etc/grid-security/http==. To copy the host certificate/key for this service, you need to do the following:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% cd /etc/grid-security
+%UCL_PROMPT_ROOT% mkdir /etc/grid-security/http
+%UCL_PROMPT_ROOT% cp hostcert.pem http/httpcert.pem
+%UCL_PROMPT_ROOT% cp hostkey.pem http/httpkey.pem
+%UCL_PROMPT_ROOT% chown -R tomcat:tomcat http
+</pre>
+%ENDSECTION{"PrepareServiceCertificates"}%
+
+---++ Configure Trust Manager
+%STARTSECTION{"ConfigureTrustManager"}%
+Configure Tomcat's trust manager. This must be done once, before starting up Tomcat for the first time:
+   1. You have to configure Tomcat in order to enable EMI trustmanager:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /var/lib/trustmanager-tomcat/configure.sh
+Info: using default install root: /
+Info: using default configuration file: //var/lib/trustmanager-tomcat/config.properties
+Info: using default configuration directory: //var/lib/trustmanager-tomcat
+Info: you can clean up using the following commands
+      mv -f /etc/tomcat5/server.xml.old-trustmanager /etc/tomcat5/server.xml
+      rm -f /usr/share/tomcat5/server/lib/bcprov*.jar
+      rm -f /usr/share/tomcat5/server/lib/log4j*.jar
+      rm -f /usr/share/tomcat5/server/lib/trustmanager-*.jar
+      rm -f /etc/tomcat5/log4j-trustmanager.properties
+      rm -f //var/lib/trustmanager-tomcat/server.xml
+</pre>
+%ENDSECTION{"ConfigureTrustManager"}%
+
+
+---+ Services Startup/Shutdown
+VOMS has its persistent repository in a !MySQL database, that requires =mysql= to be running in order to be queried.
+All grid interactions require updated CA certificates and CRLs.
+Then the _voms server_ is a daemon servicing authentication requests and _voms-admin_, requiring Tomcat, is a Web UI/service to manage the VO membership. 
+
+%STARTSECTION{"StartVOMSServices"}%
+To start VOMS you need to start several services:
+   1. You need an updated CRL before you can use VOMS, and you should enable fetch-crl to run periodically:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% fetch-crl
+%UCL_PROMPT_ROOT% /sbin/chkconfig fetch-crl-boot on
+%UCL_PROMPT_ROOT% /sbin/chkconfig fetch-crl-cron on
+%UCL_PROMPT_ROOT% /sbin/service fetch-crl-boot start
+%UCL_PROMPT_ROOT% /sbin/service fetch-crl-cron start
+</pre>
+   1. !MySQL server needs to be running if it is not already:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/chkconfig mysqld on
+%UCL_PROMPT_ROOT% /sbin/service mysqld start
+</pre>
+   1. Start voms server<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/chkconfig voms on
+%UCL_PROMPT_ROOT% service voms start
+</pre>
+   1. Start Tomcat, required by voms-admin:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 on
+%UCL_PROMPT_ROOT% service tomcat5 start
+</pre>
+   1. Start voms-admin:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/chkconfig voms-admin on
+%UCL_PROMPT_ROOT% service voms-admin start
+</pre>
+%ENDSECTION{"StartVOMSServices"}%
+
+%STARTSECTION{"StopVOMSServices"}%
+To stop VOMS you need to stop voms and voms-admin, and also the services they use if nothing else is using them:
+   1. Stop voms-admin:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service voms-admin stop
+</pre>
+   1. Stop voms server<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service voms stop
+</pre>
+   1, Stop Tomcat, if no other application is using it:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service tomcat5 stop
+</pre>
+   1. Stop !MySQL server if no other application is using it:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service mysql stop
+</pre>
+%ENDSECTION{"StopVOMSServices"}%
+
+
+---+ Configuration Part II
+Add a VO
+
+---++ Configure VOMS
+%STARTSECTION{"ConfigureVoms"}%
+Now, you can create the database and configure VOMS-core and VOMS-admin:
+   1. Run ==voms-admin-configure== script to create a new VO:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin-configure install --dbtype mysql --vo %RED%VO_NAME%ENDCOLOR% \
+    --createdb --deploy-database  --dbauser root  --dbapwd %RED%MYSQL_ROOT_PASSD%ENDCOLOR% \
+    --dbusername  admin-%RED%VO_NAME%ENDCOLOR% --dbpassword %RED%secret %ENDCOLOR% --dbport  %RED%DB_PORT%ENDCOLOR% \
+    --port %RED%VOMS_PORT%ENDCOLOR%  --mail-from %RED%email%ENDCOLOR% --smtp-host %RED%smtp.domain%ENDCOLOR% \
+    --sqlloc /usr/lib%RED%64%ENDCOLOR%/voms/libvomsmysql.so --cert /etc/grid-security/voms/vomscert.pem \
+    --key  /etc/grid-security/voms/vomskey.pem --read-access-for-authenticated-clients 
+</pre> For example for the test1 VO:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin-configure install --dbtype mysql --vo test1 --createdb \
+     --deploy-database --dbauser root --dbapwd  top_secret \
+     --dbusername admin_test1 --dbpassword secret --dbport 3306 \
+     --port 15001 --mail-from tlevshin@fnal.gov --smtp-host smtp.fnal.gov \
+     --sqlloc /usr/lib64/voms/libvomsmysql.so --cert /etc/grid-security/voms/vomscert.pem \
+     --key  /etc/grid-security/voms/vomskey.pem --read-access-for-authenticated-clients 
+</pre> If the above command is executed correctly a lot of sql stuff will scroll across the screen, followed by <pre class="rootscreen">
+Deploying voms database...
+Database deployed correctly!
+
+
+
+VO test1 installation finished.
+ 
+You can start the voms services using the following commands:
+    /etc/init.d/voms start test1
+    /etc/init.d/voms-admin start test1
+</pre>
+   1. Add a local admin:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /usr/sbin/voms-db-deploy.py add-admin --vo %RED%VO_NAME%ENDCOLOR%  \
+        --dn  %RED%HOST_CERT_SUBJECT%ENDCOLOR% \
+        --ca %RED%HOST_CERT_ISSUER%ENDCOLOR% 
+</pre>For example:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /usr/sbin/voms-db-deploy.py add-admin --vo test1 \
+     --dn /DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov \
+     --ca "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1"
+</pre>
+
+
+   1.  *AFTER _voms-admin_ and _tomcat5_ have been started as described below*, do the following command to allow =GUMS= and =edg-mkgridmap= to query your VO for the set of users: %TWISTY{%TWISTY_OPTS_DETAILED% showlink="show summary of required commands" }%   <pre class="rootscreen">
+  %UCL_PROMPT_ROOT% /var/lib/trustmanager-tomcat/configure.sh
+  %UCL_PROMPT_ROOT% service tomcat5 start
+  %UCL_PROMPT_ROOT% service voms-admin start 
+</pre> %ENDTWISTY%   <pre class="rootscreen">
+voms-admin --nousercert --vo %RED%VO_NAME%ENDCOLOR% add-ACL-entry /%RED%VO_NAME%ENDCOLOR% ANYONE VOMS_CA "CONTAINER_READ,MEMBERSHIP_READ" true
+</pre> For example: <pre class="rootscreen">
+voms-admin --nousercert --vo test1 add-ACL-entry /test1 ANYONE VOMS_CA "CONTAINER_READ,MEMBERSHIP_READ" true
+</pre>
+   1. Allow compatibility with =GUMS= and =edg-mkgridmap=. Edit =/etc/voms-admin/%RED%VO_NAME%ENDCOLOR%/voms.service.properties= by adding the following line to the file: <pre class="rootscreen">
+voms.csrf.log_only = true
+</pre>
+%ENDSECTION{"ConfigureVoms"}%
+
+
+
+---+ Firewall information
+
+| *Service* | *Port* | *Comments* |
+| VOMS server | 15001 | The VOMS service responds to the voms-proxy-init command and to GUMS and edg-mkgridmap, it should be open to the Internet |
+| VOMS Admin | 8443 | VOMS Admin (which runs within Tomcat) is is the web interface, it must be available to VO administrators and users registering online |
+
+%NOTE% 15001 is the port specified in the [[#Configure_VOMS][configuration command]]. You can choose a different one or have multiple ones if you support multiple VOs.
+
+---+ Advertise your VOMS server
+%STARTSECTION{"AdvertiseVOMS"}%
+A working VOMS server can be contacted to sign certificates extensions (e.g., by =voms-proxy-init=) or to verify VO memberships (e.g., by %LINK_GLOSSARY_GUMS%) only if it is on the list of valid VOMS servers (==/etc/vomses==) and if there is an LSC file for that VO. Some grid services (glite-FTS and glite-WMS) even require a copy of the VOMS server certificate.
+
+The file ==/etc/vomses== contains a list of VOs and their VOMS servers. A VOMS server may appear on multiple lines if it is serving multiple VOs on different ports. All lines contain:<pre class="file">
+"%RED%alias%ENDCOLOR%" "%RED%HOST_NAME%ENDCOLOR%" "%RED%PORT%ENDCOLOR%" "%RED%HOST_DN%ENDCOLOR%" "%RED%VO_NAME%ENDCOLOR%"
+</pre> For example:
+<pre class="file">
+"test1" "fermicloud002.fnal.gov" "15001" "/DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov" "test1"
+</pre> 
+
+The [[https://twiki.cern.ch/twiki/bin/view/LCG/VOMSLSCfileConfiguration][LSC file]] (!LiSt of Certificates) is another description of your VOMS server:
+
+   * It is located in ==$X509_VOMS_DIR/${VO}==, by default ==/etc/grid-security/vomsdir/${VO}==
+   * The filename is the fully qualified hostname (FQDN) of your server, followed by ==.lsc==
+   * The first line contains the subject DN of the VOMS server host certificate, without quotes
+   * The second line contains the subject DN of the CA that issued the VOMS server host certificate, also without quotes
+
+For example, for the VO named =test1= hosted on =fermicloud002=, the LSC file named ==/etc/grid-security/vomsdir/test1/fermicloud002.fnal.gov.lsc== might contain: <pre class="file">
+/DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov
+/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1
+</pre> 
+
+The VOMS server manager must distribute the line for =/etc/vomses= and the LSC file to all hosts that will contact the VOMS server. OSG distributes with all its client and server installations a default list of VOMS servers (=/etc/vomses=) and a default set of LSC files. These are part of the =vo-client= RPM.
+
+To be included, use the VO Registration function at [[https://oim.grid.iu.edu/oim/vo][OIM VO Registration]].  Even if you are already registered as a VO you need to notify the Grid Operations Center if the information in the vomses file or the LSC file has changed.
+
+%ENDSECTION{"AdvertiseVOMS"}%
+
+---+ Test
+To test VOMS you can add a member (her/his certificate) to a VO using voms-admin, login in the Web UI and then:
+   * use the voms server to generate a proxy for that certificate. 
+   * or generate a grid-mapfile
+   * or query with GUMS
+
+---++ Voms-admin test
+Add a member(yourself) to the VO:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin --vo %RED%VO_NAME%ENDCOLOR% --host %RED%HOST_NAME%ENDCOLOR% \
+       --nousercert create-user %RED%USER_CERT_SUBJECT%ENDCOLOR% %RED%USER_CERT_ISSUER%ENDCOLOR% \
+       %RED%USER_COMMON_NAME%ENDCOLOR% %RED%email%ENDCOLOR% 
+</pre> For example:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin --vo test1 --host fermicloud002 --nousercert create-user \
+   "/DC=org/DC=doegrids/OU=People/CN=Joe Doe 12345" "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1" 
+   "Joe Doe" jdoe@fnal.gov
+</pre>Assign VOAdmin role to yourself, so you can manage the VO using the Web UI:<pre class="rootscreen">
+voms-admin --vo %RED%VO_NAME%ENDCOLOR% --host %RED%HOST_NAME%ENDCOLOR% \
+    --nousercert assign-role  %RED%/VO_NAME%ENDCOLOR%  VO-Admin  \
+      %RED%USER_CERT_SUBJECT%ENDCOLOR% %RED%USRT_CERT_ISSUER%ENDCOLOR% 
+</pre>For example:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin --vo test1 --host fermicloud002 --nousercert assign-role /test1   VO-Admin  \
+   "/DC=org/DC=doegrids/OU=People/CN=Joe Doe 12345" "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1" </pre>
+
+Check the Web UI by accessing ==https://%RED%hostname%ENDCOLOR%:8443/vomses==. If you have your certificate loaded into the browser you will be able to manage the VO.
+
+---++ Voms-core test:
+To use your VOMS you need to add a line with its description (similar to the following) to ==/etc/vomses==, a file containing a list of all valid voms servers:<pre class="file">
+"%RED%alias%ENDCOLOR%" "%RED%HOST_NAME%ENDCOLOR%" "%RED%PORT%ENDCOLOR%" "%RED%HOST DN%ENDCOLOR%" "%RED%VO_NAME%ENDCOLOR%"
+</pre> For example:
+<pre class="file">
+"test1" "fermicloud002.fnal.gov" "15001" "/DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov" "test1"
+</pre> 
+Use ==voms-proxy-init== to generate proxy. Login as user, create ==vomses== file (e.g. =~/.vomses=). Generate voms proxy<pre class="screen">
+%UCL_PROMPT% voms-proxy-init -voms %RED%VO_NAME%ENDCOLOR% -vomses ~/vomses
+</pre>
+
+[[TestOSGClient#Authentication_using_a_VOMS_Prox][Click here]] for a more detailed example on using and verifying a VOMS proxy.
+
+---++ Testing edg-mkgridmap
+The =edg-mkgridmap= command is run on a site's %GLOSSARY_CE% node to generated a =grid-mapfile= file.  This script is not provided as a part of the VOMS installation, so you will have to go a CE node to test this.  You do not have to be the =root= user on the CE node, but you will need to have a personal certificate available.
+
+The =mkgridmap= file syntax/values for each VO you create, can be viewed on the WEB UI for your VO by selecting =Configuration information= on the left hand menu of the main page.
+
+<pre class="file">
+group vomss://cms-xen3.fnal.gov:8443/voms/VDT  vdt
+</pre>
+
+%NOTE% The =vdt= (3rd token) is an EDG format for the account name.   You will likely want to change it to the group unix account you want assigned for your CE node.  The example above is for a =group= account assignment.
+
+To test, you will need to do this on a CE node where the authorization mode is "gridmap" (lcmaps or PRIMA are not enabled):
+   1. In some writable area, create a =edg-mkgridmap.conf= file and populate it with the example configuration file on your VOMS server.  It will be the only entry. <pre class="rootscreen">
+%UCL_PROMPT_ROOT% echo 'group vomss://cms-xen3.fnal.gov:8443/voms/VDT  vdt' >./edg-mkgridmap.conf
+</pre>
+   1. Execute the edg-mkgridmap: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% source $VDT_LOCATION/setup.sh
+%UCL_PROMPT_ROOT% edg-mkgridmap --conf ./edg-mkgridmap.conf 
+  <em>... the output will be in /etc/grid-security/grid-mapfile and will look as follows ...</em>
+  "/DC=org/DC=doegrids/OU=People/CN=John Weigand 458491"  vdt
+  "/DC=org/DC=doegrids/OU=Services/CN=cms-xen3.fnal.gov"   vdt
+</pre>
+
+You can find more in the [[InstallComputeElement#CeEdgMkgridmap][Compute Element install document]].
+
+---++ Testing the GUMS interface
+The GUMS authorization server periodically 'pulls' the VO membership data for it's authorization and account assignment  functions from the various VO's VOMS servers.  
+
+Unfortunately, there is no way of testing this except with an installed GUMS server which this document does not address.
+
+See [[ReleaseDocumentation.InstallConfigureAndManageGUMS][Install Configure and Manage GUMS]] for more information. 
+
+---++ Removing a VO
+If you added the VO just for testing purposes, you can remove it using =voms-admin-configure remove --vo %RED%VONAME%ENDCOLOR%= as documented in the [[https://twiki.cern.ch/twiki/bin/view/EMI/EMIVomsAdminUserGuide261#Removing_a_VO][user guide], e.g.: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin-configure remove --vo test1
+voms-admin-configure, version 2.6.1
+
+Removing vo  test1
+VO test1 succesfully removed.
+</pre>
+
+
+---+ Troubleshooting
+
+---++ Useful log files
+
+| *File* | *Description* |
+| =/var/log/tomcat5/catalina.out= | This is the Tomcat log file. Problems (and a lot of noise) are reported here. |
+| =/var/log/tomcat5/voms-admin-VO_NAME.log= | This is the vo-by-vo log for voms-admin Web UI | 
+| =/var/log/tomcat5/trustmanager.log= | The trustmanager handles things related to authentication. Useful errors are sometimes here. |
+| =/var/log/voms/voms.VO_NAME= | This is the log of the VOMS daemon for each VO |
+
+---++ Fix these errors
+---+++ VOMS Server for VO_NAME not known!
+If you saw an error like "VOMS Server for VO_NAME not known!" probably you did not add the VO VO_NAME (e.g. test1) to =/etc/vomses=
+
+---+++ Tomcat is not starting 
+If Tomcat is not starting and =/var/log/tomcat5/catalina.out= contains an error like "/usr/bin/tomcat5: line 331: /usr/lib/java/bin/java: No such file or directory", then you may have to uncomment the line ==JAVA_HOME="/usr/lib/jvm/java"== in ==/etc/tomcat5/tomcat5.conf==. The Jpackage repository is known to provide a misconfigured tomcat5 package.
+
+---+++ Problems running voms-admin
+Verify if voms-admin was configured and started correctly:
+   * If voms-admin is not responding and you get a "Socket error 111" try restartig tomcat5 and voms-admin
+   * If there are BC (bouncycastle) related errors in Tomcat's log file (=/var/log/tomcat5/catalina.out=), the trust manager may not be configured correctly. Try to run =/var/lib/trustmanager-tomcat/configure.sh=
+   * If you get an error like "Socket error: (1, 'error:14094416:SSL routines:SSL3_READ_BYTES:sslv3 alert certificate unknown')" probably you have no CRLs for your CA certificates. You can see in =/var/log/tomcat5/trustmanager.log= that Tomcat is discarding CA certificates without CRL. Run =fetch-crl=.
+
+
+---+ References
+EMI documentation:
+   1. [[https://twiki.cern.ch/twiki/bin/view/EMI/EMIVomsDocumentation][EMI VOMS documentation]]
+   1. [[https://twiki.cern.ch/twiki/bin/view/EMI/EMIVomsAdminUserGuide261][VOMS Admin User Guide]]
+   1. [[https://twiki.cern.ch/twiki/bin/view/EMI/VOMSystemAdministratorGuide][VOMS System Admin Guide]]
+   1. [[https://twiki.cern.ch/twiki/bin/view/LCG/VOMSLSCfileConfiguration][How to configure VOMS LSC files]]
+
+<!--
+[[http://www.eu-emi.eu/documentation][EMI]]/gLite documentation:
+https://twiki.cnaf.infn.it/twiki/bin/view/VOMS/WebArchitecture
+https://twiki.cern.ch/twiki/bin/view/EGEE/VomsAdminUserGuide
+https://twiki.cern.ch/twiki/bin/view/EGEE/VomsInstallGuide_32
+https://twiki.cern.ch/twiki/bin/view/LCG/VomsFAQforServiceManagers
+https://edms.cern.ch/file/973684/1/voms-guide.pdf
+-->
+
+Openssl commands:
+   * brief: http://www.switch.ch/grid/certificates/openssl/index.html
+   * more comprehensive: http://security.ncsa.illinois.edu/research/grid-howtos/usefulopenssl.html
+
+%STOPINCLUDE%
+
+---+ Comments
+
+%COMMENT{type="tableappend"}%
+
+<!-- CONTENT MANAGEMENT PROJECT
+############################################################################################################
+ DEAR DOCUMENT OWNER
+ ===================
+
+ Thank you for claiming ownership for this document! Please fill in your FirstLast name here:
+   * Local OWNER = MarcoMambelli
+
+ Please define the document area, choose one of the defined areas from the next line
+ DOC_AREA = (ComputeElement|Storage|VO|Security|User|Monitoring|General|Integration|Operations|Tier3)
+   * Local DOC_AREA       = VO
+
+ define the primary role the document serves, choose one of the defined roles from the next line
+ DOC_ROLE = (EndUser|Student|Developer|SysAdmin|VOManager)
+   * Local DOC_ROLE       = SysAdmin
+
+ Please define the document type, choose one of the defined types from the next line
+ DOC_TYPE = (Troubleshooting|Training|Installation|HowTo|Planning|Navigation|Knowledge)
+   * Local DOC_TYPE       = Installation
+  Please define if this document in general needs to be reviewed before release ( %YES% | %NO% )
+   * Local INCLUDE_REVIEW = %YES%
+
+ Please define if this document in general needs to be tested before release ( %YES% | %NO% )
+   * Local INCLUDE_TEST   = %YES%
+
+ change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
+   * Local REVIEW_READY   = %YES%
+
+ change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
+   * Local TEST_READY   = %YES%
+
+ change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
+   * Local RELEASE_READY  = %YES%
+
+
+ DEAR DOCUMENT REVIEWER
+ ======================
+
+ Thank for reviewing this document! Please fill in your FirstLast name here:
+   * Local REVIEWER       = StevenTimm
+ Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local REVIEW_PASSED  = %YES%
+
+
+DEAR DOCUMENT TESTER
+ ====================
+
+ Thank for testing this document! Please fill in your FirstLast name here:
+   * Local TESTER         = StevenTimm
+ Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local TEST_PASSED    = %YES%
+
+############################################################################################################
+-->
