@@ -1,0 +1,171 @@
+%META:TOPICINFO{author="TanyaLevshina" date="1325632434" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="IRODSOSG"}%
+---+!! *<noop>%SPACEOUT{ "Admin Rule for Quota Enforcment" }%*
+
+manage_quota.r rules performs the following actions:
+   * Select all the resources where the quota is exceeded per user groups
+   * For each user of group finds collection that is located on the specified resource with max size and deletes files in the collection until quota is under the limit or there is no files
+   * Repeats until quota is under limit for all resources and groups
+   * Sends email to an owner notifing about file deletion
+   * Sends email to admin about all activities 
+
+<pre class="file">
+quotaComplianceRule {
+#Input parameter is:
+# admin name
+#Output is:
+ *ContInxOld_q = 1;
+ *Condition_q = "QUOTA_OVER > '0'";
+ msiMakeQuery("QUOTA_USER_NAME, QUOTA_RESC_NAME, QUOTA_LIMIT,QUOTA_OVER",*Condition_q,*Query);
+ msiExecStrCondQuery(*Query, *QueryOut);
+ msiGetContInxFromGenQueryOut(*QueryOut,*ContInxNew_q);
+ while(*ContInxOld_q > 0) {
+        foreach(*QueryOut) {
+                *Sum = 0;
+                *MaxSize=0;
+                *Email="";
+                msiGetValByKey(*QueryOut,"QUOTA_OVER",*ExceedQuota);
+                msiGetValByKey(*QueryOut,"QUOTA_LIMIT",*LimitQuota);
+                msiGetValByKey(*QueryOut,"QUOTA_RESC_NAME",*Resource);
+                msiGetValByKey(*QueryOut,"QUOTA_USER_NAME",*Group);
+                #Found the resource where quota is over the limit
+                *ExQuota = int(*ExceedQuota);
+                while (*ExQuota >0 )
+                {
+                        writeLine("stdout","For resource *Resource group *Group quota limit is *LimitQuota  is exceeded by *ExQuota bytes");
+                        #find users that have collections that contribute to exceeded quota
+                        *ContInxOld_u = 1;
+                        *Condition_u = "USER_TYPE = 'rodsuser' and USER_GROUP_NAME = '*Group' order by COLL_NAME";
+                        msiMakeGenQuery("USER_NAME,COLL_NAME",*Condition_u, *GenQInp);
+                        msiExecGenQuery(*GenQInp, *GenQOut);
+                        msiGetContInxFromGenQueryOut(*GenQOut,*ContInxNew_u);
+                        *ChosenCollName="";
+                        *ChosenCollOwner="";
+                        while(*ContInxOld_u > 0) {
+                                foreach(*GenQOut) {
+                                        msiGetValByKey(*GenQOut,"USER_NAME",*User);
+                                        msiGetValByKey(*GenQOut,"COLL_NAME",*Collection);
+                                        writeLine("stdout","Found User *User with *Collection");
+                                        msiGetCollectionSize(*Collection,*Buf,*Status);
+                                        msiGetValByKey(*Buf,"Size",*Size)
+                                        writeLine("stdout","Collection *Collection Owner *User size *Size ");
+                                        *Isize=int(*Size)
+                                        if  (*Isize >= *MaxSize)
+                                        {
+                                                *MaxSize=*Isize;
+                                                *ChosenCollName=*Collection;
+                                                *ChosenCollOwner=*User;
+                                        }
+                                        if ( *Isize >= *ExQuota )
+                                        {
+                                                writeLine("stdout","Found the approriate collection *Collection with size *Size")
+                                                *MaxSize=*Isize;
+                                                *ChosenCollName=*Collection;
+                                                *ChosenCollOwner=*User;
+                                                break;
+                                        }
+                                }
+                                *ContInxOld_u = *ContInxNew_u;
+                                if(*ContInxOld_u > 0) {msiGetMoreRows(*GenQInp,*GenQOut,*ContInxNew_u);}
+                        }
+
+
+                        writeLine("stdout","Looking for files now in *ChosenCollName")
+                        if (*Email == "") {
+                                #Get email address of this user
+                                *Condition = "USER_NAME = '*ChosenCollOwner'";
+                                msiMakeGenQuery("USER_INFO",*Condition,*GenQInp);
+                                msiExecGenQuery(*GenQInp, *GenQOut);
+                                msiGetContInxFromGenQueryOut(*GenQOut,*ContInxNew);
+                                foreach(*GenQOut) {
+                                        msiGetValByKey(*GenQOut,"USER_INFO",*Email);
+                                }
+                         }
+
+                        
+                        
+                        *ContInxOld = 1;
+                        #Loop over files in the collection
+                        *Condition = "COLL_NAME = '*ChosenCollName' order by MODIFY_TS"
+                        msiMakeGenQuery("DATA_ID,DATA_NAME,DATA_SIZE",*Condition, *GenQInp);
+                        msiExecGenQuery(*GenQInp, *GenQOut);
+                        msiGetContInxFromGenQueryOut(*GenQOut,*ContInxNew);
+                        while(*ContInxOld > 0) {
+                                foreach(*GenQOut) {
+                                        msiGetValByKey(*GenQOut,"DATA_SIZE",*Dsize);
+                                        msiGetValByKey(*GenQOut,"DATA_NAME",*File);
+                                        *Idsize = int(*Dsize);
+                                        writeLine("stdout","File *File with size *Dsize is scheduled for deletion");
+                                        writeLine("stdout","Notify user *ChosenCollOwner *Email");
+                                        #change ACL for this file
+                                        *Acl="admin:own";
+                                        *Path="*ChosenCollName"++"/"++"*File";
+                                        msiSetACL("default",*Acl,*AdminName,*Path);
+                                        writeLine("stdout","Set owner access for *ChosenCollOwner on file *Path");
+                                        *PurgeCondition="DATA_PATH='*Path'";
+                                        msiDataObjUnlink("objPath=*Path++++replNum=0",*Status);
+                                        writeLine("stdout","File *File is removed");
+                                        msiSendMail(*Email, "*File is deleted","Quota for group *Group was exceeded, we have to delete your file *File\n Regards,\n iRODS admin");
+                                        *Sum=*Sum+*Idsize;
+                                        if ( *Sum >= *ExQuota) {
+                                                writeLine("stdout","Found all the files for deletion");
+                                                break;
+                                        }
+                               }
+                               *ContInxOld = *ContInxNew;
+                               if(*ContInxOld > 0) {msiGetMoreRows(*GenQInp,*GenQOut,*ContInxNew);}
+                        }
+
+                        *ExQuota=*ExQuota-*Sum
+
+                }
+        }
+        *ContInxOld_q = *ContInxNew_q;
+        if(*ContInxOld_q > 0) {msiGetMoreRows(*Query,*QueryOut,*ContInxNew_q);
+        } else {
+                writeLine("stdout", "Nothing to do, exiting...");
+        }
+       *Condition = "USER_NAME = '*AdminName'";
+        msiMakeGenQuery("USER_INFO",*Condition,*GenQInp);
+        msiExecGenQuery(*GenQInp, *GenQOut);
+        msiGetContInxFromGenQueryOut(*GenQOut,*ContInxNew);
+        foreach(*GenQOut) {
+         msiGetValByKey(*GenQOut,"USER_INFO",*Email);
+        }
+        msiSendStdoutAsEmail(*Email, "Executed manage_quota rule");
+
+ }
+}
+INPUT *AdminName = 'prod'
+OUTPUT ruleExecOut
+</pre>
+
+
+The email sended to user:
+<pre class='file'>
+From: 	irods@fermicloud089.fnal.gov
+Subject: 	junk.txt is deleted
+Date: 	January 3, 2012 4:52:41 PM CST
+To: 	Joe Doe <jdoe.fnal.gov>
+
+Quota for group engage was exceeded, we have to delete your file junk.txt.
+Regards,
+iRODS admin
+</pre>
+
+The email sended to admin with stdout output from rule excution:
+<pre class='file'>
+For resource disk_cache_1 group engage quota limit is 15000  is exceeded by 195 bytes
+Found User tlevshin with /fermilab/home/tlevshin
+Collection /fermilab/home/tlevshin Owner tlevshin size 15195 
+Found the approriate collection /fermilab/home/tlevshin with size 15195
+File axis_command with size 397 is scheduled for deletion
+Notify user tlevshin tlevshin@fnal.gov
+Set owner access for tlevshin on file /fermilab/home/tlevshin/axis_command
+File axis_command is removed
+Found all the files for deletion
+Nothing to do, exiting...
+</pre>
+
+
+-- Main.TanyaLevshina - 03 Jan 2012
