@@ -1,35 +1,44 @@
-%META:TOPICINFO{author="DerekWeitzel" date="1309298004" format="1.1" reprev="1.13" version="1.13"}%
+%META:TOPICINFO{author="BrianBockelman" date="1325640926" format="1.1" reprev="1.14" version="1.14"}%
 %META:TOPICPARENT{name="ProbeInstallation"}%
 ---+ !GlideinWMS Probe Configuration
 
 ---++ Overview
 This probe will read the GLIDEIN_ResourceType startd attribute.  This attribute needs to be set by the !GlideinWMS Factory (The OSG factories already have this set).  If this attribute does not exist, it will fall back to GLIDEIN_Site, and finally the !FileSystemDomain of the host.
 
-The usage will be forwarded to the Production Gratia collector by default.
+The usage will be forwarded to the production Gratia collector (gratia-osg-prod.opensciencegrid.org) by default.
+
+---+ 1.0 Requirements and Preparation
 
 The Probe assumes that condor binaries (=condor_history= for example) are in the default path (=/usr/bin=).  If they are not, please see section [[#NonStandardCondor][Non-Standard Condor]]
 
+Host requirements (bare-bone installation):
+   * Probe must be installed on the VO's schedd.
+   * Currently most of our testing has been done on Scientific Linux 5.
+   * Root access
+   * Allow outbound network connection, on port 80, to the Gratia collector (default is http://gratia-osg-prod.opensciencegrid.org).  Gratia does not support HTTP proxies.
+
+To be part of OSG your CE must be registered in OIM. To register your resource:
+   * Use your user certificate.  [[Documentation.Release3.CertificateUserGet][Here]] are instructions to request a user certificate.
+   * Register in OIM as described in Operations.OIMRegistrationInstructions
+
+%INCLUDE{"Documentation.Release3.YumRepositories" section="OSGRepoBrief" TOC_SHIFT="+"}%
+
 ---++ Installation
-   1. Install the Gratia Common and Gratia Condor RPM on the host that runs the =condor_schedd=.  Currently, you need a pre-release of the [[https://koji.hep.caltech.edu/koji/buildinfo?buildID=572][RPM's]].  You will need both the [[http://koji.hep.caltech.edu/public/packages/gratia-probe/1.07.02e/0.4.pre/noarch/gratia-probe-common-1.07.02e-0.4.pre.noarch.rpm][gratia-probe-common]] and the [[http://koji.hep.caltech.edu/public/packages/gratia-probe/1.07.02e/0.4.pre/noarch/gratia-probe-condor-1.07.02e-0.4.pre.noarch.rpm][gratia-probe-condor]] rpm's.  It is easiest to install both at the same time.
+   1. Install the Gratia Common and Gratia Condor RPM on the host that runs the =condor_schedd=.  Assuming you previously installed the OSG repo and have the release repository enabled:
    <pre class="screen">
-rpm -i gratia-probe-common-1.07.02e-0.4.pre.noarch.rpm gratia-probe-condor-1.07.02e-0.4.pre.noarch.rpm    </pre>
-   1. Edit the ProbeConfig located in =/opt/vdt/gratia/probe/condor/ProbeConfig=.  First, edit the =SiteName= to be a unique identifier for your !GlideinWMS Submit host.   If you haven't already, you should register your !GlideinWMS submit host in [[https://oim.grid.iu.edu/oim/home][OIM]].  Then you can use the name you used to register the resource.
+yum install gratia-probe-condor </pre>
+   1. Edit the ProbeConfig located in =/etc/gratia/condor/ProbeConfig=.  First, edit the =SiteName= to be a unique identifier for your !GlideinWMS Submit host.   If you haven't already, you should register your !GlideinWMS submit host in [[https://oim.grid.iu.edu/oim/home][OIM]].  Then you can use the name you used to register the resource.
    <pre class="file">
 SiteName="HCC-GlideinWMW-Frontend"   </pre>
    Next, turn the probe on by editing the =EnableProbe=:
    <pre class="file">
 EnableProbe="1"   </pre>
-   1. Add to condor_config (or condor_config.local, or any condor configuration file):
+   1. Add the following to the condor configuration (recommended to =condor_config.local= or a new file in =/etc/condor/config.d= directory):
    <pre class="file">
 # GlideinWMS Gratia commands
-PER_JOB_HISTORY_DIR = /opt/vdt/gratia/var/data
+PER_JOB_HISTORY_DIR = /var/lib/gratia/data
 JOBGLIDEIN_ResourceName="$$([IfThenElse(IsUndefined(TARGET.GLIDEIN_ResourceName), IfThenElse(IsUndefined(TARGET.GLIDEIN_Site), FileSystemDomain, TARGET.GLIDEIN_Site), TARGET.GLIDEIN_ResourceName)])"
 SUBMIT_EXPRS = $(SUBMIT_EXPRS) JOBGLIDEIN_ResourceName   </pre>
-<!--
-   1. Modify cron to periodically run the script.  You can create a file in /etc/cron.d/ to do this.
-   <pre class="screen">
-echo '12,27,42,57 * * * * root "/opt/vdt/gratia/probe/condor/condor_meter.cron.sh"' > /etc/cron.d/gratia-probe-condor.cron</pre>
--->
 
 ---++ Users without Certificates
 If you have users that submit jobs without a certificate explicitly declared in the submit file, you will need to add =MapUnknownToGroup= to the ProbeConfig.  In the file =/opt/vdt/gratia/probe/condor/ProbeConfig=, add the value after the =EnableProbe=.
@@ -46,7 +55,7 @@ If you have users that submit jobs without a certificate explicitly declared in 
 
 #NonStandardCondor
 ---++ Non-Standard Condor Install
-If Condor is installed in a non-standard location (ie non RPM, or binaries outside =/usr/bin=) then you need to tell the probe where to find the Condor binaries.  This can be done with a script =/root/setup.sh=.  
+If Condor is installed in a non-standard location (ie not RPMs, or relocated RPM outside =/usr/bin=), then you need to tell the probe where to find the Condor binaries.  This can be done with a script =/root/setup.sh=.  
 
 ---+++ Creating =/root/setup.sh=
 If you already have a Condor setup script that will add Condor attributes to the environment, then you can point to that:
@@ -57,5 +66,3 @@ Otherwise, you can set the attributes manually:
 <pre class="file">
 export PATH=$PATH:/path/to/condor/bin
 export CONDOR_CONFIG=/path/to/condor/etc/condor_config </pre>
-
-
