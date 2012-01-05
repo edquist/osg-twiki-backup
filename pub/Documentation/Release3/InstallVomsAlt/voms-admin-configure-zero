@@ -1,0 +1,49 @@
+#!/usr/bin/python
+import sys,os, grp
+sys.path.append('/usr/sbin')
+import voms
+
+uv = voms.UpgradeVO({})    
+def write_siblings_context(self):
+        tomcat_group = None
+        options = self.user_options
+        user_id = os.geteuid()
+        if not options.has_key("tomcat-group"):
+         if user_id == 0:
+            for group in ['tomcat5','tomcat4','tomcat']:
+                try:
+                    if grp.getgrnam(group):
+                        (gr_name,gr_passwd, gr_gid,gr_mem) = grp.getgrnam(group)
+                        options['tomcat-group-id']=gr_gid
+                        break
+                except KeyError, k:
+                    continue
+            if not options.has_key('tomcat-group-id'):
+                raise voms.VomsConfigureError,"Please specify the --tomcat-group option. The default 'tomcat5', 'tomcat4', 'tomcat' are not applicable to your system."
+         else:
+            options['tomcat-group-id'] = os.getgid()
+        else:
+         try:
+            (gr_name,gr_passwd, gr_gid,gr_mem) =  grp.getgrnam(options['tomcat-group'])
+            options['tomcat-group-id']=gr_gid
+         except KeyError, k:
+            raise voms.VomsConfigureError, "The tomcat-group passed as argument (%s) does not exist on this system!" % options['tomcat-group']
+        # replace template
+        m = {'WAR_FILE': voms.VomsConstants.voms_siblings_war,
+             'GLITE_LOCATION': voms.VomsConstants.voms_loc,
+             'GLITE_LOCATION_VAR': voms.VomsConstants.voms_admin_conf_loc,
+             'VOMS_ADMIN_LOCATION': voms.VomsConstants.voms_loc,
+             'VOMS_ADMIN_LOCATION_VAR': voms.VomsConstants.voms_admin_conf_loc,
+             'VOMS_LOCATION': voms.VomsConstants.voms_loc
+             }
+        t = voms.Template(open(voms.VomsConstants.voms_siblings_context_template,"r").read())
+        voms.ConfigureAction.write_and_close(self, 
+                                        voms.VomsConstants.voms_siblings_context, 
+                                        t.sub(m))
+        voms.setup_permissions(voms.VomsConstants.voms_siblings_context, 
+                          0644, 
+                          self.user_options['tomcat-group-id'])
+#run the procedure
+# you'll find /etc/voms-admin/voms-siblings.xml
+write_siblings_context(uv)
+
