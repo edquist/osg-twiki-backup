@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1325201934" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1325731120" format="1.1" reprev="1.3" version="1.3"}%
 %DOC_STATUS_TABLE%
 
 ---+!! Install VOMS
@@ -140,8 +140,8 @@ Complete!
 
 %ENDSECTION{"InstallOSGVomsRPMs"}%
 
----+ Configure
-This section is presenting only the basic configuration. All the servers are useless until you go also through a [[#Configure_VO][VO configuration]].
+---+ Initial Configuration
+This section is presenting only the basic configuration. All the servers are useless until you add at least one VO by completing also the [[#Configure_VOMS_and_VOMS_admin_to][VO configuration]].
 
 %STARTSECTION{"ConfigureMysqlServer"}%
 ---++ Configure !MySQL Database
@@ -196,11 +196,22 @@ Info: you can clean up using the following commands
 </pre>
 %ENDSECTION{"ConfigureTrustManager"}%
 
+---++ Voms-admin initial setup
+You need to preform some initial configuration to be able to startup the services.
+
+%WARNING% [[%ATTACHURL%/voms-admin-configure-zero][voms-admin-configure-zero]]: voms-admin-configure-zero is not yet in the RPM, it is attached to this document. You need to download and install it in =/usr/sbin=.
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin-configure-zero
+</pre>
+
 
 ---+ Services Startup/Shutdown
 VOMS has its persistent repository in a !MySQL database, that requires =mysql= to be running in order to be queried.
 All grid interactions require updated CA certificates and CRLs.
 Then the _voms server_ is a daemon servicing authentication requests and _voms-admin_, requiring Tomcat, is a Web UI/service to manage the VO membership. 
+
+%NOTE% If there are no VO configured (see next section) the services will actually perform no action. 
 
 %STARTSECTION{"StartVOMSServices"}%
 To start VOMS you need to start several services:
@@ -215,7 +226,7 @@ To start VOMS you need to start several services:
 %UCL_PROMPT_ROOT% /sbin/chkconfig mysqld on
 %UCL_PROMPT_ROOT% /sbin/service mysqld start
 </pre>
-   1. Start voms server<pre class="rootscreen">
+   1. Start voms server (you should see one =voms= process for each VO you have configured)<pre class="rootscreen">
 %UCL_PROMPT_ROOT% /sbin/chkconfig voms on
 %UCL_PROMPT_ROOT% service voms start
 </pre>
@@ -223,7 +234,7 @@ To start VOMS you need to start several services:
 %UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 on
 %UCL_PROMPT_ROOT% service tomcat5 start
 </pre>
-   1. Start voms-admin:<pre class="rootscreen">
+   1. Start voms-admin (you will see only a =tomcat= process, since voms-admin is a webapp running within Tomcat):<pre class="rootscreen">
 %UCL_PROMPT_ROOT% /sbin/chkconfig voms-admin on
 %UCL_PROMPT_ROOT% service voms-admin start
 </pre>
@@ -246,13 +257,12 @@ To stop VOMS you need to stop voms and voms-admin, and also the services they us
 %ENDSECTION{"StopVOMSServices"}%
 
 
----+ Configure VO
-These steps will add a VO and perform some basic setup to make it manageable.
+---+ Configure VOMS and VOMS-admin to add a VO
+These steps will create the database and configure VOMS-core and VOMS-admin to add a VO and will perform some basic setup to make it manageable. 
 Before proceeding with the next steps make sure that voms, tomcat5 and voms-admin are running.
+If you'd like to add multiple VOs you need to repeat the following steps for each VO and make sure that the name (=--vo=) and the VOMS server port (=--port=) selected in the first step are different for each VO
 
----++ Configure VOMS
 %STARTSECTION{"ConfigureVoms"}%
-Now, you can create the database and configure VOMS-core and VOMS-admin:
    1. Run ==voms-admin-configure== script to create a new VO:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% voms-admin-configure install --dbtype mysql --vo %RED%VO_NAME%ENDCOLOR% \
     --createdb --deploy-database  --dbauser root  --dbapwd %RED%MYSQL_ROOT_PASSD%ENDCOLOR% \
@@ -279,6 +289,10 @@ You can start the voms services using the following commands:
     /etc/init.d/voms start test1
     /etc/init.d/voms-admin start test1
 </pre>
+   1. Restart VOMS and VOMS-admin:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service voms restart 
+%UCL_PROMPT_ROOT% service voms-admin start
+</pre>
    1. Add a local admin:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% /usr/sbin/voms-db-deploy.py add-admin --vo %RED%VO_NAME%ENDCOLOR%  \
         --dn  %RED%HOST_CERT_SUBJECT%ENDCOLOR% \
@@ -288,13 +302,7 @@ You can start the voms services using the following commands:
      --dn /DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov \
      --ca "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1"
 </pre>
-
-
-   1.  *AFTER _voms-admin_ and _tomcat5_ have been started as described below*, do the following command to allow =GUMS= and =edg-mkgridmap= to query your VO for the set of users: %TWISTY{%TWISTY_OPTS_DETAILED% showlink="show summary of required commands" }%   <pre class="rootscreen">
-  %UCL_PROMPT_ROOT% /var/lib/trustmanager-tomcat/configure.sh
-  %UCL_PROMPT_ROOT% service tomcat5 start
-  %UCL_PROMPT_ROOT% service voms-admin start 
-</pre> %ENDTWISTY%   <pre class="rootscreen">
+   1.  Do the following command to allow =GUMS= and =edg-mkgridmap= to query your VO for the set of users: <pre class="rootscreen">
 voms-admin --nousercert --vo %RED%VO_NAME%ENDCOLOR% add-ACL-entry /%RED%VO_NAME%ENDCOLOR% ANYONE VOMS_CA "CONTAINER_READ,MEMBERSHIP_READ" true
 </pre> For example: <pre class="rootscreen">
 voms-admin --nousercert --vo test1 add-ACL-entry /test1 ANYONE VOMS_CA "CONTAINER_READ,MEMBERSHIP_READ" true
@@ -303,6 +311,15 @@ voms-admin --nousercert --vo test1 add-ACL-entry /test1 ANYONE VOMS_CA "CONTAINE
 voms.csrf.log_only = true
 </pre>
 %ENDSECTION{"ConfigureVoms"}%
+
+---++ Removing a VO
+If you added the VO just for testing purposes, you can remove it using =voms-admin-configure remove --vo %RED%VONAME%ENDCOLOR%= as documented in the [[https://twiki.cern.ch/twiki/bin/view/EMI/EMIVomsAdminUserGuide261#Removing_a_VO][user guide], e.g.: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% voms-admin-configure remove --vo test1
+voms-admin-configure, version 2.6.1
+
+Removing vo  test1
+VO test1 succesfully removed.
+</pre>
 
 
 
@@ -413,15 +430,6 @@ Unfortunately, there is no way of testing this except with an installed GUMS ser
 
 See [[ReleaseDocumentation.InstallConfigureAndManageGUMS][Install Configure and Manage GUMS]] for more information. 
 
----++ Removing a VO
-If you added the VO just for testing purposes, you can remove it using =voms-admin-configure remove --vo %RED%VONAME%ENDCOLOR%= as documented in the [[https://twiki.cern.ch/twiki/bin/view/EMI/EMIVomsAdminUserGuide261#Removing_a_VO][user guide], e.g.: <pre class="rootscreen">
-%UCL_PROMPT_ROOT% voms-admin-configure remove --vo test1
-voms-admin-configure, version 2.6.1
-
-Removing vo  test1
-VO test1 succesfully removed.
-</pre>
-
 
 ---+ Troubleshooting
 
@@ -472,6 +480,7 @@ Openssl commands:
 ---+ Comments
 
 %COMMENT{type="tableappend"}%
+
 
 <!-- CONTENT MANAGEMENT PROJECT
 ############################################################################################################
@@ -527,3 +536,5 @@ DEAR DOCUMENT TESTER
 
 ############################################################################################################
 -->
+
+%META:FILEATTACHMENT{name="voms-admin-configure-zero" attachment="voms-admin-configure-zero" attr="" comment="" date="1325729305" path="voms-admin-configure-zero" size="2279" stream="voms-admin-configure-zero" tmpFilename="/usr/tmp/CGItemp4679" user="MarcoMambelli" version="1"}%
