@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AlainRoy" date="1326236571" format="1.1" reprev="1.56" version="1.56"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1326239187" format="1.1" reprev="1.57" version="1.57"}%
 %META:TOPICPARENT{name="NavTechVOMS"}%
 %DOC_STATUS_TABLE%
 
@@ -40,14 +40,37 @@ To get assistance please use [[HelpProcedure][Help Procedure]].
 
 
 ---+ Requirements
+
+---++ Host and OS
    * A host to install the VOMS Service (Pristine node)
    * OS is %SUPPORTED_OS%. Currently most of our testing has been done on Scientific Linux 5.
    * Root access
-   * Host certificate. [[GetHostServiceCertificates][Here]] are instructions to request a host certificate.
-   * VOMS and Tomcat service certificates (optional, you can use the host certificate instead)
+
+---++ Users
+The VOMS and voms-admin installation will create two users unless they are already created.
+| *User* | *Comment* |
+| =voms= | Runs the VOMS daemons, one per VO. |
+| =tomcat= | Runs tomcat5 and owns voms-admin configuration and certificates. |
+
+---++ Certificates
+You will need two service certificates. [[GetHostServiceCertificates][Here]] are instructions to request a host certificate. Optional, you can use the host certificate instead as explained in the [[#Setup_the_Service_Certificates][section below]].
+
+| *Certificate* | *User that owns certificate* | *Path to certificate* |
+| VOMS service certificate | =voms= | =/etc/grid-security/voms/vomscert.pem= <br> =/etc/grid-security/voms/vomskey.pem= |
+| Tomcat service certificate | =tomcat= | =/etc/grid-security/http/httpcert.pem= <br> =/etc/grid-security/http/httpkey.pem= |
+
+---++ Networking
    * Allow inbound and outbound network connection _to all GUMS servers that may query this VOMS_
    * Allow inbound and outbound network connection _to any clients who may need to voms-proxy-init_
-   * Testing Requirements:
+|
+ *Service* | *Port* | *Comments* |
+| VOMS server | 15001 * | The VOMS service responds to the voms-proxy-init command and to GUMS and edg-mkgridmap, it should be open to the Internet (At least all GUMS servers that may query this VOMS and any clients who may need to voms-proxy-init) |
+| VOMS Admin | 8443 | VOMS Admin (which runs within Tomcat) is is the web interface, it must be available to VO administrators and users registering online |
+
+%NOTE% 15001 is the port specified in the [[#Configure_VOMS][configuration command]]. You can choose a different one or have multiple ones if you support multiple VOs.
+
+---++ Additional Requirements:
+   * Testing requirements
       * The Subject and Issuer of a voms admin certificate (it could be your certificate)
       * Access to your own certificate if you want to create your voms proxy 
       * Your certificate uploaded into a browser if you want to test voms-admin WEB UI
@@ -142,9 +165,9 @@ Complete!
 %ENDSECTION{"InstallOSGVomsRPMs"}%
 
 ---+ Configure
+The configuration requires some initial steps plus the addition of one or more VO. You will not be able to start voms-admin if you don't add at least one VO.
 
 %STARTSECTION{"ConfigureMysqlServer"}%
-
 ---++ Configure !MySQL Database
 
 Before you will be able configure VOMS you will need to have access to !MySQL database.  The !MySQL software is installed with the =osg-voms= package. By default it will be using port 3306 and will not have password for ==root==. 
@@ -162,8 +185,8 @@ It is wise to set a password for the ==root== user. Run the following command to
 %ENDSECTION{"ConfigureMysqlSrever"}%
 
 %STARTSECTION{"PrepareServiceCertificates"}%
----++ Service Certificates
-Make sure that you have the VOMS and Tomcat service certificates/keys in the right directories and with the correct owners and permissions (=600= for key and =644= the certificate). If you don't, here are the instructions to copy the host certificates and set the correct owner (permissions are preserved).  Note that if you did not previously have a voms or tomcat user on your system, they were added during the install:
+---++ Setup the Service Certificates
+Make sure that you have the host, VOMS and Tomcat service certificates/keys in the right directories and with the correct owners and permissions (=600= for key and =644= the certificate). [[GetHostServiceCertificates][Host certificate]] is required and must be in =/etc/grid-security/hostcert.pem= and =hostkey.pem=. It is recommended to provide also service certificates for VOMS and Tomcat. If you don't, here are the instructions to copy the host certificate/key and set the correct owner (permissions are preserved).  Note that if you did not previously have a voms or tomcat user on your system, they were added during the RPM install:
    1. VOMS-core daemon is running as user ==voms== and requires its service certificate and key in ==/etc/grid-security/voms==. To copy the host certificate/key for this service, you need to do the following:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% cd /etc/grid-security
 %UCL_PROMPT_ROOT% cp hostcert.pem voms/vomscert.pem
@@ -197,9 +220,11 @@ Info: you can clean up using the following commands
 </pre>
 %ENDSECTION{"ConfigureTrustManager"}%
 
----++ Add a VO
+
+
+---++ Add and configure a VO
 %STARTSECTION{"ConfigureVoms"}%
-You must make at least one VO before you can run VOMS. These instructions assume that VOMS and VOMS Admin are not running (i.e. this is your first VO). If you have already created a VO and VOMS and VOMS Admin are running, you must restart VOMS and VOMS Admin after step 1. 
+You must add at least one VO before you can start VOMS Admin. You must start the services as instructed during the configuration steps. You can stop them at the end if you don't want them running yet.
 
    1. Run ==voms-admin-configure== script to create a new VO:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% voms-admin-configure install --dbtype mysql --vo %RED%VO_NAME%ENDCOLOR% \
@@ -226,9 +251,13 @@ VO test1 installation finished.
 You can start the voms services using the following commands:
     /etc/init.d/voms start test1
     /etc/init.d/voms-admin start test1
-</pre>If VOMS and VOMS Admin were running, restart them: <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/service voms start %RED%test1%ENDCOLOR%
-%UCL_PROMPT_ROOT% /sbin/service voms-admin start %RED%test1%ENDCOLOR%
+</pre>
+   1. Start VOMS and VOMS Admin for the VO you just added: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service voms start %RED%VO_NAME%ENDCOLOR%
+%UCL_PROMPT_ROOT% /sbin/service voms-admin start %RED%VO_NAME%ENDCOLOR%
+</pre> For example: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service voms start test1
+%UCL_PROMPT_ROOT% /sbin/service voms-admin start test1
 </pre>
    1. Add a local admin:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% /usr/sbin/voms-db-deploy.py add-admin --vo %RED%VO_NAME%ENDCOLOR%  \
@@ -239,16 +268,21 @@ You can start the voms services using the following commands:
      --dn /DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov \
      --ca "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1"
 </pre>
-   1.  In order to configure VOMS Admin to allow GUMS and edg-mkgridmap to query your VO for the set of users, you need to temporarily start up somes of the services. <pre class="rootscreen">
+   1. In order to complete the next step you need to start also Tomcat if it is not already running: <pre class="rootscreen">
 %UCL_PROMPT_ROOT% /sbin/service tomcat5 start
-%UCL_PROMPT_ROOT% /sbin/service voms-admin start 
+</pre>
+   1. Configure VOMS Admin to allow GUMS and edg-mkgridmap to query your VO for the set of users: <pre class="rootscreen">
 %UCL_PROMPT_ROOT% voms-admin --nousercert --vo %RED%VO_NAME%ENDCOLOR% add-ACL-entry /%RED%VO_NAME%ENDCOLOR% ANYONE VOMS_CA "CONTAINER_READ,MEMBERSHIP_READ" true
 %UCL_PROMPT_ROOT% voms-admin --nousercert --vo test1 add-ACL-entry /test1 ANYONE VOMS_CA "CONTAINER_READ,MEMBERSHIP_READ" true
-%UCL_PROMPT_ROOT% /sbin/service voms-admin stop
-%UCL_PROMPT_ROOT% /sbin/service tomcat5 stop
 </pre> 
    1. Allow compatibility with =GUMS= and =edg-mkgridmap=. Edit =/etc/voms-admin/%RED%VO_NAME%ENDCOLOR%/voms.service.properties= by adding the following line to the file: <pre class="rootscreen">
 voms.csrf.log_only = true
+</pre>
+
+If you don't want to leave your services running you can stop them after you are done with adding the VO:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service voms stop
+%UCL_PROMPT_ROOT% /sbin/service voms-admin stop
+%UCL_PROMPT_ROOT% /sbin/service tomcat5 stop
 </pre>
 %ENDSECTION{"ConfigureVoms"}%
 
@@ -299,14 +333,6 @@ To stop VOMS you need to stop voms and voms-admin, and also the services they us
 %UCL_PROMPT_ROOT% service mysql stop
 </pre>
 %ENDSECTION{"StopVOMSServices"}%
-
----+ Firewall information
-
-| *Service* | *Port* | *Comments* |
-| VOMS server | 15001 | The VOMS service responds to the voms-proxy-init command and to GUMS and edg-mkgridmap, it should be open to the Internet |
-| VOMS Admin | 8443 | VOMS Admin (which runs within Tomcat) is is the web interface, it must be available to VO administrators and users registering online |
-
-%NOTE% 15001 is the port specified in the [[#Configure_VOMS][configuration command]]. You can choose a different one or have multiple ones if you support multiple VOs.
 
 ---+ Advertise your VOMS server
 %STARTSECTION{"AdvertiseVOMS"}%
