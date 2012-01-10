@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1326212657" format="1.1" reprev="1.55" version="1.55"}%
+%META:TOPICINFO{author="AlainRoy" date="1326236571" format="1.1" reprev="1.56" version="1.56"}%
 %META:TOPICPARENT{name="NavTechVOMS"}%
 %DOC_STATUS_TABLE%
 
@@ -179,9 +179,28 @@ Make sure that you have the VOMS and Tomcat service certificates/keys in the rig
 </pre>
 %ENDSECTION{"PrepareServiceCertificates"}%
 
----++ Configure VOMS
+---++ Configure Trust Manager
+%STARTSECTION{"ConfigureTrustManager"}%
+Configure Tomcat's trust manager. This must be done once, before starting up Tomcat for the first time:
+   1. You have to configure Tomcat in order to enable EMI trustmanager:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /var/lib/trustmanager-tomcat/configure.sh
+Info: using default install root: /
+Info: using default configuration file: //var/lib/trustmanager-tomcat/config.properties
+Info: using default configuration directory: //var/lib/trustmanager-tomcat
+Info: you can clean up using the following commands
+      mv -f /etc/tomcat5/server.xml.old-trustmanager /etc/tomcat5/server.xml
+      rm -f /usr/share/tomcat5/server/lib/bcprov*.jar
+      rm -f /usr/share/tomcat5/server/lib/log4j*.jar
+      rm -f /usr/share/tomcat5/server/lib/trustmanager-*.jar
+      rm -f /etc/tomcat5/log4j-trustmanager.properties
+      rm -f //var/lib/trustmanager-tomcat/server.xml
+</pre>
+%ENDSECTION{"ConfigureTrustManager"}%
+
+---++ Add a VO
 %STARTSECTION{"ConfigureVoms"}%
-Now, you can create the database and configure VOMS-core and VOMS-admin:
+You must make at least one VO before you can run VOMS. These instructions assume that VOMS and VOMS Admin are not running (i.e. this is your first VO). If you have already created a VO and VOMS and VOMS Admin are running, you must restart VOMS and VOMS Admin after step 1. 
+
    1. Run ==voms-admin-configure== script to create a new VO:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% voms-admin-configure install --dbtype mysql --vo %RED%VO_NAME%ENDCOLOR% \
     --createdb --deploy-database  --dbauser root  --dbapwd %RED%MYSQL_ROOT_PASSD%ENDCOLOR% \
@@ -207,6 +226,9 @@ VO test1 installation finished.
 You can start the voms services using the following commands:
     /etc/init.d/voms start test1
     /etc/init.d/voms-admin start test1
+</pre>If VOMS and VOMS Admin were running, restart them: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service voms start %RED%test1%ENDCOLOR%
+%UCL_PROMPT_ROOT% /sbin/service voms-admin start %RED%test1%ENDCOLOR%
 </pre>
    1. Add a local admin:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% /usr/sbin/voms-db-deploy.py add-admin --vo %RED%VO_NAME%ENDCOLOR%  \
@@ -217,38 +239,18 @@ You can start the voms services using the following commands:
      --dn /DC=org/DC=doegrids/OU=Services/CN=fermicloud002.fnal.gov \
      --ca "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1"
 </pre>
-   1.  *AFTER _voms-admin_ and _tomcat5_ have been started as described below*, do the following command to allow =GUMS= and =edg-mkgridmap= to query your VO for the set of users: %TWISTY{%TWISTY_OPTS_DETAILED% showlink="show summary of required commands" }%   <pre class="rootscreen">
-  %UCL_PROMPT_ROOT% /var/lib/trustmanager-tomcat/configure.sh
-  %UCL_PROMPT_ROOT% service tomcat5 start
-  %UCL_PROMPT_ROOT% service voms-admin start 
-</pre> %ENDTWISTY%   <pre class="rootscreen">
-voms-admin --nousercert --vo %RED%VO_NAME%ENDCOLOR% add-ACL-entry /%RED%VO_NAME%ENDCOLOR% ANYONE VOMS_CA "CONTAINER_READ,MEMBERSHIP_READ" true
-</pre> For example: <pre class="rootscreen">
-voms-admin --nousercert --vo test1 add-ACL-entry /test1 ANYONE VOMS_CA "CONTAINER_READ,MEMBERSHIP_READ" true
-</pre>
+   1.  In order to configure VOMS Admin to allow GUMS and edg-mkgridmap to query your VO for the set of users, you need to temporarily start up somes of the services. <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service tomcat5 start
+%UCL_PROMPT_ROOT% /sbin/service voms-admin start 
+%UCL_PROMPT_ROOT% voms-admin --nousercert --vo %RED%VO_NAME%ENDCOLOR% add-ACL-entry /%RED%VO_NAME%ENDCOLOR% ANYONE VOMS_CA "CONTAINER_READ,MEMBERSHIP_READ" true
+%UCL_PROMPT_ROOT% voms-admin --nousercert --vo test1 add-ACL-entry /test1 ANYONE VOMS_CA "CONTAINER_READ,MEMBERSHIP_READ" true
+%UCL_PROMPT_ROOT% /sbin/service voms-admin stop
+%UCL_PROMPT_ROOT% /sbin/service tomcat5 stop
+</pre> 
    1. Allow compatibility with =GUMS= and =edg-mkgridmap=. Edit =/etc/voms-admin/%RED%VO_NAME%ENDCOLOR%/voms.service.properties= by adding the following line to the file: <pre class="rootscreen">
 voms.csrf.log_only = true
 </pre>
 %ENDSECTION{"ConfigureVoms"}%
-
----++ Configure Trust Manager
-%STARTSECTION{"ConfigureTrustManager"}%
-Configure Tomcat's trust manager. This must be done once, before starting up Tomcat for the first time:
-   1. You have to configure Tomcat in order to enable EMI trustmanager:<pre class="rootscreen">
-%UCL_PROMPT_ROOT% /var/lib/trustmanager-tomcat/configure.sh
-Info: using default install root: /
-Info: using default configuration file: //var/lib/trustmanager-tomcat/config.properties
-Info: using default configuration directory: //var/lib/trustmanager-tomcat
-Info: you can clean up using the following commands
-      mv -f /etc/tomcat5/server.xml.old-trustmanager /etc/tomcat5/server.xml
-      rm -f /usr/share/tomcat5/server/lib/bcprov*.jar
-      rm -f /usr/share/tomcat5/server/lib/log4j*.jar
-      rm -f /usr/share/tomcat5/server/lib/trustmanager-*.jar
-      rm -f /etc/tomcat5/log4j-trustmanager.properties
-      rm -f //var/lib/trustmanager-tomcat/server.xml
-</pre>
-%ENDSECTION{"ConfigureTrustManager"}%
-
 
 ---+ Services Startup/Shutdown
 VOMS has its persistent repository in a !MySQL database, that requires =mysql= to be running in order to be queried.
