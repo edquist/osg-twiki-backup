@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JamesWeichel" date="1326239282" format="1.1" version="1.58"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1326315473" format="1.1" reprev="1.59" version="1.59"}%
 %META:TOPICPARENT{name="NavTechVOMS"}%
 %DOC_STATUS_TABLE%
 
@@ -56,17 +56,15 @@ You will need two service certificates. [[GetHostServiceCertificates][Here]] are
 | Tomcat service certificate | =tomcat= | =/etc/grid-security/http/httpcert.pem= <br> =/etc/grid-security/http/httpkey.pem= |
 
 ---++ Networking
-   * Allow inbound and outbound network connection _to all GUMS servers that may query this VOMS_
-   * Allow inbound and outbound network connection _to any clients who may need to voms-proxy-init_
-|
- *Service* | *Port* | *Comments* |
-| VOMS server | 15001 * | The VOMS service responds to the voms-proxy-init command and to GUMS and edg-mkgridmap, it should be open to the Internet (At least all GUMS servers that may query this VOMS and any clients who may need to voms-proxy-init) |
-| VOMS Admin | 8443 | VOMS Admin (which runs within Tomcat) is is the web interface, it must be available to VO administrators and users registering online |
 
-%NOTE% 15001 is the port specified in the [[#Configure_VOMS][configuration command]]. You can choose a different one or have multiple ones if you support multiple VOs.
+| *Service* | *Port* | *Comments* |
+| VOMS&nbsp;server | 15001* | The VOMS service responds to the voms-proxy-init command and to GUMS and edg-mkgridmap, it should be open to the Internet (At least all GUMS servers that may query this VOMS and any clients who may need to voms-proxy-init) |
+| VOMS&nbsp;Admin | 8443 | VOMS Admin (which runs within Tomcat) is is the web interface, it must be available to VO administrators and users registering online |
 
----++ Additional Requirements:
-   * Testing requirements
+%NOTE% * 15001 is the port specified in the [[#Configure_VOMS][configuration command]]. You can choose a different one or have multiple ones if you support multiple VOs.
+
+---++ Additional Requirements
+   * Testing requirements:
       * The Subject and Issuer of a voms admin certificate (it could be your certificate)
       * Access to your own certificate if you want to create your voms proxy 
       * Your certificate uploaded into a browser if you want to test voms-admin WEB UI
@@ -282,38 +280,40 @@ If you don't want to leave your services running you can stop them after you are
 </pre>
 %ENDSECTION{"ConfigureVoms"}%
 
----+ Services Startup/Shutdown
+---+ Services 
 VOMS has its persistent repository in a !MySQL database, that requires =mysql= to be running in order to be queried.
 All grid interactions require updated CA certificates and CRLs.
 Then the _voms server_ is a daemon servicing authentication requests and _voms-admin_, requiring Tomcat, is a Web UI/service to manage the VO membership. 
 
+---++ Starting and Enabling Services
 %STARTSECTION{"StartVOMSServices"}%
 To start VOMS you need to start several services:
-   1. You need an updated CRL before you can use VOMS, and you should enable fetch-crl to run periodically:<pre class="rootscreen">
-%UCL_PROMPT_ROOT% fetch-crl
-%UCL_PROMPT_ROOT% /sbin/chkconfig fetch-crl-boot on
-%UCL_PROMPT_ROOT% /sbin/chkconfig fetch-crl-cron on
-%UCL_PROMPT_ROOT% /sbin/service fetch-crl-boot start
-%UCL_PROMPT_ROOT% /sbin/service fetch-crl-cron start
-</pre>
+   1. %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlStart" TOC_SHIFT="+"}%
    1. !MySQL server needs to be running if it is not already:<pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/chkconfig mysqld on
 %UCL_PROMPT_ROOT% /sbin/service mysqld start
 </pre>
    1. Start voms server<pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/chkconfig voms on
 %UCL_PROMPT_ROOT% service voms start
 </pre>
    1. Start Tomcat, required by voms-admin:<pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 on
 %UCL_PROMPT_ROOT% service tomcat5 start
 </pre>
-   1. Start voms-admin:<pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/chkconfig voms-admin on
+   1. Start voms-admin. The command will fail if you have no VO defined:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% service voms-admin start
 </pre>
 %ENDSECTION{"StartVOMSServices"}%
 
+You should also enable the appropriate services so that they are automatically started when your system is powered on: 
+   * %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlEnable"}%
+   * To enable the other services: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/chkconfig mysqld on
+%UCL_PROMPT_ROOT% /sbin/chkconfig voms on
+%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 on
+%UCL_PROMPT_ROOT% /sbin/chkconfig voms-admin on
+</pre>
+
+
+---++ Stopping and Disabling Services
 %STARTSECTION{"StopVOMSServices"}%
 To stop VOMS you need to stop voms and voms-admin, and also the services they use if nothing else is using them:
    1. Stop voms-admin:<pre class="rootscreen">
@@ -328,7 +328,17 @@ To stop VOMS you need to stop voms and voms-admin, and also the services they us
    1. Stop !MySQL server if no other application is using it:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% service mysql stop
 </pre>
+   1. %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlStop"}%
 %ENDSECTION{"StopVOMSServices"}%
+
+In addition, you can disable services by running the following commands.  However, you don't need to do this normally.
+   * %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlDisable"}%
+   * To disable the other services: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/chkconfig mysqld off
+%UCL_PROMPT_ROOT% /sbin/chkconfig voms off
+%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 off
+%UCL_PROMPT_ROOT% /sbin/chkconfig voms-admin off
+</pre>
 
 ---+ Advertise your VOMS server
 %STARTSECTION{"AdvertiseVOMS"}%
@@ -445,7 +455,17 @@ VO test1 succesfully removed.
 
 Configuration Files
 | *Service or Process* | *Configuration File* | *Description* |
-
+| voms | =/etc/voms/%RED%VO_NAME%ENDCOLOR%/voms.conf= <br/> =/etc/voms/%RED%VO_NAME%ENDCOLOR%/voms.pass= | VOMS server configuration and password for the VO database |
+| voms-admin | =/etc/voms-admin/voms-siblings.xml= | Auxiliary voms-admin application configuration |
+| | =/etc/voms-admin/%RED%VO_NAME%ENDCOLOR%/logback.runtime.xml= | Logging configuration |
+| | =/etc/voms-admin/%RED%VO_NAME%ENDCOLOR%/vo-aup.txt= | VO acceptable use policy |
+| | =/etc/voms-admin/%RED%VO_NAME%ENDCOLOR%/voms-admin-%RED%VO_NAME%ENDCOLOR%.xml= <br/> =/etc/voms-admin/%RED%VO_NAME%ENDCOLOR%/voms.service.properties= | VOMS Admin configuration |
+| | =/etc/voms-admin/%RED%VO_NAME%ENDCOLOR%/voms.database.properties= | VO database handler configuration |
+| | =/etc/voms-admin/%RED%VO_NAME%ENDCOLOR%/vomses= | vomses line, see [[#Advertise_your_VOMS_server][the advertising section]] |
+| mysql | =/var/lib/mysql/%RED%VO_NAME%ENDCOLOR%= | VOMS database for the VO |
+| | =/etc/my.cnf= | !MySQL configuration, e.g. server port |
+| tomcat | =/etc/tomcat5/= | Tomcat configuration files |
+| | =/etc/tomcat5/Catalina/localhost/*=| VOMS related tomcat configuration |
 
 Log files
 | *Service or Process* | *Log File* | *Description* |
