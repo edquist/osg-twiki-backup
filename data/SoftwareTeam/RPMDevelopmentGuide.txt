@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1327687153" format="1.1" version="1.44"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1327696443" format="1.1" reprev="1.45" version="1.45"}%
 ---+ RPM Development Guide
 %TOC%
 
@@ -337,14 +337,16 @@ Release: 1.2%{?dist}
 
 ---++ Packaging for Multiple Distro Versions
 
+---+++ Conditionalizing spec files
+
 We are starting support for RHEL 6-based distributions in addition to RHEL 5-based ones.
 In order to minimize effort needed to keep the builds synchronized, instead of creating separate spec files for EL 5 and EL 6, we will be writing spec files such that they build on both distro versions.
 Some packages may need different build behavior between versions; RPM conditional statements will be used to handle this.
 The following macros are defined:
 | *Name* | *Value (EL5)* | *Value (EL6)* |
 | =%rhel= | =5= | =6= |
-| =%el5= | =1= | _undefined_ |
-| =%el6= | _undefined_ | =1= |
+| =%el5= | =1= | _undefined_ or =0= |
+| =%el6= | _undefined_ or =0= | =1= |
 | =%dist= | =.osg.el5= | =.osg.el6= |
 
 Here's how to use them:
@@ -362,32 +364,15 @@ Here's how to use them:
 
 The syntax =%{?el6}= expands to the value of the =%el6= macro if it is defined, and to the empty string if not; the =0= is there to keep the condition from being empty in the =%if= statement if the macro is not defined.
 
-*Note*: Be careful when conditionalizing the metadata (the lines in the header, such as =Name=, =Version=, =Source=, etc).
-The reason for this is that the macros are also evaluated when the SRPM (which is given to mock, rpmbuild, or koji with a non-svn build) is made, which is done on the local machine.
-So if you have something like:
-<pre>%if 0%{?el5}
-Source0: package-el5.tar.gz
-%endif
-%if 0%{?el6}
-Source0: package-el6.tar.gz
-%endif</pre>
-Then if you attempt to submit an el6 build from an el5 host, it is =package-el5.tar.gz= that will end up in the SRPM, not =package-el6.tar.gz=, and the build will fail.
-If you must use different source tarballs for different distro versions, conditionalize the extraction instead:
-<pre>Source0: package-el5.tar.gz
-Source1: package-el6.tar.gz
-# ...
-%prep
-%if 0%{?el5}
-%setup
-# ^ unpack source0
-%endif
-%if 0%{?el6}
-%setup -T -a 1
-# -a 1 means unpack source1
-# -T means do not unpack source0
-%endif</pre>
+---+++ Other notes
 
+   * Pass =--el5= or =--el6= to =osg-build= to target those distros. =--el5= is the default, regardless of the distro of the machine you are running =osg-build= on.
+   * For your final builds, use =osg-build allbuild <em>PACKAGE</em>= to build the package for all distros. This prevents packages from getting out of sync between distros due to forgetfulness.
+   * Never<super>*</super> tag a package built for el5 with a tag beginning with el6, or vice versa.
+   * Always make sure =%{?dist}= is at the end of the =Release= field for each package you make; in the past you could get away with having it be missing but now Koji will complain about duplicate NVRs when you try to build the package for multiple distros.
+   * We will provide a tool to verify that the packages tagged for each distro are in sync.
 
+<super>*</super> <small>unless you really know what you are doing</small>
 
 ---++ External RPM Repositories
 
