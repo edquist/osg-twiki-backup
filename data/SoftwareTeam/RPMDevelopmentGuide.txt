@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1327626512" format="1.1" version="1.43"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1327687153" format="1.1" version="1.44"}%
 ---+ RPM Development Guide
 %TOC%
 
@@ -335,6 +335,60 @@ Release: 1.2%{?dist}
    * %RED% We should probably provide a more user-level README file in /usr/share/doc/package as well, if a package doesn't come with some form of documentation.%ENDCOLOR%
    * Java-based software must be packaged according to our [[JavaPackageNotes][Java packaging policy]].
 
+---++ Packaging for Multiple Distro Versions
+
+We are starting support for RHEL 6-based distributions in addition to RHEL 5-based ones.
+In order to minimize effort needed to keep the builds synchronized, instead of creating separate spec files for EL 5 and EL 6, we will be writing spec files such that they build on both distro versions.
+Some packages may need different build behavior between versions; RPM conditional statements will be used to handle this.
+The following macros are defined:
+| *Name* | *Value (EL5)* | *Value (EL6)* |
+| =%rhel= | =5= | =6= |
+| =%el5= | =1= | _undefined_ |
+| =%el6= | _undefined_ | =1= |
+| =%dist= | =.osg.el5= | =.osg.el6= |
+
+Here's how to use them:
+
+<pre>%if 0%{?el5}
+# this code will be executed on EL 5 only
+%endif</pre>
+<pre>%if 0%{?el6}
+# this code will be executed on EL 6 only
+%endif</pre>
+<pre>%if 0%{?rhel} >= 6
+# this code will be executed on EL 6 and newer
+%endif</pre>
+(There does not seem to be an =%elseif=).
+
+The syntax =%{?el6}= expands to the value of the =%el6= macro if it is defined, and to the empty string if not; the =0= is there to keep the condition from being empty in the =%if= statement if the macro is not defined.
+
+*Note*: Be careful when conditionalizing the metadata (the lines in the header, such as =Name=, =Version=, =Source=, etc).
+The reason for this is that the macros are also evaluated when the SRPM (which is given to mock, rpmbuild, or koji with a non-svn build) is made, which is done on the local machine.
+So if you have something like:
+<pre>%if 0%{?el5}
+Source0: package-el5.tar.gz
+%endif
+%if 0%{?el6}
+Source0: package-el6.tar.gz
+%endif</pre>
+Then if you attempt to submit an el6 build from an el5 host, it is =package-el5.tar.gz= that will end up in the SRPM, not =package-el6.tar.gz=, and the build will fail.
+If you must use different source tarballs for different distro versions, conditionalize the extraction instead:
+<pre>Source0: package-el5.tar.gz
+Source1: package-el6.tar.gz
+# ...
+%prep
+%if 0%{?el5}
+%setup
+# ^ unpack source0
+%endif
+%if 0%{?el6}
+%setup -T -a 1
+# -a 1 means unpack source1
+# -T means do not unpack source0
+%endif</pre>
+
+
+
 ---++ External RPM Repositories
 
 ---+++ EPEL & Globus
@@ -355,3 +409,8 @@ If you report bugs to EMI, you can use [[https://ggus.eu/pages/home.php][GGUS]].
    1. Please copy Alain on the ticket so he can be aware of what's happening with all of our bug reports to EMI.
    1. If you think the ticket affects other people in the group, please send a note about it to osg-software@opensciencegrid.org. 
    1. You should put "EMI" in the _short description_ and something like "Please assign to EMI Release Management" in the _description_.
+
+
+<!-- vim:ft=twiki tw=0
+-->
+
