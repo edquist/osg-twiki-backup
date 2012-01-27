@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1324427043" format="1.1" version="1.10"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1327627533" format="1.1" reprev="1.11" version="1.11"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 ---+ OSG Build Tools
 
@@ -20,9 +20,21 @@ You can obtain it by either installing the =osg-build= package from the developm
 
 ---+++ Tasks
 
+---++++ =allbuild=
+
+Builds the package from SVN using Koji for all supported platforms (distro versions), placing them into the default destination tags.
+The RPMs will end up in the =osg-minefield= repositories for each platform.
+
+=allbuild= only accepts the following options:
+   * =--kojilogin=
+   * =--koji-wrapper=
+   * =--scratch= (default =false=)
+   * =--no-wait= (default =true=)
+=--svn= is always =true=. =--regen-repos= is always =false=.
+
 ---++++ =koji=
 
-Prebuilds the final source package, then builds it remotely using the Koji instance at the UW-Madison Build and Test Lab (BATLab).
+Prebuilds the final source package, then builds it remotely using the Koji instance hosted at the UW-Madison Build and Test Lab (BATLab). [[https://koji-hub.batlab.org]]
 Unless you specify a different koji tag/koji target, the resulting RPMs will end up in the =osg-minefield= repository.
 RPMs from the =osg-minefield= repository are regularly pulled to the =osg-development= repository hosted by the GOC at [[http://repo.grid.iu.edu]]
 This is the method used to build final versions of packages you expect to ship.
@@ -109,6 +121,14 @@ Has no effect with the =--svn= flag.
 
 Sets the configuration file to load for the =osg-build= script, which can contain default values of options. The default path for the configuration file is =$HOME/.osg-build.ini=. A sample configuration file is provided at =/usr/share/doc/osg-build/sample-osg-build.ini= for an RPM install of =osg-build= or =tools/osg-build/sample-osgbuild.ini= for an SVN checkout.
 
+---++++ =--el5=, =--el6=, =--redhat-release=VERSION= (Config: =redhat_release=)
+
+Sets the distro version to build for. This affects the %dist tag, the mock config, and the default koji tag and target (unless otherwise specified).
+
+=--el5= is equivalent to =--redhat-release=5=
+
+=--el6= is equivalent to =--redhat-release=6=
+
 ---++++ =--loglevel= _loglevel_ (Config: =loglevel=)
 
 Sets the verbosity of the script. Valid values are: =debug=, =info=, =warning=, =error= and =critical=.
@@ -182,7 +202,6 @@ See also =--mock-config-from-koji=.
 Creates a mock config from a Koji build tag.
 This is the most accurate way to replicate the build environment that Koji will provide.
 The default build tag for EL5 builds (builds for Scientific Linux 5, !CentOS 5, or RHEL 5) is =el5-osg-build=.
-Requires mock 0.8 or greater, which is obtainable from EPEL.
 Also requires the Koji command-line tools (package =koji=), obtainable from the =osg-development= repository.
 Since this uses koji, some of the koji-specific options may apply, namely: =--koji-login= and =--koji-wrapper=.
 
@@ -215,7 +234,7 @@ See below for a description of =osg-koji=.
 
 Default is =true=.
 
----++++ =--no-wait=, =--nowait=
+---++++ =--no-wait=, =--nowait=, =--wait=
 
 Launch koji tasks in the background and do not wait for them to finish.
 Best for running multiple builds in a single command.
@@ -229,14 +248,14 @@ This enables you to launch builds that depend on each other.
 Doesn't work too well with =--no-wait=, since the next build may be started before the regen-repo task is complete.
 Waiting will keep the next build from being queued until the regen-repo is complete.
 
----++++ =--scratch=
+---++++ =--scratch=, =--no-scratch=
 
 Perform scratch builds.
 A scratch build does not go into a repository, but the name-version-release (NVR) of the created RPMs are not considered used, so the build may be modified and repeated without needing a release bump.
 This has the same use case as the mock task: creating packages that you want to test before releasing.
 If you do not have a machine with mock set up, or want to test exactly the environment that Koji provides, scratch builds might be more convenient.
 
----++++ =--svn=
+---++++ =--svn=, =--no-svn=
 
 Have Koji check the package out from SVN instead of creating an SRPM on the local machine and submitting that to Koji.
 If this flag is specified, you may use SVN URLs or !URL@Revision pairs to specify the packages to build.
@@ -245,9 +264,8 @@ osg-build will also warn you about an outdated working directory.
 The koji instance on =koji-hub.batlab.org= only accepts submissions from the native tree of VDT's SVN repository, i.e. =https://vdt.cs.wisc.edu/svn/native=, or =file:///p/vdt/workspace/svn/native=
 
 It is recommended that released versions of software (i.e. non-scratch builds) be made using this option, for reproducibility reasons.
-osg-build currently warns you if a non-scratch build is not build from SVN.
-Future versions of osg-build may issue an error instead.
 
+=--svn= defaults to =true= for non-scratch builds, and =false= for scratch builds. 
 
 ---++ koji-tag-diff
 
@@ -330,13 +348,13 @@ Look inside the =_build_results= directory.
 
 Run =osg-build lint <em>packagedir</em>=.
 
----+++ Create and test a final build of a package
+---+++ Create and test a final build of a package for all platforms
 
    1. =svn commit= your changes.
-   1. =svn update= the package dir.
-   1. Type =osg-build koji --svn <em>packagedir</em>=
-   1. Wait for the =osg-minefield= repo to be regenerated containing the new version of your package. You can run =osg-koji wait-repo el5-osg-development --build=<em>packagename-version-release</em>= and wait for that process to finish. Or, you can just check kojiweb [[https://koji-hub.batlab.org/koji]].
+   1. Type =osg-build allbuild <em>packagedir</em>=
+   1. Wait for the =osg-minefield= repos to be regenerated containing the new version of your package. You can run =osg-koji wait-repo el<em>X</em>-osg-development --build=<em>packagename-version-release</em>= and wait for that process to finish (substitute =5= or =6= for <em>X</em>). Or, you can just check kojiweb [[https://koji-hub.batlab.org/koji]].
    1. On your test machine, make sure the osg-minefield repo is enabled (edit =/etc/yum.repos.d/osg-minefield.repo=). Clean your cache (=yum clean all= followed by =yum clean expire-cache=).
    1. Install your software, see if it works.
+
 
 <!-- vim:ft=twiki:tw=0 -->
