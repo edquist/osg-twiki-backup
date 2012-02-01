@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1328106346" format="1.1" reprev="1.21" version="1.21"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1328116971" format="1.1" reprev="1.22" version="1.22"}%
 %DOC_STATUS_TABLE%
 
 ---+ !!OSG Services and Firewalls
@@ -8,12 +8,14 @@
 %STARTINCLUDE%
 
 ---+ About this Document
-<!-- some useful variable definistion
+<!-- some useful variable definition
    * Local UCL_HOST = ce
    * Local UCL_CWD  = ~
+   * Set TWISTY_OPTS_DETAILED = mode="div" showlink="Show Detailed Output" hidelink="Hide" showimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleopen-small.gif" hideimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleclose-small.gif" remember="on" start="hide" 
+
 -->
 
-%ICON{hand}% This document is for System Administrators. A brief description of services provided by a %LINK_GLOSSARY_CE% and %LINK_GLOSSARY_SE% will be given, followed by recommendations how to adjust the firewall for their correct operation. [[InstallOSGClient][OSG Client]] installations only have to worry about the =GLOBUS_TCP_PORT_RANGE=, =GLOBUS_TCP_SOURCE_RANGE= and the Condor ports (=LOWPORT=, =HIGHPORT=).
+%ICON{hand}% This document is for System Administrators. It starts with an introduction on Firewalls and how those terms are translated for OSG software. Then a brief description of services provided by a %LINK_GLOSSARY_CE% and %LINK_GLOSSARY_SE% will be given, followed by recommendations how to adjust the firewall for their correct operation. Servers have to worry about several ports while [[InstallOSGClient][OSG Client]] installations only have to worry about the =GLOBUS_TCP_PORT_RANGE=, =GLOBUS_TCP_SOURCE_RANGE= and the Condor ports (=LOWPORT=, =HIGHPORT=).
 
 %STARTSECTION{"FirewallTableOld"}%
 <!-- Some variables for the Firewall table - This version requires variables, does not work without changing the Web or Twiki preferences
@@ -115,20 +117,23 @@ ALTy replacend inline whenever the icon is needed.
 %IF{" defined 'lines' AND lc(',%lines%,') ~ '*various*' " then="| various |  various  |  various  | |  <img src='%ICONURLPATH{choice-yes}%' alt='Y' title='Y' width='16' height='16' border='0' />  | Allow outbound network connection _to all services that you want to test_ |
 " else=""}% %ENDSECTION{"FirewallTable"}%
 
-<!-- 
-List the lines you desire in the table in the variable "lines", separated by commas with no spaces
+This document also defines a Firewall table that can be included in other documents to specify the network requirements. You can find more about it in the [[Documentation.DocFormattingRules#Networking][formatting document]]. %TWISTY{%TWISTY_OPTS_DETAILED% showlink="Click here to show an example" }%  
+To use the table, list the lines you desire in the table in the variable "lines", separated by commas with no spaces.
 
 All the predefined lines are: 
 gram,portrange,portsource,gridftp,srm,srm2,gsissh,voms,vomsadmin,gums,myproxy,condor,rsvin,rsvout,various
 
 You can add custom lines using a backslash "\" after the include and adding your lines (remember the 2 "space" on each side to center the cell).
-To print the full table and a custom one:
+This prints the full table and a custom line:
 <verbatim>
 %INCLUDE{"Documentation/Release3.FirewallInformation" section="FirewallTable"  lines="gram,portrange,portsource,gridftp,srm,srm2,gsissh,voms,gums,myproxy,condor,rsvin,rsvout,various"}% \
 | HTTP |  tcp  |  80  |  %ICON{choice-yes}%  | | My custom HTTP server with special explanation |
 </verbatim>
+That results in:
+%INCLUDE{"Documentation/Release3.FirewallInformation" section="FirewallTable"  lines="gram,portrange,portsource,gridftp,srm,srm2,gsissh,voms,gums,myproxy,condor,rsvin,rsvout,various"}% \
+| HTTP |  tcp  |  80  |  %ICON{choice-yes}%  | | My custom HTTP server with special explanation | 
+%ENDTWISTY%
 
--->
 
 
 ---+ Introduction
@@ -138,14 +143,69 @@ Network traffic may be blocked by a [[http://en.wikipedia.org/wiki/Firewall_%28n
    1 network firewalls administrated centrally and typically outside of your administrative domain
    1 host-based firewalls within your administrative domain
 
-The protocol and port requirements for a %LINK_GLOSSARY_CE% and %LINK_GLOSSARY_SE% are listed below. Please provide them to the administrator of a _network firewall_ potentially blocking network traffic to your host. Next, follow the instructions to adjust the firewall settings on your host-based firewall.
+The protocol and port requirements for OSG software components are listed in the install documents and summarized below. Please provide them to the administrator of a _network firewall_ potentially blocking network traffic to your host. Next, follow the instructions to adjust the firewall settings on your host-based firewall.
+
+---++ Introduction to firewalls
+If you are familiar with ports and Firewalls you can skip this section.
+An IP connection is identified by an address and ports. Here are some clarifications on the way ports are used on a host.
+
+Let's assume to be on a host. Servers require incoming connections to one or more _well known port_ (port known a priori by the client contacting the server on that host)
+Then both clients and servers may require a variable number of incoming or outgoing connections on arbitrary (ephemeral) ports.
+If there is any kind of firewall allowing only limited connectivity, then the processes must have a known set of _outbound ephemeral ports_ (ephemeral ports that are allowed outbound connectivity) they can choose from to connect outside, and must have a known set of _inbound ephemeral ports_ (ephemeral ports that are allowed inbound connectivity) they can choose from to listen for callbacks. 
+
+If a process on a host (client or server) is behind a firewall that is not transparent but is a NAT router or a proxy, e.g when the client/server resides on a private network like in Figure 2, then the set of inbound ephemeral ports is the one opened on the firewall (router/proxy), the address for the callbacks has to be the public address (probably the one of the router/proxy) and the router has to be configured to perform port forwarding both of the well known ports of servers behind it and of all the inbound ephemeral ports. As a consequence of this setup, all clients and servers on different hosts behind the same NAT router must use disjunct sets of ports (well known ports + inbound ephemeral ports).
+
+Figure 1 shows a client (b) and a server (a) behind a host firewall or a transparent network firewall.
+
+Figure 2 shows a client and a server on a private network behind a NAT router.
+Red borders indicate port forwarding.
+Note the position of the transversal mark (dark blue/green) on the ephemeral ports indicating where the port range is defined: outbound ports are on the host, inbound ports are on the NAT router (and can be different form the ports on the host they are forwarded to) because are the ones used by the program calling back the client/server, coming form the public network.
+
+<table><tr>
+<td> 
+*Figure 1a:* <br />
+<img src="%ATTACHURLPATH%/firewall-server-12p.png" alt="firewall-server-12p.png" width='248' height='147' />    
+
+*Figure 1b:* <br />
+<img src="%ATTACHURLPATH%/firewall-client-12p.png" alt="firewall-client-12p.png" width='248' height='147' />    
+</td>
+<td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td> *Figure 2:* <br />
+<img src="%ATTACHURLPATH%/firewall-net1-12p.png" alt="firewall-net1-12p.png" width='364' height='339' />    
+</td>
+</tr></table>
+
+
+---++ Configuring the OSG software
+The software installed/configured by OSG RPMs includes Globus, Condor, Web servers (Apache, Tomcat). These need to know Firewall related information and here is a summary of how to specify it.
+
+A Firewall:
+   * must open (or forward) the well known ports: the port number is mentioned in the network requirements for that specific software (see its install document).
+   * can be configured with a range of inbound ephemeral ports and a range of outbound ephemeral ports that can be used by the software, depending on the software and network configuration. 
+The software needs to be made aware of the network specifics (ports and host name) using its own mechanisms: generally configuration values or environment variables defined at the startup. Here is a summary:
+
+| *Ports* | *Globus* | *Condor* | *Tomcat* | *Apache* |
+| well known ports | varies | values in =condor_config= (1) | proxyPort (2) | =Listen= in =httpd.conf= (3) |
+| inbound ephemeral ports | =GLOBUS_TCP_PORT_RANGE= | =HIGHPORT, LOWPORT= | | |
+| outbound ephemeral ports | =GLOBUS_TCP_SOURCE_RANGE= | =HIGHPORT, LOWPORT= | | |
+| public host name | =GLOBUS_NAME= | values in =condor_config= (1) | proxyName (2) | (3) |
+
+Notes:
+   1. Condor configuration files depend on ist installation and configuration, e.g. =/etc/condor/condor_config=. Generally host name and port are specified in the same entry, e.g. =COLLECTOR_HOST = $(CONDOR_HOST): 9618=,  and =CONDOR_HOST = public_name.domain= . See [[http://research.cs.wisc.edu/condor/manual/][Condor's manual]]
+   2. Tomcat's configuration file is =/etc/tomcat5/server.xml=. See [[http://tomcat.apache.org/][Tomcat's documentation]]
+   3. Apache's main configuration file is =/etc/httpd/conf/httpd.conf=. The configuration may involve [[http://httpd.apache.org/docs/2.0/vhosts/][virtual hosts]], [[http://httpd.apache.org/docs/2.0/mod/mod_proxy.html][proxy]] and reverse proxy functionalities. See [[http://httpd.apache.org/docs/][Apache's documentation]]
+
+%NOTE% Host (and service) certificates must refer always to the public name, the one of the NAT router or the proxy if the host is behind them.
+
 
 ---+ Requirements
 
    1 be familiar with your institute's network policy and firewall configuration
    1 _root_ access is required to configure a host-based firewall using =iptables=
 
----+ Compute Element Services and Firewall Requirements
+---+ OSG software network requirements
+
+---++ Compute Element Services and Firewall Requirements
 
 | *Service Name*  | *Protocol* | *Port Number* | *Inbound* | *Outbound* | *Comment*  |
 | %LINK_GLOSSARY_GRAM%  |  tcp  |  2119  |  %ICON{choice-yes}%  | | |
@@ -153,7 +213,7 @@ The protocol and port requirements for a %LINK_GLOSSARY_CE% and %LINK_GLOSSARY_S
 | %LINK_GLOSSARY_GRAM% callback  |  tcp  | =GLOBUS_TCP_SOURCE_RANGE= | |  %ICON{choice-yes}%  | contiguous range of ports  |
 | %LINK_GLOSSARY_GRIDFTP%  |  tcp  |  2811  |  %ICON{choice-yes}%  | | service !GridFTP on the CE |
 
----+ Storage Element Services and Firewall Requirements
+---++ Storage Element Services and Firewall Requirements
 
 | *Service Name*  | *Protocol* | *Port Number* | *Inbound* | *Outbound* | *Comment*  |
 | %LINK_GLOSSARY_GRIDFTP%  |  tcp  |  2811  |  %ICON{choice-yes}%  | | |
@@ -162,7 +222,7 @@ The protocol and port requirements for a %LINK_GLOSSARY_CE% and %LINK_GLOSSARY_S
 | %LINK_GLOSSARY_SRM%  |  tcp  |  8080  |  %ICON{choice-yes}%  | |  |
 | %LINK_GLOSSARY_SRM%  |  tcp  |  8443  |  %ICON{choice-yes}%  | |  |
 
----+ Client Services and Firewall Requirements
+---++ Client Services and Firewall Requirements
 
 | *Service Name*  | *Protocol* | *Port Number* | *Inbound* | *Outbound* | *Comment*  |
 | %LINK_GLOSSARY_GRAM% callback  |  tcp  | =GLOBUS_TCP_PORT_RANGE= |  %ICON{choice-yes}%  | | contiguous range of ports  |
@@ -172,7 +232,7 @@ The protocol and port requirements for a %LINK_GLOSSARY_CE% and %LINK_GLOSSARY_S
 %LINK_GLOSSARY_GRAM% is not really a service on the client. It is the protocol used by the Globus clients. Anyway it still requires the port ranges to be open. <br>
 %LINK_GLOSSARY_CONDOR% is in reality Condor-G the version configured to submit grid jobs.
 
----+ Other Optional Services and Firewall Requirements
+---++ Other Optional Services and Firewall Requirements
 
 You may need to open the following _required_ inbound ports for listed _optional_ services. 
 
@@ -398,6 +458,7 @@ If you configured =iptables= to log events, you should be able to see blocked ev
 ############################################################################################################
 -->
 
+<!--
    * firewall-client.png: <br />
      <img src="%ATTACHURLPATH%/firewall-client.png" alt="firewall-client.png" width='517' height='307' />    
 
@@ -421,6 +482,7 @@ If you configured =iptables= to log events, you should be able to see blocked ev
 
    * firewall-server.png: <br />
      <img src="%ATTACHURLPATH%/firewall-server.png" alt="firewall-server.png" width='517' height='307' />    
+-->
 
 %META:FILEATTACHMENT{name="firewall-client.png" attachment="firewall-client.png" attr="" comment="" date="1328083770" path="firewall-client.png" size="33671" stream="firewall-client.png" tmpFilename="/usr/tmp/CGItemp36164" user="MarcoMambelli" version="1"}%
 %META:FILEATTACHMENT{name="firewall-net1.png" attachment="firewall-net1.png" attr="" comment="" date="1328083813" path="firewall-net1.png" size="130721" stream="firewall-net1.png" tmpFilename="/usr/tmp/CGItemp36227" user="MarcoMambelli" version="1"}%
