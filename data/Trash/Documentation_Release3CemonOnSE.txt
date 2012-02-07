@@ -1,22 +1,35 @@
-%META:TOPICINFO{author="DouglasStrain" date="1328641743" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="DouglasStrain" date="1328655422" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="NavAdminStorage"}%
 ---+!! *<nop>%SPACEOUT{%TOPIC%}%*
 %DOC_STATUS_TABLE%
 %TOC{depth="2"}%
 
----+ About this Document
+---+ 1.0 About this Document
 
----+ Conventions Used in this Document
+---+ 2.0 Conventions Used in this Document
 %INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="Header"}%
 %INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="CommandLine"}%
 
----+ Introduction
+---+ 3.0 Introduction
 
----+ Requirements
+This page describe the installation of the Open Science Grid (OSG) information provider system on a Storage Element only configuration.
+This will allow your storage element to report to BDII (and possibly ReSS) to accurately portray itself as a grid resource to FTS and other 
+grid services that depend on BDII as an information provider.  This installation procedure is specifically guided towards an installation 
+seperate from computing resources.  If you have a computing cluster, you should consider following the 
+[[Documentation/Release3/InstallComputeElement][Compute Element Installation]] instructions, which include a CEMon installation.
 
----++ Host and OS
----++ Users
----++ Certificates
+---+ 4.0 Requirements
+
+---++ 4.1 Host and OS
+
+   * OS is Red Hat Enterprise Linux 5, 32 and 64 bit and variants (Scientific Linux 5 and CentOS). Currently most of our testing has been done on Scientific Linux 5.
+   * Root access 
+
+---++ 4.2 Users
+
+CEMon runs in tomcat, which will install the =tomcat= user.
+
+---++ 4.3 Certificates
 
 For CEMon to run, you need to have a host or service certificate in =/etc/grid-security/http/httpcert.pem= and =/etc/grid-security/http/httpkey.pem=. These files need to be owned by the =tomcat= user. The simplest thing to do is to copy your host certificate.
 
@@ -30,20 +43,22 @@ For CEMon to run, you need to have a host or service certificate in =/etc/grid-s
 
 Note that you want to copy, not move, the hostcerts - Globus still expects them in the original location.  
 
----++ Networking
+---++ 4.4 Networking
 
----+ Installation Procedure
+Tomcat will run on port 8080 by default.  However, it is common to also change this to a secure port 8443.
 
-%INCLUDE{"YumRepositories" section="OSGRepoBrief" headingoffset="1"}%
+---+ 5.0 Installation Procedure
+
+%INCLUDE{"YumRepositories" section="OSGRepoBrief" headingoffset="2"}%
 %INCLUDE{"InstallCertAuth" section="OSGBriefCaCerts" TOC_SHIFT="+"}%
 
----++ Installing Storage Element
+---+ 5.1 Installing Storage Element
 
 At this point, you should install your storage element, by following one of the instructions
 on the [[Documentation/Release3.NavAdminStorage][Storage Overview]] page, such as
 a standalone [[Documentation/Release3.InstallOSGBestmanSE][BeStMan server]].
 
----++ Installing Information Providers
+---++ 5.2 Installing Information Providers
 
 To install the information service provider and CEMon, perform the following command.
 <pre class="rootscreen">
@@ -61,7 +76,20 @@ The Generic Information Provider (GIP) is a program that discovers information a
 
 Configuration of the GIP happens entirely via the =/etc/osg/config.d/*.ini= files. These are the same files that are used by =osg-configure=. 
 
-[[Documentation.Release3.NavTechGIP][More information on configuring the GIP]].
+You will need to modify =/etc/osg/config.d/30-gip.ini=.  In particular, you will want to delete all subcluster entries (if this is a SE, there is no sub-cluster).  Delete all compute element entries and enter appropriate information for SE entries.  Comments in the file should help you out, or you can refer to this page for more information:  [[Documentation.Release3.NavTechGIP][More information on configuring the GIP]].
+
+Lastly, you will need to add information to =/etc/gip/gip.conf=.  By default, this is an empty file for expert-only options.  You will need to add the following to configure a SE-only mode:
+
+<pre class="file">
+[gip]
+override = False
+check_osg = False
+osg_config = /put/your/path/here/gip/etc/config.ini
+
+[vo]
+user_vo_map = /put/your/path/here/gip/etc/osg-user-vo-map.txt
+</pre>
+For convenience, this is provided for you in =/etc/gip/gip.se_only.conf=, so you can copy that file into gip.conf if desired.
 
 ---++ 6.2 CEMon
 
@@ -71,6 +99,12 @@ For CEMon to run, you need to have a host or service certificate in =/etc/grid-s
 
 Make sure =/etc/grid-security/grid-mapfile= exists, even if it is empty: <pre class="rootscreen">%UCL_PROMPT_ROOT% touch /etc/grid-security/grid-mapfile</pre>
 
+You will need to modify =/etc/osg/config.d/30-cemon.ini= to configure cemon.  In particular, you will need to choose whether to use production or ITB servers for reporting, as shown below for the ITB:
+<pre class="file">
+ress_servers = %(itb-ress-servers)s
+bdii_servers = %(itb-bdii-servers)s
+</pre>
+
 %WARNING% There is a minor problem in the GIP installation. For now, run the following commands to ensure the GIP will work properly:
 
 <pre class="rootscreen">
@@ -78,7 +112,105 @@ Make sure =/etc/grid-security/grid-mapfile= exists, even if it is empty: <pre cl
 %UCL_PROMPT_ROOT% chown tomcat /var/cache/gip
 </pre>
 
+---++ 6.3 Configure OSG
 
+Once you have finished editting the files, you will need to run osg-configure:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% osg-configure -v -d
+%UCL_PROMPT_ROOT% osg-configure -c
+</pre>
+
+---++ 6.4 User VO File
+
+The =user-vo-map= file is a simple, space-separated format that contains 2 columns; the first is a unix username and the second is the VO which that username correspond to.  In order to create it you need to configure the gums client.
+
+The primary configuration file for the gums-client utilities is located in =/etc/gums/gums-client.properties=.  The two properties that you must change are:
+
+| Attribute | Needs Editing | Value |
+| gums.location | Yes | This should be set to the admin URL for your gums server, usually of the form gums.location=https://GUMS_HOSTNAME:8443/gums/services/GUMSAdmin |
+| gums.authz | Yes | This should be set to the authorization interface URL for your gums server, usually of the form gums.authz=https://GUMS_HOSTNAME:8443/gums/services/GUMSXACMLAuthorizationServicePort |
+
+After the gums client is configured to generate the file run the following once by hand:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% gums-host-cron
+</pre>
+
+=user-vo-map= should be created in the following location:
+
+<verbatim>/var/lib/osg/user-vo-map</verbatim>
+
+To have cron regularly update this file start the following service:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service gums-client-cron start
+</pre>
+---+ 7.0 Services
+
+---++ 7.1 Starting and Enabling Services
+
+   1. %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlStart" TOC_SHIFT="+"}%
+   1. Depending on your authorization mechanism, choose one of these:
+      1. *GUMS:* If you use GUMS, you need to run a client that creates the =user-vo-map= file:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service gums-client-cron start
+</pre>
+      1. *edg-mkgridmap:* If you use edg-mkgridmap to make a grid-mapfile: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service edg-mkgridmap start
+</pre>
+   1. Start Tomcat <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service tomcat5 start
+</pre>
+
+You should also enable the appropriate services so that they are automatically started when your system is powered on:<br/>
+%INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlEnable" TOC_SHIFT="+"}%
+<pre class="rootscreen">
+# GUMS
+%UCL_PROMPT_ROOT% /sbin/chkconfig gums-client-cron on
+
+# edg-mkgridmap
+%UCL_PROMPT_ROOT% /sbin/chkconfig edg-mkgridmap on
+
+# Tomcat: 
+%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 on
+</pre>
+
+---++ 7.2 Stopping and Disabling Services
+
+Run following commands if you need to stop any services.
+
+   1. %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlStop" TOC_SHIFT="+"}%
+   1. Turn off Tomcat: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service tomcat5 stop 
+</pre>
+   1. Based on your authorization mechanism:
+      1. *GUMS*: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service gums-client-cron stop
+</pre>
+      1. *edg-mkgridmap*: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service edg-mkgridmap stop
+</pre>
+In addition, you can disable services by running the following commands.  However, you don't need to do this normally.
+
+%INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlDisable"}%
+
+To disable the other services:
+
+<pre class="rootscreen">
+# Tomcat:
+%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 off
+
+# GUMS
+%UCL_PROMPT_ROOT% /sbin/chkconfig gums-client-cron off
+# edg-mkgridmap
+%UCL_PROMPT_ROOT% /sbin/chkconfig edg-mkgridmap off
+</pre>
+
+---+ 8.0 Troubleshooting
+
+   * Check if information becomes available in ITB BDII ten minutes after you have started the service.
+   * Check the output of CEMon server in =/var/log/tomcat5/catalina.out=
+   * Try to run gip_info manually to see if it runs.
 
 <!-- CONTENT MANAGEMENT PROJECT
 ############################################################################################################
