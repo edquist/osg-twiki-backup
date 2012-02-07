@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1328558078" format="1.1" version="1.6"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1328579017" format="1.1" reprev="1.7" version="1.7"}%
 ---+!! Installing Condor for your cluster
 %DOC_STATUS_TABLE%
 %TOC{depth="3"}%
@@ -10,17 +10,19 @@
 
 ---+ About This Document
 
----++ Introduction
-%NOTE% If you are using Rocks, commonly used by CMS, or you install using Kickstart files like the one provided by ATLAS, then you may not need any of this. The cluster management may install and setup Condor for you. Check your VO documentation first. 
+This installation document uses the Condor RPM from the OSG repository. 
+OSG borrowed the RPM from Fedora, (by which we mean that we've copied their source RPM and rebuilt it against the version of Globus which we provide). This version of Condor provides most of Condor's functionality, except for Standard Universe and Condor-G support for CREAM and NorduGrid.
+
+Other RPM installations, e.g. from the Fedora or the Condor repositories, are very similar but the instructions may need some adapting.
+Installing Condor using a tarball distribution is instead quite different.
+Some cluster management tools, like Rocks, may install and setup Condor for you.
+
+See CondorInformation for an overview of the different options for having Condor.
+ 
 
 ---+ Engineering Considerations
 
-We will use the latest stable release of Condor. As of %AS_OF_DATE%, this is %CONDORREL%.
-
-This installation uses the Condor RPM distribution. It can be downloaded from the Condor site or installed using a RPM or yum repository.
-The Condor team set up a yum repository that can be used for this installation.
-
-Condor needs to be installed (using the procedure below) on all nodes of the batch queue, the headnode (Condor central manager) and the worker nodes, and also on the interactive nodes used to submit Condor jobs.
+Condor needs to be installed (using the procedure below) on all nodes of the batch queue, the head node (=gc-hn=, Condor central manager with Collector and Negotiator) the worker nodes (=gc-cXXX=, with the Startd), and also on the nodes used to submit Condor jobs, like interactive nodes or the %LINK_GLOSSARY_CE% (=gc-uiXXX= and =gc-ce=, with the Schedd).
 
 Certain operations, like the RPM installation and some system configuration, has to be repeated on each node.
 Some steps like the configuration of _condor_config_ are performed only once, e.g. on the head node =osg-hn=, others like the customization of the local condor configuration file is different for each node.
@@ -28,16 +30,13 @@ Some steps like the configuration of _condor_config_ are performed only once, e.
 Sharing at least the directory hosting the configuration files allows to simplify a bit the configuration by making it easy to make cluster-wide configuration changes.
 Anyway this installation is possible also having no shared directories if the customized _condor_config_ file is replicated on all nodes of the queue.
 
+When using RPMs Condor is installed in the default path, so there is no need of special setup to use it. It will be automatically in the environment of every user.
 
-%BR%
 *A note about the directory structure:*
-This Condor installation was structured to facilitate upgrades to Condor with minimal effort.  Condor RPM follows the [[http://www.pathname.com/fhs/][Filesystem Hierarchy Standard]]. For more information on the directory structure check the [[http://www.cs.wisc.edu/condor/yum/condor_install.html][release notes]]. 
-The =/var/lib/condor= directory contains the Condor spool and may be mounted from a different partition as detailed in the section about [[#Mounting_a_separate_partition_fo][isolated spool directory]].
-In addition to the files provided by the RPM there is a shared directory to simplify the configuration (=/nfs/condor/condor-etc=). Below you can find how to [[#Installation_without_any_shared][avoid any shared file]].
-
----+ How to get Help?
-
-To get assistance please use [[HelpProcedure][this page]].
+This Condor installation was structured to facilitate upgrades to Condor with minimal effort:  
+   * Condor RPM follows the [[http://www.pathname.com/fhs/][Filesystem Hierarchy Standard]]. This is different from the self-contained tarball installation. For more information on the directory structure check the [[http://www.cs.wisc.edu/condor/yum/condor_install.html][release notes]]. 
+   * The =/var/lib/condor= directory contains the Condor spool and may be mounted from a different partition as detailed in the section about [[#Mounting_a_separate_partition_fo][isolated spool directory]].
+   * There is a shared directory to simplify the configuration (=/nfs/condor/condor-etc=) in addition to the files provided by the RPM. Below you can find how to [[#Installation_without_any_shared][avoid any shared file]].
 
 ---+ Requirements
 ---++ Host and OS
@@ -49,9 +48,10 @@ To get assistance please use [[HelpProcedure][this page]].
 
 ---++ Networking
 %STARTSECTION{"Firewalls"}%
-%INCLUDE{"FirewallInformation" section="FirewallTable" lines="condor"}%
+%INCLUDE{"FirewallInformation" section="FirewallTable" lines="condorcollector,condor"}%
 
-%LINK_GLOSSARY_CONDOR% configuration offers many possibilities, please check the [[http://research.cs.wisc.edu/condor/manual/v7.6/3_7Networking_includes.html][Networking section of the Condor manual]].
+The %LINK_GLOSSARY_CONDOR% collector port can be changed in the configuration file.
+For more information please check the [[http://research.cs.wisc.edu/condor/manual/v7.6/3_7Networking_includes.html][Networking section of the Condor manual]].
 
 %ENDSECTION{"Firewalls"}%
 
@@ -61,16 +61,20 @@ You'll find more client specific details also in the [[#Firewall_Considerations]
 %INCLUDE{"YumRepositories" section="OSGRepoBrief" TOC_SHIFT="+"}%
 
 %STARTSECTION{"InstallCondorRPMs"}%
----++ Condor Installation and Configuration
+---++ Condor Installation
 *On each node* Start with installing Condor from the repository
-<pre  class="screen">
-yum install condor
+<pre  class="rootscreen">
+%UCL_PROMPT_ROOT% yum install condor
 </pre>
 
+---++ Condor configuration
 ---+++ Shared configuration files
-On the server exporting =/nfs/condor/condor-etc= (other nodes cannot write if you choose to export the directory with root squash) edit the following configuration files:
-   * Create the cluster Condor configuration file =/nfs/condor/condor-etc/condor_config.cluster= with the following content:
-      * Copy the following content (also attached in [[%ATTACHURL%/condor_config.cluster][condor_config.cluster]]) changing the values to suite your cluster (yourdomain.org, gc1-hn.yourdomain.org, in %RED%red%ENDCOLOR%). You may find some suggestion in the local configuration file =/etc/condor/condor_config.local=:<pre class="file">
+The following files are on the shared directory =/nfs/condor/condor-etc/=. To edit them you must be on a node that has write access to it, e.g. the NFS server exporting the directly (other nodes cannot write if you choose to export the directory with root squash). 
+If you have no shared file system these files must be copied as [[#Installation_without_any_shared][explained below]].
+
+Edit the following configuration files:
+   1. Create the cluster Condor configuration file =/nfs/condor/condor-etc/condor_config.cluster= with the following content:
+      * Copy the following content (also attached in [[%ATTACHURL%/condor_config.cluster][condor_config.cluster]]) changing the values to suite your cluster (yourdomain.org, gc-hn.yourdomain.org, in %RED%red%ENDCOLOR%). You may find some suggestion in the local configuration file =/etc/condor/condor_config.local=:<pre class="file">
 ## Condor configuration for OSG T3
 ## For more detial please see
 ## http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
@@ -84,9 +88,9 @@ FILESYSTEM_DOMAIN = $(UID_DOMAIN)
 ALLOW_WRITE = *.$(UID_DOMAIN)
 CONDOR_ADMIN = root@$(FULL_HOSTNAME)
 # The following should be the full name of the head node (Condor central manager)
-CONDOR_HOST = %RED%gc1-hn.yourdomain.org%ENDCOLOR%
+CONDOR_HOST = %RED%gc-hn.yourdomain.org%ENDCOLOR%
 # Port range should be opened in the firewall (can be different on different machines)
-# This 9000-9999 is coherent with the iptables configuration in the T3 documentation 
+# This 9000-9999 is coherent with the iptables configuration in the Firewall documentation 
 IN_HIGHPORT = 9999
 IN_LOWPORT = 9000
 # This is to enforce password authentication
@@ -107,82 +111,58 @@ SUSPEND = FALSE
 PREEMPT = FALSE
 KILL = FALSE
 </pre>
-      * Make sure that you have the following important line in the file <pre>CONDOR_HOST = gc1-hn</pre>
-         * Note: =CONDOR_HOST= can be set with or without the domain name: =gc1-ce= or =gc1-hn.yourdomain.org=
-   *  On the NFS server create the files with the host configuration specific for the nodes using the following content. We will create 3 base configuration files: one for the headnode, one for worker nodes, one for the interactive nodes (user interface). (specific for the headnode) copying the following line:
-      * For the headnode (Condor central manager), =/nfs/condor/condor-etc/condor_config.headnode=:<pre class="file">
-## OSG T3 host configuration
-## For more info: http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
+      * Make sure that you have the following important line in the file <pre>CONDOR_HOST = gc-hn</pre>
+         * Note: =CONDOR_HOST= can be set with or without the domain name: =gc-ce= or =gc-hn.yourdomain.org=
+   1.  In the same directory create the files with the host configuration specific for the nodes using the following content. We will create 3 base configuration files: one for the head node, one for worker nodes, one for the submit nodes (interactive nodes abd CE) copying the following line. These control that the correct daemons are started:
+      * For the head node (Condor central manager), =/nfs/condor/condor-etc/condor_config.headnode=:<pre class="file">
+## OSG cluster configuration
+## For more info: http://www.cs.wisc.edu/condor/manual/v7.6/3_3Configuration.html
 # List of daemons on the node (Condor central manager requires collector and negotiator, 
 # schedd required to submit jobs, startd to run jobs)
 DAEMON_LIST = MASTER, COLLECTOR, NEGOTIATOR
 </pre>
       * For the worker nodes, =/nfs/condor/condor-etc/condor_config.worker=:<pre class="file">
-## OSG T3 host configuration
-## For more info: http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
+## OSG cluster configuration
+## For more info: http://www.cs.wisc.edu/condor/manual/v7.6/3_3Configuration.html
 # List of daemons on the node (Condor central manager requires collector and negotiator, 
 # schedd required to submit jobs, startd to run jobs)
 DAEMON_LIST = MASTER, STARTD
 </pre>
-      * For the interactive nodes or submit hosts (e.g. the gatekeeper of a CE), =/nfs/condor/condor-etc/condor_config.interactive=:<pre class="file">
-## OSG T3 host configuration
-## For more info: http://www.cs.wisc.edu/condor/manual/v7.4/3_3Configuration.html
+      * For the submit nodes (e.g. the gatekeeper of a CE and the interactive nodes), =/nfs/condor/condor-etc/condor_config.submit=:<pre class="file">
+## OSG cluster configuration
+## For more info: http://www.cs.wisc.edu/condor/manual/v7.6/3_3Configuration.html
 # List of daemons on the node (Condor central manager requires collector and negotiator, 
 # schedd required to submit jobs, startd to run jobs)
 DAEMON_LIST = MASTER, SCHEDD
 </pre>
-   * Then, always on the NFS server, for each node create a link pointing to the template, e.g.:<pre class="screen">
-cd /nfs/condor/condor-etc/
-ln -s condor_config.headnode condor_config.gc1-hn
-ln -s condor_config.interactive condor_config.gc1-ce
-ln -s condor_config.interactive condor_config.gc1-ui1
-ln -s condor_config.worker condor_config.gc1-c001
-ln -s condor_config.worker condor_config.gc1-c002
-ln -s condor_config.worker condor_config.gc1-c003
-</pre> Each node must have its own =condor_config.&lt;hostname>= file. If some nodes require a special configuration you can copy the template (e.g. =condor_config.worker=) and customize it.
+   * If your head node is also the gatekeeper of the cluster, then you need to set the daemon list to the union of the two (=DAEMON_LIST = MASTER, COLLECTOR, NEGOTIATOR, SCHEDD=)
+   * Then, always on the same direcotry, for each node create a link pointing to the template, e.g.:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% cd /nfs/condor/condor-etc/
+%UCL_PROMPT_ROOT% ln -s condor_config.headnode condor_config.gc-hn
+%UCL_PROMPT_ROOT% ln -s condor_config.submit condor_config.gc-ce
+%UCL_PROMPT_ROOT% ln -s condor_config.submit condor_config.gc-ui1
+%UCL_PROMPT_ROOT% ln -s condor_config.worker condor_config.gc-c001
+%UCL_PROMPT_ROOT% ln -s condor_config.worker condor_config.gc-c002
+%UCL_PROMPT_ROOT% ln -s condor_config.worker condor_config.gc-c003
+</pre> Each node must have its own =condor_config.&lt;hostname>= file. If some worker nodes require a special configuration you can copy the template (e.g. =condor_config.worker=) and customize it.
 
 ---+++ Remaining node configuration
 *On each node* perform these remaining configuration steps.
-   * Edit the file =/etc/condor/condor_config=. This is the default configuration that will be invoked when condor is started. We will direct this file to be followed by specific configurations for T3 purposes. Replace:<pre class="file">
+   1. Edit the file =/etc/condor/condor_config=. This is the default configuration that will be invoked when condor is started. We will direct Condor to follow this configuration with the OSG specific configuration (=condor_config.cluster=). Replace:<pre class="file">
 ##  Where is the machine-specific local config file for each host?
 LOCAL_CONFIG_FILE      = $(RELEASE_DIR)/etc/$(HOSTNAME).local
 </pre>With<pre class="file">
 ##  Next configuration to be read is for the T3 cluster setup
 LOCAL_CONFIG_FILE       = /nfs/condor/condor-etc/condor_config.cluster
 </pre>
-
-   * Remove the default condor_config.local in the /etc/condor directory to avoid possible confusion.<pre class="screen">
-rm /etc/condor/condor_config.local
+   1. Remove the default condor_config.local in the /etc/condor directory to avoid possible confusion.<pre class="rootscreen">
+%UCL_PROMPT_ROOT% rm /etc/condor/condor_config.local
 </pre>
-   * Set the password that will be used by the Condor system (at the prompt enter the same password for all nodes):<pre class="screen">
-condor_store_cred -c add
+   1. Set the password that will be used by the Condor system (at the prompt enter the same password for all nodes):<pre class="rootscreen">
+%UCL_PROMPT_ROOT% condor_store_cred -c add
 </pre>
-   * Enable automatic startup at boot:<pre class="screen">
-chkconfig --level 235 condor on
-</pre>
+   1. Start Condor and enable automatic startup as [[#Starting_and_Enabling_Services][illustratrd below]].
 
----++ Start and test Condor
-Condor is starting automatically during reboots. You can start it manually typing <pre  class="screen">
-/etc/init.d/condor start </pre>  (should say ok)
-
-You can check if Condor is running correctly<pre  class="screen">
-condor_config_val log   # (should be /var/log/condor/)
-cd /var/log/condor/
-#check master log file
-less MasterLog
-# verify the status of the negotiator
-condor_status -negotiator</pre>
-
-You can see the resources in your Condor cluster using =condor_status= and submit test jobs with =condor_submit=. 
-Check CondorTest for more.
-
----++ Setup
-Condor is installed in the default path, so there is no need of special setup to use it. It will be automatically in the environment of every user.
-
----++ Upgrades
-Only one version of Condor  at the time can be installed via RPM and used. 
-To install a different version just remove the old RPM and install the new one following the instructions above.
-The configuration files in the shared directory will persist so you can skip that step during updates.
 
 ---++ Special needs
 The following sections present instructions or suggestion for uncommon configurations
@@ -193,42 +173,85 @@ If you are using a Firewall (e.g. iptables) on all nodes you need to open the po
 -A RH-Firewall-1-INPUT  -s &lt;network_address> -m state --state ESTABLISHED,NEW -p tcp -m tcp --dport 9000:10000 -j ACCEPT  
 -A RH-Firewall-1-INPUT  -s &lt;network_address> -m state --state ESTABLISHED,NEW -p udp -m udp --dport 9000:10000 -j ACCEPT 
 </pre> where the _network_address_ is the address of the intranet of the T3 cluster, e.g. 192.168.192.0/18. (Or the extranet if your T3 does not have a separate intranet). You can omit the =-s= option if you have nodes of your Condor cluster (startd, schedd, ...) outside of that network.
-   * Restart the firewall:<pre class="screen">
-/etc/init.d/iptables restart
+   * Restart the firewall:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service iptables restart
 </pre>
 
 ---+++ Installation without any shared directory
-If you choose not to use NFS in your cluster and there is no shared =/nfs/condor/condor-etc/= the section above about shared configuration files is not valid. All the configuration files should be in =/etc/condor=.
+If you choose not to use NFS in your cluster and there is no shared =/nfs/condor/condor-etc/=, then the section above about shared configuration files is not valid. All the configuration files should be in =/etc/condor=.
    * =condor_config= should be edited to have <pre class="file">LOCAL_CONFIG_FILE = /etc/condor/condor_config.cluster</pre>
-   * =condor_config.cluster= should be created as described and replicated on each node in =/etc/condor= and should contain the modified:<pre class="file">LOCAL_CONFIG_FILE = /nfs/condor/condor-etc/condor_config.$(HOSTNAME)</pre>
-   * =condor_config.&lt;hostname>= should be created on each node in =/etc/condor= by copying the proper =condor_config.headnode/worker/interactive= described above and by customizing it for the needs of the node.
+   * =condor_config.cluster= should be created as described and replicated on each node in =/etc/condor= and should contain the modified:<pre class="file">LOCAL_CONFIG_FILE = /etc/condor/condor_config.$(HOSTNAME)</pre>
+   * =condor_config.&lt;hostname>= should be created on each node in =/etc/condor= by copying the proper =condor_config.headnode/worker/submit= described above and by customizing it for the needs of the node, if needed.
 
-Changes to the cluster config or to the configuration of one of the node types require synchronization by replicating the proper files after the change.
+Changes to the cluster config or to the configuration of one of the node types require synchronization by replicating the proper files on the whole cluster after the change.
 
 ---+++ Mounting a separate partition for /var/lib/condor
-=/var/lib/condor= is the directory used by Condor for status files and spooling (=/scratch/condor= in the shared installation).
-For performance reason it should always be a local disk.
+=/var/lib/condor= is the directory used by Condor for status files and spooling, sometime referred as scratch space.
+For performance reason it should always be on a local disk.
 Is is recommended for it to be big in order to accommodate jobs that use a lot of disk space (e.g. ATLAS recommends 20GB for each job slot on the worker nodes) and possibly on a separate partition so that when a job fills up the disk, it will not fill the system disk and bring down the system.
-The partition can be mounted on =/var/lib/condor= before installing Condor or at a latter time, e.g.:<pre class="screen">
-/etc/init.d/condor stop
-cd /var/lib
-mv condor condor_old
-mkdir condor
-mount -t ext3 /dev/&lt;your partition> condor
-chown condor:condor condor
-mv condor_old/* condor/
-rmdir condor_old
-/etc/init.d/condor start
+The partition can be mounted on =/var/lib/condor= before installing Condor or at a latter time, e.g.:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service condor stop
+%UCL_PROMPT_ROOT% cd /var/lib
+%UCL_PROMPT_ROOT% mv condor condor_old
+%UCL_PROMPT_ROOT% mkdir condor
+%UCL_PROMPT_ROOT% mount -t ext3 /dev/&lt;your partition> condor
+%UCL_PROMPT_ROOT% chown condor:condor condor
+%UCL_PROMPT_ROOT% mv condor_old/* condor/
+%UCL_PROMPT_ROOT% rmdir condor_old
+%UCL_PROMPT_ROOT% /sbin/service condor start
 </pre>
 
----+++ Use the old RPMs from Condor
-The new RPMs distributed by the condor team are much better than the previous one, so the use of the previous one is not supported. Anyway if you must use the old RPMs you can check the [[https://twiki.grid.iu.edu/bin/view/Tier3/CondorRPMInstall?rev=4][old instructions for RPM installation]] to see the additional steps necessary to complete the installation.
+
+---+ Services
+The condor master on each node taked care to start and monitor the correct services as selected in the configuration file.
+
+---++ Starting and Enabling Services
+To start the services:
+   1. To start Condor you can use the service command, e.g.: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service condor start
+</pre>
+
+You should also enable the appropriate services so that they are automatically started when your system is powered on: 
+   * To enable Condor by default on the node: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/chkconfig condor on
+</pre>
+
+---++ Stopping and Disabling Services
+To stop the services:
+   1. To stop Condor you can use: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service condor stop
+</pre>
+
+In addition, you can disable services by running the following commands.  However, you don't need to do this normally.
+   * Optionally, to disable Condor: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/chkconfig condor off
+</pre>
+
+---+ Troubleshooting
+---++ Test Condor
+
+After starting Condor you can check if it is running correctly<pre  class="screen">
+%UCL_PROMPT% condor_config_val log   # (should be /var/log/condor/)
+%UCL_PROMPT% cd /var/log/condor/
+#check master log file
+%UCL_PROMPT% less MasterLog
+# verify the status of the negotiator
+%UCL_PROMPT% condor_status -negotiator</pre>
+
+You can see the resources in your Condor cluster using =condor_status= and submit test jobs with =condor_submit=. 
+Check CondorTest for more.
+
+
 
 ---+ How to get Help?
 To get assistance please use this [[HelpProcedure][Help Procedure]].
 
+
 ---+ References
    * [[http://research.cs.wisc.edu/condor/manual/][Condor manuals]]
+   * [[CondorInformation][Options for installing Condor]]
+   * The Condor team has a wonderful set of How-To recipes for condor's admins: [[http://nmi.cs.wisc.edu/node/1465]]
+
 
 ---++ *Comments*
 %COMMENT{type="tableappend"}%
