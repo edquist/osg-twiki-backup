@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1328045548" format="1.1" version="1.14"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1329253227" format="1.1" reprev="1.15" version="1.15"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 <!--
    * Set VERSION = %URLPARAM{"version"}%
@@ -34,26 +34,24 @@ Make two VMs, probably in !FermiCloud, so you can do testing. One of them will b
 Edit the osg-version RPM's spec file to update the version number to %VERSION%. Build it in koji and push it to testing:
 
 <pre class="screen">
-%UCL_PROMPT_SHORT% osg-build koji osg-version
-%UCL_PROMPT_SHORT% koji tag-pkg el5-osg-testing osg-version-%VERSION%-1.osg.el5
+osg-build koji osg-version
+koji tag-pkg el5-osg-testing osg-version-%VERSION%-1.osg.el5
 </pre>
 
 ---++ Step 4: Populate the osg-prerelease repository
 
 Make sure that the pre-release is empty:
 <pre class="screen">
-%UCL_PROMPT_SHORT%  koji list-tagged --quiet el5-osg-prerelease
-Build                                     Tag                   Built by
-----------------------------------------  --------------------  ----------------
-%RED%(Nothing is printed in the table if it's empty)%ENDCOLOR%
+koji list-tagged --quiet el5-osg-prerelease
 </pre>
+should print nothing.
 
 Populate the pre-release. This requires you to understand which packages should be in the release. This is a question of [[ReleasePolicy][policy]]. If you do not know which packages should be in the release, talk to the OSG Software Coordinator. 
 <pre class="screen">
-%UCL_PROMPT_SHORT% koji-tag-diff el5-osg-testing el5-osg-release > pkgs-to-release
-%UCL_PROMPT_SHORT% %RED%edit%ENDCOLOR% pkgs-to-release to remove packages not intended for this release
-%UCL_PROMPT_SHORT% xargs -a pkgs-to-release koji tag-pkg el5-osg-prerelease
-%UCL_PROMPT_SHORT% koji regen-repo el5-osg-prerelease
+koji-tag-diff el5-osg-testing el5-osg-release > pkgs-to-release
+# %RED%edit%ENDCOLOR% pkgs-to-release to remove packages not intended for this release
+xargs -a pkgs-to-release koji tag-pkg el5-osg-prerelease
+koji regen-repo el5-osg-prerelease
 </pre>
 
 ---++ Step 5: Test a fresh install in VM #1 
@@ -61,10 +59,10 @@ Populate the pre-release. This requires you to understand which packages should 
 You will do a fresh installation. The =osg-test= command below will enable the =osg-prerelease= repository, and the =osg= repository will already be enabled. So packages will be taken from the =osg= repository unless there is a newer version in the =osg-prerelease= repository. 
 
 <pre class="screen">
-%UCL_PROMPT_SHORT% wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
-%UCL_PROMPT_SHORT% chmod 0755 bootstrap-osg-test
-%UCL_PROMPT_SHORT% ./bootstrap-osg-test testing
-%UCL_PROMPT_SHORT% osg-test -vai osg-ce-condor -r osg-prerelease
+wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
+chmod 0755 bootstrap-osg-test
+./bootstrap-osg-test testing
+osg-test -vai osg-ce-condor -r osg-prerelease
 </pre>
 
 All tests should pass. If any tests fail, discuss with the OSG Software Coordinator.
@@ -74,12 +72,12 @@ All tests should pass. If any tests fail, discuss with the OSG Software Coordina
 Now you will do an installation just from the =osg= repository, then update it from the =osg-prerelease= repository. This is an important double-check, because we want to know that updates work smoothly. Note that the =osg-test= command skips the installation.
 
 <pre class="screen">
-%UCL_PROMPT_SHORT% wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
-%UCL_PROMPT_SHORT% chmod 0755 bootstrap-osg-test
-%UCL_PROMPT_SHORT% ./bootstrap-osg-test testing
-%UCL_PROMPT_SHORT% yum install osg-ce-condor
-%UCL_PROMPT_SHORT% yum update --enablerepo=osg-prerelease
-%UCL_PROMPT_SHORT% osg-test -va
+wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
+chmod 0755 bootstrap-osg-test
+./bootstrap-osg-test testing
+yum install osg-ce-condor
+yum update --enablerepo=osg-prerelease
+osg-test -va
 </pre>
 
 All tests should pass. If any tests fail, discuss with the OSG Software Coordinator.
@@ -90,15 +88,15 @@ Wait for clearance. The OSG Software Coordinator (in consultation with the Softw
 
 ---++ Step 8: Push from pre-release to release: 
 <pre class="screen">
-%UCL_PROMPT_SHORT% koji edit-tag --unlock el5-osg-release
-%UCL_PROMPT_SHORT% koji list-tagged --quiet el5-osg-prerelease | awk '{print $1}' > move-to-release # Can't pipe to xargs because it prompts you for your certificate passphrase
-%UCL_PROMPT_SHORT% xargs --arg-file move-to-release koji move-pkg el5-osg-prerelease el5-osg-release
+koji edit-tag --unlock el5-osg-release
+koji list-tagged --quiet el5-osg-prerelease | awk '{print $1}' > move-to-release # Can't pipe to xargs because it prompts you for your certificate passphrase
+xargs --arg-file move-to-release koji move-pkg el5-osg-prerelease el5-osg-release
 </pre>
 
 ---++ Step 9: Create a new repo for the new release.
 
 Create a new repo just for this release. This will normally not be seen by users, but can be used by them if necessary. It can also be used by us for testing purposes. <pre class="screen">
-%UCL_PROMPT_SHORT% koji clone-tag el5-osg-release el5-osg-release-%VERSION%
+koji clone-tag el5-osg-release el5-osg-release-%VERSION%
 </pre>
 
 ---++ Step 10: Lock the repositories
@@ -106,38 +104,39 @@ Create a new repo just for this release. This will normally not be seen by users
 Lock repositories so they can't be messed with. We use edit-tag instead of lock-tag because lock-tag doesn't seem to work.
 
 <pre class="screen">
-%UCL_PROMPT_SHORT% koji edit-tag --lock el5-osg-release
-%UCL_PROMPT_SHORT% koji edit-tag --lock el5-osg-release-%VERSION%
+koji edit-tag --lock el5-osg-release
+koji edit-tag --lock el5-osg-release-%VERSION%
 </pre>
 
 ---++ Step 11: Regenerate the repositories
 
 <pre class="screen">
-%UCL_PROMPT_SHORT% koji regen-repo el5-osg-release-%VERSION% el5-osg-release --nowait
+koji regen-repo el5-osg-release-%VERSION% --nowait
+koji regen-repo el5-osg-release --nowait
 </pre>
 
 ---++ Step 12: Write release notes
 
    1. Come up with a nice table of updated packages that you can copy and paste into the release notes twiki page. <pre class="screen">
-%UCL_PROMPT_SHORT% awk '{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=build&terms=" $1 "][" $1 "]]"}'  move-to-release > release-note-packages
+awk '{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=build&terms=" $1 "][" $1 "]]"}'  move-to-release > release-note-packages
 </pre>
    1. Come up with the architecture-neutral (i.e. without _i386_, _x86_64, etc in the name) list of updated RPMs so that site administrators know the set of RPMs to "yum update" if they want to do a limited update: <pre class="screen">
-%UCL_PROMPT_SHORT% xargs --arg-file move-to-release koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | perl -p -e "s/\.(noarch|src|i386|x86_64)\.rpm//" | sort -u > release-note-rpms
+xargs --arg-file move-to-release koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | perl -p -e "s/\.(noarch|src|i386|x86_64)\.rpm//" | sort -u > release-note-rpms
 </pre>
    1. Write [[Documentation.Release3.ReleaseNotes][release notes]]. Use the package table and RPM list you created in the previous two steps.
 
 ---++ Step 13: Update the info we track for the releases
 
    1. Copy the list of updated packages. Change the user name and host name as appropriate. <pre class="screen">
-%UCL_PROMPT_SHORT% scp move-to-release %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-updated.txt
+scp move-to-release %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-updated.txt
 </pre>
    1. Find the full list of packages in the new release and copy the list. <pre class="screen">
-%UCL_PROMPT_SHORT% koji list-tagged --quiet --latest el5-osg-release | awk '{print $1}' > new-packages
-%UCL_PROMPT_SHORT% scp new-packages %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-packages.txt
+koji list-tagged --quiet --latest el5-osg-release | awk '{print $1}' > new-packages
+scp new-packages %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-packages.txt
 </pre>
    1. Find the full list of new RPMs in the new release and copy the list. <pre class="screen">
-%UCL_PROMPT_SHORT% xargs --arg-file new-packages koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | sort > new-rpms
-%UCL_PROMPT_SHORT% scp new-rpms %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-rpms.txt
+xargs --arg-file new-packages koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | sort > new-rpms
+scp new-rpms %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-rpms.txt
 </pre>
 
 ---++ Step 14: Announce the release
