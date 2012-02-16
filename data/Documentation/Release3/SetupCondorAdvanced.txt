@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1329182837" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1329355285" format="1.1" version="1.2"}%
 %META:TOPICPARENT{name="NavAdminSmallSites"}%
 ---+ Useful and Unusual Condor Configurations
 %DOC_STATUS_TABLE%
@@ -65,13 +65,90 @@ This module must output to stdout an attribute=value pair that gets inserted int
 I used the attribute name "PROOF_IS_RUNNING" that is added when the script finds a process called %RED%<tt>myproof</tt>%ENDCOLOR% running on the machine where it is invoked.  
 Then, in the local config file, I set the SUSPEND/CONTINUE policy to use this attribute.
 
----++ Setup a Service Job Slot for Condor
+---++ Setup for HTPC (whole machine) Jobs 
 
----+++ Notes
+---++ Setup a Service Job Slot for Condor
+Condor is not a great way to run administrative tasks against loads of machines:
+   * You don't know what you hit and what you missed. Condor pools are dynamic
+   * Your jobs don't run as privileged accounts. Unless of changes that weaken the security of the system
+   * You cannot target a specific system like when connecting to the machine or using =condor_ssh_to_job=
+
+Anyway in limited case it can still be useful.
+The basic idea is to add an extra slot for each normal job execution slot. This extra slot will run commands from the user whose job is running on the corresponding execution slot. Typical commands would be things like 'ls' or 'top'.
+---+++ Configuration 
+In the Condor configuration (startd):
+<pre class="file">
+# Enable multiple slots
+NUM_CPUS = $(DETECTED_CORES)+1
+SLOT_TYPE_1 = cpus=1, memory=1, swap=1, disk=1
+%SLOT_TYPE_1 = cpus=1, memory=0, swap=0, disk=0
+#SLOT_TYPE_1 = cpus=1, memory=1%, swap=1%, disk=1%
+NUM_SLOTS_TYPE_1 = 1
+SLOT_TYPE_2 = cpus=1
+NUM_SLOTS_TYPE_2 = $(DETECTED_CORES)
+
+# Enable cross_slot information flow
+STARTD_SLOT_EXPRS = $(STARTD_SLOT_EXPRS) State, RemoteUser
+
+# Config one slot for monitoring and one for jobs
+#SLOT1_SLOT2_MATCH = (slot2_State=?="Claimed")&&(slot2_RemoteUser=?=User)
+# WARNING: THERE MUST BE AN ENTRY FOR ALL SLOTS
+# IN THE EXPRESSION BELOW.  If you have more slots, you must
+# extend this expression to cover them.  If you have fewer
+# slots, extra entries are harmless.
+SLOT1_SLOT2_MATCH = \
+   (Slot2_State=?="Claimed")&&(Slot2_RemoteUser=?=User) || \
+   (Slot3_State=?="Claimed")&&(Slot3_RemoteUser=?=User) || \
+   (Slot4_State=?="Claimed")&&(Slot4_RemoteUser=?=User) || \
+   (Slot5_State=?="Claimed")&&(Slot5_RemoteUser=?=User) || \
+   (Slot6_State=?="Claimed")&&(Slot6_RemoteUser=?=User) || \
+   (Slot7_State=?="Claimed")&&(Slot7_RemoteUser=?=User) || \
+   (Slot8_State=?="Claimed")&&(Slot8_RemoteUser=?=User) || \
+   (Slot9_State=?="Claimed")&&(Slot9_RemoteUser=?=User) || \
+   (Slot10_State=?="Claimed")&&(Slot10_RemoteUser=?=User) || \
+   (Slot11_State=?="Claimed")&&(Slot11_RemoteUser=?=User) || \
+   (Slot12_State=?="Claimed")&&(Slot12_RemoteUser=?=User) || \
+   (Slot13_State=?="Claimed")&&(Slot13_RemoteUser=?=User) || \
+   (Slot14_State=?="Claimed")&&(Slot14_RemoteUser=?=User) || \
+   (Slot15_State=?="Claimed")&&(Slot15_RemoteUser=?=User) || \
+   (Slot16_State=?="Claimed")&&(Slot16_RemoteUser=?=User) || \
+   (Slot17_State=?="Claimed")&&(Slot17_RemoteUser=?=User) 
+
+SLOT1_START = $(SLOT1_SLOT2_MATCH) && (JOB_Is_Monitor)
+#SLOT2_START = &lt;your old START condition>
+#START = ((SlotID == 1) && ($(SLOT1_START))) || \
+#        ((SlotID == 2) && ($(SLOT2_START)))
+START = ((SlotID == 1) && ($(SLOT1_START))) || \
+        ((SlotID == 2) && ($(START)))
+
+SLOT1_IsMonitorSlot = True
+SLOT2_MyMonitorSlot = "slot1"
+HAS_MONITOR_SLOT = True
+STARTD_ATTRS = $(STARTD_ATTRS) IsMonitorSlot MyMonitorSlot HAS_MONITOR_SLOT
+</pre>
+
+---+++ Use
+You could then use this [[http://home.fnal.gov/~sfiligoi/condor_monitoring/job_monitor.tgz][example job monitoring tool]] extracted from [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.prd/index.html][glideinWMS]] to submit jobs to the monitoring slot. The basic idea is to figure out where the job is running (by using condor_q) and then submit a job with the following constraints in its submit file:
+<pre class="file">
++JOB_Is_Monitor=True
+Requirements=(Name=?=”slot1@&lt;node running job>”)
+</pre>
+
+As Igor notes, t
+The drawbacks of this method are:
+   * It takes a negotiation cycle to get back results. Depending on your pool this could be a few seconds to minutes.
+   * Cross slot information is only updated every few minutes, so it might take a few minutes after the job starts up before you can begin debugging it.
+   * The number of slots in your pool increases (+1 per node or doubles depending on the choices).
+
+One (untested) idea for how to speed things up a bit and avoid doubling the visible slots in the pool is to have the startds advertise to two central managers, one for normal jobs and one for monitoring jobs. (You can do that by simply listing both collectors in COLLECTOR_HOST.) You can use COLLECTOR_REQUIREMENTS to prune out all but the normal job execution slots in one collector and all but job monitoring slots in the other collector. A different idea is to have the job itself start up its own startd which joins a monitoring pool (private to the user?) and accepts monitoring jobs.
+
+
 
 
 ---+ References
    * InstallCondor
+   * https://condor-wiki.cs.wisc.edu/index.cgi/wiki?p=WholeMachineSlots
+   * https://condor-wiki.cs.wisc.edu/index.cgi/wiki?p=HowToConfigJobMonitoringandDebugging
 
 ---+ Comments
 %COMMENT{type="tableappend"}%
