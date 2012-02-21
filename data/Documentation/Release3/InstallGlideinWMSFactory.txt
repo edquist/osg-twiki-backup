@@ -1,0 +1,300 @@
+%META:TOPICINFO{author="DouglasStrain" date="1329865990" format="1.1" version="1.1"}%
+
+
+<!-- Local variables
+   * Set CONDORREL = 7.6.0
+   * Set AS_OF_DATE = May 27, 2011
+-->
+
+---+!! !GlideinWMS VO Frontend Installation
+%DOC_STATUS_TABLE%
+%TOC{depth="3"}%
+
+---+ About This Document
+
+This document describes how to install the Glidein Workflow Managment System (!GlideinWMS) Factory instance.
+
+This document assumes expertise with Condor and familiarity with the glideinWMS software.  It *does not* cover anything but the simplest possible install.   Please consult the [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.prd/install.html][Glidein WMS reference documentation]] for advanced topics, including non-=root=, non-RPM-based installation.
+
+This document covers three primary components of the frontend:
+   * *WMS Collector / Schedd*: A set of =condor_collector= processes that control the submission of pilots to Grid entries.  
+   * *Glidein Factory*: 
+
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="Header"}%
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="CommandLine"}%
+
+---+ Requirements
+ 
+---++ Hardware requirements
+
+The Glidein WMS VO Frontend has the following requirements:
+   * *CPU*: Four cores, preferably no more than 2 years old.
+   * *RAM*: 3GB plus 2MB per running job.  For example, to sustain 2000 running jobs, a host with 5GB is needed.
+   * *Disk*:  30GB will be plenty sufficient for all the binaries, config and log files related to glideinWMS.  As this will be an interactive submit host, plan enough disk space for your users' jobs.  Depending on your workflow, this might require 2MB to 2GB per job in a workflow.
+   * *Network*:  The VO frontend must have reliable network connectivity, be on the public internet (no NAT), and preferably with no firewalls.  Each running pilot requires 5 outgoing TCP ports.  Incoming TCP ports 9618 to 9660 must be open.
+      * For example, 2000 running jobs require about 10,100 TCP connections.  This will overwhelm many firewalls; if you are unfamiliar with your network topology, you may want to warn your network administrator.
+
+---++ Operating system
+
+This has been tested on SL5.5 and !CentOS 5.5, x86_64 architecture.  Any RHEL-5.5 clone is supported.  Other platforms are not supported.
+
+---++ Required software
+
+All software requirements are defined in the RPM, and will be pulled in at install time.
+
+---++ Users
+
+%STARTSECTION{"Users"}%
+| *User* | *Comment* |
+| =gfactory= | This user runs the Glidein VO factory. |
+| =condor= | Condor user (installed via dependencies). |
+%ENDSECTION{"Users"}%
+
+---++ Certificates
+
+The OSG Client will install the CA certificates and CRL as part of the installation.
+
+The factory also needs some certs and stuff *ADD*
+
+
+
+
+---+ Installation Procedure
+
+%INCLUDE{"YumRepositories" section="OSGRepoBrief" TOC_SHIFT="+"}%
+
+%INCLUDE{"InstallCertAuth" section="OSGBriefCaCerts" TOC_SHIFT="+"}%
+
+%STARTSECTION{"InstallGWMSFactory"}%
+
+---++ Download and install the Factory RPM
+
+The RPM is available in the OSG repository:
+
+Install the RPM and dependencies (be prepared for a lot of dependencies).
+
+   <pre class="rootscreen">%UCL_PROMPT_ROOT% yum install glideinwms-factory</pre>
+
+Note that if you want to install a testing or development version, you may have to add "--enable-repo=osg-testing". 
+This command will install the glideinwms factory, condor, the OSG client, and all the required dependencies.
+
+%ENDSECTION{"InstallGWMSFactory"}%
+
+
+---+ Configuration Procedure 
+
+After installing the RPM you need to configure the components of the Glidein WMS VO Frontend:
+   1. Edit Factory configuration options
+   1. Edit Condor configuration options
+   1. Create a Condor grid map file
+   1. Reconfigure and Start factory
+
+---++ Download condor tarballs
+
+You will need to download Condor tarballs for each architecture that you want to deploy pilots on.
+At this point, glideinWMS factory does not support pulling condor binaries from your system area.
+Suggested is that you put these binaries in =/var/lib/gwms-factory/condor= but any =gfactory= accessible location should suffice.
+
+---++ Configuring the Factory
+
+The configuration file is =/etc/gwms-factory/glideinWMS.xml=.  The next steps will describe each line that you will need to edit for most cases, but you may want to 
+review the whole file to be sure that it is configured correctly.
+
+
+
+
+   <pre class="file">
+   BUNCH OF STUFF HERE
+   </pre>
+
+
+---++ Configuring Condor
+
+The condor configuration for the frontend is placed in =/etc/condor/config.d=.
+   * 00_gwms_factory_general.config
+   * 01_gwms_factory_collectors.config
+   * 02_gwms_factory_schedds.config
+   * 03_gwms_factory_local.config
+
+Get rid of the pre-loaded condor default. 
+<pre class="rootscreen">
+  rm /etc/condor/config.d/00personal_condor.config
+</pre>
+
+For most installations, the items you need to modify are in =03_gwms_local.config=.  The lines you will have to edit are:
+
+   1. Credentials of the machine.  You can either run using a proxy, or a service certificate.  It is recommended to use a host certificate and specify it's location in the variables =GSI_DAEMON_CERT= and =GSI_DAEMON_KEY=.  The host certificate should be owned by =root= and have the correct permissions, 600.
+   <pre class="file">
+#-- Condor user: condor
+CONDOR_IDS =
+#--  Contact (via email) when problems occur
+CONDOR_ADMIN =
+
+############################
+# GSI Security config
+############################
+#-- Grid Certificate directory
+GSI_DAEMON_TRUSTED_CA_DIR= /etc/grid-security/certificates
+
+#-- Credentials
+GSI_DAEMON_CERT =  /etc/grid-security/hostcert.pem
+GSI_DAEMON_KEY  =  /etc/grid-security/hostkey.pem
+
+#-- Condor mapfile
+CERTIFICATE_MAPFILE= /etc/condor/certs/condor_mapfile
+
+###################################
+# Whitelist of condor daemon DNs
+###################################
+#DAEMON_LIST = COLLECTOR, MASTER, NEGOTIATOR, SCHEDD, STARTD
+</pre>
+
+After configuring condor, be sure to restart condor:
+
+<pre class="rootscreen">
+service condor restart</pre>
+
+
+---++ Create a Condor grid mapfile.
+
+The Condor grid mapfile (=/etc/condor/certs/condor_mapfile=) is used for authentication between the glidein running on a remote worker node, and the local collector.  Condor uses the mapfile to map certificates to pseudo-users on the local machine.  It is important that you map the DN's of:
+   * Each frontend you are talking to
+
+Below is an example mapfile, by default found in =/etc/condor/certs/condor_mapfile=:
+   <pre class="file">
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=People\/CN\=Derek\ Weitzel\ 285345$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/hcc\-grid\.unl\.edu$" dweitzel
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/cpass\.unl\.edu$" dweitzel
+GSI (.*) anonymous
+FS (.*) \1 </pre>
+
+---++ Other stuff...
+
+
+---++ Reconfigure and verify installation
+
+In order to use the factory, first you must reconfigure it.
+Each time you change the configuration you must reconfigure it.
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service gwms-factory reconfig </pre>
+
+After reconfiguring, you can start the frontend:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service gwms-factory start </pre>
+
+
+---+ Service Activation and Deactivation
+
+Three services need to be running:
+   * Condor <pre class="rootscreen">
+%UCL_PROMPT_ROOT% service condor start </pre>
+   * Httpd <pre class="rootscreen">
+%UCL_PROMPT_ROOT% service httpd start</pre>
+   * VO Frontend <pre class="rootscreen">
+%UCL_PROMPT_ROOT% service gwms-factory start </pre>
+
+
+To stop the frontend:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service gwms-factory stop </pre>
+
+
+
+---+ Validation of Service Operation
+
+The validation of the factroy is the submission of actual jobs
+Also check condor_status etc.
+
+
+
+---+ Troubleshooting
+
+---++ File Locations
+
+|  *File Description*  |  *File Location*  |
+|Configuration file | /etc/gwms-factory/glideinWMS.xml |
+|Logs | /var/log/gwms-factory/ |
+|Startup script | /etc/init.d/gwms-factory |
+|Web Directory | /var/lib/gwms-factory/web-area |
+|Web Base| /var/lib/gwms-factory/web-base |
+|Working Directory | /var/lib/gwms-frontend/work-dir/ |
+
+---++ Failed authentication
+
+If you get a failed authentication error then:
+   * Try to not kill yourself
+
+---++ Many other problems here
+
+---++ Frontend doesn't trust factory
+
+
+---+ References
+
+   * http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.prd
+   * http://twiki.grid.iu.edu/bin/view/Documentation/Release/GlideinWMSVOFrontendInstall
+
+
+---+ Comments
+%COMMENT{type="tableappend"}%
+
+<!-- CONTENT MANAGEMENT PROJECT
+############################################################################################################
+ DEAR DOCUMENT OWNER
+ ===================
+
+ Thank you for claiming ownership for this document! Please fill in your FirstLast name here:
+   * Local OWNER = DouglasStrain
+
+ Please define the document area, choose one of the defined areas from the next line
+ DOC_AREA = (ComputeElement|General|Integration|Monitoring|Operations|Security|Storage|Tier3|User|VO)
+   * Local DOC_AREA       = General
+
+ define the primary role the document serves, choose one of the defined roles from the next line
+ DOC_ROLE = (Developer|Documenter|Scientist|Student|SysAdmin|VOManager)
+   * Local DOC_ROLE       = SysAdmin
+
+ Please define the document type, choose one of the defined types from the next line
+ DOC_TYPE = (HowTo|Installation|Knowledge|Navigation|Planning|Training|Troubleshooting)
+   * Local DOC_TYPE       = Installation
+  Please define if this document in general needs to be reviewed before release ( %YES% | %NO% )
+   * Local INCLUDE_REVIEW = %YES%
+
+ Please define if this document in general needs to be tested before release ( %YES% | %NO% )
+   * Local INCLUDE_TEST   = %YES%
+
+ change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
+   * Local REVIEW_READY   = %NO%
+
+ change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
+   * Local TEST_READY     = %NO%
+
+ change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
+   * Local RELEASE_READY  = %NO%
+
+
+ DEAR DOCUMENT REVIEWER
+ ======================
+
+ Thank for reviewing this document! Please fill in your FirstLast name here:
+   * Local REVIEWER       = BurtHolzman
+ Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local REVIEW_PASSED  = %NO%
+
+
+ DEAR DOCUMENT TESTER
+ ====================
+
+ Thank for testing this document! Please fill in your FirstLast name here:
+   * Local TESTER         = BurtHolzman
+ Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local TEST_PASSED    = %NO%
+############################################################################################################
+-->
+
+
+
+-- Main.MarcoMambelli - 19 Oct 2011
+
+
+-- Main.DouglasStrain - 21 Feb 2012
