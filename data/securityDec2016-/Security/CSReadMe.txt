@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="KyleGross" date="1328026263" format="1.1" version="1.17"}%
+%META:TOPICINFO{author="KyleGross" date="1329928466" format="1.1" version="1.18"}%
 %META:TOPICPARENT{name="ReleaseDocumentation.CertScriptsPackage"}%
 %DOC_STATUS_TABLE%
 
@@ -217,7 +217,7 @@ cert-scripts/dev/M2Crypto/m2crypto-0.17.
    * Local DOC_ROLE       = SysAdmin
 
    Please define the document type, choose one of the defined types from the next line
-   DOC_TYPE = (Trash/Troubleshooting|Training|Installation|HowTo|Planning|Navigation|Knowledge)
+   DOC_TYPE = (Troubleshooting|Training|Installation|HowTo|Planning|Navigation|Knowledge)
    * Local DOC_TYPE       = Knowledge
    
    Please define if this document in general needs to be reviewed before release ( %YES% | %NO% )
