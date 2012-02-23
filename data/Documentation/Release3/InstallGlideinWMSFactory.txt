@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DouglasStrain" date="1329952048" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="DouglasStrain" date="1330018816" format="1.1" reprev="1.5" version="1.5"}%
 <!-- Local variables
    * Set CONDORREL = 7.6.0
    * Set AS_OF_DATE = May 27, 2011
@@ -26,11 +26,10 @@ This document covers three primary components of the frontend:
 ---++ Hardware requirements
 
 The Glidein WMS VO Frontend has the following requirements:
-   * *CPU*: Four cores, preferably no more than 2 years old.
-   * *RAM*: 3GB plus 2MB per running job.  For example, to sustain 2000 running jobs, a host with 5GB is needed.
-   * *Disk*:  30GB will be plenty sufficient for all the binaries, config and log files related to glideinWMS.  As this will be an interactive submit host, plan enough disk space for your users' jobs.  Depending on your workflow, this might require 2MB to 2GB per job in a workflow.
-   * *Network*:  The VO frontend must have reliable network connectivity, be on the public internet (no NAT), and preferably with no firewalls.  Each running pilot requires 5 outgoing TCP ports.  Incoming TCP ports 9618 to 9660 must be open.
-      * For example, 2000 running jobs require about 10,100 TCP connections.  This will overwhelm many firewalls; if you are unfamiliar with your network topology, you may want to warn your network administrator.
+   * *CPU*: 4-8 for a large installation (1 should suffice on a small install)
+   * *RAM*: 4-8GB on a large installation (1GB should suffice for small installs)
+   * *Disk*:  10GB will be plenty sufficient for all the binaries, config and log files related to glideinWMS.  If you are a large site with need to keep significant history and logs, you may want to allocate 100GB+ to store long histories.
+   * *Network*:  It must must be on the public internet, with at least one port open to the world; all worker nodes will load data from this node trough HTTP. Note that worker nodes will also need outbound access in order to access this HTTP port. 
 
 ---++ Operating system
 
@@ -98,36 +97,70 @@ Suggested is that you put these binaries in =/var/lib/gwms-factory/condor= but a
 The configuration file is =/etc/gwms-factory/glideinWMS.xml=.  The next steps will describe each line that you will need to edit for most cases, but you may want to 
 review the whole file to be sure that it is configured correctly.
 
+---+++ Frontend security configuration
+
 In the security section, you will need to provide each frontend that is allowed to communicate with the factory:
    <pre class="file">
    &lt;security allow_proxy="frontend" key_length="2048" pub_key="RSA" reuse_oldkey_onstartup_gracetime="900"&gt;
       &lt;frontends&gt;
-         &lt;frontend name="vofrontend_service" identity="vofrontend_service@FACTORY_COLLECTOR_HOSTNAME"&gt;
+         &lt;frontend name="%ORANGE%vofrontend_sec_name%ENDCOLOR%" identity="%GREEN%vofrontend_service%ENDCOLOR%@FACTORY_COLLECTOR_HOSTNAME"&gt;
             &lt;security_classes&gt;
-               &lt;security_class name="frontend" username="frontend"/&gt;
+               &lt;security_class name="%RED%frontend_sec_class%ENDCOLOR%" username="frontend"/&gt;
             &lt;/security_classes&gt;
          &lt;/frontend&gt;
       &lt;/frontends&gt;
    &lt;/security&gt;
    </pre>
 
+These attributes are very important to get exactly right or the frontend will not be trusted.  This should match a security of the frontend in the following way:
+<pre class="file">
+   &lt; security classad_proxy="/tmp/vo_proxy" proxy_DN="%BLUE%/DC=org/DC=doegrids/OU=People/CN=Some Name 123456%ENDCOLOR%" proxy_selection_plugin="ProxyAll" security_name="%ORANGE%frontend_sec_name%ENDCOLOR%" sym_key="aes_256_cbc"&gt;
+      &lt;proxies&gt;
+         &lt;proxy absfname="/tmp/vo_proxy" security_class="%RED%frontend_sec_class%ENDCOLOR%"/&gt;
+      &lt;/proxies&gt;
+   &lt;/security &gt;
+</pre>
+Note that the identity of the frontend must match what *condor* authenticates the DN of the frontend to.  In =/etc/condor/certs/condor_mapfile=
+(See next section for more details), there must be an entry:
+<pre class="file">
+GSI "%BLUE%^\/DC\=org\/DC\=doegrids\/OU\=People\/CN\=Some\ Name\ 834323%ENDCOLOR%$" %GREEN%vofrontend_service%ENDCOLOR%
+</pre>
+
+
+---+++ Web server configuration
+
 Verify web area:
    <pre class="file">
        &lt;stage base_dir="/var/lib/gwms-factory/web-area/stage" use_symlink="True" web_base_url="http://HOSTNAME:PORT/factory/stage"/&gt;
    </pre>
+This will determine the location of your web server.  It is advisable (but not necessarily) to change the port here and in apache by modifying the "Listen" directive in =/etc/httpd/conf/httpd.conf=.  Note that web servers are an often attacked piece of infrastruture, so you may want to go through the Apache configuration in 
+=/etc/httpd/conf/httpd.conf= and disable unneeded modules.
 
+---+++ Entry configuration
 
-Add entries:
+Entries are grid endpoints (Compute Elements) that can accept job requests and run pilots (which will run user jobs).
+Each needs to be configured to go to a specific gatekeeper.
+
+An example test entry is provided in the configuration file.  At the very least, you will need to modify the entry line:
    <pre class="file">
-       &lt;entry name="TEST3_GR7X1" enabled="True" gatekeeper="gr7x1.fnal.gov/jobmanager-condor" gridtype="gt2" rsl="(queue=default)(jobtype=single)" schedd_name="schedd_glideins4@fermicloud121.fnal.gov" verbosity="std" work_dir="OSG" &gt;
+       &lt;entry name="%RED%ENTRY_NAME%ENDCOLOR%" enabled="True" gatekeeper="%RED%gatekeeper.domain.tld/jobmanager-condor%ENDCOLOR%" gridtype="gt2" rsl="(queue=default)(jobtype=single)" schedd_name="schedd_glideins4@fermicloud121.fnal.gov" verbosity="std" work_dir="OSG" &gt;
    </pre>
-Add any other options for them.
+You will need to modify the entry name and gatekeeper.  This will determine the gatekeeper that you access.  Specific gatekeepers often require specific "rsl" attributes that determine the job queue that you are in or other attributes.  Add them in the rsl.  Also, be sure to distribute your entries across the various condor schedd work managers to balance load.  Several schedd options are configured by default for you:  schedd_glideins2, schedd_glideins3, schedd_glideins4, schedd_glideins5, as well as the default schedd.  This can be modified in the condor configuration.  Add any specific options, such as limitations on jobs/pilots or glexec/voms requirements in the entry section below the above line.
 
-Add condor tarballs from the previous step:
+More information on options can be found here:
+http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.prd/factory/configuration.html
+
+---++ Configuring Tarballs
+
+Each pilot will download condor binaries from the staging area.  Often, multiple binaries are needed to support various architectures and platforms. 
+Currently, you will need to provide at least one tarball for glideinWMS to use.  (Using the system binaries is currently not supported).
+
+Download a condor tarball from: http://research.cs.wisc.edu/condor/downloads-v2/download.pl.  Suggested is to put the binaries in =/var/lib/gwms-factory/condor=, but any factory-accessible location will do just fine.
+
+Once you have downloaded the tarball, configure it in =/etc/gwms-factory/glideinWMS.xml= like in the following:
    <pre class="file">
      &lt; condor_tarball arch="default" base_dir="/var/lib/gwms-factory/condor/condor-7.6.6-x86_64_rhap_5-stripped" os="default" version="default"/&gt;
    </pre>
-
 
 ---++ Configuring Condor
 
@@ -144,7 +177,10 @@ Get rid of the pre-loaded condor default.
 
 For most installations, the items you need to modify are in =03_gwms_local.config=.  The lines you will have to edit are:
 
-   1. Credentials of the machine.  You can either run using a proxy, or a service certificate.  It is recommended to use a host certificate and specify it's location in the variables =GSI_DAEMON_CERT= and =GSI_DAEMON_KEY=.  The host certificate should be owned by =root= and have the correct permissions, 600.
+   1. Credentials of the machine.  You can either run using a proxy, or a service certificate.  It is recommended to use a host certificate and specify it's location in the 
+variables =GSI_DAEMON_CERT= and =GSI_DAEMON_KEY=.  The host certificate should be owned by =root= and have the correct permissions, 600.
+   1. Condor ids in the form UID.GID (both are integers)
+   1. Condor admin email it will email when services fail.
    <pre class="file">
 #-- Condor user: condor
 CONDOR_IDS =
@@ -178,18 +214,19 @@ service condor restart</pre>
 
 ---++ Create a Condor grid mapfile.
 
-The Condor grid mapfile (=/etc/condor/certs/condor_mapfile=) is used for authentication between the glidein running on a remote worker node, and the local collector.  Condor uses the mapfile to map certificates to pseudo-users on the local machine.  It is important that you map the DN's of:
-   * Each frontend you are talking to
+The Condor grid mapfile (=/etc/condor/certs/condor_mapfile=) is used for authentication between the glidein running on a remote worker node, and the local collector.  Condor uses the mapfile to map certificates to pseudo-users on the local machine.  It is important that you map the DN's of each frontend you are talking to.
 
 Below is an example mapfile, by default found in =/etc/condor/certs/condor_mapfile=:
    <pre class="file">
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=People\/CN\=Doug\ Strain\ 123456$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=People\/CN\=Some\ Name\ 123456$" frontend
 GSI (.*) anonymous
 FS (.*) \1 </pre>
-Each frontend needs a line that maps to the user.
+Each frontend needs a line that maps to the user specified in the identity argument in the frontend security section of the factory configuration.
 
----++ Other stuff...
+After configuring the mapfile, be sure to restart condor:
 
+<pre class="rootscreen">
+service condor restart</pre>
 
 ---++ Reconfigure and verify installation
 
@@ -207,7 +244,12 @@ After reconfiguring, you can start the factory:
 
 ---+ Service Activation and Deactivation
 
-Three services need to be running:
+*IMPORTANT NOTE* Anytime you change the =/etc/gwms-factory/glideinWMS.xml= file, you will need
+to reconfigure the factory with:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service gwms-factory upgrade </pre>
+
+These services need to be running for the factory to function:
    * Condor <pre class="rootscreen">
 %UCL_PROMPT_ROOT% service condor start </pre>
    * Httpd <pre class="rootscreen">
@@ -215,40 +257,80 @@ Three services need to be running:
    * VO Frontend <pre class="rootscreen">
 %UCL_PROMPT_ROOT% service gwms-factory start </pre>
 
-
 To stop the factory:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% service gwms-factory stop </pre>
 
-
-
 ---+ Validation of Service Operation
 
-The validation of the factroy is the submission of actual jobs
-Also check condor_status etc.
+The validation of the factroy is the submission of actual jobs.
 
+You can also check that the services are up and running:
+<pre class="screen">
+%UCL_PROMPT% condor_status -any
+
+MyType               TargetType           Name
+
+glidefactory         None                 TEST_ENTRY@gfactory_instance@
+glidefactoryclient   None                 TEST_ENTRY@gfactory_instance@
+glideclient          None                 TEST_ENTRY@gfactory_instance@
+Scheduler            None                 hostname.fnal.gov
+DaemonMaster         None                 hostname.fnal.gov
+Negotiator           None                 hostname.fnal.gov
+Scheduler            None                 schedd_glideins2@hostname
+Scheduler            None                 schedd_glideins3@hostname
+Scheduler            None                 schedd_glideins4@hostname
+Scheduler            None                 schedd_glideins5@hostname
+Collector            None                 wmscollector_service@hostname
+</pre>
+
+You should have one "glidefactory" classad for each entry that you have enabled.
+If you have already configured the frontends, 
+you will also have one glidefactoryclient and one glideclient classad for each frontend / entry.
+
+---+ File Locations
+
+|  *File Description*  |  *File Location*  | *Comment*|
+|Configuration file | /etc/gwms-factory/glideinWMS.xml | Main configuration file |
+|Logs | /var/log/gwms-factory/server/factory | Overall server logs |
+|| /var/log/gwms-factory/server/entry_NAME | Specific entry logs (generally more useful) |
+|| /var/log/gwms-factory/client | Glidein Pilot logs seperated by user and entry.  |
+|Startup script | /etc/init.d/gwms-factory ||
+|Web Directory | /var/lib/gwms-factory/web-area ||
+|Web Base| /var/lib/gwms-factory/web-base ||
+|Working Directory | /var/lib/gwms-frontend/work-dir/ ||
 
 
 ---+ Troubleshooting
 
----++ File Locations
+---++ Failed authentication errors
 
-|  *File Description*  |  *File Location*  |
-|Configuration file | /etc/gwms-factory/glideinWMS.xml |
-|Logs | /var/log/gwms-factory/ |
-|Startup script | /etc/init.d/gwms-factory |
-|Web Directory | /var/lib/gwms-factory/web-area |
-|Web Base| /var/lib/gwms-factory/web-base |
-|Working Directory | /var/lib/gwms-frontend/work-dir/ |
+If you get messages such as these in the logs, the factory does not trust the frontend and will not submit glideins.
 
----++ Failed authentication
+<pre class="screen">
+WARNING: Client fermicloud128-fnal-gov_OSG_gWMSFrontend.main (secid: frontend_name) not in white list. Skipping request
+</pre>
+  * This error means that the frontend name in the security section of the factory does not match the security_name in the frontend.
 
-If you get a failed authentication error then:
-   * Try to not kill yourself
+<pre class="screen">
+Client fermicloud128-fnal-gov_OSG_gWMSFrontend.main (secid: frontend_name) is not coming from a trusted source; AuthenticatedIdentity vofrontend_condor@fermicloud130.fnal.gov!=vofrontend_factory@fermicloud130.fnal.gov. Skipping for security reasons.
+</pre>
+  * This error means that the identity in the security section of the factory does not match what the =/etc/condor/certs/condor_mapfile= authenticates the frontend to in condor (!AuthenticatedIdentity in the classad).
 
----++ Many other problems here
+Make sure the attributes are correctly lined up as in the Frontend security configuration section above.
 
----++ Frontend doesn't trust factory
+---++ Glideins start but do not connect to User pool / VO Frontend
 
+Check the appropriate job err and out logs in =/var/log/gwms-factory/client= to see if any errors were reported.
+Often, this will be a pilot unable to access a web server or with an invalid proxy.  Also, verify that the condor_mapfile is correct on the VO Frontend's user pool collector and configuration.
+
+---++ Condor_root_switchboard errors
+
+Make sure that you run =service gwms-factory upgrade= instead of the more light-weight =service gwms-factory reconfig=
+to ensure that all scripts are created correctly. 
+
+Next verify =/etc/condor/privsep.conf= to make sure the users are listed correctly.
+
+Lastly, verify that permissions are correct.  The parent directory of all valid-dirs must be owned by root.
 
 ---+ References
 
@@ -298,7 +380,7 @@ If you get a failed authentication error then:
  ======================
 
  Thank for reviewing this document! Please fill in your FirstLast name here:
-   * Local REVIEWER       = BurtHolzman
+   * Local REVIEWER       = ParagMhashilkar
  Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local REVIEW_PASSED  = %NO%
 
@@ -307,15 +389,10 @@ If you get a failed authentication error then:
  ====================
 
  Thank for testing this document! Please fill in your FirstLast name here:
-   * Local TESTER         = BurtHolzman
+   * Local TESTER         = ParagMhashilkar
  Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local TEST_PASSED    = %NO%
 ############################################################################################################
 -->
-
-
-
--- Main.MarcoMambelli - 19 Oct 2011
-
 
 -- Main.DouglasStrain - 21 Feb 2012
