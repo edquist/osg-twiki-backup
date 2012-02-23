@@ -2,8 +2,8 @@ import java.io.*;
 import java.util.*;
 
 public class MountPoint implements gov.lbl.srm.policy.ISRMSelectionPolicy {
-   String log_filename="/opt/bestman2/vdt-app-data/bestman2/logs/servers.log";
-   String server_filename="/opt/bestman2/bestman2/lib/plugin/servers.txt";
+   String log_filename="/var/log/bestman2/servers.log";
+   String server_filename="/etc/bestman2/conf/servers.txt";
    String defaultServer="ouhep0.nhn.ou.edu:2811";
    String currentString="";
    public void appendFile(String s) {
