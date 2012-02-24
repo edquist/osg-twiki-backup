@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DouglasStrain" date="1330026453" format="1.1" version="1.15"}%
+%META:TOPICINFO{author="DouglasStrain" date="1330104239" format="1.1" reprev="1.16" version="1.16"}%
 %META:TOPICPARENT{name="InstallBestPractices"}%
 %LINKCSS%
 ---+!! %SPACEOUT{ "Install !XRootD" }%
@@ -38,7 +38,7 @@ This installation will create one user:
 
 ---+ Install Instructions
 
-%INCLUDE{"Documentation.InstallVDTRepo" headingoffset="1"}%
+%INCLUDE{"YumRepositories" section="OSGRepoBrief" headingoffset="1"}%
 
 ---++ Installing !XRootD Server
 
@@ -63,7 +63,7 @@ yum install xrootd-server.x86_64
 $ service xrootd setup     
 </pre>
 
-All xrootd related configuration files and directories are now belong to the user defined in ==/etc/sysconfig/xrootd== (default: user "xrootd", group "xrootd"). All xrootd related daemons are owned by this user. These user and group are created  if they don't exist. If you want to change the user and the group modify ==/etc/sysconfig/xrootd==.  If you start daemons as one user and then decide to change a user you have to  modify ==/etc/sysconfig/xrootd== and rerun "service xrootd setup".  %ICON{warning}% Note: there are still some files in ==/tmp== that should be deleted manually before daemon could start successfully. We are trying to resolve this issue with developers.
+All xrootd related configuration files and directories are now belong to the user defined in ==/etc/sysconfig/xrootd== (default: user "xrootd", group "xrootd"). All xrootd related daemons are owned by this user. These user and group are created if they don't exist. If you want to change the user and the group that xrootd runs as, modify XROOTD_USER and XROOTD_GROUP in the file ==/etc/sysconfig/xrootd==.  If you start daemons as one user and then decide to change a user, you have to modify ==/etc/sysconfig/xrootd== and rerun "service xrootd setup".  
 
 ---+ Starting and Stopping !XRootD Server
 
@@ -76,6 +76,22 @@ Starting xrootd (xrootd, default):                         %GREEN%[  OK  ]%ENDCO
 To stop xrootd server:
 <pre class="rootscreen">
 $ service xrootd stop
+</pre>
+
+*Note:* If you have installed cluster management services (in the following sections) for an xrootd server,
+you will also need to start and stop cmsd on each node.
+
+---+++ Starting and Stopping !CmsD Server
+
+Start the cmsd daemon using the following command.
+<pre class="rootscreen">
+$ service cmsd start
+Starting xrootd (cmsd, default):                          %GREEN% [  OK  ]%ENDCOLOR%
+</pre> 
+
+To stop cmsd server:
+<pre class="rootscreen">
+$ service cmsd stop
 </pre>
 
 
@@ -93,45 +109,66 @@ $ ls -l /tmp/first_test
 ---+ Advanced Configuration
   
 ---++ Creating Xrootd Cluster
-   1. You  need at least two nodes in order to create a cluster. One node serves as a "redirector" node , the other is a data server. You should be able start two daemons on each node ==xrootd== and ==cmsd== after you finish with installation and configuration. 
-   1. Install rpms  on the second node (see steps 1-4 in the previous section).
-   1. Select redirector host (A) and data server host ( B). %ICON{warning}%host A,B  must be replaced with FQDN, ie output of 'hostname'
-   1. You will be able to copy file in the /tmp area on the host B. By default cmsd daemon requires at least 11GB of free space for the storage area. Please check how much space you have available (df -h) and then put an appropriate modification in the =/etc/xrootd/xrootd-clustered.cfg=.
-   1. Modify  =/etc/xrootd/xrootd-clustered.cfg= on both nodes<pre class="file">
+
+     <img src="%ATTACHURLPATH%/rdr.jpg" alt="rdr.jpg" width='736' height='318' />    
+
+An !XRootD cluster can make a storage installation much more scalable.  Controlling file acceess queries to the cluster is the "redirector" node.  This node will serve as a frontend for user requests and redirect their file accesses to the appropriate data node(s) that have the data they are requesting.  To facilitate this, two daemons xrootd (controlling file access and storage) and cmsd (controlling "cluster management services" and communications between nodes) will be started on each node once installation and configuration is completed.  Note that, for large virtual organizations, a site-level redirector may actually also communicate upwards to a regional or global redirector that handles access to a multi-level hierarchy.  This section will only cover handling one level of !XRootD hierarchy.  
+
+In the below instructions, RDRNODE will refer to the redirector instances and DATANODE will refer to the data node host.  Each instance of this below should be replaced with the FQDN, ie output of 'hostname'.
+
+---+++ Modify =/etc/xrootd/xrootd-clustered.cfg=
+
+You will need to modify the xrootd-clustered.cfg on both nodes.  The following example should serve as a base configuration for clustering.  
+Further customizations are detailed below.
+
+<pre class="file">
 all.export /tmp stage
-%RED%
-set xrdr = hostA
+set xrdr = RDRNODE
 all.manager $(xrdr):3121
 if $(xrdr)
   all.role manager
 else
   all.role server
-# add cms.space if you have less the 11GB
-# cms.space options http://xrootd.slac.stanford.edu/doc/dev/cms_config.htm
   cms.space min 2g 5g
 fi
-#all.manager localhost 3121
-#all.role server
-%ENDCOLOR%
-</pre>Changes in the configuration file are given in %RED%red%ENDCOLOR%. Replace %RED%hostA%ENDCOLOR% with FQAN of  redirector host
-   1. Start services:<pre class="rootscreen">
+</pre>
+
+You will need to customize the following lines:
+
+|*Configuration Line*|*Changes Needed*|
+|=all.export /tmp stage=| Change =/tmp= to the directory to allow !XRootD access to|
+|=set xrdr&#61;RDRNODE= | Change to the hostname of the redirector |
+|=cms.space min 2g 5g= | Reserve this amount of free space on the node.  For this example, if space falls below 2GB, xrootd will not store further files on this node until space climbs above 5GB. You can use k, m, g, or t to indicate kilobyte, megabytes, gigabytes, or terabytes, respectively.|
+
+
+Further information can be found at [[http://xrootd.slac.stanford.edu/doc]]
+
+
+
+---+++ Starting services
+
+Both =xrootd= and =cmsd= need to be started on all nodes:
+
+<pre class="rootscreen">
 $ service xrood start
 Starting xrootd (xrootd, default):                         %GREEN%[  OK  ]%ENDCOLOR%
 $ service cmsd start
 Starting xrootd (cmsd, default):                          %GREEN% [  OK  ]%ENDCOLOR%
 </pre>
-   1. Verify that you can copy file to /tmp on the server data via redirector:<pre class="rootscreen">
-$ xrdcp /bin/sh  root://%RED%hostA%ENDCOLOR%:1094///tmp/second_test
+
+---+++ Verifying cluster
+
+Verify that you can copy file to /tmp on the server data via redirector:
+
+<pre class="rootscreen">
+$ xrdcp /bin/sh  root://%RED%RDRNODE%ENDCOLOR%:1094///tmp/second_test
 [xrootd] Total 0.76 MB  |====================| 100.00 % [inf MB/s]
-</pre>Check that the ==/tmp/second_test== is located on data server host B.
-   1. Stop services:<pre class="rootscreen">
-$ service cmsd stop
-Shutting down xrootd (cmsd, default):                     %GREEN% [  OK  ]%ENDCOLOR%
-$ service xrootd stop
-Shutting down xrootd (xrootd, default):                    %GREEN%[  OK  ]%ENDCOLOR%
 </pre>
 
+Check that the ==/tmp/second_test== is located on data server DATANODE.
+
 ---++ Adding Simple Server Inventory  to your cluster
+
 The Simple Server Inventory (SSI) provide means to have an inventory for each data server (See details in xrootd.org/doc/dev/cms_config.pdf).
 In order to configure it you will need to run a second instance of xrootd daemon as well !XrdCnsd process that should run on every data server. We will configure xrootd cluster that consists of two nodes.
 Host A is a redirector node that is running the following daemons:
@@ -573,4 +610,5 @@ For a full set of help options, see [[HelpProcedure][Help Procedure]].
 
 -- Main.DouglasStrain - 01 Sep 2011
 
+%META:FILEATTACHMENT{name="rdr.jpg" attachment="rdr.jpg" attr="h" comment="Xrootd Cluster example" date="1330101681" path="rdr.jpg" size="28782" stream="rdr.jpg" tmpFilename="/usr/tmp/CGItemp5321" user="DouglasStrain" version="1"}%
 %META:TOPICMOVED{by="JamesWeichel" date="1317239787" from="Documentation.InstallXrootd" to="Documentation/Release3.InstallXrootd"}%
