@@ -1,0 +1,84 @@
+%META:TOPICINFO{author="JeremyFischer" date="1330985582" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="DigiCertPilotProject"}%
+---+++ Notes from the Indianapolis PKI Meeting from March 1, 2012
+
+In attendance: Rob Quick, Alain Deximo, Jeremy Fischer, Von Welch, Soichi Hayashi, Scott Teige
+
+Highlights:
+   * Initial discussions on OSG history and current workflows
+   * Discussion on GOC operations, architectures, and operations workflows
+   * Architecture and future workflows brainstorming
+
+History discussion is not necessarily worth documenting here. Much discussion with Rob and Alain on the current iteration of the OSG, the previous collaboration, and OSG Prime. Discussed ongoing process with DOEGrids and where there are currently problems - how to examine, document, and avoid these same problems in moving to a new CA.  In addition, discussed RPM packaging, security, and possible ideas on streamlining the transition from DOEGrids. Also on the table, distribution of resources, access control to these resources, multiple certificates (user) as part of the resource allocation structure (where preference to certain resources is based on the OU the user is with -- a la Atlas or CMS). 
+
+---+++++ Workflow discussions followed - here is the current workflow for user and host certificate request:
+
+End User:
+   1.	Cert Req (doegrids) &#8594; creates private key locally &  contacts PKI server (generates email to OSG RA list and end user [to confirm that they requested the cert]) – _in the future, want this to trigger a ticket to the GOC, does not do that now (GRNOC’s Footprints system)_
+   2.	OSG RA attempts to contact sponsor and confirm the person applying is valid
+   3.	Secure communications to verify the requester’s identity (By RA or RA Agent)
+   4.	Email approval to user – visit CA to pick up certificate
+   5.	User imports to browser – still doesn’t allow use to run jobs on Grid! (create web portal to submit/manage jobs?)
+   6.	Export from browser PK12 format (usually to ~/.globis/usercert.[pem|cert]
+   7.	Then can create proxy to other unix servers to be able to run/manage jobs
+
+Host Request:
+   1.	Cert Req (as before) – generally from command line since it’s a host request from an admin
+   2.	OSG RA contacts Grid Admin for that VO to confirm that the person in question is authorized for host cert generation – since the user already has a cert, not as stringent as initial request with secure communication
+   3.	Return approval, retrieve cert (still from command line)
+
+One topic with host certs was that the condition to bulk generate certificates rarely happens. Currently, the most likely scenario is that the admin of the new resource goes to that machine and runs the command line utility for creating, retrieving a certificate there. This spawned the kickstart/rpm question of having it automatically do that when bringing up a new resource node. This begs the question, though, are there situations when bulk gens really are done? If so, do we need to build in a throttle so only X number of host certs can be gen'd at a time. This especially becomes important if each cert request creates a ticket for the GOC in Footprints in the future. [This tied into a later discussion on OIM and creating a DB field for each user type and how many certs they could gen per year.]
+
+Workflows for renewal are simple and do not require as much effort as initial certificate request. One other brainstorming idea was how to create a "tickler" for certs getting ready to expire using either Footprints ticket or email. Or both. The idea of auto-renewal was discussed, but it seems that would continue keeping outdated data/certs in the system. If the certs are a "pay as you go" with DigiCert it is in our best interests to keep it clean. From a security standpoint, it is also a good idea to keep it clean - the fewer unnecessary privileges, the better.
+
+Revocation still makes for a more intricate workflow. How easy should it be for a user to revoke their own cert? Discussion of how often revokes actually occur (not often). When revocations are requested they are usually done by the Security team in regards to some sort of security incident. 
+
+---+++++ Architecture Discussions
+
+From email conversations with Soichi (storing here as it is apropos):
+
+   1. We will implement UIs for certificate request / retrieval / status query / revocation of user and host certificates in OIM.
+   2. We will add certificate_log table in OIM which holds records for each certificate requests containing following information.
+         <verbatim>
+          A. Digicert request ID
+          B. Who submitted the request
+          C. When was the request made
+          D. Current status (REQUESTED by user, APPROVED by digicert, REJECTED by digicert, REVOKE_REQUESTED by user, REVOKE_APPROVED by digicert)
+          E. certificate itself
+          F. certificate type (USER, or SERVICE)
+          G. If service certificate, which host/service this certificate applies to (OIM resource ID, service ID)
+          </verbatim>
+   3. We will provide rest API for oim that allows programatic interface for features provides in 1).
+   4. We will rewrite currrent OSG certificate request which will use interface provided by 3). For current cert script see (https://twiki.grid.iu.edu/bin/view/Documentation/Release3/CertificateGetCmd)
+
+The big change since we last talked is 3) and 4). Instead of getting user certificate part implemented initially and later work on host/service certificate request, I  now believe we should get them both implemented simultaneously in order to reduce time and effort. I also believe it is very important to keep the client interface as similar as possible to the current version in order to allow easy migration by users who are using existing certificate request scripts in their systems.
+
+-=-
+
+The command line API calls will have to work against a yet to be determined OIM API. This API will handle the calls to DigiCert. The need here is to insure modular access/security as well as to provide all logging and tracking data. The end user will not need to know or have access to the DigiCert API key, UID, or any other data. Since the DigiCert API is either privileged or not, this gives us an extra measure of control since presumably the OIM API will be more granular - users, grid admin, etc...
+
+-=-
+
+The diagram that illustrates current thinking of new/frontend system architecture is this:
+
+<img src="https://lh6.googleusercontent.com/1N8RZgON3p9-Qki5TWb7rPvntP2DsWVS58HFkuuYA5N8429shEICOby7kygsAq_Qg6H6lxQNJOLHoFJ03cJbb_sGiBLXWNKTqlp6PGMwMTFX8uCDjJg">
+
+Further workflow thoughts from Soichi:
+Couple of questions..
+
+   1. Recommended: Two separate RA Agents approve requests: My plan was to simply allow a single RA to click "approve" button which will submit request to Digicert. Should we implement this recommendation for phase 1, or can I work on this in Phase 2?
+   2. If the domain name is new, the Grid Admin adds the domain to the list of RA Agent's pre-approved domains. So, I am guessing RA agent will go to Digicert website of some sort to enter the new domain name when someone requests certificates for the first time from their institution, correct? Should we implement a feature in OIM to allow RA agent to submit this request? Does Digicert provide an interface for pre-approved domains?
+   3. Applicant is emailed a subscriber agreement. I am planning to make this process a part of certificate request steps.. For example, when user clicks "submit" inside OIM's user certificate request form, it will forward user to the Digicert agreement page, and when the user clicks "agree"  it will forward back to the OIM's request form. We discussed this a bit in another email thread, but my point is that I'd like to keep this as simple as possible without adding any new state, flags in OIM DB, etc.
+   4. Process for Becoming a sponsor - I am assuming that this process can be implemented by using existing GOC ticket form, and GOC staff adding the person to a sponsor list defined inside VO table (which needs to be added).
+   5. Process for Becoming a RA Agent - We haven't discussed this much, but I assume that this request happens rarely and we can do most of these steps manually.. GOC staff will give "ra_agent" role to the new RA through OIM's administration at the of the process.
+
+Miscellaneous thoughts:
+   1. On the transition, can we set a specific CN so that the user gets the same name identifier on the new system? The answer _seems_ to be yes but will require testing.
+   2. Keeping the cert db clean could be encouraged via the "X number of certs/year" control -- if the user/admin revokes one of their certs, the db gets a +1 incremented back to their pool?
+
+ 
+[[https://docs.google.com/document/d/1nwBRMoOBP0GbQx0d2ag_JibmkSt5AHCwW6fo4ghIBSY/edit?pli=1][Link to Soichi's whiteboard architecture diagram and system design notes]]
+
+[[https://twiki.grid.iu.edu/twiki/pub/Security/DigiCertPilotProject/OSG_Process_Flow_-_v2.0_-_JRclean_-_20120216.pdf][Link to DigiCert's Cert Issuance Workflows]]
+
+-- Main.JeremyFischer - 05 Mar 2012
