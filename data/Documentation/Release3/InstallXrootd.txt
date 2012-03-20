@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DouglasStrain" date="1331074071" format="1.1" reprev="1.19" version="1.19"}%
+%META:TOPICINFO{author="DouglasStrain" date="1332254204" format="1.1" reprev="1.20" version="1.20"}%
 %META:TOPICPARENT{name="InstallBestPractices"}%
 %LINKCSS%
 ---+!! %SPACEOUT{ "Install !XRootD" }%
@@ -168,7 +168,7 @@ $ xrdcp /bin/sh  root://%RED%RDRNODE%ENDCOLOR%:1094///tmp/second_test
 
 Check that the ==/tmp/second_test== is located on data server DATANODE.
 
----++ Adding Simple Server Inventory  to your cluster
+---++ (Optional) Adding Simple Server Inventory  to your cluster
 
 The Simple Server Inventory (SSI) provide means to have an inventory for each data server (See details in [[http://xrootd.org/doc/prod/cms_config.htm][XRootD CMS config]]).
 In order to configure it you will need to run a second instance of xrootd daemon as well !XrdCnsd process that should run on every data server. We will configure xrootd cluster that consists of two nodes.  Note, this cnsd process is short for "composite name space" and will handle the inventory.
@@ -262,8 +262,20 @@ fermicloud054.fnal.gov complete inventory as of Tue Apr 12 07:38:29 2011
 /data/xrootdfs/test1
 </pre>  _Note_: In this example fernilcould53.fnal.gov is a redirector node and fermicloud054.fnal.gov is a data server
 
----++ Adding Simple (Unix) Security 
-In order to add simple security to your cluster you will need to add "auth_file" on the your data server node. Create ==/etc/xrootd/auth_file== :<pre class="file">
+---++ (Optional) Authorization
+
+There are several authorization options in !XRootD available through the security plugins.
+In this document, we will cover two options for security:
+
+   * Simple Unix Security: Based on user accounts that the client is logged in as.
+   * xrootd-lcmaps: Using the lcmaps callout to use GUMS authorization
+
+Note: for both authorization schemes, you will need to provide an authorization file (=auth_file=).  See below.
+
+---+++ Authorization File
+
+In order to add security to your cluster you will need to add "auth_file" on the your data server node. 
+Create ==/etc/xrootd/auth_file== :<pre class="file">
 # This means that all the users have read access to the datasets
 u * %RED%/data/xrootdfs%ENDCOLOR% lr
 
@@ -279,6 +291,12 @@ u xrootd %RED%/data/xrootdfs%ENDCOLOR% a
 Change file ownership (if you have created file as root):<pre class="rootscreen">
  $ chown xrootd.xrootd /etc/xrootd/auth_file
 </pre>
+
+
+
+---+++ Adding Simple (Unix) Security 
+
+The first step in adding simple Unix security to validate based on username is to create the =auth_file= as in the previous section.
 
 The next step is to modify  ==/etc/xrootd/xrootd-clustered.cfg== on both nodes:<pre class="file">
 all.export /data/xrootdfs
@@ -333,6 +351,91 @@ $ su - %RED%user%ENDCOLOR%
 -bash-3.2$  xrdcp    root://localhost:1094//data/xrootdfs/%RED%user%ENDCOLOR%/test1 /tmp/c
 [xrootd] Total 0.00 MB  |====================| 100.00 % [inf MB/s]
 </pre>
+
+---+++ xrootd-lcmaps Authorization
+
+The xrootd-lcmaps security plugin uses the =lcmaps= package to access the =GUMS= server to authenticate and authorize users
+based on X509 certificates.
+
+*Certificate Installation*
+
+In order to install the lcmaps, you will need a set of certificates.  The below shows how to install the =osg-ca-certs= package in order to satisfy this requirement.  After this, you will need to update the certificate revocation lists via the =fetch-crl= package. 
+<pre class="rootscreen">
+yum install osg-ca-certs fetch-crl
+fetch-crl
+</pre>
+For more information and options on how to install different certificate (or certificate scripts) packages, please visit InstallCertAuth.
+
+*Install xrootd-lcmaps*
+
+<pre class="rootscreen">
+yum install xrootd-lcmaps
+</pre>
+
+*Create host certificates*
+
+You will need to have a X509 certificate to talk to GUMS.  If you already have a host certificate, you can use a copy of that:
+<pre class="rootscreen">
+ mkdir /etc/grid-security/xrd
+ cp /etc/grid-security/hostkey.pem /etc/grid-security/xrd/xrdkey.pem
+ cp /etc/grid-security/hostcert.pem /etc/grid-security/xrd/xrdcert.pem
+ chown -R xrootd:xrootd /etc/grid-security/xrd/
+ chmod 400 /etc/grid-security/xrd/xrdkey.pem
+</pre>
+This certificate should be owned by xrootd and located in =/etc/grid-security/xrd=.
+
+*Authorization File*
+
+Next, create =/etc/xrootd/auth_file= using the example in the above section.
+
+*Modify /etc/xrootd/lcmaps.cfg*
+
+Edit =/etc/xrootd/lcmaps.cfg= to point to your authorization server:
+<pre class="file">
+scasclient = "lcmaps_scas_client.mod"
+             "-resourcetype wn"
+             "-actiontype execute-now"
+             "-capath /etc/grid-security/certificates"
+             "-cert   /etc/grid-security/xrd/xrdcert.pem"
+             "-key    /etc/grid-security/xrd/xrdkey.pem"
+             "--endpoint https://%RED%gums.fnal.gov%ENDCOLOR%:8443/gums/services/GUMSXACMLAuthorizationServicePort"
+</pre>
+
+*Modify /etc/xrootd/xrootd-clustered.cfg*
+
+You will need to add the security plugins to =/etc/xrootd/xrootd-clustered.cfg=.
+Add the following lines to the =/etc/xrootd/xrootd-clustered.cfg=.  This will need to be added 
+<pre class="file">
+xrootd.seclib /usr/lib64/libXrdSec.so
+sec.protocol /usr/lib64 gsi -certdir:/etc/grid-security/certificates -cert:/etc/grid-security/xrd/xrdcert.pem -key:/etc/grid-security/xrd/xrdkey.pem -crl:3 -authzfun:libXrdLcmaps.so -authzfunparms:--osg,--lcmapscfg,/etc/xrootd/lcmaps.cfg,--loglevel,0|useglobals --gmapopt:2 --gmapto:0
+acc.authdb /etc/xrootd/auth_file
+ofs.authorize
+</pre>
+
+*Restart xrootd and cmsd*
+
+<pre class="rootscreen">
+service xrootd restart
+service cmsd restart
+</pre>
+
+*lcmaps notes*
+
+For recent versions of lcmaps (1.5+), VOMS signature verification is enabled by default.
+You may need to either disable it or install the =vo-client=.
+
+Installing vo-client:
+<pre class="rootscreen">
+yum install vo-client
+</pre>
+
+Disabling vo verification can be done by adding a line to =/etc/sysconfig/xrootd=:
+<pre class="file">
+export LLGT_VOMS_DISABLE_CREDENTIAL_CHECK=1
+</pre>
+
+This feature is evolving, so stay tuned for updates.
+
 
 ---++ Adding File Residency Manager (FRM) to Xrootd Cluster
 The FRM deals with two major mechanisms:
