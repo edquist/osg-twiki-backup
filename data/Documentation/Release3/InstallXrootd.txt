@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DouglasStrain" date="1332534240" format="1.1" version="1.23"}%
+%META:TOPICINFO{author="DouglasStrain" date="1332877358" format="1.1" version="1.24"}%
 %META:TOPICPARENT{name="InstallBestPractices"}%
 %LINKCSS%
 ---+!! %SPACEOUT{ "Install !XRootD" }%
@@ -382,7 +382,7 @@ The xrootd-lcmaps security plugin uses the =lcmaps= package to access the =GUMS=
 based on X509 certificates.
 
 *Certificate Installation*
-
+https://twiki.grid.iu.edu/bin/view/TWiki/GoodStyle
 In order to install the lcmaps, you will need a set of certificates.  The below shows how to install the =osg-ca-certs= package in order to satisfy this requirement.  After this, you will need to update the certificate revocation lists via the =fetch-crl= package. 
 <pre class="rootscreen">
 yum install osg-ca-certs fetch-crl
@@ -395,6 +395,8 @@ For more information and options on how to install different certificate (or cer
 <pre class="rootscreen">
 yum install xrootd-lcmaps
 </pre>
+Note that the xrootd-lcmaps is usually coupled to a specific version of xrootd, so make sure that you install xrootd-lcmaps from the same repository that you install xrootd from.  Otherwise, you may have dependency issues due to differing versions of shared libraries.
+
 
 *Create host certificates*
 
@@ -428,7 +430,7 @@ scasclient = "lcmaps_scas_client.mod"
 *Modify /etc/xrootd/xrootd-clustered.cfg*
 
 You will need to add the security plugins to =/etc/xrootd/xrootd-clustered.cfg=.
-Add the following lines to the =/etc/xrootd/xrootd-clustered.cfg=.  This will need to be added 
+Add the following lines to the =/etc/xrootd/xrootd-clustered.cfg=.  This will need to be added to all data nodes in the section relevant to the data node server.  (For instance, in the above example(s), this should be placed in the last "else" clause after "all.role server".  See the section above on unix security for an example of where the security commands should go).
 <pre class="file">
 xrootd.seclib /usr/lib64/libXrdSec.so
 sec.protocol /usr/lib64 gsi -certdir:/etc/grid-security/certificates -cert:/etc/grid-security/xrd/xrdcert.pem -key:/etc/grid-security/xrd/xrdkey.pem -crl:3 -authzfun:libXrdLcmaps.so -authzfunparms:--osg,--lcmapscfg,/etc/xrootd/lcmaps.cfg,--loglevel,0|useglobals --gmapopt:2 --gmapto:0
@@ -459,6 +461,37 @@ export LLGT_VOMS_DISABLE_CREDENTIAL_CHECK=1
 </pre>
 
 This feature is evolving, so stay tuned for updates.
+
+---+++ Testing Xrootd Cluster with lcmaps security enabled
+
+From any machine with the =xrootd-client= installed, you can test with xrdcp. 
+With a user that has no grid certificate installed, you should get an error:
+
+<pre class="screen">
+$ xrdcp /bin/bash root://HOSTNAME/tmp/lcmaps_test
+120327 14:31:52 10509 secgsi_InitProxy: cannot access private key file: /home/dstrain/.globus/userkey.pem
+XrdSec: No authentication protocols are available.
+Last server error 3010 ('cannot obtain credentials for protocol: Secgsi: ErrParseBuffer: error getting user proxies: kXGS_init: unable to get protocol object.')
+Error accessing path/file for root://fermicloud121.fnal.gov/tmp/test2
+</pre>
+
+After running =voms-proxy-init= or =grid-proxy-init= to initialize your x509 certificate (usually found in =/tmp/x509up_uUID=), the =xrdcp= command should execute cleanly.  For instance, the following shows an example of a user creating a voms certificate and copying to the xrootd client and then re-executing the xrdcp command.
+<pre class="screen">
+$ voms-proxy-init -voms Engage -valid 999:0
+Your identity: /DC=org/DC=doegrids/OU=People/CN=Doug Strain 834323
+Creating temporary proxy ..................................................... Done
+Contacting  osg-engage.renci.org:15001 [/DC=org/DC=doegrids/OU=Services/CN=osg-engage.renci.org] "Engage" Done
+Creating proxy .......................... Done
+
+Your proxy is valid until Tue May  8 05:34:40 2012
+$ scp /tmp/x509up_u44678 CLIENT_HOSTNAME:/tmp/x509up_u44678
+</pre>
+On the =xrootd-client= node,
+<pre class="screen">
+$ xrdcp /bin/bash root://fermicloud121.fnal.gov//tmp/lcmaps_test
+[xrootd] Total 0.73 MB  |====================| 100.00 % [inf MB/s]
+</pre>
+In the above examples, make sure to change "/tmp" to a directory allowed by the =/etc/xrootd/auth_file= created in a previous section.
 
 
 ---++ Adding File Residency Manager (FRM) to Xrootd Cluster
