@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AlainRoy" date="1333473986" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="AlainRoy" date="1333485073" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="WebHome"}%
 %DOC_STATUS_TABLE%
 
@@ -6,9 +6,7 @@
 
 %TOC%
 
----+ About this document
-%RED%DRAFT: This document is in progress. It is not done and should not be considered useful yet.%ENDCOLOR% 
-
+---# About this document
 This document will help you troubleshoot problems with the Gratia Accounting, particularly with problems in collecting and reporting accounting information to the central OSG accounting service. See also other documents recommended in the Reference section below.
 
 This document follows the general OSG documentation conventions: %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Click to expand document conventions..."}%
@@ -16,79 +14,183 @@ This document follows the general OSG documentation conventions: %TWISTY{%TWISTY
 %INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="CommandLine"}%
 %ENDTWISTY%
 
----++ How to get Help?
-To get assistance please use [[HelpProcedure][Help Procedure]]. 
+---# How to get Help?
+To get assistance please use our [[HelpProcedure][Help Procedure]]. 
 
----+ Understanding Gratia Probes
+---# Gratia: The big picture
 
 Gratia is software used in OSG to gather accounting information. The information is collected from individual resources at a site, such as a Compute Element or a Storage Element. The program that collects the data is called a "Gratia probe". The information is transfered to a Gratia server. Most sites will choose to send the accounting data to the central OSG Gratia server, but you can also use a Gratia server at your site (which can send forward the data to the central OSG Gratia server). Here is a diagram:
 
-<img src="%ATTACHURLPATH%/gratia-basics.png" alt="gratia-basics.png" height='300' />    
+<img src="%ATTACHURLPATH%/gratia-basics.png" alt="gratia-basics.png" />    
 
-A few definitions:
+These are the definitions of the major elements in the above figure.
 
    * *Gratia probe*: A piece of software that collects accounting data from the computer on which it's running, and transmits it to a Gratia server.
    * *Gratia server*: A server that collects Gratia accounting data from one or more sites and can share it with users via a web page. 
    * *Reporter*: A web service running on the Gratia server. Users can connect to the reporter via a web browser to explore the Gratia data.
-   * *Collector*: A web service running ont he Gratia server that collects data from one or more Gratia probes. Users do not directly interact with the collector.
+   * *Collector*: A web service running on the Gratia server that collects data from one or more Gratia probes. Users do not directly interact with the collector.
 
-You can see the central Gratia reports at [[http://gratia-osg-prod-reports.opensciencegrid.org/gratia-reporting/][the central OSG Gratia server]].
+You can see the OSG's Gratia reports at [[http://gratia-osg-prod-reports.opensciencegrid.org/gratia-reporting/][the central OSG Gratia server]].
 
 You can see a fancier version of the Gratia data at [[http://display.grid.iu.edu/][display.grid.iu.edu]]. This is *not* running a Gratia collector, but is a separate service. 
 
----++ Overall process of how Gratia probes work
+---# Overall process of how Gratia probes work
 
-<pre class="file">
-Every N minutes, cron job runs (or service works) [todo, check what N is]
-	Reads ProbeConfig
-	Grabs files from /var/lib/gratia/tmp/gratifiles/...
-	Pushes data to Gratia collector as a bundle. (May wait for extra time if don't have a full bundle)
-	Everything is logged to /var/log/gratia
-	If fails:
-		Nothing is removed from /var/lib/gratia/tmp/gratiafiles
-		Errors are logged to log files
-		Will try again next time. 
-		In some cases, failed transfers get moved somewhere else. No details, [todo] ask Brian
-</pre>
+By and large, the Gratia probes share this common process for uploading data to a Gratia server. 
 
+---## Cron
+Probes are periodically run as cron jobs, but different probes will run at different intervals. The cron jobs will always run and you should not remove them. You can find them in =/etc/cron.d=.
 
----++ Running Gratia probes
+However, the cron jobs will only do anything if you have enabled them. You enable them via an init script. For example, to enable them:
 
 <pre class="rootscreen">
-service gratia-probes-cron start
-service gratia-probes-cron stop
-service gratia-probes-cron status
+%UCL_PROMPT_ROOT% service gratia-probes-cron start
+Enabling gratia probes cron:                               [  %GREEN%OK%ENDCOLOR%  ]
 </pre>
 
----++ Configuring Gratia
+To disable them:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service gratia-probes-cron stop
+Disabling gratia probes cron:                               [  %GREEN%OK%ENDCOLOR%  ]
+</pre>
 
-=osg-configure= does the editing, at least on the CE. 
+You also need to enable individual probes, usually via =osg-configure=. See below for more information on that.
 
-Some bits on Gratia from config.ini
+---## Uploading data
 
-Some bits on Gratia's ProbeConfig dir.
+When the cron jobs are enabled and run, the go through the following process, with minor changes between different Gratia probes:
 
----+ Common Gratia Problems
+   1. The probe is invoked. It reads its configuration from =/etc/gratia/%RED%PROBE-NAME%ENDCOLOR%/ProbeConfig=.
+   1. It collects the accounting information from the underlying system. For example, the Condor probe will read it from the =PER_JOB_HISTORY_DIR=, which is usually =/var/lib/gratia/data=.
+   1. It transforms the data into Gratia records and saves them into =/var/lib/gratia/tmp/gratiafiles/=
+   1. When there are sufficient Gratia records, or when sufficient time has passed, it uploads sets of records in batches to the Gratia server, then removes them from the =gratiafiles= directory.
+   1. All progress is logged to =/var/log/gratia=.
+   1. If there are failures in uploading the files to the Gratia server
+      1. Files are not removed from =gratiafiles= until they are successfully uploaded.
+      1. Errors are logged to log files in =/var/log/gratia=.
+      1. The uploads will be tried again later.
+      1. %RED% TO DO: In some cases, failed transfers get moved somewhere else. No details, [todo] ask Brian%ENDCOLOR%
 
-PER_JOB_HISTORY_DIR
+---# Configuring Gratia
+
+In normal cases, =osg-configure= does the editing of the probe configuration files, at least on the CE. The configuration is found in =/etc/osg/config.d/30-gratia.ini= and [[IniConfigurationOptions#Gratia][documented elsewhere]]. 
+
+If there are problems or special configuration, you might need to edit the Gratia configuration files yourself. Each probe has a separate configuration file found in =/etc/gratia/%RED%PROBE-NAME%ENDCOLOR%/ProbeConfig=. 
+
+The !ProbeConfig files have many details. A few options that you might need to edit are shown before. This is *not* a complete file, but only shows a subset of the options.
+
+<pre class="file">
+&lt;ProbeConfiguration 
+
+    CollectorHost="gratia-osg-itb.opensciencegrid.org:80"
+    SSLHost="gratia-osg-itb.opensciencegrid.org:80"
+    SSLRegistrationHost="gratia-osg-itb.opensciencegrid.org:80"
+
+    ProbeName="condor:fermicloud084.fnal.gov"
+    SiteName="WISC_OSG_EDU"
+    EnableProbe="1"
+/>
+</pre>
+
+The options you see here are:
+
+| *Option* | *Comments* |
+| !CollectorHost | The Gratia server this probe reports to |
+| !SSLHost | The Gratia server this probe reports to |
+| !SSLRegistrationHost | The Gratia server this probe reports to |
+| !ProbeName | The unique name for this probe. Note that it includes the probe type and the host name |
+| !SiteName | The name of your site, as registered in OIM. If your site must be registered in OIM |
+| !EnableProbe | The probe will only run if this is "1" |
+
+Again, there are many more options in this file. Most of the time you won't need to touch them.
+
+---# Common Gratia Problems
+
+---## Is a site reporting data?
+
+You can see if the OSG Gratia Server is getting data from your site by going to [[http://gratia-osg-prod-reports.opensciencegrid.org/gratia-reporting/][http://gratia-osg-prod-reports.opensciencegrid.org/gratia-reporting/]]. Click on "Usage by Site" in the navigation bar on the left and look for your site.
+
+---## Not collecting Condor accounting data
+
+Condor must be configured to put information about each job into a special directory. Gratia will read and remove the files in order to collect the accounting information. 
+
+The configuration variable is called =PER_JOB_HISTORY_DIR=. If you install the OSG RPM for Condor, the Gratia probe will extend its configuration by adding a file to =/etc/condor/config.d=, and will set this variable to =/var/lib/gratia/data=. If you are using a different installation method, you probably need to set the variable yourself. You can check if it's set by using =condor_config_val=, like this:
+
+<pre class="screen">
+%UCL_PROMPT% condor_config_val -v PER_JOB_HISTORY_DIR
+PER_JOB_HISTORY_DIR: /var/lib/gratia/data
+  Defined in '/etc/condor/config.d/99_gratia.conf', line 5.
+</pre>
+
+If you set this value, you need to restart condor:
+
+<pre class="screen">
+%UCL_PROMPT_ROOT% condor_restart
+Sent "Restart" command to local master
+</pre>
 
 Debugging trick: give bad URL for collector so you can see the files. these files have a brief lifetime because they are created by the probe and (normally) sent immediately. 
 
+---## Investigating deeper failures
 
----+ Appendix: Important Gratia files
+This is an example problem where the configuration was bad: there was an incorrect hostname for the Gratia server. The problem is clearly visible in the Gratia log file. There is one log file per day, labeled by the date:
+
+<pre class="file">
+%UCL_PROMPT_ROOT% cat 2012-04-03.log 
+...
+%RED%You can see that Gratia is using the correct configuration file:%ENDCOLOR%
+15:06:55 CDT Gratia: Using config file: /etc/gratia/condor/ProbeConfig
+
+%RED%Here Gratia is removing a file from the Condor PER_JOB_HISTORY_DIR and creating a Gratia accounting record for it%ENDCOLOR%
+15:06:55 CDT Gratia: Creating a UsageRecord 2012-04-03T20:06:55Z
+15:06:55 CDT Gratia: Registering transient input file: /var/lib/gratia/data/history.37.0
+15:06:55 CDT Gratia: ***********************************************************
+15:06:55 CDT Gratia: Saved record to /var/lib/gratia/tmp/gratiafiles/
+    subdir.condor_fermicloud084.fnal.gov_ggratia-osg-itb.opensciencegrid.org_80/
+    outbox/r.30604.condor_fermicloud084.fnal.gov_ggratia-osg-itb.opensciencegrid.org_80.gratia.xml__wfIgi30606
+15:06:55 CDT Gratia: Deleting transient input file: /var/lib/gratia/data/history.37.0
+
+%RED%Later, Gratia failed to connect to the server due to a bad hostname%ENDCOLOR%
+15:06:55 CDT Gratia: Failed to send xml to web service due to an error of type "socket.gaierror": (-2, 'Name or service not known')
+...
+15:06:55 CDT Gratia: Response indicates failure, the following files will not be deleted:
+15:06:55 CDT Gratia:    /var/lib/gratia/tmp/gratiafiles/
+    subdir.condor_fermicloud084.fnal.gov_ggratia-osg-itb.opensciencegrid.org_80/
+    outbox/r.30604.condor_fermicloud084.fnal.gov_ggratia-osg-itb.opensciencegrid.org_80.gratia.xml__wfIgi30606
+</pre>
+
+
+
+---# Appendix: Important Gratia files
 
 This document cannot cover all the errors you might experience. If you need to look for more data, you can look at log files for the various services on your CE. 
 
 | *File* | *Purpose* |
-| =/var/log/gratia/%RED%DATE%ENDCOLOR%.log | Log file that records information about processing and uploading of Gratia accounting data |
+| =/var/log/gratia/%RED%DATE%ENDCOLOR%.log= | Log file that records information about processing and uploading of Gratia accounting data |
 | =/var/log/gratia/gridftpTransfer.log= | Log file specific to the Gratia !GridFTP probe |
 | =/var/lib/gratia/data= | Location for Condor and PBS job data before being processed by Gratia<br>Condor's =PER_JOB_HISTORY_DIR= should be set to this location |
-| =/var/lib/gratia/tmp/gratiafiles= | Location for temporary Gratia data as it is being processed. Usually empty.<br>If you have file more than 30 minutes old in this directory, there may be a problem |
-| =/etc/gratia/%RED%PROBE-NAME%ENDCOLOR%/ProbeConfig= | Configuration for Gratia probes<br>There is one per probe type</br>Normally you don't need to edit this |
----+ References
-TBD
+| =/var/lib/gratia/tmp/gratiafiles= | Location for temporary Gratia data as it is being processed, usually empty.<br>If you have files that are more than 30 minutes old in this directory, there may be a problem |
+| =/etc/gratia/%RED%PROBE-NAME%ENDCOLOR%/ProbeConfig= | Configuration for Gratia probes, one per probe type</br>Normally you don't need to edit this |
 
----+ Comments
+The most common RPMs you will see are:
+
+| *RPM* | *Purpose* |
+| =gratia-probe-common= | Code shared between all Graita probes |
+| =gratia-probe-gram= | Code needed to make Gratia probes with with GRAM |
+| =gratia-probe-condor= | The probe that tracks Condor usage via GRAM |
+| =gratia-probe-pbs-lsf= | The probe that tracks PBS and/or LSF usage via GRAM  |
+| =gratia-probe-gridftp-transfer= | The probe that tracks transfers done with GridFTP|
+| =gratia-probe-metric= | The probe that reports RSV results. (Not exactly accounting, but it re-uses Gratia) |
+
+---# References
+
+   * [[http://gratia-osg-prod-reports.opensciencegrid.org/gratia-reporting/][Gratia Job Accounting Data]] (Production)
+   * [[http://gratia-osg-itb-reports.opensciencegrid.org/gratia-reporting/][Gratia Job Accounting Data]] (ITB)
+   * [[http://gratia-osg-transfer-reports.opensciencegrid.org/gratia-reporting/][Gratia Transfer Accounting Data]]
+   * You can get daily emails with OSG accounting reports in them. Join the [[https://twiki.grid.iu.edu/bin/view/Accounting/ContactUs][osg-accounting-info]] mailing list. 
+   * [[Accounting.WebHome][The Gratia group's web page]]
+
+---# Comments
 %COMMENT{type="tableappend"}%
 
 
@@ -118,10 +220,10 @@ TBD
    * Local INCLUDE_TEST   = %NO%
 
  change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
-   * Local REVIEW_READY   = %NO%
+   * Local REVIEW_READY   = %YES%
 
  change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
-   * Local TEST_READY     = %NO%
+   * Local TEST_READY     = %YES%
 
  change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
    * Local RELEASE_READY  = %NO%
@@ -133,7 +235,7 @@ TBD
  Thank for reviewing this document! Please fill in your FirstLast name here:
    * Local REVIEWER       = TanyaLevshina 	
  Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local REVIEW_PASSED  = %NO%
+   * Local REVIEW_PASSED  = %IN_PROGRESS%
 
 
  DEAR DOCUMENT TESTER
@@ -146,4 +248,4 @@ TBD
 ############################################################################################################
 -->
 
-%META:FILEATTACHMENT{name="gratia-basics.png" attachment="gratia-basics.png" attr="h" comment="" date="1333473469" path="gratia-basics.png" size="61665" stream="gratia-basics.png" tmpFilename="/usr/tmp/CGItemp50177" user="AlainRoy" version="1"}%
+%META:FILEATTACHMENT{name="gratia-basics.png" attachment="gratia-basics.png" attr="h" comment="" date="1333478788" path="gratia-basics.png" size="28705" stream="gratia-basics.png" tmpFilename="/usr/tmp/CGItemp50177" user="AlainRoy" version="2"}%
