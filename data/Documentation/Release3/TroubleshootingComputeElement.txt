@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="KyleGross" date="1329925668" format="1.1" version="1.10"}%
+%META:TOPICINFO{author="AnthonyTiradani" date="1334244391" format="1.1" reprev="1.11" version="1.11"}%
 %META:TOPICPARENT{name="WebHome"}%
 %DOC_STATUS_TABLE%
 
@@ -87,6 +87,7 @@ Sample problem:
 GRAM Job submission failed because the connection to the server failed (check host and port) (error code 12)
 </pre>
 
+#GatekeeperRunning
 ---+++ Is the gatekeepeer running?
 
 <pre class="rootscreen">
@@ -219,6 +220,71 @@ gmf_local /etc/grid-security/grid-mapfile-local
 </pre>
 
 Then make sure the file =/etc/grid-security/grid-mapfile-local= contains the desired %LINK_GLOSSARY_DN% to account mappings.
+
+---+ Sample Troubleshooting Session (Based on an actual session)
+
+The site upgraded CE's from version 3.x to version 3.y.  The upgrade seems to have "broken" the CE.
+
+---++ Symptoms
+   * globus-job-run with jobmanager-fork against CE hangs indefinitely
+   * running the RSV probes by hand hangs indefinitely
+   * the globus-gatekeeper.log appears to show proper authentication
+   * globusrun -a -r <ce fqdn> intermitently works
+      * A failure looks like:
+<pre class="screen">
+%UCL_PROMPT_ROOT% /usr/bin/globusrun -a -r <ce fqdn>
+
+GRAM Authentication test failure: the connection to the server failed (check host and port)
+</pre>    
+        
+   * globus-url-copy -dbg gsiftp://<ce fqdn>/dev/zero /dev/null displays an unknown user
+      * Note the "[unknown]" string in the output:
+<pre class="screen">
+%UCL_PROMPT_ROOT% /usr/bin/globus-url-copy -dbg gsiftp://<ce fqdn>/dev/zero /dev/null
+
+debug: starting to get gsiftp://<ce fqdn>/dev/zero
+debug: connecting to gsiftp://<ce fqdn>/dev/zero
+debug: response from gsiftp://<ce fqdn>/dev/zero:
+220 <ce fqdn> GridFTP Server 6.5 (gcc64, 1323378368-83) [unknown] ready.
+
+debug: authenticating with gsiftp://<ce fqdn>/dev/zero
+</pre>    
+
+---++ Potential Problems
+   * 1) Is gatekeeper running?
+   * 2) Potential gatekeeper config issues?
+   * 3) Potential GUMS issues?
+   * 4) Potential syslog config error?
+
+---++ Solutions
+   * (1) See [[#GatekeeperRunning][Is the gatekeeper running?]] 
+      * Note: During the troubleshooting session it was noticed that there were 1400+ gatekeeper processes running.  Even after stopping the gatekeeper service, the processes persisted.  The had to be killed with the -9 flag.
+   * (2) check for /etc/sysconfig/globus-gatekeeper.rpmnew, might have to merge configs
+      * On this particular CE, the config file for globus-gatekeeper had not been modified by an admin, so the rpm upgrade was able to replace the config file.  The  /etc/sysconfig/globus-gatekeeper.rpmnew file did not exist.
+   * (3) check /etc/lcmaps.db and /etc/grid-security/gsi-authz.conf for proper config
+      * These files were ok on this CE.
+   * (4) check /etc/syslog.conf to see if there's a "-" before /var/log/message?
+      * The line should look like:
+         <pre class="file">
+*.info;mail.none;authpriv.none;cron.none  -/var/log/messages
+         </pre>
+      * Without the dash, syslogd will call fsync after every log message.  The CE takes so long for the log message to go through that the remote clients give up and retry, which just adds to the CE load.
+      * It turns out that this was the culprit.  The load on the CE was high enough that the clients were timing out.
+
+---+ HOWTO: Create a core file for globus-job-manager
+<pre class="screen">
+%UCL_PROMPT_ROOT% echo export DAEMON_COREFILE_LIMIT='unlimited' >> /etc/sysconfig/globus-gatekeeper
+%UCL_PROMPT_ROOT% echo /tmp/core-%e-%s-%u-%g-%p-%t > /proc/sys/kernel/core_pattern
+%UCL_PROMPT_ROOT% killall globus-job-manager
+%UCL_PROMPT_ROOT% service globus-gatekeeper stop
+%UCL_PROMPT_ROOT% service globus-gatekeeper start
+%UCL_PROMPT_ROOT% gdb /usr/sbin/globus-job-manager /tmp/core-globus-job-mana-11-723-5001-11391-1332353663 
+...
+gdb> where
+AAAA
+BBBB
+</pre>    
+
 
 ---+ Appendix: Log files
 
