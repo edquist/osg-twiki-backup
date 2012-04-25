@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DaveDykstra" date="1333043950" format="1.1" version="1.13"}%
+%META:TOPICINFO{author="DaveDykstra" date="1335390218" format="1.1" reprev="1.14" version="1.14"}%
 %DOC_STATUS_TABLE%
 
 ---+!! Glexec Installation Guide
@@ -109,6 +109,10 @@ verifyproxy -> sazclient
 sazclient -> gumsclient
 gumsclient -> glexectracking
 </pre>
+   1 If Condor is used as the CE that dispatches jobs to the worker nodes, the Condor configuration on the CE should be updated to include the following: <pre class="file">
+DELEGATE_JOB_GSI_CREDENTIALS = False
+</pre>
+      If this is not done it can result in glexec getting an error "Verifying certificate chain: proxy path length constraint exceeded".
 
 ---+Testing the Installation of glexec
 
@@ -124,14 +128,28 @@ If =glexec= is successful, it will print out the uid and gid that your proxy wou
 ---+ Glexec log files
 
 =Glexec= sends all its log information by default to syslog.  Where it goes from there depends on your syslog configuration, but by default they go to =/var/log/messages=.  Here are some sample messages:  <pre class="file">
-Oct 10 17:17:32 itb-c001 glexec[25238]: lcmaps.mod-lcmaps_startPluginManager(): initializing plugin /usr/lib64/modules/glexectracking (db entry 3)
-Oct 10 17:17:32 itb-c001 glexec[25238]: lcmaps.mod-PluginInit(): plugin /usr/lib64/modules/glexectracking not found (arguments: )
-Oct 10 17:17:32 itb-c001 glexec[25238]: lcmaps.mod-lcmaps_startPluginManager(): error initializing plugin: /usr/lib64/modules/glexectracking
+Apr 25 16:36:16 fermicloud053 glexec[2867]: lcmaps: lcmaps.mod-PluginInit(): plugin glexectracking not found (arguments: ) 
+Apr 25 16:36:16 fermicloud053 glexec[2867]: lcmaps: lcmaps.mod-lcmaps_startPluginManager(): error initializing plugin: glexectracking 
+Apr 25 16:36:16 fermicloud053 glexec[2867]: lcmaps: lcmaps_init() error: could not start plugin manager 
+Apr 25 16:36:16 fermicloud053 glexec[2867]:   Initialisation of LCMAPS failed. 
 </pre>
 These particular messages are pretty common, caused by forgetting to uncomment the beginning of the glexectracking rule in =/etc/lcmaps.db=.
 
+It is possible to redirect glexec log messages to a different file with standard syslog.  To do that, choose one of the LOG_LOCAL[0-7] log facilities that are unused, for example LOG_LOCAL1.  Then set the following in =/etc/glexec.conf=: <pre class="file">
+syslog_facility = LOG_LOCAL1
+</pre>
+and add a corresponding parameter to the lcmaps_glexec_tracking.mod entry in =/etc/lcmaps.db=: <pre class="file">
+          "-log-facility LOG_LOCAL1"
+</pre>
+Then in /etc/syslog.conf add a line like this: <pre class="file">
+local1.*    /var/log/glexec.log
+</pre>
+and also exclude those messages from =/var/log/messages= by adding =!local1.*= after other wildcards on the existing =/var/log/messages= line, for example: <pre class="file">
+*.info;!local1.*;mail.none;authpriv.none;cron.none	/var/log/messages
+</pre>
+Be sure to notify syslogd to re-read the configuration file by sending it a SIGHUP signal.
 
-The syslog facility used is "daemon", and that's not configurable.  With standard syslog it isn't possible to separate out the glexec-related messages into its own separate file, but syslog-ng (available in the epel repository) can do it by matching all the messages that have the string "glexec" in the name.   These rules in =/etc/syslog-ng/syslog-ng.conf= will separate the glexec messages into =/var/log/glexec.log=: <pre class="file">
+Alternatively, syslog-ng (available in the epel repository) can do the same job by matching all the messages that have the string "glexec" in the name.   These rules in =/etc/syslog-ng/syslog-ng.conf= will separate the glexec messages into =/var/log/glexec.log=: <pre class="file">
 destination d_glexec { file("/var/log/glexec.log"); };
 filter f_glexec { program("^glexec"); };
 filter f_notglexec { not program("^glexec"); };
