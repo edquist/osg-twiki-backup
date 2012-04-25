@@ -1,6 +1,6 @@
-%META:TOPICINFO{author="AlainRoy" date="1334865077" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="JohnHover" date="1335392426" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="WebHome"}%
----+!! GUMS Service Install
+---+!! GUMS (Grid User Mapping Service) Install
 %DOC_STATUS_TABLE%
 %TOC%
 
@@ -35,43 +35,97 @@ The GUMS installation will create one unless it already exists.
 %INCLUDE{"Documentation/Release3.FirewallInformation" section="FirewallTable" lines="gums"}%
 %ENDSECTION{"Firewalls"}%
 
----# Install Instructions
+---# Installation Instructions
+
+---## Yum Repositories 
 %INCLUDE{"YumRepositories" section="OSGRepoBrief" TOC_SHIFT="+"}%
 
-GUMS requires CA certificates
+---## Certificate Authority Files 
 %INCLUDE{"InstallCertAuth" section="OSGBriefCaCerts" TOC_SHIFT="+"}%
 
 ---## Install and Configure GUMS
+---### GUMS Installation
    1. Install the GUMS Service <pre class="rootscreen">
 %UCL_PROMPT_ROOT% yum --enablerepo=osg-testing install gums-service </pre>
    1. Configure Tomcat to use GSI <pre class="rootscreen">
 %UCL_PROMPT_ROOT% /var/lib/trustmanager-tomcat/configure.sh </pre>  Note this will overwrite your =/etc/tomcat5/server.xml=; if you are using tomcat on this node for non-grid purposes, you may want to consider a hand configuration.
-   1. If this is a fresh !MySQL install, we recommend running !RedHat's =mysql_secure_installation= script to apply reasonable security settings. (Start your !MySQL server first by running =service mysqld start=).
-   1. If migrating from another GUMS installation, dump the GUMS_1_3 database to a text file from the old server, and load it into the new !MySQL server.
-   1. If not migrating from another GUMS installation, run =/usr/bin/gums-setup-mysql-database --user gums --host `hostname`:3306 --password <em>PASSWORD</em>= (pick a password that you don't mind having in plaintext in =/etc/gums/gums.config= -- gums.config should only be readable by the =tomcat= user, but that only gets you so far).
-   1. Copy an appropriate =gums.config= into =/etc/gums/gums.config=.  Update it to reflect the new username and password for the mysql server.  We *highly recommend* having GUMS authenticate with !MySQL using =localhost= instead of the actual hostname; this will cause !MySQL to use a local Unix socket instead of listening on the network, which is more secure.
 
----## Starting and Enabling Services
+---### !MySQL Installation and Configuration
+   1. If this is a fresh !MySQL install, we recommend running !RedHat's =mysql_secure_installation= script to apply reasonable security settings. (In any case, start your !MySQL server first by running =service mysqld start=).
+   1. If migrating from another GUMS installation, dump the GUMS_1_3 database to a text file from the old server, and load it into the new !MySQL server.  <pre class="rootscreen">
+%UCL_PROMPT_ROOT% mysqldump GUMS_1_3 > gums_1_3.sql 
+%UCL_PROMPT_ROOT% mysql GUMS_1_3 < gums_1_3.sql 
+</pre>
 
-To start GUMS, you must start the following services:
-<pre class="rootscreen">
+   1. If not migrating from another GUMS installation, run: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /usr/bin/gums-setup-mysql-database --user gums --host localhost:3306 --password <em>PASSWORD</em> </pre>
+   Be sure to pick a password that you don't mind having in plaintext in =/etc/gums/gums.config= -- gums.config should only be readable by the =tomcat= user, but that only gets you so far.
+   1. In order to add yourself as a GUMS administrator, you should run: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% gums-add-mysql-admin '<em>YOUR DN</em> </pre>
+
+---### GUMS Initial Configuration
+   1. The =gums-setup-mysql-database= command above created a default, pre-configured =/etc/gums/gums.config= file. 
+   1. Alternatively, copy an existing, appropriate =gums.config= into =/etc/gums/gums.config=.  Update it to reflect the new username and password for the mysql server (if you chose different ones from the previous installation).  
+   1. If you are running MySQL on the same host as the GUMS service, we *highly recommend* having the service connect to !MySQL using =localhost= instead of the actual hostname; this will cause !MySQL to use a local Unix socket instead of listening on the network, which is more secure.
+   1. Start the GUMS service: <pre class="rootscreen">
 %UCL_PROMPT_ROOT% /sbin/service fetch-crl-cron start
 %UCL_PROMPT_ROOT% /sbin/service fetch-crl-boot start
 %UCL_PROMPT_ROOT% /sbin/service mysqld start
 %UCL_PROMPT_ROOT% /sbin/service tomcat5 start
 </pre>
 
-You should also enable the appropriate services so that they are automatically started when your system is powered on:
-<pre class="rootscreen">
+   1. You should also enable the appropriate services so that they are automatically started when your system is powered on: <pre class="rootscreen">
 %UCL_PROMPT_ROOT% /sbin/chkconfig fetch-crl-cron on
 %UCL_PROMPT_ROOT% /sbin/chkconfig fetch-crl-boot on
 %UCL_PROMPT_ROOT% /sbin/chkconfig mysqld on
 %UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 on
 </pre>
 
----## Stopping and Disabling Services
+---### GUMS Final Configuration
+---#### Use the OSG template
+   1. Connect to =https://<em>HOSTNAME</em>:8443/gums/= to use your GUMS instance. You must have the certificate that you used for =gums-add-mysql-admin= above loaded in your browser. 
+   1. Go to the Merge Configuration tab: =https://<em>HOSTNAME</em>:8443/ gums/mergeConfiguration.jsp=
+   1. Cut and paste the URL of the osg template into the Configuration URI field. 
+   1. Click Merge. You should get a green success message if it has worked, along with a suggestion that you update the VO members. 
+   1. If your site is behind a proxy, the previous step may fail (it does at Brookhaven Laboratory, for example). In this case you can download the template file manually and place it somewhere on the system that the tomcat user can read. You can then put in a URI to that file, e.g. =file://root/gums.config.template= and click merge.  
+   1. Go to the Summary tab to check the configuration. You should see several dozen OSG VOs listed. 
+   1. In the Account column, you will see the UNIX user accounts that these VO users will run as. It is critical that these UNIX accounts exist on the gatekeeper and worker nodes at your site. 
+   1. VO membership updates will occur automatically every 6 hours. But you can trigger them manually by going to the Update VO Members tab, and clicking update. 
+   1. You can track the progress of the update process by tailing the log file:  : <pre class="rootscreen">
+%UCL_PROMPT_ROOT% tail -f /var/log/tomcat5/gums-service-admin.log </pre>
+   1. With so many VOMS servers in the OSG config, several member updates may fail for various reasons (e.g., host down "connect timed out",  bad or expired host certificates,etc.). This is, sadly, normal.  
 
-To stop GUMS, you should shutdown the services in the opposite order that you started them:
+---#### Manual configuration. 
+Manual configuration is quite a bit more complicated than accepting the OSG template. It requires a basic understanding of the internal model of how GUMS works. 
+
+%RED%TBD: Under construction. %ENDCOLOR%
+
+---# Validating GUMS
+---## Generate a grid-mapfile
+The simplest way to validate GUMS functionality is to generate a grid-mapfile:
+   1. Go to the Generate Grid-mapfile tab:  =https://<em>HOSTNAME</em>:8443/gums/generateGridMapfile_form.jsp=
+   1. Type in the DN of your OSG CE, e.g. =DC=gov/DC=doegrids/OU=Services/CN=myce.mysite.org=
+   1. Select "Include Extended Attributes".
+   1. Click "generate grid-mapfile"
+   1. You should see substantial output showing DNs, VOMS groups, and UNIX accounts. 
+
+---## Map a known good user DN
+   1. Go to Map Grid Identity to Account tab:  =https://<em>HOSTNAME</em>:8443/gums/map_grid_identity_form.jsp=
+   1. Fill in the required info. Service DN means the DN of the host certificate of your CE. Use the DN of a user (probably yourself) who you know belongs to a particular VO. Fill in the VO name in the VOMS FQAN field. 
+   1. Click "map user". A failed mapping will display "null". A successful mapping will display a UNIX account name. 
+
+---# Updating the GUMS configuration
+Periodically, the OSG Grid Operations Center will release an updated template for the GUMS configuration that updates information about an existing VO or adds a new VO. It is safe to re-merge the new config template, following the same steps as you used above: 
+   1. Go to the Merge Configuration tab: =https://<em>HOSTNAME</em>:8443/ gums/mergeConfiguration.jsp=
+   1. Cut and paste the URL of the osg template into the Configuration URI field. 
+   1. Click Merge. You should get a green success message if it has worked, along with a suggestion that you update the VO members. 
+   1. If your site is behind a proxy, the previous step may fail (it does at Brookhaven Laboratory, for example). In this case you can download the template file manually and place it somewhere on the system that the tomcat user can read. You can then put in a URI to that file, e.g. =file://root/gums.config.template= and click merge.  
+   1. Go to the Summary tab to check the configuration. You should see several dozen OSG VOs listed. 
+   1. In the Account column, you will see the UNIX user accounts that these VO users will run as. It is critical that these UNIX accounts exist on the gatekeeper and worker nodes at your site. Check again to ensure that all these accounts exist on your cluster.  
+
+---# Stopping and Disabling Services
+
+When you want to stop GUMS, you should shutdown the services in the opposite order that you started them:
 <pre class="rootscreen">
 %UCL_PROMPT_ROOT% /sbin/service tomcat5 stop
 %UCL_PROMPT_ROOT% /sbin/service mysqld stop
@@ -86,21 +140,6 @@ In addition, you can stop the service from starting up when you computer starts 
 %UCL_PROMPT_ROOT% /sbin/chkconfig mysqld off
 %UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 off
 </pre>
-
----## Web interface
-
-You can connect to =https://<em>HOSTNAME</em>:8443/gums/= to use your GUMS instance.
-In order to add yourself as an administrator, you should run =gums-add-mysql-admin '<em>YOUR DN</em>'= as root on the machine running the service. You'll be prompted for the password of the gums user.
-
----# Validating GUMS
-
-%RED%TBD: Basic description of how to make sure GUMS is working correctly%ENDCOLOR%
-
----# Updating the GUMS configuration
-
-Periodically, the OSG Grid Operations Center will release an updated template for the GUMS configuration that updates information about an existing VO or adds a new VO. 
-
-%RED%TBD: Describe what to do.%ENDCOLOR%
 
 ---# Troubleshooting
 
