@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1335563799" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1335888015" format="1.1" reprev="1.2" version="1.2"}%
 %DOC_STATUS_TABLE%
 
 ---+!! Install Gratia Service
@@ -37,7 +37,9 @@ Firewall information - here
 %INCLUDE{"InstallCertAuth" section="OSGBriefCaCerts" TOC_SHIFT="+"}%
 
 %STARTSECTION{"InstallOSGGratiaServiceRPMs"}%
-   1. Install OSG-VOMS:<pre class="rootscreen">
+ 
+
+Install OSG-VOMS:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% yum install gratia-service
 </pre>  %TWISTY{%TWISTY_OPTS_DETAILED%}%   <pre class="rootscreen">
 %UCL_PROMPT_ROOT% yum install osg-voms
@@ -184,6 +186,105 @@ Complete!
 
 ---+ Configure
 The configuration requires some initial steps.
+%STARTSECTION{"ConfigureMysqlServer"}%
+---++ Configure !MySQL Database
+
+Before you will be able configure Gratia Service you will need to have access to !MySQL database.  The !MySQL software is installed with the =gratia-service= package. By default it will be using port 3306 and will not have password for ==root==. It is recommended to replace  a default configuration file that is installed with mysqld server (==/etc/my.cnf==)  with ==/usr/share/gratia/my-cnf.template==:
+<pre class="file">
+[mysqld]
+datadir = /var/lib/mysql
+socket =  /var/lib/mysql/mysql.sock
+user = mysql
+port = 3306
+
+log_bin = /var/lib/mysql/mysql-bin
+log =     /var/log/mysqld.log
+log_bin_trust_function_creators = 1
+expire_logs_days = 7
+sync_binlog=1
+
+innodb_file_per_table
+innodb_data_home_dir = /var/lib/mysql
+innodb_data_file_path = ibdata1:500M;ibdata2:10M:autoextend
+innodb_log_group_home_dir = /var/lib/mysql
+innodb_flush_log_at_trx_commit = 1
+innodb_buffer_pool_size = 256M
+innodb_additional_mem_pool_size = 20M
+innodb_log_file_size = 64M
+innodb_log_files_in_group = 2
+innodb_log_buffer_size = 8M
+innodb_lock_wait_timeout = 50
+innodb_thread_concurrency = 2
+# To prevent too large of innodb history list which affects inserts
+innodb_max_purge_lag=50000
+
+
+
+# Uncomment the following line for debugging purposes.
+#log-warnings=2
+
+# Default to using old password format for compatibility with mysql 3.x
+# clients (those using the mysqlclient10 compatibility package).
+old_passwords=1
+
+# Disabling symbolic-links is recommended to prevent assorted security risks;
+# to do so, uncomment this line:
+# symbolic-links=0
+</pre>
+
+If you are planning to collect data from a very large number of probes you can use ==/usr/share/gratia/my-cnf.large-site.template==. This configuration is used at Fermilab for the OSG collector that gathers data from all OSG sites.
+
+In order to replace mysql configuration just copy template to ==/etc/my.cnf==:
+:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% cp /usr/share/gratia/my-cnf.template /etc/my.cnf
+</pre>
+*Note* The default mysqld port (3306) is used in this configuration file. If you prefer to use some other port you have to change it here before proceeding with any other actions.
+
+You will need to start mysqld at this time:
+:<pre class="rootscreen">
+%UCL_PROMPT_ROOT%service mysqld start
+</pre>
+%ENDSECTION{"ConfigureMysqlServer"}%
+%STARTSECTION{"ConfigureGratiaService"}%
+---++ Configure Gratia Service
+Gratia Service configuration setting is splitted between two files. The first file,  ==/etc/gratia/collector/service-authorization.properties==,  contains gratia mysql related information:
+<pre class="file">
+########################################################################
+# Gratia Service Authorization File.
+########################################################################
+[gratia]
+# These are filled in automatically
+gratia.reporting.version=v1.12
+gratia.services.version=v1.12
+#
+# ##########  DB access parameters
+#
+service.mysql.rootpassword=%RED%ROOTDBPASSWORD%ENDCOLOR%
+service.mysql.user=%RED%DBUSER%ENDCOLOR%
+service.mysql.password=%RED%DBPASSWORD%ENDCOLOR%
+service.reporting.user=reader
+service.reporting.password=reader
+#
+</pre>
+It is wise to set a password for the ==root== user. In order to do so you will need to modify %RED%ROOTDBPASSWORD%ENDCOLOR% with the actual password for the ==root== user of mysql database. It is will be set automatically when you create ==gratia== database. If for some reason you don't want to set this password you have to comment this line in configuration file. You have also defined the user name for gratia database owner %RED%DBUSER%ENDCOLOR% and set password for this user by modfying %RED%DBPASSWORD%ENDCOLOR%.
+
+The second file,  ==/etc/gratia/collector/service-configuration.properties==,  contains gratia service related information (only the properties that must be modified are provided in the screen below:
+<pre class="file">
+...
+service.mysql.url=jdbc:mysql://%RED%DBHOSTNAME:DBPORT%ENDCOLOR%/gratia
+....
+service.open.connection=http://%RED%HOSTNAME%ENDCOLOR%:%BLUE%8880%ENDCOLOR%
+service.secure.connection=https://%RED%HOSTNAME%ENDCOLOR%:%BLUE%8443%ENDCOLOR%
+....
+</pre>
+
+Where %RED%DBHOSTNAME:DBPORT%ENDCOLOR% could be replace with ==localhost:3306== if you didn't change default mysql port.  The service secure and open connections properties should be modified by replacing  %RED%HOSTNAME%ENDCOLOR% with an actual name of the host the service is installed. You can modify open and secure ports as well. Keep in mind that gratia probes will have to be configured accordingly so the information that is gathered by probe could be sent  to gratia service.
+
+You can also configure the administrative login to Gratia service at this time. Please read the detailed instructions in ==/etc/gratia/collector/service-configuration.properties== under 
+==# ##########  Administrative login== section.
+
+%ENDSECTION{"ConfigureGratiaService"}%
+
 Make sure that you have the host,  and Tomcat service certificates/keys in the right directories and with the correct owners and permissions (=600= for key and =644= the certificate). [[GetHostServiceCertificates][Host certificate]] is required and must be in =/etc/grid-security/hostcert.pem= and =hostkey.pem=. It is recommended to provide also service certificates for Tomcat. If you don't, here are the instructions to copy the host certificate/key and set the correct owner (permissions are preserved).  Note that if you did not previously have a  tomcat user on your system, they were added during the RPM install:
    1. Tomcat service is running as user ==tomcat== and requires its service certificate and key in ==/etc/grid-security/http==. To copy the host certificate/key for this service, you need to do the following:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% cd /etc/grid-security
