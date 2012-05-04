@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1336075216" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="JohnWeigand" date="1336147922" format="1.1" reprev="1.5" version="1.5"}%
 %DOC_STATUS_TABLE%
 
 ---+!! Install Gratia Service
@@ -17,16 +17,18 @@
 This document is for Site System Administrators. 
 Here we describe how to install and configure Gratia Service on your Linux machine. When you install Gratia Service as described here, you get all parts: !MySQL database, tomcat and gratia webservice. 
 
-The installation section will give you a bare-bones installation. In order to use Grtaia Service you need to go through the configuration: run install-database to create gratia database and configure_tomcat to configure tomcat  and gratia. The other sections help in troubleshooting and knowing what is running.
+The installation section will give you a bare-bones installation. In order to use Gratia Service you need to go through the configuration: run install-database to create gratia database and configure_tomcat to configure tomcat  and gratia. The other sections help in troubleshooting and knowing what is running.
 
 This is not a complete reference. If you need to administer a Gratia Service, please check the Gratia Admin guide linked also in the reference section.
 
-In this document, EL5 will refer to Red Hat Enterprise Linux 5-based OSes, including CentOS 5 and Scientific Linux 5; EL6 will refer to Red Hat Enterprise Linux 6-based OSes, including CentOS 6 and Scientific Linux 6. 
+In this document, EL5 will refer to Red Hat Enterprise Linux 5-based OSes, including !CentOS 5 and Scientific Linux 5; EL6 will refer to Red Hat Enterprise Linux 6-based OSes, including !CentOS 6 and Scientific Linux 6. 
 ---+ Introduction
 %STARTSECTION{"GratiaDefinition"}%
-The [[https://twiki.grid.iu.edu/bin/view/Accounting/WebHome][Grid Accounting Services]] collects information from the various probes and write to the database.These data could be regarding batch jobs, grid transfers, storage allocation, site availability tests or processing acconting (at current survey).
+The [[https://twiki.grid.iu.edu/bin/view/Accounting/WebHome][Grid Accounting Services]] collects information from the various probes and write to the database.These data could be regarding batch jobs, grid transfers, storage allocation, site availability tests or process accounting (at current survey).
+
+%RED% JGW- it says 3 parts, but only 2 bullets%ENDCOLOR%%BR%
 The Gratia Service installation has three main parts: 
-   * !MySQL database which is a persistent repository for gratia data, 
+   * !MySQL database which is a persistent repository for Gratia data, 
    * Gratia Web UI/services to collect and display accounting information. This requires Apache/Tomcat.
 %ENDSECTION{"GratiaDefinition"}%
 ---+ Requirements
@@ -310,7 +312,7 @@ old_passwords=1
 
 If you are planning to collect data from a very large number of probes you can use ==/usr/share/gratia/my-cnf.large-site.template==. This configuration is used at Fermilab for the OSG collector that gathers data from all OSG sites.
 
-In order to replace mysql configuration just copy template to ==/etc/my.cnf==:
+In order to replace mysql configuration just copy the template selected to ==/etc/my.cnf==:
 :<pre class="rootscreen">
 %UCL_PROMPT_ROOT% cp /usr/share/gratia/my-cnf.template /etc/my.cnf
 </pre>
@@ -320,10 +322,20 @@ You will need to start mysqld at this time:
 :<pre class="rootscreen">
 %UCL_PROMPT_ROOT%service mysqld start
 </pre>
+%RED%JGW 
+%NOTE%  If you use ==my-cnf.large-site.template== , you may experience a false failure on the initial startup of the ==mysqld server== .  This is because it takes a significant amount of time to allocate all the space required for a large database. The ==mysqld== initd service does not know that and will think the startup has failed when it just hasn't finished.
+%ENDCOLOR%
+
 %ENDSECTION{"ConfigureMysqlServer"}%
 %STARTSECTION{"ConfigureGratiaService"}%
 ---++ Configure Gratia Service
-Gratia Service configuration setting is splitted between two files. The first file,  ==/etc/gratia/collector/service-authorization.properties==,  contains gratia mysql related information:
+The Gratia service uses two configuration files:
+   * ==/etc/gratia/collector/service-authorization.properties== %BR%
+     This contains Gratia mysql access authorization properties, i.e., users and passwords.
+   * ==/etc/gratia/collector/service-configuration.properties== %BR%
+     This contains the non-database properties specific to Gratia services
+
+__/etc/gratia/collector/service-authorization.properties__
 <pre class="file">
 ########################################################################
 # Gratia Service Authorization File.
@@ -342,28 +354,46 @@ service.reporting.user=reader
 service.reporting.password=reader
 #
 </pre>
-It is wise to set a password for the ==root== user. In order to do so you will need to modify %RED%ROOTDBPASSWORD%ENDCOLOR% with the actual password for the ==root== user of mysql database. It is will be set automatically when you create ==gratia== database. If for some reason you don't want to set this password you have to comment this line in configuration file. You have also defined the user name for gratia database owner %RED%DBUSER%ENDCOLOR% and set password for this user by modfying %RED%DBPASSWORD%ENDCOLOR%.
+It is wise to set a password for the !MySql ==root== user. To do so:
+   * replace %RED%ROOTDBPASSWORD%ENDCOLOR% with the password desired for the ==root== user of !MySql database. You only need to specify it here in this configuration file.  A configuration script, ==install-database==, that you will run in a subsequent step will set it in the !MySql database for you.  
+   * If for some reason you don't want to set this password (%RED%not recommended%ENDCOLOR%), you need to comment this line in configuration file. 
 
-The second file,  ==/etc/gratia/collector/service-configuration.properties==,  contains gratia service related information (only the properties that must be modified are provided in the screen below:
+You will need to also define the !MySql user name and password for Gratia services to access the database.  This user will have update capability for the ==gratia== database that will be created later.
+   * replace %RED%DBUSER%ENDCOLOR% with the user name desired.
+   * replace %RED%DBPASSWORD%ENDCOLOR% with the password for that user.
+
+Optionally, the ==gratia-reporting== service uses a user/password for read-only access to the database: ==service.reporting.user== and ==service.reporting.password==. You may change these if you desire.
+
+
+
+__/etc/gratia/collector/service-configuration.properties__ %BR%
+This file contains the Gratia services related properties(only those properties that must be modified are provided in the screen below:
+
 <pre class="file">
 ...
-service.mysql.url=jdbc:mysql://%RED%DBHOSTNAME:DBPORT%ENDCOLOR%/gratia
+service.mysql.url=jdbc:mysql://%RED%DBHOSTNAME%ENDCOLOR%:%RED%DBPORT%ENDCOLOR%/gratia
 ....
 service.open.connection=http://%RED%HOSTNAME%ENDCOLOR%:%BLUE%8880%ENDCOLOR%
 service.secure.connection=https://%RED%HOSTNAME%ENDCOLOR%:%BLUE%8443%ENDCOLOR%
 ....
 </pre>
 
-Where %RED%DBHOSTNAME:DBPORT%ENDCOLOR% could be replace with ==localhost:3306== if you didn't change default mysql port.  The service secure and open connections properties should be modified by replacing  %RED%HOSTNAME%ENDCOLOR% with an actual name of the host the service is installed. You can modify open and secure ports as well. Keep in mind that gratia probes will have to be configured accordingly so the information that is gathered by probe could be sent  to gratia service.
+The ==service.mysql.url== property specifies the access point to the !MySql database for Gratia services.
+   * The %RED%DBHOSTNAME%ENDCOLOR% can be specified as ==localhost== or with the host name of the database is running on if not this node.
+   * The %RED%DBPORT%ENDCOLOR% should be changed to ==3306== (default !MySql port) or, if changed in the ==/etc/my.cnf== modified earlier, to that value.
 
-You can also configure the administrative login to Gratia service at this time. Please read the detailed instructions in ==/etc/gratia/collector/service-configuration.properties== under 
+The ==service.open.connection== and ==service.secure.connection== should be modified by replacing  %RED%HOSTNAME%ENDCOLOR% with the fully qualified host name where the service is installed. You can modify open (8880) and secure (8443) ports as well. Keep in mind that if these are changed,  any Gratia probes will have to be configured accordingly so the information that is gathered by probe could be sent  to Gratia service.
+
+You should also configure the administrative login to Gratia service at this time. 
+Please read the detailed instructions in ==/etc/gratia/collector/service-configuration.properties== under 
 ==# ##########  Administrative login== section.
 
-
-After finishing with configuration you will need to run ==/usr/share/gratia/install-database== script that performs the following steps:
-   1. set mysql password for the user ==root== if it is defined in ==service-authorization.properties== file
-   1. create ==gratia== database
-   1. grant approriate privelages for gratia database user   
+__Completing the configuration (==install-database==)__ %BR%
+To complete the configuration, you will need to run the ==/usr/share/gratia/install-database== script that performs the following steps using the configuration modified above:
+   1. set ==root== user password in the !MySql database
+   1. create the ==gratia== database
+   1. create the Gratia users (for update and read access) in the !MySql database and grant appropriate privileges for those users users
+    
 <pre class="rootscreen">
 %UCL_PROMPT_ROOT%/usr/share/gratia/install-database
 
