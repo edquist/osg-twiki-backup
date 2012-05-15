@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1337114930" format="1.1" reprev="1.24" version="1.24"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1337120016" format="1.1" reprev="1.25" version="1.25"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 <!--
    * Set VERSION = %URLPARAM{"version"}%
@@ -30,8 +30,8 @@ Make two VMs, probably in !FermiCloud, so you can do testing. One of them will b
 Edit the osg-version RPM's spec file to update the version number to %VERSION%. Build it in koji and push it to testing:
 
 <pre class="screen">
-osg-build koji osg-version
-for x in {el5,el6}; do
+osg-build koji osg-version;\
+for x in el5 el6; do
    koji tag-pkg $x-osg-testing osg-version-%VERSION%-1.osg.$x
 done
 </pre>
@@ -40,24 +40,27 @@ done
 
 Make sure that the pre-release is empty:
 <pre class="screen">
-koji list-tagged --quiet el5-osg-prerelease
-koji list-tagged --quiet el6-osg-prerelease
+for x in el5 el6; do
+   koji list-tagged --quiet $x-osg-prerelease
+done
 </pre>
 should print nothing.
 
 Populate the pre-release. This requires you to understand which packages should be in the release. This is a question of [[ReleasePolicy][policy]]. If you do not know which packages should be in the release, talk to the OSG Software Coordinator. 
 <pre class="screen">
-koji-tag-diff el5-osg-testing el5-osg-release > pkgs-to-release-el5
-koji-tag-diff el6-osg-testing el6-osg-release > pkgs-to-release-el6
-# %RED%edit%ENDCOLOR% pkgs-to-release to remove packages not intended for this release.
-# Also, ensure that the osg-version RPM that you built in step 3 is in the list!
-for x in {el5,el6}; do
+for x in el5 el6; do
+   koji-tag-diff $x-osg-testing $x-osg-release > pkgs-to-release-$x
+done
+</pre>
+%RED%Edit%ENDCOLOR% pkgs-to-release-* to remove packages not intended for this release.
+%RED%Please verify that the =osg-version= RPM is in your set of packages for the release!%ENDCOLOR%
+<pre class="screen">
+for x in el5 el6; do
    xargs -a pkgs-to-release-$x koji tag-pkg $x-osg-prerelease
    koji regen-repo $x-osg-prerelease
 done
 </pre>
 
-%RED%Please verify that the =osg-version= RPM is in your set of packages for the release!%ENDCOLOR%
 
 ---++ Step 5: Test a fresh install in VM #1 
 
@@ -93,7 +96,7 @@ Wait for clearance. The OSG Software Coordinator (in consultation with the Softw
 
 ---++ Step 8: Push from pre-release to release: 
 <pre class="screen">
-for x in {el5,el6}; do
+for x in el5 el6; do
    koji edit-tag --unlock $x-osg-release
    koji list-tagged --quiet $x-osg-prerelease | awk '{print $1}' > move-to-release-$x
    xargs --arg-file move-to-release-$x koji move-pkg $x-osg-prerelease $x-osg-release
@@ -103,7 +106,7 @@ done
 ---++ Step 9: Create a new repo for the new release.
 
 Create a new repo just for this release. This will normally not be seen by users, but can be used by them if necessary. It can also be used by us for testing purposes. <pre class="screen">
-for x in {el5,el6}; do
+for x in el5 el6; do
    koji clone-tag $x-osg-release $x-osg-release-%VERSION%
 done
 </pre>
@@ -128,6 +131,16 @@ done
 
 ---++ Step 12: Write release notes
 
+Come up with the following lists to copy and paste into the release notes twiki page:
+   1. A list of the updated packages with links to the koji builds that produced them. (=release-note-packages-*=)
+   1. An architecture-neutral (i.e. without =i386=, =x86_64=, etc. in the name) list of updated RPMs so that site administrators know the set of RPMs to "yum update" if they want to do a limited update. (=release-note-rpms-*=)
+<pre class="screen">
+for x in el5 el6; do
+   awk '{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=build&terms=" $1 "][" $1 "]]"}'  move-to-release-$x > release-note-packages-$x 
+   xargs --arg-file move-to-release-$x koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | perl -p -e "s/\.(noarch|src|i386|x86_64)\.rpm//" | sort -u > release-note-rpms-$x
+done
+</pre>
+<!--
    1. Come up with a nice table of updated packages that you can copy and paste into the release notes twiki page. <pre class="screen">
 awk '{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=build&terms=" $1 "][" $1 "]]"}'  move-to-release-el5 > release-note-packages-el5
 awk '{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=build&terms=" $1 "][" $1 "]]"}'  move-to-release-el6 > release-note-packages-el6
@@ -136,10 +149,28 @@ awk '{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=bui
 xargs --arg-file move-to-release-el5 koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | perl -p -e "s/\.(noarch|src|i386|x86_64)\.rpm//" | sort -u > release-note-rpms-el5
 xargs --arg-file move-to-release-el6 koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | perl -p -e "s/\.(noarch|src|i386|x86_64)\.rpm//" | sort -u > release-note-rpms-el6
 </pre>
-   1. Write [[Documentation.Release3.ReleaseNotes][release notes]]. Use the package table and RPM list you created in the previous two steps.
+-->
+
+Write [[Documentation.Release3.ReleaseNotes][release notes]]. Use the package lists and RPM lists you created in the previous step.
 
 ---++ Step 13: Update the info we track for the releases
 
+Using the lists of updated packages, create a full list of packages in the new release and a full list of RPMs in the new release. Copy the lists to an archival directory on the UW's AFS. Change the user name and host name as appropriate. <pre class="screen">
+ruser=%RED%roy%ENDCOLOR%
+rmachine=%RED%library.cs.wisc.edu%ENDCOLOR%
+</pre><pre class="screen">
+for x in el5 el6; do
+   cp move-to-release-$x %VERSION%-updated-$x.txt
+   koji list-tagged --quiet --latest $x-osg-release | awk '{print $1}' > %VERSION%-packages-$x.txt
+   xargs --arg-file %VERSION%-packages-$x.txt koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | sort > %VERSION%-rpms-$x.txt
+   if [ -d /p/vdt/public/html/release-info/ ] then
+      cp %VERSION%-updated-$x.txt %VERSION%-packages-$x.txt %VERSION%-rpms-$x.txt /p/vdt/public/html/release-info/
+   else
+      scp %VERSION%-updated-$x.txt %VERSION%-packages-$x.txt %VERSION%-rpms-$x.txt $ruser@$rmachine:/p/vdt/public/html/release-info/
+   fi
+done
+</pre>
+<!--
    1. Copy the list of updated packages. Change the user name and host name as appropriate. <pre class="screen">
 # If not on a UW CS machine:
 scp move-to-release-el5 %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-updated-el5.txt
@@ -171,6 +202,7 @@ scp new-rpms-el6 %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/relea
 cp new-rpms-el5 /p/vdt/public/html/release-info/%VERSION%-rpms-el5.txt
 cp new-rpms-el6 /p/vdt/public/html/release-info/%VERSION%-rpms-el6.txt
 </pre>
+-->
 
 ---++ Step 14: Announce the release
 
