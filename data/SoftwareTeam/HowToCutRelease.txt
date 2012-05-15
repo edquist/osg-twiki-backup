@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1336071224" format="1.1" reprev="1.23" version="1.23"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1337114930" format="1.1" reprev="1.24" version="1.24"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 <!--
    * Set VERSION = %URLPARAM{"version"}%
@@ -31,8 +31,9 @@ Edit the osg-version RPM's spec file to update the version number to %VERSION%. 
 
 <pre class="screen">
 osg-build koji osg-version
-koji tag-pkg el5-osg-testing osg-version-%VERSION%-1.osg.el5
-koji tag-pkg el6-osg-testing osg-version-%VERSION%-1.osg.el6
+for x in {el5,el6}; do
+   koji tag-pkg $x-osg-testing osg-version-%VERSION%-1.osg.$x
+done
 </pre>
 
 ---++ Step 4: Populate the osg-prerelease repository
@@ -50,10 +51,10 @@ koji-tag-diff el5-osg-testing el5-osg-release > pkgs-to-release-el5
 koji-tag-diff el6-osg-testing el6-osg-release > pkgs-to-release-el6
 # %RED%edit%ENDCOLOR% pkgs-to-release to remove packages not intended for this release.
 # Also, ensure that the osg-version RPM that you built in step 3 is in the list!
-xargs -a pkgs-to-release-el5 koji tag-pkg el5-osg-prerelease
-xargs -a pkgs-to-release-el6 koji tag-pkg el6-osg-prerelease
-koji regen-repo el5-osg-prerelease
-koji regen-repo el6-osg-prerelease
+for x in {el5,el6}; do
+   xargs -a pkgs-to-release-$x koji tag-pkg $x-osg-prerelease
+   koji regen-repo $x-osg-prerelease
+done
 </pre>
 
 %RED%Please verify that the =osg-version= RPM is in your set of packages for the release!%ENDCOLOR%
@@ -92,19 +93,19 @@ Wait for clearance. The OSG Software Coordinator (in consultation with the Softw
 
 ---++ Step 8: Push from pre-release to release: 
 <pre class="screen">
-koji edit-tag --unlock el5-osg-release
-koji edit-tag --unlock el6-osg-release
-koji list-tagged --quiet el5-osg-prerelease | awk '{print $1}' > move-to-release-el5 # Can't pipe to xargs because it prompts you for your certificate passphrase
-koji list-tagged --quiet el6-osg-prerelease | awk '{print $1}' > move-to-release-el6 # Can't pipe to xargs because it prompts you for your certificate passphrase
-xargs --arg-file move-to-release-el5 koji move-pkg el5-osg-prerelease el5-osg-release
-xargs --arg-file move-to-release-el6 koji move-pkg el6-osg-prerelease el6-osg-release
+for x in {el5,el6}; do
+   koji edit-tag --unlock $x-osg-release
+   koji list-tagged --quiet $x-osg-prerelease | awk '{print $1}' > move-to-release-$x
+   xargs --arg-file move-to-release-$x koji move-pkg $x-osg-prerelease $x-osg-release
+done
 </pre>
 
 ---++ Step 9: Create a new repo for the new release.
 
 Create a new repo just for this release. This will normally not be seen by users, but can be used by them if necessary. It can also be used by us for testing purposes. <pre class="screen">
-koji clone-tag el5-osg-release el5-osg-release-%VERSION%
-koji clone-tag el6-osg-release el6-osg-release-%VERSION%
+for x in {el5,el6}; do
+   koji clone-tag $x-osg-release $x-osg-release-%VERSION%
+done
 </pre>
 
 ---++ Step 10: Lock the repositories
@@ -112,19 +113,17 @@ koji clone-tag el6-osg-release el6-osg-release-%VERSION%
 Lock repositories so they can't be messed with. We use edit-tag instead of lock-tag because lock-tag doesn't seem to work.
 
 <pre class="screen">
-koji edit-tag --lock el5-osg-release
-koji edit-tag --lock el6-osg-release
-koji edit-tag --lock el5-osg-release-%VERSION%
-koji edit-tag --lock el6-osg-release-%VERSION%
+for x in {el5,el6}-osg-release{,-%VERSION%}; do
+   koji edit-tag --lock $x
+done
 </pre>
 
 ---++ Step 11: Regenerate the repositories
 
 <pre class="screen">
-koji regen-repo el5-osg-release-%VERSION% --nowait
-koji regen-repo el6-osg-release-%VERSION% --nowait
-koji regen-repo el5-osg-release --nowait
-koji regen-repo el6-osg-release --nowait
+for x in {el5,el6}-osg-release{,-%VERSION%}; do
+   koji regen-repo $x --nowait
+done
 </pre>
 
 ---++ Step 12: Write release notes
@@ -142,20 +141,35 @@ xargs --arg-file move-to-release-el6 koji buildinfo | fgrep "/mnt" | xargs -n 1 
 ---++ Step 13: Update the info we track for the releases
 
    1. Copy the list of updated packages. Change the user name and host name as appropriate. <pre class="screen">
+# If not on a UW CS machine:
 scp move-to-release-el5 %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-updated-el5.txt
 scp move-to-release-el6 %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-updated-el6.txt
-</pre>
+</pre><pre class="screen">
+# If on a UW CS machine
+cp move-to-release-el5 /p/vdt/public/html/release-info/%VERSION%-updated-el5.txt
+cp move-to-release-el6 /p/vdt/public/html/release-info/%VERSION%-updated-el6.txt
+</pre> 
    1. Find the full list of packages in the new release and copy the list. <pre class="screen">
 koji list-tagged --quiet --latest el5-osg-release | awk '{print $1}' > new-packages-el5
-koji list-tagged --quiet --latest el6-osg-release | awk '{print $1}' > new-packages-el6
+koji list-tagged --quiet --latest el6-osg-release | awk '{print $1}' > new-packages-el6</pre><pre class="screen">
+# If not on a UW CS machine:
 scp new-packages-el5 %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-packages-el5.txt
 scp new-packages-el6 %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-packages-el6.txt
-</pre>
+</pre><pre class="screen">
+# If on a UW CS machine
+cp new-packages-el5 /p/vdt/public/html/release-info/%VERSION%-packages-el5.txt
+cp new-packages-el6 /p/vdt/public/html/release-info/%VERSION%-packages-el6.txt
+</pre> 
    1. Find the full list of new RPMs in the new release and copy the list. <pre class="screen">
 xargs --arg-file new-packages-el5 koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | sort > new-rpms-el5
-xargs --arg-file new-packages-el6 koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | sort > new-rpms-el6
+xargs --arg-file new-packages-el6 koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | sort > new-rpms-el6</pre><pre class="screen">
+# If not on a UW CS machine:
 scp new-rpms-el5 %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-rpms-el5.txt
 scp new-rpms-el6 %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-rpms-el6.txt
+</pre><pre class="screen">
+# If on a UW CS machine
+cp new-rpms-el5 /p/vdt/public/html/release-info/%VERSION%-rpms-el5.txt
+cp new-rpms-el6 /p/vdt/public/html/release-info/%VERSION%-rpms-el6.txt
 </pre>
 
 ---++ Step 14: Announce the release
