@@ -1,0 +1,132 @@
+%META:TOPICINFO{author="BrianBockelman" date="1338828425" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+---+ About this Document
+
+The Condor-CE project aims to provide an end-to-end gatekeeper technology built entirely out of core Condor components.  As a goal, we aim for the Condor-CE to be a particular "configuration" of Condor, but not include any non-Condor daemons.
+
+The Condor-CE approach is under active investigation; this page provides *developer documentation* for installing and configuration the CE.
+
+---+ Requirements and Preparation
+
+---++ Host and OS
+   * A host to install the Compute Element
+   * Currently most of our testing has been done on Scientific Linux 5.
+   * Root access
+
+---++ Users
+   * The Condor-CE will be run as root, but perform most of its operations as the Condor user.
+
+---++ Certificates
+| *Certificate* | *User that owns certificate* | *Path to certificate* |
+| Host certificate | =root= | =/etc/grid-security/hostcert.pem= <br> =/etc/grid-security/hostkey.pem= |
+
+[[Documentation.Release3.GetHostServiceCertificates][Here]] are instructions to request a host certificate.
+
+---++ Networking
+A Condor collector will be run on port 9619.  Note this is not the standard collector port; sites running Condor as a batch system should not be affected by the presence of the Condor-CE.
+
+Besides the collector, all daemons will be run on ephemeral ports; see the [[http://research.cs.wisc.edu/condor/manual/v7.7/3_7Networking_includes.html][Condor networking guide]] for discussions about how to place Condor behind a firewall.
+
+---++ Software Repositories
+This software is currently being distributed out of the Nebraska-testing repository, located here:
+
+http://t2.unl.edu/store/repos/nebraska/5/nebraska-testing/x86_64/
+
+You will need to configure and enable this repository on the Condor-CE host.
+
+Additionally, you need to have the OSG release repository installed and enabled on this host.
+
+---++ Condor
+One goal of the Condor-CE is to use the site's condor binaries, but run a completely different set of daemons (similar to OSG's condor-cron for RSV).
+
+Unfortunately, during the development phase, you'll need the latest-greatest version of Condor due to a few prerequisite patches.  So, install the latest version in the Nebraska-testing repository.
+
+---+ Installation
+
+First, install certificates:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install osg-ca-certs
+</pre>
+
+Do one of the following, depending on your batch system:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install condor-ce-condor gratia-probe-condor
+%UCL_PROMPT_ROOT% yum install condor-ce-pbs gratia-probe-pbslsf
+</pre>
+
+(Note - in the future, we will use meta-RPMs to put this all into one step)
+
+---+ Configure the CE
+
+---++ Setup authorization
+You need to configure =/etc/lcmaps.db=, as you would a [[Documentation.Release3.InstallComputeElement][normal OSG-CE]].
+
+---++ Setup Job Routes
+The Condor-CE depends on the Condor JobRouter to transform an incoming grid job into a batch system job.  This is controlled by a job _route_; default routes are installed in =/etc/condor-ce/config.d/02-ce-*.conf=.
+
+These routes contain only the minimal base functionality needed for starting jobs at a small site.  Read through the configuration files to get hints as to what a medium or large site might be expected to customize.
+
+Place customizations in =/etc/condor-ce/config.d/99-local.conf= (or a similarly named file which overrides 02-*; files in the directory are evaluated in alphabetical order), not the original =02-ce-*.conf=.
+
+For Condor sites, =02-ce-condor.conf= assumes that the SPOOL location for the site schedd is in the "normal" location of /var/lib/condor/spool, and the schedd's name is =$(FULL_HOSTNAME)=.
+
+---++ Other Site Customization
+
+The Unix environment variables for the Condor-CE daemons is controlled by =/etc/sysconfig/condor-ce=.
+
+You can place site Condor customizations in =/etc/condor-ce/config.d=; do not edit files installed by the Condor-CE, as edits will be lost on upgrade.  Instead, use site customization files to override default settings.
+
+---++ Home Directories
+
+For now, home directories for all grid users must exist and be exported to the worker nodes (if you are not using a Condor batch system).
+
+---+ Smoke Testing
+
+From a test submit host, use this file to submit to the CE:
+<pre>
+universe = grid
+grid_resource = condor condorce.example.com condorce.example.com:9619
+
+executable = test.sh
+output = test_g.out
+error = test_g.err
+log = test_g.log
+
+ShouldTransferFiles = YES
+WhenToTransferOutput = ON_EXIT
+
+x509userproxy = /tmp/x509up_uXXXX
+
+queue
+</pre>
+
+Replace =condorce.example.com= with the hostname of the Condor-CE.  Replace uXXXX with your submitting user's id (the output of =id -u=).
+
+By default, the job polling interval is 5 minutes; this might work well for scaling, but is frustratingly long for testing jobs (with the default polling intervals, even the most trivial jobs often take 10 minutes to complete).  We suggest applying the following setting on the *client side*:
+
+<pre>
+CONDOR_JOB_POLL_INTERVAL = 10
+</pre>
+
+On the *CE side*, these settings are appropriate for reducing the job latency during tests:
+<pre>
+INFN_JOB_POLL_INTERVAL = 10
+SCHEDD_INTERVAL = 30
+</pre>
+
+---+ Operations
+
+---++ Starting and Stopping Services
+
+The following services need to be enabled with =chkconfig= and started with =service=:
+   * =condor-ce=: This is the set of Condor daemons which implement the Condor-CE.
+   * Batch system: You need to have your batch system started for the Condor-CE to interact with it; batch system operation does not change, even for Condor sites.
+   * =fetch-crl=: This maintains the validity of the CRL files in =/etc/grid-security/certificates=.
+   * =gratia-probe-cron=: This service enables or disables a cron job, which uploads accounting information to the OSG.
+
+---++ Log Files
+
+   * =/var/log/condor/*=: Condor daemon files.
+   * =/var/log/condor/user/*=, =/var/log/condor/Gridmanager.*=: Per-user log files recording individual submissions and interactions with the batch system.
+   * =/var/log/messages=: LCMAPS sends authentication and authorization information into syslog; check this if you are having authz difficulties.
