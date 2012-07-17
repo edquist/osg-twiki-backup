@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DouglasStrain" date="1342195551" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="DouglasStrain" date="1342549989" format="1.1" version="1.2"}%
 ---+!! *Hadoop 2.0.0 (CDH4)*
 %DOC_STATUS_TABLE%
 %TOC{depth="2"}%
@@ -82,90 +82,37 @@ The HDFS prerequisites are:
 
 *Note*: The rpm/yum installation will create a 'hdfs' system account and group  (uid,gid < 500) on the host system for running the datanode services.  If you would like to control the uid/gid that is used, then you should create the 'hdfs' user and group manually before installing the rpms.
 
----++ Installation
+---+ Installation
 
-The Hadoop init script assumes that you are not running multiple hadoop services (datanode, namenode, secondary namenode) on the same host.
+Installation depends on the node you are installing:
 
-The only node that requires a FUSE mount is the *SRM node*.  However to install hadoop, the =hadoop-0.20-osg= rpm requires =fuse= and =fuse-libs= packages to be installed.  If you are using RHEL >= 5.4 this requirement is met and they will be brought in as dependencies.  Otherwise you must find these packages for your platform or refer to [[#TroubFuseMod][Notes on Building a FUSE Module]] in the Troubleshooting section below.
-
-To install hadoop, run:
-
+---++ Namenode Installation
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install hadoop-0.20-osg
+%UCL_PROMPT_ROOT% yum install hadoop-hdfs-namenode
 </pre>
+
+---++ Datanode Installation
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install hadoop-hdfs-namenode
+</pre>
+
 
 ---++ Configuration
 
-The Hadoop RPMs install files into the standard system locations.  The following table highlights some of the more interesting locations, and documents whether you might ever want to edit them.
+%RED% THIS SECTION NEEDS UPDATING %ENDCOLOR%
 
-| File Type | Location | Needs editing? |
-| Log files | =/var/log/hadoop/*= | No |
-| PID files | =/var/run/hadoop/*.pid= | No |
-| init scripts | =/etc/init.d/hadoop=, =/etc/init.d/hadoop-firstboot= | No |
-| init script config file | =/etc/sysconfig/hadoop= | Yes |
-| runtime config files | =/etc/hadoop/conf/*= | Maybe |
-| System binaries | =/usr/bin/hadoop= | No |
-| JARs | =/usr/lib/hadoop/*= | No |
+Currently, only manual configuration is possible.
 
----+++ Edit /etc/sysconfig/hadoop
+Modify =/etc/hadoop/conf/hdfs-site.xml=.
 
-The most common site configuration settings can be changed in =/etc/sysconfig/hadoop=.  In most cases, this file will be identical on the namenode and datanodes.  The configuration settings are documented in the file itself, but we document some of the most commonly edited ones in the table below:
+Modify =/etc/hadoop/conf/core-site.xml=.
 
-| Option Name | Needs editing? | Suggested value |
-| HADOOP_NAMENODE | Yes | The host name of your namenode; should match the output 'hostname -s' on the namenode server.  Note that this hostname should match the public hostname of the server. |
-| HADOOP_NAMEPORT | Yes | 9000 |
-| HADOOP_SECONDARY_NAMENODE | Yes | The host name of the secondary namenode; should match the output of 'hostname -s' |
-| HADOOP_CHECKPOINT_DIRS | Yes | Comma-separated (*important:* no spaces between commas!) list of directories to store checkpoints on.  The safest configuration is to store 2 checkpoints locally on 2 block devices and 1 checkpoint on a NFS server.  At least 1 checkpoint directory is required.  |
-| HADOOP_CHECKPOINT_PERIOD | Yes | The time, in seconds, between checkpoints.  600 is suggested for small sites |
-| HADOOP_REPLICATION_DEFAULT | Yes | Default number of replications.  Suggested: 2 |
-| HADOOP_REPLICATION_MIN | Yes | Minimum number of replications; below this, an error will be thrown.  Suggested: 1 or 2. |
-| HADOOP_REPLICATION_MAX | Yes | Maximum number of replications.  Suggested: 512 |
-| HADOOP_GANGLIA_ADDRESS | Maybe | Hostname or IP of your Ganglia gmetad.  If left empty then hadoop will try to extract the ganglia metad address from /etc/gmond.conf.  If you aren't using Ganglia just leave it blank. |
-| HADOOP_DATADIR | Yes | The base directory where HDFS temp and management data will be written.  On datanodes this is usually the parent of the first data partition. It is safe to leave this empty for client-only installations.|
-| HADOOP_DATA | Yes | A comma-separated list of directories (no spaces!) where the HDFS data blocks will be stored.  The first one is typicall the same as $HADOOP_DATADIR/data.  It is safe to leave this empty for client-only installations. |
-| HADOOP_USER | Maybe | The username that the hadoop datanode daemons will run under.  Suggested: hdfs |
-| HADOOP_NAMENODE_HEAP | Maybe | The Java heap size for the namenode; bigger is better, but the node shouldn't swap.  Minimum: 2048m.  Suggested: 8192m |
-| HADOOP_MIN_DATANODE_SIZE | Maybe | A value in GB; if the data directory is smaller than this size, HDFS will refuse to start.  Safeguards against starting the datanode daemon on non-datanodes.  Suggested: 300 (this value will vary widely with your datanode size). Set to zero or an empty string to bypass this check. |
+Make directories for scratch, data, etc.
 
-*Note:* If you have separate public and private hostnames for your servers, then use the public FQDN hostnames for all requested hostnames in this document.  Otherwise, you may run into problems.
-
-After making changes to the file, you must run:
-
+On namenode, make sure to format (ONLY IF NEW INSTALLATION):
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT% service hadoop-firstboot start
+hadoop namenode -format
 </pre>
-
-This propagates the changes to the hadoop configuration files in =/etc/hadoop= and must be run every time you make changes to =/etc/sysconfig/hadoop=.
-
-*NOTE:* If you just installed Hadoop for the first time, you must log in/out of your shell or source /etc/profile.d/hadoop.sh before your you try playing with the command line tools.
-
-*Upgrade note:* Configuration files will be saved with a =.rpmsave= extension if you ever update your hadoop rpms with rpm or yum.  *Make sure to copy your settings from =/etc/sysconfig/hadoop.rpmsave= to =/etc/sysconfig/hadoop= if you ever update your hadoop rpms.*  Any manual changes to the hadoop configuration files in =/etc/hadoop/= should be preserved during an upgrade, but may be overwritten when running =hadoop-firstboot=.
-
----+++ Side topic: Multiple data directories on a datanode.
-
-Hadoop has the ability to store data in multiple directories on a datanode.  This can be useful if you have multiple drives on your datanode and don't want to run them in a raid array, or if you have multiple large storage volumes mounted on your datanode.  To configure a datanode to use multiple directories, you need to enter each directory in the =HADOOP_DATA= setting in =/etc/sysconfig/hadoop= as a comma-separated list of directories (no spaces!) and then run =service hadoop-firstboot start=.  Here is an example of a datanode with 4 storage directories:
-
-<pre class="file">
-HADOOP_DATA=/data1/hadoop/data,/data2/hadoop/data,/data3/hadoop/data,/data4/hadoop/data
-</pre>
-
----++ Running Hadoop
-
-The Hadoop rpms install a startup script in =/etc/init.d/hadoop=.  The same command is used to start hadoop services on a datanode, namenode, or secondary namenode:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% service hadoop start
-</pre>
-
-You will also want to configure hadoop to start at boot time with:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT%  chkconfig hadoop on
-</pre>
-
----%SHIFT%+++ Side topic: Client-only installation
-
-Sometimes it is handy to configure a node to be a client, that is, a system that has access to hadoop but will not serve as a datanode or namenode.  The installation and configuration for such a node is the same as above, except that you do not need to start any hadoop services with =/etc/init.d/hadoop=.  It is still necessary to modify =/etc/sysconfig/hadoop=, but it is not necessary to specify any datanode directories in =HADOOP_DATA=.
 
 
 ---++ FUSE
@@ -208,6 +155,8 @@ fuse-dfs didn't recognize /mnt/hadoop,-2
 fuse-dfs ignoring option allow_other
 </pre>
 If you have troubles mounting FUSE refer to [[#TroubFuseDeb][Running FUSE in Debug Mode]] in the Troubleshooting section.
+
+---++ Running Services
 
 #HadoopValidation
 ---++ Validation
@@ -1099,7 +1048,18 @@ If you would like to test the gridftp-hdfs server in a debug standalone mode, yo
 
 The standalone server runs on port 5002, handles a single !GridFTP request, and will log output to stdout/stderr.
 
----++ Known Issues
+---+ File Locations
+
+| File Type | Location | Needs editing? |
+| Log files | =/var/log/hadoop/*= | No |
+| PID files | =/var/run/hadoop/*.pid= | No |
+| init scripts | =/etc/init.d/hadoop=, =/etc/init.d/hadoop-firstboot= | No |
+| init script config file | =/etc/sysconfig/hadoop= | Yes |
+| runtime config files | =/etc/hadoop/conf/*= | Maybe |
+| System binaries | =/usr/bin/hadoop= | No |
+| JARs | =/usr/lib/hadoop/*= | No |
+
+---+ Known Issues
 
 ---+++ copyFromLocal java IOException
 
