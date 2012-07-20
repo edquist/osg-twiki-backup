@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="PatrickLouisSkubic" date="1342671654" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="PatrickLouisSkubic" date="1342765951" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="AfricaGridSchool12Materials"}%
 ---+!!Analysis Example using the Grid
 %TOC{depth="3"}%
@@ -97,7 +97,7 @@ cd %UCL_CWD%
 
 ---++ Simple Analysis Example
 
-Step 1: Create simulated data using the grid
+---+++ Step 1: Create simulated data using the grid
 
 We will utilize a simple command script to submit the grid jobs. It is:
 
@@ -169,124 +169,122 @@ Root command:  ==TBrowser b==
 
 With the ==TBrowser== you can plot the simulated data in branch “Energy” as well as the other branches.
 
+Each data file contains a TTree named “t0”. You can plot the contents of all (in this example both) data file TTree's by using the TChain method as follows:
 
-We need the submit file for simple that you created [[OSGSS2012CondorFirstJob][Monday]].  We modified this submit file to target the 32bit machines.  Copy this to a file named ==simple.submit==: <pre class="file">
-Universe   = vanilla
-Executable = simple
-Arguments  = 4 10
-Log        = simple.log
-Output     = simple.out
-Error      = simple.error
-should_transfer_files   = YES
-when_to_transfer_output = ON_EXIT
-%RED%Requirements = Arch == "INTEL"%ENDCOLOR%
-Queue
+In Root execute the following commands:
+<pre class="screen">
+TChain tc(“t0”);
+tc.Add(“t*.root”);
+tc.Draw(“Energy”);
 </pre>
 
-Does the job complete? %TWISTY{
-showlink="Show Answer"
-hidelink="Hide Answer"
-mode="div"
-showimgleft="%ICONURLPATH{toggleopen-small}%"
-hideimgleft="%ICONURLPATH{toggleclose-small}%"
-}%
-<div style="margin-left: 1em; margin-right: 1em; background-color: #ffff66; border: 1px solid black; padding: 0.5em;">
-No, the job doesn't complete.  In simple.error, you can see the error: <pre class="screen">
-%UCL_PROMPT% cat simple.error
-/myhome1/condor/execute/dir_9935/glide_D10001/condor_job_wrapper.sh: line 8: /myhome1/condor/execute/dir_9935/glide_D10001/execute/dir_14214/condor_exec.exe: cannot execute binary file
-/myhome1/condor/execute/dir_9935/glide_D10001/condor_job_wrapper.sh: line 8: /myhome1/condor/execute/dir_9935/glide_D10001/execute/dir_14214/condor_exec.exe: Success
+---+++ Step 2: Make TSelector
+
+In Root in your test directory, execute the following commands:
+<pre class="screen">
+TFile f("t00.root");
+t0.MakeSelector("s0");
+f.Close();
 </pre>
 
-Ignore the Success, clearly the earlier error (==cannot execute binary file==) means the job didn't run.
-</div>
-%ENDTWISTY%
+This will create files ==s0.C== and ==s0.h== in your test directory that contain code corresponding to the definition of the TTree "t0". This code can be used to process files containing data is these TTree's.
 
-So, what can we do to solve this problem?
-   1. We can recompile simple for 32 bit.
-   1. We can target only 64 bit machines.
+Now we will add a histogram to the TSelector code. Several code lines have to be added to the TSelector code files ==s0.C== and ==s0.h==.
 
-Recompiling for 32bit machines is easy.  Just need to send a new command argument to gcc when you are compiling the executable: <pre class="screen">
-%UCL_PROMPT% gcc -static %RED%-m32%ENDCOLOR% -o simple simple.c
+To ==s0.h== make the additions:
+after existing include statements add:
+
+=#include <TH1F.h>=
+
+After class s0 definition:
+      ( class s0 : public TSelector { ) 
+add
+<pre class="screen">
+TH1F *e;
 </pre>
 
-Retargeting the job for only 64 bit machines requires chaning the ==requirements= statement in the submit file: <pre class="file">
-Requirements = %RED%Arch == "X86_64"%ENDCOLOR%
+To ==s0.C== make the additions:
+
+After entry:
+( void s0::SlaveBegin(TTree * /*tree*/) ) 
+add
+<pre class="screen">
+e = new TH1F("e", "e", 1000, -199.0, 1200.0);
 </pre>
 
-What are the advantges of either approach? Does the job complete? %TWISTY{
-showlink="Show Answer"
-hidelink="Hide Answer"
-mode="div"
-showimgleft="%ICONURLPATH{toggleopen-small}%"
-hideimgleft="%ICONURLPATH{toggleclose-small}%"
-}%
-<div style="margin-left: 1em; margin-right: 1em; background-color: #ffff66; border: 1px solid black; padding: 0.5em;">
-When you recompile for 32bit machines, that means you can run on both 32bit and 64bit machines (as seen in the presentation).  This widens the resources available to run your processing.
-
-Changing the requirements to target 64bit machines helps if it is difficult to rebuild the executable (for example, if you do not have the source).  Also, if the application needs 64 bit for some reason (over 4GB of ram required?).
-
-</div>%ENDTWISTY%
-
----++ Bigger Troubleshooting
-Lets use the shell script we used on [[https://twiki.grid.iu.edu/bin/view/Education/OSGSS2012CondorBourne][Monday]] as well.  Copy script into a file named ==simple.sh==.
-<pre style="margin-left:4em" class="file">
-#!/bin/sh
-
-if [ $# -ne 2 ]; then
-    echo "Usage: simple.sh <sleep-time> <integer>"
-    exit 1
-fi
-
-echo "Thinking really hard for $1 seconds.."
-sleep $1
-answer=$(( $2 * 2 ))
-echo "We calculated $answer."
-exit 0
+After Process entry:
+ ( Bool_t s0::Process(Long64_t entry) )
+add
+<pre class="screen">
+GetEntry(entry);
+e->Fill(Energy);
 </pre>
 
-Next, modify ==simple.submit== to run this executable rather than the compiled ==simple==.  When we submit the job, everything works great.  But lets make it work... not great.  Lets make it fail.. you know... for science!
-
-Lets modify ==simple.submit== to send an odd argument.  Modify the ==arguments== line, replacing the second number with a word (for example, ==blah==).  Submit the job to condor (==condor_submit simple.submit==).  What is the output after the job has completed?
-
-Hum... something is not right.  Lets see what is going on in the shell script.  At the top of the shell script, modify the line ==#!/bin/sh== to add a ==-x==.  Therefore, the top line should be: ==#!/bin/sh -x==.  Submit the job again.  After the job has completed, look in the simple.error.
-
-%TWISTY{
-showlink="Show example simple.err"
-hidelink="Hide example simple.err"
-mode="div"
-showimgleft="%ICONURLPATH{toggleopen-small}%"
-hideimgleft="%ICONURLPATH{toggleclose-small}%"
-}%
-<pre class="file">
-%UCL_PROMPT% cat simple.error 
-+ '[' 2 -ne 2 ']'
-+ echo 'Thinking really hard for 4 seconds..'
-+ sleep 4
-+ answer=0
-+ echo 'We calculated 0.'
-+ exit 0
+After terminate entry:
+( void s0::Terminate() )
+add
+<pre class="screen">
+TFile f("histograms.root","RECREATE");
+f.WriteObject(e,”Energy”);
+f.Close();
 </pre>
 
-Odd, we didn't send it ==0==.  We sent it ==blah==, but it interpreted it as ==0==.  This is a quirk of bash shell scripts, if it doesn't understand a number (ie, if it's letters), then intrepret it as 0.
-%ENDTWISTY%
+Now create the new script files for Step 2:
 
-Can you imagine scenerios where this would be helpful?  Debugging shell scripts is very common in grid computing, since we have so many wrapper scripts.
-
----++ Adding ==condor_ssh_to_job==
-Fix the ==simple.submit== above, replacing ==blah== with ==10==.  Also, make the shell script sleep longer, change the first number in the ==arguments== line to be 20.  This time, we want to watch the job execute while it happens.
-
-Submit the ==simple.submit==.  Watch it's execution in the queue using ==condor_q==.  When the job begins running, ie you see a ==R== in the job status, issue the command: <pre class="screen">
-condor_ssh_to_job %RED%10.0%ENDCOLOR%
+create:
+==run-root-2.cmd==
+<pre class="screen">
+universe=grid 
+grid_resource=gt2 osgitb1.nhn.ou.edu/jobmanager-condor 
+executable=run-root-2.sh 
+transfer_input_files = s0.C,s0.h,run-root-2.C,t00.root,t01.root 
+transfer_executable=True 
+when_to_transfer_output = ON_EXIT 
+log=run-root-2.log 
+transfer_output_files = root-2.out,histograms.root 
+output=run-root.out.$(Cluster).$(Process) 
+error=run-root.err.$(Cluster).$(Process) 
+notification=Never 
+queue 
 </pre>
 
-Replacing %RED%10.0%ENDCOLOR% with your actual job id from ==condor_q==.  After issueing this command, you should be logged into the remote machine.  You can see the files and job running on the execute machine.
+Create ==run-root-2.sh==
+<pre class="screen">
+#!/bin/bash 
+ 
+hostname 
+pwd 
+/usr/local/bin/root -b < run-root-2.C > root-2.out 
+</pre>
 
-Looking around at the files on the remote worker node, can you answer some simple questions:
-   1. What files do you have in the directory.
-   1. Can you guess what these files will be named once they are transferred back?
-   1. What directory are you in?  Is it where you expected?
+Create ==run-root-2.C==
+<pre class="screen">
+.L s0.C++ 
+{ 
+ //Load and run TSelector 
+ 
+  s0 *s = new s0(); 
+ 
+  TChain tc("t0"); 
+  tc.Add("t*.root"); 
+  tc.Process(s); 
+ 
+} 
+</pre>
 
-Once you are done looking around on the worker node, type ==logout== in the screen.
-*this is a test*
+We can test the Root job on your local machine by issuing command:
+
+==root < run-root-2.C==
+
+If this works, we can process the data files =t00.root= and =t01.root= on the
+Grid with our new command script ==run-root-2.cmd==.
+
+This can be done with command:
+
+==condor_submit run-root-2.cmd==
+
+You can look at the output histogram file: =histograms.root=
+with ==TBrowser b== as before.
+
 
 -- Main.PatrickLouisSkubic - 18 Jul 2012
