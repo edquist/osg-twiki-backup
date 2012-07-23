@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1338840080" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="JohnWeigand" date="1343076753" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="GratiaInterfacesApelLcg"}%
 <!--
    * Set LCG_CONF        = [[#lcg_conf][lcg.conf]]
@@ -355,14 +355,104 @@ Identifies access information for the Gratia and APEL databases.
 ---+ Output Data Files
 
 ---+ SSM
+Effective June 2012, accounting data sent to the EGI/WLCG APEL accounting system using the Secure Stomp Messanger (SSM).
+
+The Secure Stomp Messenger (SSM) is designed to give a reliable message transfer mechanism using the STOMP protocol.  Messages are encrypted 
+during transit, and are sent sequentially, the next message being sent only when the previous one has been acknowledged.
+The SSM is written in python.  It is designed and packaged for SL5. 
+
+Additional information about APEL can be found here:
+   * [[https://wiki.egi.eu/wiki/APEL][APEL - General Description]]
+   * [[https://wiki.egi.eu/wiki/APEL/Server][APEL/Server]]
+   * [[https://wiki.egi.eu/wiki/APEL/SSM][APEL/SSM interface]]
+
 
 ---++ SSM Installation
+---+++ Prerequistes
+The SSM protocal uses SSI authentication and therefore requires a set of CA certificates and a service certificate.  
+   * Instructions for installing the CA certificates: [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/InstallCertAuth][OSG - Installing Certificate Authorities Certificates and related RPMs twiki]].
+   * Instructions for obtaining a service certificate: [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/GetHostServiceCertificates][OSG - How to get host service certificates]]
+
+This is a sample install of the CA certificates:
+<blockquote><pre>
+&gt; rpm -Uvh http://repo.grid.iu.edu/osg-el5-release-latest.rpm  # OSG repo
+&gt; rpm -Uvh http://dl.fedoraproject.org/pub/epel/5/i386/epel-release-5-4.noarch.rpm   # EPEL repo
+&gt; yum  -y  install yum-priorities
+&gt; yum  -y  install osg-ca-certs
+&gt; yum  -y  install fetch-crl
+
+## Insure the cron will be activated
+&gt; chkconfig fetch-crl-cron on
+&gt; /sbin/service fetch-crl-cron start
+
+## etch-crl must have run once for the certificates to be verified successfully
+&gt; /sbin/service fetch-crl-boot start    # this will take a little while
+</pre></blockquote>
+
+In addition, there are several python libraries required:
+<blockquote><pre>
+&gt; yum  -y  install stomppy   
+&gt; yum  -y  install python-daemon
+&gt; yum  -y  install python-ldap
+</pre></blockquote>
+
+---+++ Install SSM
+The installation from RPM is:
+<blockquote><pre>
+&gt; rpm -iv /cloud/login/weigand/osg-rpm-install/SSM/etc/ssm-0.11-1.noarch.rpm
+</pre></blockquote>
+
+The RPM carries out a number of steps to run the SSM in a specific way.
+   * It installs the core files in __/opt/apel/ssm__
+   * It creates the messages directory __/var/opt/apel/messages__
+   * It creates the log directory __/var/log/apel__
+   * It creates the pidfile directory __/var/run/apel__
+
+
 
 ---++ SSM Configuration files
+There are 2 configuration files in __/opt/apel/ssm/conf__ that require some modifications:
+   * ssm.cfg
+   * ssm.log.cfg
 
 ---+++ ssm.cfg
+The table below indicates the changes necessary for test and production:
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
+| Test            | [broker]        | broker-network: TEST-NWOB%BR%username: gratia |
+|                   | [certificates]  | certificate: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostcert.pem%BR%key: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostkey.pem |
+|                   | [producer]     |  /C=UK/O=eScience/OU=CLRC/L=RAL/CN=raptest.esc.rl.ac.uk/emailAddress=sct-certificates@stfc.ac.uk |
+| Production | [broker]         | broker-network: PROD%BR%username: gratia |
+|                   | [certificates]  | certificate: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostcert.pem%BR%key: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostkey.pem |
+|                   | [producer]     | consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=rap.esc.rl.ac.uk |
+
 
 ---+++ ssm.log.cfg
+The only change required in the interface logging configuration is to hard code the directory path to the log directory and file:
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
+| [handler]        | args=('/var/log/apel/ssm.log', 'a') |
+
+---+++ Running the SSM
+The SSM needs to be run once without sending any messages in order to create the necessary
+directory structure in __/var/opt/apel/messages__:
+<blockquote><pre>
+drwxr-xr-x 2 gratia gratia 4096 Jul 23 13:36 accept
+drwxr-xr-x 2 gratia gratia 4096 Jul 23 13:36 ack
+drwxr-xr-x 2 gratia gratia 4096 Jul 23 13:36 incoming
+drwxr-xr-x 2 gratia gratia 4096 Jul 23 13:37 outgoing
+drwxr-xr-x 2 gratia gratia 4096 Jul 23 13:36 reject
+</pre></blockquote>
+
+To run the SSM the first time (but don't do this until you've completed the configuration for test or production):
+<blockquote><pre>
+&gt; export SSM_HOME=/opt/apel/ssm
+&gt; $SSM_HOME/bin/run-ssm
+</pre></blockquote>
+
+Then, to send your messages:
+ * Write all the messages to the /opt/apel/ssm/messages/outgoing directory
+ * export SSM_HOME=/opt/apel/ssm
+ * $SSM_HOME/bin/run-ssm
+
 
 ---++ Log files
 
