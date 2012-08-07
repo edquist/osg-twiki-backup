@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DouglasStrain" date="1344355186" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="DouglasStrain" date="1344362475" format="1.1" reprev="1.6" version="1.6"}%
 ---+!! *Hadoop 2.0.0 (CDH4)*
 %DOC_STATUS_TABLE%
 %TOC{depth="2"}%
@@ -27,13 +27,14 @@ UPGRADE INSTRUCTIONS PENDING
 
 ---++ Architecture
 
+%NOTE% There are several important components to a storage element installation.  Throughout this document, it will be stated which node the relevant installation instructions apply to.  It can apply to one of the following:
+   * *Namenode*:  You will have at least one namenode.  The name node functions as the directory server and coordinator of the hadoop cluster.  It houses all the meta-data for the hadoop cluster.
+   * *Datanode*:  You will have many datanodes.  Each data node stores large blocks of files to be stored on the hadoop cluster.
+   * *Client*: This is a documentation shorthand that refers to any machine with the hadoop client commands and FUSE mount.  Any machine that needs a FUSE mount to access data in a POSIX-like fashion will need this.
+   * *!GridFTP node*:  This is a node with Globus GridFTP
+   *  *SRM node*:
 
-%NOTE% Throughout this document it will be stated which node the relevant installation instructions apply to.  It can apply to one of the following:
-   * *Namenode*
-   * *Datanode*
-   * *Secondary Namenode*
-   * *GridFTP node* (can be installed on the same machine as a Datanode)
-   *  *SRM node*
+Note that these components are not necessarily mutually exclusive.  For instance, you may consider having your !GridFTP server co-located on the SRM node.  Alternatively, you can locate a client (or even a GridFTP node) co-located on each data node.  That way, each data node also acts as an access point to the hadoop cluster.
 
 ---+++ Engineering Considerations
 
@@ -118,46 +119,47 @@ Installation depends on the node you are installing:
 
 ---+ Configuration
 
+---++ Hadoop Configuration
+
+%NOTE% Needed by: Hadoop namenode, Hadoop datanodes, Hadoop client, !GridFTP, SRM (if co-located with a !GridFTP server)
+
+Hadoop configuration is needed by every node in the hadoop cluster with the sole exception of a SRM node if it is separate from the !GridFTP servers.  However, in most cases, you can do the configuration once and copy it to all nodes in the cluster (possibly using your favorite configuration management tool).  Special configuration for various special components is given in the below sections.
+
+Hadoop configuration is stored in =/etc/hadoop/conf=.  However, by default, these files are mostly blank.  OSG provides a sample configuration in =/etc/hadoop/conf.osg= with most common values filled in.  You will need to copy these into =/etc/hadoop/conf= before they become active. Please let us know if there are any common values that should be added/changed across the whole grid.  You will likely need to modify =hdfs-site.xml= and =core-site.xml=.  Review all the settings in these files, but listed below are common settings to modify:
+
+| File | Setting | Comments |
+|||
 
 
-%RED% THIS SECTION NEEDS UPDATING %ENDCOLOR%
 
-Currently, only manual configuration is possible.
+---+++ Special namenode instructions for brand new installs
 
-Modify =/etc/hadoop/conf/hdfs-site.xml=.  An example is here: http://home.fnal.gov/~dstrain/packages/hdfs-site.xml.
+If this is a new installation (%RED%and only if this is a brand new installation%ENDCOLOR%), you should run the following command as the =hdfs= user. (Otherwise, be sure to =chown= your storage directory to hdfs after running):
 
-Modify =/etc/hadoop/conf/core-site.xml=.  An example is here: http://home.fnal.gov/~dstrain/packages/core-site.xml.
-
-Make directories for scratch, data, etc.
-
-On namenode, make sure to format (ONLY IF NEW INSTALLATION):
-<pre class="rootscreen">
+<pre class="screen">
 hadoop namenode -format
 </pre>
 
+This will initialize the storage directory on your namenode
 
----++ FUSE
+---++ FUSE Client configuration
 
-A FUSE mount is only required on the *SRM node* and any other node you would like to use standard POSIX-like commands on the Hadoop filesystem. If these cases don't apply you may skip to the [[#HadoopValidation][Hadoop Validation]] section.
+%NOTE% Needed by: Hadoop client or !GridFTP node
 
-%NOTE% Before using FUSE you may need to add the module using =modprobe= first:
+A FUSE mount is required on any node that you would like to use standard POSIX-like commands on the Hadoop filesystem.  FUSE (or "file system in user space") is a way to access Hadoop using typical UNIX directory commands (ie POSIX-like access).  Note that not all advanced functions of a full POSIX-compliant file system are necessarily available.
 
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% modprobe fuse
-</pre>
+FUSE is typically installed as part of this installation, but, if you are running a customized or non-standard system, make sure that the fuse kernel module is installed and loaded with =modprobe fuse=.  
 
-#FuseMount
----+++ Mounting FUSE at Boot Time 
-
-You can mount FUSE by adding the following line to =/etc/fstab= (Be sure to change the =/mnt/hadoop= mount point and =namenode.host= to match your local configuration.  To match the help documents, we recommend using =/mnt/hadoop= as your mountpoint):
-
+You can add the FUSE to be mounted at boot time by adding the following line to =/etc/fstab=:
 <pre class="file">
 hadoop-fuse-dfs# %RED%/mnt/hadoop%ENDCOLOR% fuse server=%RED%namenode.host%ENDCOLOR%,port=9000,rdbuffer=131072,allow_other 0 0
 </pre>
+Be sure to change the =/mnt/hadoop= mount point and =namenode.host= to match your local configuration.  To match the help documents, we recommend using =/mnt/hadoop= as your mountpoint.
 
 Once your =/etc/fstab= is updated, to mount FUSE run:
 
 <pre class="rootscreen">
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop
 %UCL_PROMPT_ROOT% mount /mnt/hadoop
 </pre>
 
@@ -165,10 +167,10 @@ When mounting the HDFS FUSE mount, you will see the following harmless warnings 
 
 <pre class="rootscreen">
 # mount /mnt/hadoop
-port=32767,server=(
 INFO fuse_options.c:162 Adding FUSE arg /mnt/hadoop
 INFO fuse_options.c:110 Ignoring option allow_other
 </pre>
+
 If you have troubles mounting FUSE refer to [[#TroubFuseDeb][Running FUSE in Debug Mode]] in the Troubleshooting section.
 
 ---+ Running Services
