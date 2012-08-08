@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DouglasStrain" date="1344362475" format="1.1" reprev="1.6" version="1.6"}%
+%META:TOPICINFO{author="DouglasStrain" date="1344457412" format="1.1" reprev="1.7" version="1.7"}%
 ---+!! *Hadoop 2.0.0 (CDH4)*
 %DOC_STATUS_TABLE%
 %TOC{depth="2"}%
@@ -21,67 +21,89 @@
 The VDT packaging and distribution of Hadoop is based on YUM. All components are packaged as RPMs and are available from the OSG repositories.
 It is also recommended that you enable [[http://fedoraproject.org/wiki/EPEL][EPEL]] repos.
 
----+++ Note on upgrading from Hadoop 0.20
+
+
+---++ Note on upgrading from Hadoop 0.20
 
 UPGRADE INSTRUCTIONS PENDING
+
+---+ Requirements
 
 ---++ Architecture
 
 %NOTE% There are several important components to a storage element installation.  Throughout this document, it will be stated which node the relevant installation instructions apply to.  It can apply to one of the following:
    * *Namenode*:  You will have at least one namenode.  The name node functions as the directory server and coordinator of the hadoop cluster.  It houses all the meta-data for the hadoop cluster.
    * *Datanode*:  You will have many datanodes.  Each data node stores large blocks of files to be stored on the hadoop cluster.
-   * *Client*: This is a documentation shorthand that refers to any machine with the hadoop client commands and FUSE mount.  Any machine that needs a FUSE mount to access data in a POSIX-like fashion will need this.
-   * *!GridFTP node*:  This is a node with Globus GridFTP
-   *  *SRM node*:
+   * *Client*: This is a documentation shorthand that refers to any machine with the hadoop client commands and  [[http://fuse.sourceforge.net/][FUSE]] mount.  Any machine that needs a FUSE mount to access data in a POSIX-like fashion will need this.
+   * *!GridFTP node*:  This is a node with [[http://dev.globus.org/wiki/GridFTP][Globus !GridFTP]].  The !GridFTP server for Hadoop can be very memory-hungry, up to 500MB/transfer in the default configuration.  You should plan accordingly to provision enough !GridFTP servers to handle the bandwidth that your site can support.
+   *  *SRM node*:  This node will contain the !BeStMan SRM frontend for accessing the Hadoop cluster via the SRM protocol.  [[https://sdm.lbl.gov/bestman/][BeStMan2 SRM]]
 
-Note that these components are not necessarily mutually exclusive.  For instance, you may consider having your !GridFTP server co-located on the SRM node.  Alternatively, you can locate a client (or even a GridFTP node) co-located on each data node.  That way, each data node also acts as an access point to the hadoop cluster.
-
----+++ Engineering Considerations
+Note that these components are not necessarily mutually exclusive.  For instance, you may consider having your !GridFTP server co-located on the SRM node.  Alternatively, you can locate a client (or even a !GridFTP node) co-located on each data node.  That way, each data node also acts as an access point to the hadoop cluster.
 
 Please read the [[Storage.HadoopUnderstanding][planning document]] to understand different components of the system. 
 
 %NOTE%  Total installation time, on an average, should not exceed 8 to 24 man-hours. If your site needs further assistance to help expedite, please email osg-storage@opensciencegrid.org and osg-hadoop@opensciencegrid.org.
 
----+ Installation Procedure
-
-Main server components can be divided in 3 categories: 
-   * HDFS core: Namenode, Datanode.
-   * Grid extensions: [[https://sdm.lbl.gov/bestman/][BeStMan2 SRM]], [[http://dev.globus.org/wiki/GridFTP][Globus !GridFTP]], [[https://twiki.grid.iu.edu/bin/view/Accounting/ProbeInstallation][Gratia probe]], and [[http://xrootd.slac.stanford.edu/][Xrootd server plugin]] etc.
-   * HDFS auxiliary: Secondary Namenode, Hadoop Balancer.
-
-Main client components are [[http://fuse.sourceforge.net/][FUSE]] and Hadoop command line client.
-
----+ Initializing the YUM Repository
-
-%INCLUDE{"YumRepositories" section="OSGRepoBrief" headingoffset="1"}%
-
-
----+ Installing Hadoop
-
-%NOTE% Hadoop must be installed on the following nodes:
-   * *Namenode*
-   * *Datanode*
-   * *Secondary Namenode*
-
-%NOTE% On the following nodes Hadoop must also be installed but the Hadoop service itself does not need to be started:
-   * *GridFTP node*
-   * *SRM node*
-
----++ Prerequisites
+---++ Host and OS
 
 Hadoop will run anywhere that Java is supported (including Solaris).  However, these instructions are for !RedHat derivants (including Scientific Linux) because of the RPM based installation.  The current supported Operating Systems supported by the OSG are %SUPPORTED_OS%. 
 
 The HDFS prerequisites are:
-   * Minimum of 1 headnode (the namenode), although 2 recommended (the namenode and the secondary namenode)
+   * Minimum of 1 headnode (the namenode)
    * At least one node which will hold data, preferably at least 2.  Most sites will have 20 to 200 datanodes.
-   * The namenode and secondary name node are *not* datanodes.
    * Working Yum and RPM installation on every system.
    * =fuse= kernel module and =fuse-libs=.
    * Java RPM.  If java isn't already installed we supply the Oracle jdk 1.6.0 rpm and it will come in as a dependency.  Oracle jdk is currently the only jdk supported by OSG so we highly recommend you use the version supplied.
 
 *Compatibility Note* Note that versions of !OpenAFS less than 1.4.7 and greater than 1.4.1 create nameless groups on Linux; these groups confuse Hadoop and prevent its components from starting up successfully. If you plan to install Hadoop on a Linux !OpenAFS client, make sure you're running at least !OpenAFS 1.4.7.
 
-*Note*: The rpm/yum installation will create a 'hdfs' system account and group  (uid,gid < 500) on the host system for running the datanode services.  If you would like to control the uid/gid that is used, then you should create the 'hdfs' user and group manually before installing the rpms.
+
+---++ Users
+
+This installation will create following users unless they are already created.
+
+%STARTSECTION{"Users"}%
+| *User* | *Comment* |
+| =bestman= | Used by Bestman SRM server (needs sudo access). |
+| =hdfs= | Used by Hadoop to store data blocks and meta-data |
+%ENDSECTION{"Users"}%
+
+%INCLUDE{"Documentation/Release3.InstallOSGGridFTP" section="GridUsers"}% 
+
+
+---++ Certificates
+
+%STARTSECTION{"Certificates"}%
+| *Certificate* | *User that owns certificate* | *Path to certificate* |
+| Host certificate | =root= | =/etc/grid-security/hostcert.pem= <br> =/etc/grid-security/hostkey.pem= |
+| Bestman service certificate | =bestman= | =/etc/grid-security/bestman/bestmancert.pem= <br> =/etc/grid-security/bestman/bestmankey.pem= |
+%ENDSECTION{"Certificates"}%
+
+[[InstallCertScripts][Instructions]] to request a service certificate.
+
+You will also need a copy of CA certificates (see below).  
+Note that the =osg-se-hadoop-srm= and =osg-se-hadoop-gridftp= package will automatically install a certificate package 
+but will not necessarily pick the cert package you expect.  For instance, certain installs
+will prefer the =osg-ca-scripts= package to fulfill this requirement, which installs a set of scripts
+to automatically update the certificates, but does not initialize the CA certs by default (you have to run it first).
+For this reason, you may want to specifically install the cert package of your choice first, before installing Hadoop.
+
+---++ Networking
+
+%STARTSECTION{"Firewalls"}%
+%INCLUDE{"Documentation/Release3.FirewallInformation" section="FirewallTable" lines="gridftp,srm2,portrange,portsource"}% \
+%ENDSECTION{"Firewalls"}%
+
+
+
+%INCLUDE{"YumRepositories" section="OSGRepoBrief" headingoffset="1"}%
+
+---+ Initializing Certificate Authority
+
+This is needed by !GridFTP and SRM nodes, but it is recommended for all nodes in the cluster.
+
+%INCLUDE{"InstallCertAuth" section="FetchCRLConfig" TOC_SHIFT="+"}%
+
 
 ---+ Installation
 
@@ -103,13 +125,6 @@ Installation depends on the node you are installing:
 %UCL_PROMPT_ROOT% yum install osg-se-hadoop-client
 </pre>
 
----++ SRM Node Installation
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install osg-se-hadoop-srm
-</pre>
-
-
 ---++ Standalone Gridftp Node Installation
 
 <pre class="rootscreen">
@@ -117,20 +132,36 @@ Installation depends on the node you are installing:
 </pre>
 
 
+---++ SRM Node Installation
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install osg-se-hadoop-srm
+</pre>
+
+
 ---+ Configuration
 
 ---++ Hadoop Configuration
 
-%NOTE% Needed by: Hadoop namenode, Hadoop datanodes, Hadoop client, !GridFTP, SRM (if co-located with a !GridFTP server)
+%NOTE% Needed by: Hadoop namenode, Hadoop datanodes, Hadoop client, !GridFTP, SRM
 
-Hadoop configuration is needed by every node in the hadoop cluster with the sole exception of a SRM node if it is separate from the !GridFTP servers.  However, in most cases, you can do the configuration once and copy it to all nodes in the cluster (possibly using your favorite configuration management tool).  Special configuration for various special components is given in the below sections.
+Hadoop configuration is needed by every node in the hadoop cluster.  However, in most cases, you can do the configuration once and copy it to all nodes in the cluster (possibly using your favorite configuration management tool).  Special configuration for various special components is given in the below sections.
 
 Hadoop configuration is stored in =/etc/hadoop/conf=.  However, by default, these files are mostly blank.  OSG provides a sample configuration in =/etc/hadoop/conf.osg= with most common values filled in.  You will need to copy these into =/etc/hadoop/conf= before they become active. Please let us know if there are any common values that should be added/changed across the whole grid.  You will likely need to modify =hdfs-site.xml= and =core-site.xml=.  Review all the settings in these files, but listed below are common settings to modify:
 
-| File | Setting | Comments |
-|||
+| File | Setting | Example | Comments |
+| =core-site.xml= | fs.default.name | hdfs://namenode.domain.tld.:9000 | This is the address of the namenode |
+| =core-site.xml= | hadoop.tmp.dir | /data/scratch | Scratch temp directory used by Hadoop |
+| =core-site.xml= | hadoop.log.dir | /var/log/hadoop-hdfs | Log directory used by Hadoop |
+| =core-site.xml= | dfs.umaskmode | 002 | umask for permissions used by default |
+| =hdfs-site.xml= | dfs.block.size | 134217728 | Block size: 128MB by default |
+| =hdfs-site.xml= | dfs.replication | 2 | Default replication factor.  Generally the same as dfs.replication.min/max |
+| =hdfs-site.xml= | dfs.datanode.du.reserved | 100000000 | How much free space hadoop will reserve for non-Hadoop usage |
+| =hdfs-site.xml= | dfs.datanode.handler.count | 20 | Number of server threads for datanodes.  Increase if you have many more client connections |
+| =hdfs-site.xml= | dfs.namenode.handler.count | 40 | Number of server threads for namenodes.  Increase if you need more connections |
+| =hdfs-site.xml= | dfs.http.address | namenode.domain.tld.:50070 | Web address for dfs health monitoring page |
 
-
+See http://hadoop.apache.org/common/docs/stable/cluster_setup.html#Site+Configuration for more parameters to configure.
 
 ---+++ Special namenode instructions for brand new installs
 
@@ -142,9 +173,9 @@ hadoop namenode -format
 
 This will initialize the storage directory on your namenode
 
----++ FUSE Client configuration
+---++ FUSE Client Configuration
 
-%NOTE% Needed by: Hadoop client or !GridFTP node
+%NOTE% Needed by: Hadoop client and SRM node.  Recommended but not neccessary for !GridFTP nodes.
 
 A FUSE mount is required on any node that you would like to use standard POSIX-like commands on the Hadoop filesystem.  FUSE (or "file system in user space") is a way to access Hadoop using typical UNIX directory commands (ie POSIX-like access).  Note that not all advanced functions of a full POSIX-compliant file system are necessarily available.
 
@@ -173,6 +204,195 @@ INFO fuse_options.c:110 Ignoring option allow_other
 
 If you have troubles mounting FUSE refer to [[#TroubFuseDeb][Running FUSE in Debug Mode]] in the Troubleshooting section.
 
+---++ Creating VO and User Areas
+
+%NOTE% Grid Users are needed by !GridFTP and SRM nodes.  VO areas are common to all nodes.
+
+%INCLUDE{"Documentation/Release3.InstallOSGGridFTP" section="GridUsers"}% 
+
+Prior to starting basic day-to-day operations, it is important to create dedicated areas for each VO and/or user. This is similar to user management in simple UNIX filesystems. Create (and maintain) usernames and groups with UIDs and GIDs on *all nodes*. These are maintained in basic system files such as =/etc/passwd= and =/etc/group=.
+
+%NOTE% In the examples below It is assumed a FUSE mount is set to =/mnt/hadoop=.  As an alternative =hadoop fs= commands could have been used.
+
+For clean HDFS operations and filesystem management:
+
+(a) Create top-level VO subdirectories under =/mnt/hadoop=.
+
+Example: 
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/cms
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/dzero
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/sbgrid
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/fermigrid
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/cmstest
+%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/osg
+</pre>
+
+(b) Create individual top-level user areas, under each VO area, as needed.
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/tanyalevshina
+%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/michaelthomas
+%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/brianbockelman
+%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/douglasstrain
+%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/abhisheksinghrana
+</pre>
+
+(c) Adjust username:group ownership of each area. 
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% chown -R cms:cms /mnt/hadoop/cms
+%UCL_PROMPT_ROOT% chown -R sam:sam /mnt/hadoop/dzero
+
+%UCL_PROMPT_ROOT% chown -R michaelthomas:cms /mnt/hadoop/cms/store/user/michaelthomas
+</pre>
+
+
+---++ !GridFTP Configuration
+
+gridftp-hdfs reads the Hadoop configuration file to learn how to talk to Hadoop.  By now, you should have followed the instruction for installing hadoop as detailed in the previous section as well as created the proper users/directories.  
+
+The default settings in =/etc/gridftp-hdfs/*.conf= should be ok for most installations.
+The file =gridftp.conf= is used by the init.d script for starting up the !GridFTP server.
+The file =gridftp-debug.conf= is used by =/usr/bin/gridftp-hdfs-standalone= for starting up the !GridFTP server in a testing mode.
+=/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= contains additional site-specific environment variables that are used by the gridftp-hdfs dsi module in both the init.d and standalone !GridFTP server.
+Some of the environment variables that can be used in =/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= include:
+
+| Option Name | Needs Editing? | Suggested value|
+| GRIDFTP_HDFS_REPLICA_MAP | No | File containing a list of paths and replica values for setting the default # of replicas for specific file paths |
+| GRIDFTP_BUFFER_COUNT | No | The number of 1MB memory buffers used to reorder data streams before writing them to Hadoop |
+| GRIDFTP_FILE_BUFFER_COUNT | No | The number of 1MB file-based buffers used to reorder data streams before writing them to Hadoop |
+| GRIDFTP_SYSLOG | No | Set this to 1 in case if you want to send transfer activity data to syslog (only used for the HadoopViz application) |
+| GRIDFTP_HDFS_MOUNT_POINT | Maybe | The location of the FUSE mount point used during the Hadoop installation.  Defaults to /mnt/hadoop.  This is needed so that gridftp-hdfs can convert fuse paths on the incoming URL to native Hadoop paths. *Note:* this does not imply you need FUSE mounted on !GridFTP nodes! |
+| GRIDFTP_LOAD_LIMIT | No | !GridFTP will refuse to start new transfers if the load on the !GridFTP host is higher than this number; defaults to 20. |
+| TMPDIR | Maybe | The temp directory where the file-based buffers are stored.  Defaults to /tmp. |
+
+=/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= is also a good place to increase per-process resource limits. For example, many installations will require more than the default number of open files (=ulimit -n=).
+
+Lastly, you will need to configure an authorization mechanism for !GridFTP.  Two options are available: Gums and gridmap-file.
+
+---+++ !GridFTP Authorization: Gums
+
+%INCLUDE{"InstallOSGGridFTP" section="Gums"}%
+
+---+++ !GridFTP Authorization: Gridmap-file
+
+%INCLUDE{"InstallOSGGridFTP" section="Gridmap"}%
+
+
+---++ !GridFTP Gratia Transfer Probe Configuration
+
+%NOTE% Needed by !GridFTP node only.
+
+The Gratia probe requires the file =user-vo-map= to exist and be up to date. This file is created and updated by the =gums-client= package that comes in as a dependency of =osg-se-hadoop-gridftp= or =osg-gridftp-hdfs=.  Assuming you installed !GridFTP using the =osg-se-hadoop-gridftp= rpm, the Gratia Transfer Probe will already be installed.
+
+%INCLUDE{"GratiaTransferProbe" section="Configuration" }%
+
+---+++ Validation
+
+%INCLUDE{"GratiaTransferProbe" section="Validation" }%
+
+
+---++ !BeStMan Configuration
+
+%INCLUDE{"InstallOSGBestmanSE" section="Settings" }%
+
+---+++  !BeStManHadoop-specific configuration
+
+!BeStMan2 SRM uses the Hadoop FUSE mount to perform namespace operations, such as mkdir, rm, and ls.  As per the Hadoop install instructions, edit =/etc/sysconfig/hadoop= and run =service hadoop-firstboot start=.  It is *not* necessary (or even recommended) to start any hadoop services with =service hadoop start=.
+
+Make sure that you modify =localPathListAllowed= to use the Hadoop mount  in =/etc/bestman2/conf/bestman2.rc=.
+
+---+++ Modify /etc/sudoers
+
+%INCLUDE{"InstallOSGBestmanSE" section="Sudoers" }%
+
+---+++ Copy certificates to bestman location
+
+!BeStMan2 is preconfigured to look for the *host* certificate and key in =/etc/grid-security/bestman/bestman*.pem=.
+Either, these files *must* exist and be *owned* by the *bestman* user, or you must change the settings in =bestman2.rc=.
+Note that you must use host certificates here or lcg-utils may experience issues.
+
+%INCLUDE{"InstallOSGBestmanSE" section="Certificate" }%
+
+---++ Hadoop Storage Probe Configuration
+
+%NOTE% This is only needed by the Hadoop Namenode
+
+Here are the most relevant file and directory locations:
+
+| Purpose | Needs Editing? | Location |
+| Probe Configuration | Yes | /etc/gratia/hadoop-storage/ProbeConfig |
+| Probe Executable | No | /usr/share/gratia/hadoop-storage/hadoop_storage_probe |
+| Log files | No | /var/log/gratia |
+| Temporary files | No | /var/lib/gratia/tmp |
+
+The RPM installs the Gratia probe into the system crontab, but does not configure it.  The configuration of the probe is controlled by two files
+
+<verbatim>
+/etc/gratia/hadoop-storage/ProbeConfig
+/etc/gratia/hadoop-storage/storage.cfg
+</verbatim>
+
+---+++ !ProbeConfig
+This is usually one XML node spread over multiple lines.  Note that comments (#) have no effect on this file.  You will need to edit the following:
+
+| Attribute | Needs Editing | Value |
+| !CollectorHost | Maybe | Set to the hostname and port of the central collector.  By default it sends to the OSG collector.  You probably do not want to change it. |
+| !SiteName | Yes | Set to the resource group name of your SE as registered in OIM. |
+| !Grid | Maybe | Set to "ITB" if this is a test resource; otherwise, leave as OSG. |
+| !EnableProbe | Yes | Set to 1 to enable the probe. |
+
+---+++ storage.cfg
+This file controls which paths in HDFS should be monitored.  This is in the Windows INI format.
+
+*Note: for the current version of the storage.cfg, there is an error, and you may need to delete the "probe/" subdirectory for the !ProbeConfig location*
+<pre class="file">
+ProbeConfig = /etc/gratia/%RED%probe/%ENDCOLOR%hadoop-storage/ProbeConfig
+</pre>
+
+For each logical "area" (arbitrarily defined by you), specify both a given name and a list of paths that belong to that area.  Unix globs are accepted.
+
+To configure an area named "CMS /store" that monitors the space usage in the paths /user/cms/store/*, one would add the following to the storage.cfg file.
+
+<pre class="file">
+[Area CMS /store]
+Name = CMS /store
+Path = /user/cms/store/*
+Trim = /user/cms
+</pre>
+
+For each such area, add a section to your configuration file.
+
+---++++ Example file
+Below is a configuration file that includes three distinct areas.  Note that you shouldn't have to touch the [Gratia] section if you edited the !ProbeConfig above:
+
+<pre class="file">
+[Gratia]
+gratia_location = /opt/vdt/gratia
+ProbeConfig = %(gratia_location)s/probe/hadoop-storage/ProbeConfig
+
+[Area /store]
+Name = CMS /store
+Path = /store/*
+
+[Area /store/user]
+Name = CMS /store/user
+Path = /store/user/*
+
+[Area /user]
+Name = Hadoop /user
+Path = /user/*
+</pre>
+
+**NOTE These lines in the [gratia] section are wrong and need to be changed to the following by hand for now until the rpm is updated:*
+<pre class="file">
+gratia_location = /etc/gratia
+ProbeConfig = %(gratia_location)s/hadoop-storage/ProbeConfig
+</pre>
+
+
 ---+ Running Services
 
 Namenode:
@@ -192,9 +412,15 @@ service hadoop-hdfs-datanode start
 service hadoop-hdfs-datanode stop
 </pre>
 
+!GridFTP:
+%INCLUDE{"InstallOSGGridFTP" section="Starting"}%
+
+SRM (!BeStMan):
+%INCLUDE{"InstallOSGBestmanSE" section="Starting" }%
+
 
 #HadoopValidation
----++ Validation
+---+ Validation
 
 The first thing you may want to do after installing and starting your *Namenode* is to verify that the web interface works.  In your web browser go to:
 
@@ -321,127 +547,7 @@ total 935855
 -rw-rw-r-- 1 engage engage   9259360 Jun 15 16:32 glideinWMS_v2_5_1.tgz
 </pre>
 
----++ Creating VO and User filesystem areas
-
-Prior to starting basic day-to-day operations, it is important to create dedicated areas for each VO and/or user. This is similar to user management in simple UNIX filesystems. 
-
-%NOTE% Create (and maintain) usernames and groups with UIDs and GIDs on *all nodes*. These are maintained in basic system files such as =/etc/passwd= and =/etc/group=.
-
-%NOTE% In the examples below It is assumed a FUSE mount is set to =/mnt/hadoop=.  As an alternative =hadoop fs= commands could have been used.
-
-For clean HDFS operations and filesystem management:
-
-(a) Create top-level VO subdirectories under =/mnt/hadoop=.
-
-Example: 
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/cms
-%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/dzero
-%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/sbgrid
-%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/fermigrid
-%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/cmstest
-%UCL_PROMPT_ROOT% mkdir /mnt/hadoop/osg
-</pre>
-
-(b) Create individual top-level user areas, under each VO area, as needed.
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/tanyalevshina
-%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/michaelthomas
-%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/brianbockelman
-%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/douglasstrain
-%UCL_PROMPT_ROOT% mkdir -p /mnt/hadoop/cms/store/user/abhisheksinghrana
-</pre>
-
-(c) Adjust username:group ownership of each area. 
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% chown -R cms:cms /mnt/hadoop/cms
-%UCL_PROMPT_ROOT% chown -R sam:sam /mnt/hadoop/dzero
-
-%UCL_PROMPT_ROOT% chown -R michaelthomas:cms /mnt/hadoop/cms/store/user/michaelthomas
-</pre>
-
----+ Installing !GridFTP
-
-%NOTE% !GridFTP must be installed on the *GridFTP node*
-
----++ Prerequisites
-
-   1. %STARTSECTION{"HadoopReq"}%Install the Hadoop RPM on your !GridFTP node, edit =/etc/sysconfig/hadoop=, and verify your installation.%ENDSECTION{"HadoopReq"}%
-   1. %STARTSECTION{"GumsReq"}%We assume your site is running a sufficiently recent GUMS server >= 1.3 (grid-mapfiles are not currently tested or supported).%ENDSECTION{"GumsReq"}%
-
-%INCLUDE{"Documentation/Release3.InstallOSGGridFTP" section="GridUsers"}% 
-
-The !GridFTP server for Hadoop can be very memory-hungry, up to 500MB/transfer in the default configuration.
-You should plan accordingly to provision enough !GridFTP servers to handle the bandwidth that your site can support.
-
-The installation includes the latest CA Certificates package from the OSG as well as the fetch-crl CRL updater.
-
-%INCLUDE{"InstallCertAuth" section="FetchCRLConfig" TOC_SHIFT="+"}%
-
-*Note:* You do not need FUSE mounted on !GridFTP nodes
-
----++ Installation
-
-To install gridftp-hdfs server, run:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install osg-gridftp-hdfs
-</pre>
-
-Updates can be installed with:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum upgrade osg-gridftp-hdfs
-</pre>
-
----++ Configuration
-
-The installation of gridftp-hdfs and its dependencies creates several directories.
-In addition to the Hadoop installation files, you will also find:
-
-| Log files | =/var/log/gridftp-auth.log=, =/var/log/gridftp.log= |
-| init.d script | =/etc/init.d/globus-gridftp-server= |
-| runtime config files | =/etc/gridftp-hdfs/*=, =/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= |
-| System binaries | =/usr/bin/gridftp-hdfs-standalone=, =/usr/sbin/globus-gridftp-server= |
-| System libraries | =/usr/lib64/libglobus_gridftp_server_hdfs.so*= |
-| GUMS client (called LCMAPS) configuration | =/etc/lcmaps.db= |
-| CA certificates | =/etc/grid-security/certificates/*= |
-
-gridftp-hdfs reads the Hadoop configuration file to learn how to talk to Hadoop.
-As per the prerequisites section, you should have already edited =/etc/sysconfig/hadoop= and run =service hadoop-firstboot start=.
-If you did not follow the directions, please do that now.
-
-It is *not* necessary to start any Hadoop services with =service hadoop start= if you are running a dedicated !GridFTP server (that is, no datanode or namenode services will be run on the host).
-
-%INCLUDE{"InstallOSGGridFTP" section="Gums"}%
-
-The default settings in =/etc/gridftp-hdfs/*.conf= should be ok for most installations.
-The file =gridftp.conf= is used by the init.d script for starting up the !GridFTP server.
-The file =gridftp-debug.conf= is used by =/usr/bin/gridftp-hdfs-standalone= for starting up the !GridFTP server in a testing mode.
-=/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= contains additional site-specific environment variables that are used by the gridftp-hdfs dsi module in both the init.d and standalone !GridFTP server.
-Some of the environment variables that can be used in =/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= include:
-
-| Option Name | Needs Editing? | Suggested value|
-| GRIDFTP_HDFS_REPLICA_MAP | No | File containing a list of paths and replica values for setting the default # of replicas for specific file paths |
-| GRIDFTP_BUFFER_COUNT | No | The number of 1MB memory buffers used to reorder data streams before writing them to Hadoop |
-| GRIDFTP_FILE_BUFFER_COUNT | No | The number of 1MB file-based buffers used to reorder data streams before writing them to Hadoop |
-| GRIDFTP_SYSLOG | No | Set this to 1 in case if you want to send transfer activity data to syslog (only used for the HadoopViz application) |
-| GRIDFTP_HDFS_MOUNT_POINT | Maybe | The location of the FUSE mount point used during the Hadoop installation.  Defaults to /mnt/hadoop.  This is needed so that gridftp-hdfs can convert fuse paths on the incoming URL to native Hadoop paths. *Note:* this does not imply you need FUSE mounted on !GridFTP nodes! |
-| GRIDFTP_LOAD_LIMIT | No | !GridFTP will refuse to start new transfers if the load on the !GridFTP host is higher than this number; defaults to 20. |
-| TMPDIR | Maybe | The temp directory where the file-based buffers are stored.  Defaults to /tmp. |
-
-=/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= is also a good place to increase per-process resource limits. For example, many installations will require more than the default number of open files (=ulimit -n=).
-
----++ Running !GridFTP 
-
-To run the !GridFTP service use the following commands:
-
-%INCLUDE{"InstallOSGGridFTP" section="Starting"}%
-
----++ Validation
+---++ !GridFTP Validation
 
 %NOTE% The commands used to verify !GridFTP below assume you have access to a node where you can first generate a valid proxy using =voms-proxy-init= or =grid-proxy-init=.  Obtaining grid credentials is beyond the scope of this document.
 
@@ -451,208 +557,25 @@ To run the !GridFTP service use the following commands:
 
 If you are having troubles running !GridFTP refer to [[#GridFTPStand][Starting !GridFTP in Standalone Mode]] in the Troubleshooting section.
 
----+ Installing !BeStMan2
+---++ !BeStMan Validation
 
-%NOTE% !BeStMan2 must be installed on the *SRM node*
+There are three ways of validating !BeStMan:
+  * SrmTester: !BeStMan testing application
+  * InstallRSV: RSV monitoring tools
+  * !BestMan client tools
 
----++ Prerequisites
-   1. Make sure FUSE is installed and [[#FuseMount][mounted]] on the *SRM node*.
-   1.  A !GridFTP-HDFS server must also be installed, but this does not need to be on the same node as the !BeStMan2 server.  A larger site will prefer to have their !GridFTP and !BeStMan2 servers installed on separate hosts.
-   1 In addition to the Java jdk you need the corresponding Java sun-compat package.  For example for =jdk-1.6.0= you need to install =java-1.6.0-sun-compat=.  If you installed the jdk rpm that we supplied you can just let =java-1.6.0-sun-compat= come in as a dependency.  Otherwise you need to find and manually install the correct version before continuing.  See the [[http://www.jpackage.org/installation.php][jpackage installation doc]] for more details.
-   1 CA Certificates installed in =/etc/grid-security/certificates=.
+See the relevant pages for the first two options.  This section will detail some basic client commands to validate.  You will need grid credentials in order to test using client tools.  
 
-%INCLUDE{"Documentation/Release3.InstallOSGGridFTP" section="GridUsers"}% 
-
-!BeStMan2 is preconfigured to look for the *host* certificate and key in =/etc/grid-security/bestman/bestman*.pem=.
-Either, these files *must* exist and be *owned* by the *bestman* user, or you must change the settings in =bestman2.rc=.
-Note that you must use host certificates here or lcg-utils may experience issues.
-
-
-*NOTE* This rpm no longer brings in the OSG CA Certificates package or fetch-crl CRL updater as dependencies.  However we still provide the packages in the repo.  If you would like them run:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install osg-ca-certs
+<pre class="screen">
+srm-ping srm://BeStMan_host:secured_http_port/srm/v2/server
+srm-copy file:////tmp/test1  srm://BeStMan_host:secured_http_port/srm/v2/server\?SFN=/mnt/hadoop/VONAME/test_1
 </pre>
 
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install fetch-crl
-</pre>
+The =srm-ping= tool should return a valid mapping =gumsIDMapped= that is not null
 
-*NOTE* if you chose not to install them you must install the certificates in another way.  !BeStMan2 still assumes you have them located in =/etc/grid-security/certificates=.
 
- *NOTE* the fetch-crl service does not start by default on installation.  To have fetch-crl update automatically, run:
 
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% service fetch-crl-cron start
-</pre>
 
-cron will check for CRL updates every 6 hours.  If this is your first time installing you may need to run it immediately:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% /usr/sbin/fetch-crl -r 20  -a 24 --quiet
-</pre>
-
-The rpm/yum installation will create a 'bestman' system account and group (uid,gid < 500) on the host system for running the !BeStMan2 SRM process. If you would like to control the uid/gid that is used, then you should create the 'bestman' user and group manually before installing the rpms.
-
-
----++ Installation
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install bestman2-server
-</pre>
-
-
----++ Configuration
-
-%INCLUDE{"InstallOSGBestmanSE" section="Settings" }%
-
----++ Hadoop-specific configuration
-
-!BeStMan2 SRM uses the Hadoop FUSE mount to perform namespace operations, such as mkdir, rm, and ls.  As per the Hadoop install instructions, edit =/etc/sysconfig/hadoop= and run =service hadoop-firstboot start=.  It is *not* necessary (or even recommended) to start any hadoop services with =service hadoop start=.
-
-Make sure that you modify =localPathListAllowed= to use the Hadoop mount  in =/etc/bestman2/conf/bestman2.rc=.
-
----++ Modify /etc/sudoers
-
-%INCLUDE{"InstallOSGBestmanSE" section="Sudoers" }%
-
----++ Copy certificates to bestman location
-
-%INCLUDE{"InstallOSGBestmanSE" section="Certificate" }%
-
-
----++ Running !BeStMan2
-
-%INCLUDE{"InstallOSGBestmanSE" section="Starting" }%
-
----++ File Locations
-
-%INCLUDE{"InstallOSGBestmanSE" section="Locations" }%
-
----++ Validation
-
-%INCLUDE{"InstallOSGBestmanSE" section="Testing" }%
-%INCLUDE{"InstallOSGBestmanSE" section="ClientInstall" }%
-
----+ Installing Gratia Transfer Probe
-
-%NOTE% The Gratia Transfer Probe must be installed on the *GridFTP node*
-
----++ Prerequisites
-
-   1 !GridFTP is installed and working
-
-The Gratia probe requires the file =user-vo-map= to exist and be up to date. This file is created and updated by the =gums-client= package that comes in as a dependency of =osg-gridftp-hdfs=.
-
----++ Installation
-
-Assuming you installed !GridFTP using the =osg-gridftp-hdfs= rpm, the Gratia Transfer Probe will already be installed.
-
-Updates can be installed with:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum upgrade gratia-probe-gridftp-transfer
-</pre>
-
----++ Configuration
-
-
-%INCLUDE{"GratiaTransferProbe" section="Configuration" }%
-
----++ Validation
-
-%INCLUDE{"GratiaTransferProbe" section="Validation" }%
-
-
----+ Installing Hadoop Storage Probe
-
-%NOTE% The Hadoop Storage Probe must be installed on the *Namenode*
-
----++ Installation
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install gratia-probe-hadoop-storage
-</pre>
-
-Updates can be installed with:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum upgrade gratia-probe-hadoop-storage
-</pre>
-
----++ Configuration
-
-Here are the most relevant file and directory locations:
-
-| Purpose | Needs Editing? | Location |
-| Probe Configuration | Yes | /etc/gratia/hadoop-storage/ProbeConfig |
-| Probe Executable | No | /usr/share/gratia/hadoop-storage/hadoop_storage_probe |
-| Log files | No | /var/log/gratia |
-| Temporary files | No | /var/lib/gratia/tmp |
-
-The RPM installs the Gratia probe into the system crontab, but does not configure it.  The configuration of the probe is controlled by two files
-
-<verbatim>
-/etc/gratia/hadoop-storage/ProbeConfig
-/etc/gratia/hadoop-storage/storage.cfg
-</verbatim>
-
----+++ !ProbeConfig
-This is usually one XML node spread over multiple lines.  Note that comments (#) have no effect on this file.  You will need to edit the following:
-
-| Attribute | Needs Editing | Value |
-| !CollectorHost | Maybe | Set to the hostname and port of the central collector.  By default it sends to the OSG collector.  You probably do not want to change it. |
-| !SiteName | Yes | Set to the resource group name of your SE as registered in OIM. |
-| !Grid | Maybe | Set to "ITB" if this is a test resource; otherwise, leave as OSG. |
-| !EnableProbe | Yes | Set to 1 to enable the probe. |
-
----+++ storage.cfg
-This file controls which paths in HDFS should be monitored.  This is in the Windows INI format.
-
-*Note: for the current version of the storage.cfg, there is an error, and you may need to delete the "probe/" subdirectory for the !ProbeConfig location*
-<pre class="file">
-ProbeConfig = /etc/gratia/%RED%probe/%ENDCOLOR%hadoop-storage/ProbeConfig
-</pre>
-
-For each logical "area" (arbitrarily defined by you), specify both a given name and a list of paths that belong to that area.  Unix globs are accepted.
-
-To configure an area named "CMS /store" that monitors the space usage in the paths /user/cms/store/*, one would add the following to the storage.cfg file.
-
-<pre class="file">
-[Area CMS /store]
-Name = CMS /store
-Path = /user/cms/store/*
-Trim = /user/cms
-</pre>
-
-For each such area, add a section to your configuration file.
-
----++++ Example file
-Below is a configuration file that includes three distinct areas.  Note that you shouldn't have to touch the [Gratia] section if you edited the !ProbeConfig above:
-
-<pre class="file">
-[Gratia]
-gratia_location = /opt/vdt/gratia
-ProbeConfig = %(gratia_location)s/probe/hadoop-storage/ProbeConfig
-
-[Area /store]
-Name = CMS /store
-Path = /store/*
-
-[Area /store/user]
-Name = CMS /store/user
-Path = /store/user/*
-
-[Area /user]
-Name = Hadoop /user
-Path = /user/*
-</pre>
-
-**NOTE These lines in the [gratia] section are wrong and need to be changed to the following by hand for now until the rpm is updated:*
-<pre class="file">
-gratia_location = /etc/gratia
-ProbeConfig = %(gratia_location)s/hadoop-storage/ProbeConfig
-</pre>
 
 ---+ Installing Hadoop Storage Reports (Optional)
 
@@ -715,8 +638,6 @@ Copy the file =/etc/gratia_reporting/reporting.cfg= to a new filename in =/etc/g
 Copy the file =/etc/gratia_reporting/gratia_reporting.cron= to =/etc/cron.d=.  There is one line per report; comment out all except the hadoop report.  It is the line containing =-n hadoop=.  Update the line to point at your new configuration file.
 
 %ENDTWISTY%
-
----++ Sample report
 
 %TWISTY{%TWISTY_OPTS_OUTPUT%}%
 This is a sample report from the Nebraska HDFS instance.
@@ -1085,14 +1006,24 @@ The standalone server runs on port 5002, handles a single !GridFTP request, and 
 
 ---+ File Locations
 
-| File Type | Location | Needs editing? |
-| Log files | =/var/log/hadoop/*= | No |
-| PID files | =/var/run/hadoop/*.pid= | No |
-| init scripts | =/etc/init.d/hadoop=, =/etc/init.d/hadoop-firstboot= | No |
-| init script config file | =/etc/sysconfig/hadoop= | Yes |
-| runtime config files | =/etc/hadoop/conf/*= | Maybe |
-| System binaries | =/usr/bin/hadoop= | No |
-| JARs | =/usr/lib/hadoop/*= | No |
+| Component | File Type | Location | Needs editing? |
+| Hadoop | Log files | =/var/log/hadoop/*= | No |
+| Hadoop | PID files | =/var/run/hadoop/*.pid= | No |
+| Hadoop | init scripts | =/etc/init.d/hadoop=, =/etc/init.d/hadoop-firstboot= | No |
+| Hadoop | init script config file | =/etc/sysconfig/hadoop= | Yes |
+| Hadoop | runtime config files | =/etc/hadoop/conf/*= | Maybe |
+| Hadoop | System binaries | =/usr/bin/hadoop= | No |
+| Hadoop | JARs | =/usr/lib/hadoop/*= | No |
+| !GridFTP | Log files | =/var/log/gridftp-auth.log=, =/var/log/gridftp.log= | No |
+| !GridFTP| init.d script | =/etc/init.d/globus-gridftp-server= | No |
+| !GridFTP| runtime config files | =/etc/gridftp-hdfs/*=, =/etc/sysconfig/gridftp.conf.d/gridftp-hdfs= | Maybe |
+| !GridFTP| System binaries | =/usr/bin/gridftp-hdfs-standalone=, =/usr/sbin/globus-gridftp-server= | No |
+| !GridFTP| System libraries | =/usr/lib64/libglobus_gridftp_server_hdfs.so*= | No |
+| !GridFTP| GUMS client (called LCMAPS) configuration | =/etc/lcmaps.db= | Yes |
+| !GridFTP| CA certificates | =/etc/grid-security/certificates/*= | No |
+
+%INCLUDE{"InstallOSGBestmanSE" section="Locations" }%
+
 
 ---+ Known Issues
 
@@ -1165,7 +1096,7 @@ For a full set of help options, see [[HelpProcedure][Help Procedure]].
    * [[Storage.HadoopUpgrade][Instructions for Upgrading from Hadoop 0.19 to Hadoop 0.20]]
       * **NOTE these instructions are subject to change and the upgrade doc linked is intended to upgrade from the caltech hosted 0.19 rpms in the caltech hosted 0.20 rpms, NOT the new rpms hosted in the new OSG repos.*
 
----++ Benchmarking
+*Benchmarking*
 
    * [[http://www.iop.org/EJ/article/1742-6596/180/1/012047/jpconf9_180_012047.pdf][Using Hadoop as a Grid Storage Element]], <i>Journal of Physics Conference Series, 2009</i>.
    * [[http://osg-docdb.opensciencegrid.org/0009/000911/001/Hadoop.pdf][Hadoop Distributed File System for the Grid]], <i>IEEE Nuclear Science Symposium, 2009</i>.
