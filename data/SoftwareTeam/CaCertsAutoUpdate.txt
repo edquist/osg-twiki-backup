@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AlainRoy" date="1345129770" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="AlainRoy" date="1345134331" format="1.1" reprev="1.2" version="1.2"}%
 ---+ Possibilities for auto-updating CA Certs in OSG Software 3
 
 ---++ Current state; problem
@@ -7,8 +7,61 @@ As described in [[https://ticket.grid.iu.edu/goc/12257][GOC Ticket #12257]], CA 
 
 In OSG 1.2, by default all sites had enabled the =vdt-update-certs= tool, which checks for new CA certificates and downloads them when they are available. It does this outside the normal packaging functions (that is, it doesn't use Pacman or RPM). Almost all of the time, sites updated to the latest CA certificates within 24 hours of its release. 
 
-In OSG 3, this tool is still available (though it is now called =osg-update-certs=), but it is not installed or enabled by default. Instead, sites have to choose to install and enable it. When sites install from RPMs, they have three basic choices. Due to the way RPM packaging works, it is not a good idea to combine these. Instead, one must be chosen.
+In OSG 3, this tool is still available (though it is now called =osg-update-certs=), but it is not installed or enabled by default. Instead, sites have to choose to install and enable it. (It will be instead of the CA certificate RPM) When sites install from RPMs, they have three basic choices. Due to the way RPM packaging works, it is not a good idea to combine these. Instead, one must be chosen.
 
-   1. *Install CA certificates by RPM* <br>This is the current default and if the user makes no choice it is what happens. It matches the RPM philosophy in that everything is installed by RPM and standard tools (=yum= and =rpm verify=) can check versions and consistency of the files. However, many users do *not* do automatic updates for RPMs, but quite reasonably choose to do it at scheduled maintenance times. 
-   1. *Install CA certificates with =vdt-update-certs=* <br> This is the automated tool we have provided for a while, but it is not installed by default. If sites choose to use it, they will get automated updates. Due to the way packaging works.
-   1. *Install no CA certficiates* <br> Users can choose to manage CA certificates themselves. (Perhaps they are installed on a shared filesystem for use across multiple computers). They do this by installing a single RPM that provides no CA certificates while satisfying the RPM dependencies 
+   1. *Install CA certificates by RPM* <br>This is the current default and if the user makes no choice it is what happens. It matches the RPM philosophy in that everything is installed by RPM and standard tools (=yum= and =rpm verify=) can check versions and consistency of the files. However, many users do *not* do automatic updates for RPMs, but quite reasonably choose to do it at scheduled maintenance times. The CA certificates are in the same repository as the rest of the software. People can update just the CA certificates without updating the software, but we do not currently provide instructions for doing so.
+   1. *Install CA certificates with *osg-update-certs* <br> This is the automated tool we have provided for a while, but it is not installed by default. If sites choose to use it, they will get automated updates. 
+   1. *Install no CA certficates* <br> Users can choose to manage CA certificates themselves. (Perhaps they are installed on a shared filesystem for use across multiple computers). They do this by installing a single RPM that provides no CA certificates while satisfying the RPM dependencies 
+
+The upshot is that right now, nearly all OSG installations install CA certificates via RPM and do not receive timely updates. 
+
+---++ How should we automate CA certificate updates?
+
+There are a few possible ways we could automate CA certificate updates:
+
+   1. Change the default installation to install the =osg-update-certs= program. This is slightly tricky at a technical level (it may require renaming packages or changing dependencies) but it can be done. This will affect new installations and may require installations to do slightly more initial setup during the installation process.
+   1. Write a new certificate updater program (perhaps leveraging the existing =osg-update-certs= program) to update just the CA certificates using =rpm= and =yum=. While relatively straightforward, this is new code to write and maintain and a change in the processes for sites. 
+   1. Change nothing, but provide very clear instructions on how to update just the CA certificates when there is a new software release.<br> In addition, we could move/copy the CA certificates to a new repository, so people can feel assured that they are not getting any software updates. 
+   1. Move the CA certificates to a separate repository and document how to use automatic yum updates to get just CA certificate updates. 
+
+There are tradeoffs in these decisions:
+
+---+++ Pro-RPM
+On one hand, it's nice to have RPMs installing everything because there is a single interface to everything that has been installed. For example, people can easily see what version of the CA certificates they have with standard commands:
+
+<pre class="file">
+% rpm -q osg-ca-certs
+osg-ca-certs-1.29-2.osg.el5.noarch
+</pre>
+
+You can also see if any files have been modified, accidentally or maliciously. Here, one file has been modified:
+<pre class="file">
+% rpm -q --verify osg-ca-certs
+S.5....T    /etc/grid-security/certificates/DOEGrids.info
+</pre>
+
+Also, use of RPM and yum can leverage our existing infrastructure (software repository mirrors & local squid caches) for scalability. With RPMs, more people are installing the CA certificates on each worker node, so this may become significant.
+
+---+++ Pro =osg-update-certs=
+*Reliability*: Although it's nice to re-use the existing packaging system for these kinds of benefits, we already have a reliable updating mechanism (=osg-update-certs=) that has been used by our community for several years. We know it works. We should re-use it.
+
+*Flexibility*: In addition, this mechanism allows much more flexibility: instead of merely providing all the CA certificates, it allows users to conveniently add or remove CA certificates from their local distribution. This is an important feature from the security team's perspective because it maintains site autonomy by allowing them to easily trust the CAs they wish to trust. (There are other alternative to get this behavior, but this is the simplest one right now.)
+
+---++ Alain's current thoughts
+
+Let's not rush here: we have CA certificates that need to be distributed now and we don't want to break things, so lets take a two-step approach.
+
+*Step 1 (now):* <br>
+For the next CA certificate release, we should clearly document exactly how to get the CA certificates independently of everything else. We will ship them as a software update, as normal, but in addition to the usual announcement about the release, we will have a separate announcement about how to get the CA certificates. The release notes will be updated to clearly document this as well.
+
+Regardless of what we do in the future, we'll always need this clear documentation for sites that get the CA certificates via RPM.
+
+*Step 2 (one to two months):* <br>
+   1. Change =osg-update-certs= so that it can either fetch via RPM or the existing =http= method. RPM will be the default.
+      1. Open question: we'll be messing with files installed by RPM, either by overwriting them when we use http, or by removing untrusted CA certificates. How much do we care?
+   1. Change the =osg-update-certs= RPM so that it does not conflict with the CA certificate RPMs. (Can it still _provide_ the certificates, in the RPM "provides" sense?)
+   1. Create a new meta-package (?) that depends on =grid-certificates= (This is the dependency that will pull in the CA certificates RPM) and depends on =osg-update-certs=. (This feels better than having the data-only CA RPMs provide scripts, but we could do that if we prefer.)
+   1. Change all packages that depend on =grid-certificates= to depend on this new meta-package instead
+
+I think this provides the key benefits of RPM (modulo warnings when you exclude untrusted CAs) with the flexibility to add or remove CA certificates we get from =osg-update-certs=.
+
