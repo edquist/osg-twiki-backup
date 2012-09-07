@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1346789198" format="1.1" reprev="1.15" version="1.15"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1347054330" format="1.1" version="1.16"}%
 %META:TOPICPARENT{name="Activities"}%
 ---+!! *<noop>%SPACEOUT{ "IRODS and OSG Public Storage" }%*
 %TOC{depth="3"}% 
@@ -229,6 +229,61 @@ If you are running a job on a worker node and this job needs to access the data 
 ---++++ Access to SRM resources
 While running a job on the worker node that requires access to the SRM resource you may choose from either using Condor file transfer plugin or using the 'icp' command. Details of those options are listed below.
 
+---+++++ icp
+
+When the condor worker node is setup via glidein, the setup scripts add a console utility ‘icp’ that you may use in your bash scripts to take finer control of the input and output from and to iRODS.  Following examples show use of icp for reading and writing data from/to iRODS:
+
+
+<pre class="screen"> 
+** These commands may be called from a wrapper script, additionally the condor job description file must contain "UsesiRODS=True" as above.
+
+# --- copy from irods 
+icp irodse://aguru@gw014k1.fnal.gov:1247?/osg/home/aguru/sourcefolder/sourcefile.txt localtarget.txt 
+
+# --- copy to irods 
+icp localsourcefile.txt irodse://aguru@gw014k1.fnal.gov:1247?/osg/home/aguru/targetfolder/sourcetargetfile.txt
+</pre>
+
+This is an example of your condor submission file :<pre class="screen"> 
+executable = %RED%icp_test.sh%ENDCOLOR%
+#Project Name is relevant only to user who are using xsede allocation
++ProjectName = "OSG-Staff"
+universe = vanilla
+x509userproxy=/tmp/%RED%x509up_u5029%ENDCOLOR%
+Arguments = $(Cluster).$(Process)
+Output = $(Cluster).$(Process).out
+Error = $(Cluster).$(Process).err
+Log = $(Cluster).$(Process).log
++ITB_Sites = True
++UsesiRODS=True
+#On these sites we can not either download irods software or there are incompetebility between irods and globus-gsi libs installed on the worker nodes
++SiteList = "BNL-ATLAS,SMU_HPC"
+Requirements = ((stringListMember(GLIDEIN_ResourceName,SiteList) == False)  && (Disk >= 25000) && GLIDECLIENT_Group =?= "itb")
+Notification = Never
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+queue 10
+</pre>
+This is an example of the executable:<pre class="screen"> 
+#!/bin/bash
+set -x
+retVal=0
+#the log file  for irods command will be located in irodsplugin.log.<localuserid>.${JOB_ID}
+#where JOB_ID = Cluster.Process
+export JOB_ID=$1
+#creates the 1GB file
+dd if=/dev/urandom of=1GB_test.$1 bs=1073741824 count=1
+$IRODS_PLUGIN_DIR/icp 1GB_test.$1 irodse://%RED%irods-username%ENDCOLOR%@gw014k1.fnal.gov:1247?/osg/home/%RED%irods-username%ENDCOLOR%/1GB_test.$1
+if [ $? -eq 0 ]
+then
+        echo "`date` icp success"
+        rm -f 2GB_test.$1
+else
+        echo "`date` icp failure"
+        retVal=1
+fi
+exit $retVal
+</pre>
 ---+++++ condor transfer plugin
 The condor file transfer plugin allows one to let condor handle all the input and output for the job. This is done by using   protocols ‘irods://’ or ‘irodse://’ (extended). The difference between the two protocols is the method in which file data is transferred to the storage. In case of irods:// the file data along with the metadata is first sent to the irods server and then transferred to the final storage space by the irods server. Whereas, in case of irodse:// the data is directly transferred to the storage space and only file metadata is handled through the irods server. In our tests we found that using irodse:// is more scalable since it divides the data transfer and metadata management load.
 The port (e.g. 1247 below) and the target resource group (e.g. Nebraska and osgSrmGroup below) are both optional. When specified they override the default setting of the port and find the best match resource to write the file data.
@@ -244,23 +299,6 @@ In the above example
    * 1247 – is the irods server port
    * Nebraska and osgSrmGroup – refer to the resource groups where the file data must be stored
    * And the path to the source and destination are denoted /osg/home/aguru/sourcefiles/SMALLF.txt and /osg/home/aguru/destinationfolder/ respectively
-
----+++++ icp
-
-When the condor worker node is setup via glidein, the setup scripts add a console utility ‘icp’ that you may use in your bash scripts to take finer control of the input and output from and to iRODS.  Following examples show use of icp for reading and writing data from/to iRODS
-
-
-<pre class="screen"> 
-** These commands may be called from a wrapper script, additionally the condor job description file must contain "UsesiRODS=True" as above.
-
-# --- copy from irods 
-icp irodse://aguru@gw014k1.fnal.gov:1247?/osg/home/aguru/sourcefolder/sourcefile.txt localtarget.txt 
-
-# --- copy to irods 
-icp localsourcefile.txt irodse://aguru@gw014k1.fnal.gov:1247?/osg/home/aguru/targetfolder/sourcetargetfile.txt
-</pre>
-
-
 
 -- Main.TanyaLevshina - 19 Dec 2011
 
