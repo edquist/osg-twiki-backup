@@ -1,24 +1,31 @@
-%META:TOPICINFO{author="KyleGross" date="1329925668" format="1.1" version="1.11"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1348708181" format="1.1" reprev="1.12" version="1.12"}%
 %META:TOPICPARENT{name="InstallVoms"}%
 %LINKCSS%
 
 ---+!! %SPACEOUT{ "%TOPIC%" }%
 %DOC_STATUS_TABLE%
 %TOC%
----+ Introduction
+
 <!-- conventions used in this document
    * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="voms"}%
+   * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="user"}%
+   * Local UCL_DOMAIN = %URLPARAM{"INPUT_DOMAIN" encode="quote" default="opensciencegrid.org"}%
+   * Set TWISTY_OPTS_DETAILED = mode="div" showlink="Show Detailed Output" hidelink="Hide" showimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleopen-small.gif" hideimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleclose-small.gif" remember="on" start="hide" 
 -->
+
+---+ Introduction
 
 This document describes how to upgrade from VOMS-Admin installed from osg-1.2 (pacman chache) to new osg-voms package (installed via yum):
 We assume that you are currently running:
    * VOMS Admin 2.0.15-1                                
    * VOMS Server 1.8.8-2p1  
-The new version of VOMS-Admin and VOMS-Server will be installed during the upgrade procedure. You will install:
+The new version of VOMS-Admin and VOMS-Server, the OSG 3 VOMS, will be installed during the upgrade procedure. You will install:
    * VOMS-Admin 2.6.1
    * VOMS-Server 2.0.0
 
 If you want to do a fresh installation please consult [[InstallVoms][VOMS Installation Guide]] instead.
+
+%NOTE% You can install the OSG 3 VOMS-Admin and VOMS-Server on the same node where your OSG 1.2 servers are running or on a new node. Either ways OSG 3 is installed using yum, so you need root access on the node. 
 
 ---+ Preparing For Upgrade
 
@@ -46,25 +53,36 @@ In order to prepare for upgrade you will need to stop all the services and creat
 
 For the remainder of this document, *all pacman-based services should remain off*.
 
----+ OSG-VOMS Installation
+---+ Requirements for the OSG 3 VOMS server
+Wether you install on the same node or on a new one, you must make sure that the node wehre you install the OSG 3 VOMS server satisfies all the following requirements.
 
-%ICON{warning}%Open a new window on the node you are doing upgrade!
-%INCLUDE{"Documentation.InstallVDTRepo" headingoffset="1"}%
-%INCLUDE{"Documentation/Release3.InstallCertAuth" section="OSGBriefCaCerts" headingoffset="1"}%
+If you are using the same node you can re-use the service certificates. If not you have to get new ones. In doubt, get new ones (see below).
 
-%INCLUDE{"Documentation.Release3.InstallVoms" section="InstallOSGVomsRPMs"}%
-%INCLUDE{"Documentation.InstallVomsService" section="ConfigureMysqlServer"}%
+%INCLUDE{"InstallVoms" section="VomsRequirements"}%
 
----+ Upgrade
----++ Prepare Service Certificates
-%INCLUDE{"Documentation.InstallVomsService" section="PrepareServiceCertificates"}%
----++ Restore Old Database
+---+ OSG 3 VOMS Installation
 
-NOTE: No instructions for restarting mysql and setting a root password which must be done or this will not work. Also configuring Tomcat trust manager should be covered. 
+%WARNING%Open a new window on the node you are doing upgrade to make sure that you start with a clean environment! 
+
+%INCLUDE{"InstallVoms" section="VomsInstall" }%
+
+
+---+ Upgrade and Configuration
+The configuration requires some initial steps plus the import or addition of one or more VO. You will not be able to start voms-admin if you don't import or add at least one VO.
+
+%INCLUDE{"InstallVoms" section="ConfigureMysqlSrever" }%
+
+%INCLUDE{"InstallVoms" section="PrepareServiceCertificates" }%
+
+%INCLUDE{"InstallVoms" section="ConfigureTomcatAndTrustManager" }%
+
+
+---++ Restore The Old Database
 
 Restore database for the database dump:<pre class="rootscreen">
 %UCL_PROMPT_ROOT%  mysql -p < ~/voms_database_dump.sql
 </pre>
+When asked at the prompt, you must enter the %RED%top_secret%ENDCOLOR% password that you choose above.
 If =mysql= has no root password (we highly recommend a root password), you will have to drop the =-p= option.
 
 ---++ Configure VOMS and VOMS-Admin
@@ -103,32 +121,39 @@ voms.csrf.log_only = true
 
 We recommend that unaffected VOs *do not* make this change.
 
----++ Upgrade Database Schema<pre class="rootscreen">
+---++ Upgrade The Database Schema
+
+For each VO that you imported form the old VOMS server you must run the upgrade command: <pre class="rootscreen">
+%UCL_PROMPT_ROOT%voms-admin-configure upgrade --vo %RED%VO_NAME%ENDCOLOR%
+</pre> For example: <pre class="rootscreen">
 %UCL_PROMPT_ROOT%voms-admin-configure upgrade --vo test1
 </pre>
 
----++ Configure System Tomcat
+---++ Add and configure additional VOs
+%NOTE% You can add additional VOs if you like. If you *migrated at least one pre-existing VO and do not desire to add additional VOs*, then you can *skip this section*.
 
-%INCLUDE{"Documentation.InstallVomsService" section="ConfigureTrustManager"}%
+%INCLUDE{"InstallVoms" section="ConfigureVoms"}%
 
-%INCLUDE{"Documentation.InstallVomsService" section="StartVOMSServices"}%
 
----+ Verification
----++ Voms-Server Test
-If you are the member of this VO you should be able to get voms proxy certificate  Login as user on the machine where you have you certificate and key,
-Generate voms proxy<pre class="screen">
-%UCL_PROMPT% voms-proxy-init -voms %RED%VO_NAME%ENDCOLOR%
-</pre>
----++ Voms-Admin
-Login on the node where you have installed VOMS
-Generate voms proxy<pre class="rootscreen">
-%UCL_PROMPT% voms-admin -vo %RED%VO_NAME%ENDCOLOR% list-users
-</pre>
-You should get back the list of VOMS member that  matches the old list.
- 
-Check the access to WEB UI by ==http://%RED%VO_HOST%ENDCOLOR%:8443/vomses==
+%INCLUDE{"InstallVoms" section="VomsServices"}%
 
-%INCLUDE{"Documentation.InstallVomsService" section="StopVOMSServices"}%
+---+ Advertise your VOMS server
+%NOTE% If you are installing VOMS on the same node or are replacing the old server with a new node that has the *same hostname*, then you can *skip this section*. Otherwise you need to notify everyone using your VOMS server about the new IP address as described in the remaining of this section.
+
+%INCLUDE{"InstallVoms" section="AdvertiseVOMS"}%
+
+
+%INCLUDE{"InstallVoms" section="VomsTest"}%
+
+%INCLUDE{"InstallVoms" section="VomsTroubleshooting"}%
+
+
+---+ How to get Help?
+To get assistance please use [[HelpProcedure][Help Procedure]].
+
+
+%INCLUDE{"InstallVoms" section="VomsReferences"}%
+
 
 <!-- CONTENT MANAGEMENT PROJECT
 ############################################################################################################
