@@ -1,0 +1,77 @@
+%META:TOPICINFO{author="MatyasSelmeci" date="1348871498" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="InternalDocs"}%
+This page is intended to document recipes for manually testing certain components of OSG.
+If possible, these recipes should be turned into automated tests.
+Sometimes that is not feasible, for example if a test requires access to some resource not available in our nightly test environment, or is too complicated to automate.
+In that case, steps needed to test these components should be recorded on this page.
+
+---++ GUMS (WIP)
+
+Set up an SL5 fermicloud VM with OSG/EPEL repos.
+
+As root:
+<verbatim>
+   # yum install gums{,-service,-client} osg-ca-certs fetch-crl globus-proxy-utils -y
+   # /etc/init.d/mysqld start
+   # mysql_secure_installation
+</verbatim>
+Add a mysql user:
+<verbatim>
+   # mysql -p mysql
+   mysql> create user 'gums'@'localhost' identified by 'MYPASSWORD';
+   mysql> grant all privileges on *.* to 'gums'@'localhost' with grant option;
+</verbatim>
+Set up the database and add an admin user (use your own DN).
+<verbatim>
+   # gums-setup-mysql-database --user gums --host `hostname`:3306 --password MYPASSWORD
+   # gums-add-mysql-admin '/DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Matyas Selmeci/CN=UID:matyas'
+</verbatim>
+(you use the password for the 'gums' mysql user when it asks.)
+<verbatim>
+   # fetch-crl
+   # mkdir -p /etc/grid-security/http
+   # cd /etc/grid-security/http; for x in cert key; do rm -f http$x.pem; cp -f ../host$x.pem http$x.pem; done
+   # chown -R tomcat:tomcat /etc/grid-security/http
+   # /var/lib/trustmanager-tomcat/configure.sh
+   # /etc/init.d/tomcat5 start
+</verbatim>
+Edit /etc/gum/gums.config, see the diff (change "fermicloud065.fnal.gov" to the machine you are on, and change "matyas" to your own login name):
+
+<verbatim>
+--- old 2012-04-25 16:29:14.000000000 -0500
++++ new 2012-04-25 16:32:31.000000000 -0500
+@@ -33,2 +33,4 @@
+                         persistenceFactory='mysql'/>
++
++                <manualUserGroup persistenceFactory='mysql' name='matyas'/>
+        </userGroups>
+@@ -40,2 +42,4 @@
+                        accountName='GumsTestUserMappingSuccessful'/>
++
++                <groupAccountMapper name='matyas' accountName='matyas'/>
+        </accountMappers>
+@@ -50,2 +54,3 @@
+                        accountMappers='gums-test'/>
++                <groupToAccountMapping name='matyas' userGroups='matyas' accountMappers='matyas'/>
+        </groupToAccountMappings>
+@@ -57,2 +62,3 @@
+                        cn='*/?*.fnal.gov'/>
++                <hostToGroupMapping cn='fermicloud065.fnal.gov' groupToAccountMappings='matyas'/>
+        </hostToGroupMappings>
+</verbatim>
+Now test it using grid credentials derived from your kerberos ticket.
+As root:
+<verbatim>
+   # yum install -y krb5-fermi-getcert
+</verbatim>
+As yourself (use your own fermicloud DN):
+<verbatim>
+   $ kinit
+   $ grid-proxy-init
+   $ gums manualGroupAdd matyas '/DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Matyas Selmeci/CN=UID:matyas'
+   $ gums-host mapUser "/DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Matyas Selmeci/CN=UID:matyas"
+   $ gums-host generateGridMapfile
+</verbatim>
+
+<!-- vim:ft=twiki
+-->
