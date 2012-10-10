@@ -1,0 +1,37 @@
+%META:TOPICINFO{author="MatyasSelmeci" date="1349911356" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="CaCertsAutoUpdate"}%
+---+ Proposed Design for CA-Certs Auto-Updater package
+
+A Python script running from cron is suitable enough for this. (Condor-Cron had been considered, but we decided that it is too heavyweight and most of cron's deficiencies can be solved by the script).
+
+The main mechanism for doing the update is doing "yum update" on the individual ca-certs packages (such as =osg-ca-certs= or =igtf-ca-certs= ).
+If the named package is not already installed, yum update will do nothing for that package, but give a warning.
+Because of this, we are safe from a potential error caused by the software trying to install one ca-certs package on top of a different ca-certs package.
+
+We maintain the ca-certs packages, so we have full control over the dependencies they bring in.
+Because of this, we insure that no other parts of the user's system are touched by updating the ca-certs packages.
+
+In order to reduce load on the repositories caused by multiple sites' systems all trying to update at the same time, the script will have a "random delay" option.
+If this option is set, the script will wait for a random amount of time before trying to update.
+=fetch-crl= also does this.
+
+=yum= comes with locking built-in; if an existing yum process is running, a new yum process will wait until the previous one is finished before starting.
+Because of this, we are not susceptible to problems caused by multiple copies of the script running simultaneously.
+
+The updater script will write the time of the last successful update into a file.
+Upon running, the script will compare the current time with the time of the last successful update.
+The script will have a "minimum age" option to have a minimum elapsed time before attempting to update.
+This allows us to avoid problems caused by (a) the system/crond being down when the update is scheduled, or (b) transient errors when the update is scheduled.
+We can also have the script raise an error if an update was unsuccessful and the last successful update was too far in the past (as determined by a "maximum age" option).
+=fetch-crl= also does the latter.
+
+The RPM will install the cron job into =/etc/cron.d=.
+There will be an init script in =/etc/rc.d/init.d= which, if started, creates a lock file under =/var/lock/subsys=; and if stopped, will remove the lock file.
+The cron job will check for the existence of the lock file and it will not start the script if the lock file is missing.
+This will make the updater look to the user as if it is a service, i.e. they start it via =service ca-certs-updater start=, or enable it on boot with =chkconfig ca-certs-updater on=.
+=fetch-crl= also does this.
+
+There will be a file in =/etc/sysconfig= that contains configurable parameters, as well as comments explaining their purpose and the parameter's default values.
+
+<!-- vim:ft=twiki
+-->
