@@ -1,15 +1,157 @@
-%META:TOPICINFO{author="KevinHill" date="1350401789" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="KevinHill" date="1350568412" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
+---+ *Pakiti Installation*
+
    * [[http://pakiti.sourceforge.net/#Documentation][Original Pakiti documentation site]]
 
----+ Client Installation
-   1 Install rpm
-   1 Edit /etc/pakiti-client.conf
+---++ Client Installation
+---+++ Install rpm
+---+++ Edit /etc/pakiti-client.conf
 
----+ Server Installation
-   1 Install rpm
-   1 Edit /etc/pakiti-server.conf
-   1 Set up mysql
+---++ Server Installation
+---+++ Install Apache, PHP5, mysql-server, mod_ssl, php-mysql and pakiti-server
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install httpd php5 mysql-server php-mysql mod_ssl pakiti-server
+</pre>
+
+If some other dependency are needed, yum should find them automatically.
+
+---+++ Configure the !MySQL server
+   * Configure !MySQL to start at boot
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% chkconfig mysqld on
+</pre>
+   * Start the mysqld service
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /etc/init.d/mysqld start
+</pre>
+   * Change the !MySQL root password
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /usr/bin/mysql mysql
+~ update mysql.user set Password=PASSWORD('strong_root_password') where User='root' and Host='localhost';
+~ flush privileges;
+~ quit;
+</pre>
+   * Create the pakiti database
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% mysqladmin -u root -p create pakiti2
+</pre>
+   * Fill the tables
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /usr/bin/mysql -u root -p pakiti2 < /usr/share/doc/pakiti-server-*/pakiti2.sql
+</pre>
+   * Create a Pakiti user
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /usr/bin/mysql -u root -p mysql
+~ GRANT LOCK TABLES, SELECT,INSERT,UPDATE,DELETE ON pakiti2.* TO  'mysql_user'@'localhost' IDENTIFIED BY 'mysql_password';
+~ flush privileges;
+~ quit;
+</pre>
+Of course, 'mysql_user' and 'mysql_password' are up to you.
+---+++ Configure Apache
+It is *strongly* recommended to use HTTPS and client authentication. One way of doing this is to create a /etc/httpd/conf.d/pakiti.conf containing:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% cat /etc/httpd/conf.d/pakiti.conf
+<VirtualHost 0.0.0.0:443>
+SSLEngine on
+SSLCipherSuite ALL:!ADH:!EXPORT56:RC4+RSA:+HIGH:+MEDIUM:+LOW:+SSLv2:+EXP
+
+SSLCertificateKeyFile <YOUR_HOST_KEY_PATH>
+SSLCertificateFile <YOUR_HOST_CERTIFICATE_PATH>
+SSLCACertificatePath /etc/grid-security/certificates
+
+DocumentRoot /var/lib/pakiti2/www/
+ErrorLog logs/pakiti-error
+CustomLog logs/pakiti-access common
+
+Alias /feed "/var/lib/pakiti2/www/feed"
+
+<Directory "/var/lib/pakiti2/www/feed">
+  SSLRequireSSL
+  Options -All
+  AllowOverride None
+  DirectoryIndex index.php
+</Directory>
+
+Alias /link "/var/lib/pakiti2/www/link"
+<Directory "/var/lib/pakiti2/www/link">
+  SSLRequireSSL
+  Options +FollowSymLinks
+  AllowOverride None
+  Order allow,deny
+  Allow from all
+  DirectoryIndex index.php
+</Directory>
+
+<Directory "/var/lib/pakiti2/www/pakiti">
+  # Restrict access to this directory by your own auth mech, authorization can be made by the Pakiti itself
+  SSLRequireSSL
+  Options +FollowSymLinks
+  AllowOverride None
+  Order allow,deny
+  Allow from all
+  DirectoryIndex index.php
+</Directory>
+
+</VirtualHost>
+</pre>
+
+---+++ Configure the Pakiti Server
+The top level configuration of the Pakiti server can be changed in /etc/pakiti2/pakiti2-server.conf
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% cat /etc/pakiti2/pakiti2-server.conf
+# Configuration file for the Pakiti webinterface.
+
+# Set the parameters for connecting to
+# the Pakiti database.
+
+[mysql]
+hostname = localhost
+dbname   = pakiti2
+username = mysql_user
+password = mysql_password
+
+[webinterface]
+# URL of your local Pakiti server
+url = https://pakiti.server.com
+title = My_Organization
+</pre>
+
+<!--
+1. Setting up the Pakiti Server
+Now, try to access web GUI of your Pakiti server. It everything is OK, you should see main page, where there are no hosts listed. Click the "Settings" link in the right-top corner.
+
+Settings are devided into three sections:
+
+RedHat OVAL Definitions
+
+Provide URLs to the OVAL definitions. Then you can select which one will be checked once a day for the updates. It is useful to add all OVAL definitions, then manually run /var/lib/pakiti2/scripts/process_oval_rh.php, this will fill Pakiti database with information from all OVAL definitions. Afterwards, for OVAL definitions which were actual in the past, you can uncheck "Check this source for updates", because old definitions are not updated any more, this will save Pakiti server resources.
+
+ 
+Os Group Definitions
+
+This section can be configured after all of your host (or the majority of them) report to the Pakiti server. Each host will report its OS name to the Pakiti server and in this section you can define OS groups. OS groups are used for repository definitions. Some package repositories are used by several versions of one OS, for example Debian 5.0, 5.0.1, 5.0.2 and 5.0.3 uses one repository. After Os groups are set up, we can define repositories.
+
+ 
+Repositories Definitions
+
+On the bottom of the page, there is a from with fields:
+
+Repository Name: Put some name here, e.g. Debian 5.x main.
+Architecture, select for which the repository is defined. Usually there will be i686 and x86_64.
+URL: Put the full path to the file which contains the list of packages provided by the repository, e.g.: http://linuxsoft.cern.ch/cern/slc54/x86_64/yum/os/repodata/primary.xml.gz
+Check "Contains Security Updates", if the repository contains security updates.
+Select previously created Os group for which the repository is provided.
+Above the form you can see the list of Oses which does not have assigned any repository. You should create corresponding Os groups and add to them these Oses, then you can add repositories for that Os groups.
+
+
+Legend of the icons used on the Settings page:
+
+ There was an error during repository update.
+ Repository was updated successfully.
+ At least one host runs OS which is bounded to this repository.
+ There are no hosts which have installed OS bounded to this repository. The line is also highlighted.
+-->
  
 <!--
    * Set ALLOWTOPICVIEW = Main.GridGroup    
