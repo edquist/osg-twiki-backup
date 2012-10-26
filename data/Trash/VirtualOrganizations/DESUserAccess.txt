@@ -1,9 +1,9 @@
-%META:TOPICINFO{author="TanyaLevshina" date="1351264972" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="TanyaLevshina" date="1351289454" format="1.1" reprev="1.3" version="1.3"}%
 ---+!! How To Setup Limited Access to DES Data
 %TOC%
 
 ---++ Requirements 
-1. This is a temporary service that should be available ~30 days
+1. This is a temporary service that should be available ~30-60 days
 2. The number of users is limited. In general, users don't have certificates and don't have access to fermilab site
 3. The users will have READ ONLY access to the produced sets of output data
 
@@ -12,29 +12,62 @@ Proposed solution: Use globus connect/globus-online mechanism to allow users acc
 ---++ Administrator's Tasks
 This will require the following preliminary steps from a administrator:
 
-   1. setup gridftp server with gridmapfile authentication (Brian has mentioned that des09.fnal.gov could be used and we need to coordinate this with Nikolay). The instruction how to setup a standalone grdiftp server could be found [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/InstallOSGGridFTP][here]].
+   1. setup gridftp server with gridmapfile authentication (Brian has mentioned that des09.fnal.gov could be used and we need to coordinate this with Nikolay). The instruction how to setup a standalone grdiftp server could be found [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/InstallOSGGridFTP][here]].  
    1. mount bluearc /des/orchestration area on this machine
    1. create a unix user (==%RED%desuser%ENDCOLOR%==) on the gridftp server machine, allow read ONLY access to  /des/orchestration/DTS/%RED%output-data%ENDCOLOR% directory
-   1. request and obtain service certificate by following [[https://www.opensciencegrid.org/bin/view/Documentation/Release3/GetHostServiceCertificates#Send_the_request_AN1][this instruction]]
+   1. request and obtain service certificate by following [[https://www.opensciencegrid.org/bin/view/Documentation/Release3/GetHostServiceCertificates#Send_the_request_AN1][this instruction]]%BLUE%Steve Timm has created server certificate ==/DC=org/DC=doegrids/OU=Services/CN=desreader/des09.fnal.gov== and Marko has access to it. We will transfer it to Nikolay%ENDCOLOR%
    1. add DN of this service certificate to gridmapfile mapped to ==%RED%desuser%ENDCOLOR%==
-   1. register with [[https://www.globusonline.org/SignUp][Globus Online]] or [[https://www.globusonline.org/SignIn][login]] to an existing account
-   1. setup a public endpoint </br><img src="%ATTACHURLPATH%/Screen_shot_2012-10-26_at_9.52.31_AM.png" alt="Screen_shot_2012-10-26_at_9.52.31_AM.png" width='770' height='440' />    
-   1. setup identity provider: use myproxy server, e.g myproxy.ncsa.uiuc.edu</br><img src="%ATTACHURLPATH%/Screen_shot_2012-10-26_at_10.18.05_AM.png" alt="Screen_shot_2012-10-26_at_10.18.05_AM.png" width='500' height='384' />    
-   1. create a cron job that periodically creates limited proxy certificate and renew it with myproxy server
-     grid-proxy-init -limited
-     myproxy-init -v -l desuser -s myproxy.ncsa.uiuc.edu
-  1. notify set of users about globusonline endpoint, username/password for myproxy retrieval
+   1. register with [[https://www.globusonline.org/SignUp][Globus Online]] or [[https://www.globusonline.org/SignIn][login]] to an existing account. %BLUE% Tanya has an account and can setup this endpoint%ENDCOLOR%
+   1. setup a public endpoint </br><img src="%ATTACHURLPATH%/Screen_shot_2012-10-26_at_9.52.31_AM.png" alt="Screen_shot_2012-10-26_at_9.52.31_AM.png" width='770' height='440' border='20' />    
+   1. setup identity provider: use myproxy server, e.g myproxy.ncsa.uiuc.edu</br><img src="%ATTACHURLPATH%/Screen_shot_2012-10-26_at_10.18.05_AM.png" alt="Screen_shot_2012-10-26_at_10.18.05_AM.png" width='500' height='384' border='20' />    
+   1. implement a cron job that periodically creates a limited proxy certificate and loads it to myproxy server. The cron script  can look like the following:<pre class="file">
+!/bin/bash
+if [ $# -ne 3 ]
+then
+        echo "Usage: ./renew_certs.sh user_name myProxyServer password_file"
+        exit 1
+fi
+user=$1
+myProxyServer=$2
+pswd=$3
+#creates limited proxy for 12 hours
+#we assume that cron jobs setup X509_USER_CERT,X509_USER_KEY with service certificate and key
+#export X509_USER_CERT=%RED%~/des/desreadercert.pem%ENDCOLOR%
+#export X509_USER_KEY=%RED%~/des/desreaderkey.pem%ENDCOLOR%
 
+grid-proxy-init -limited  -out %RED%~/des/desreader_limited_proxy%ENDCOLOR%
+if [ $? -ne 0 ]
+then
+        exit 1
+fi
+#sets location of proxy file
+export X509_USER_CERT=%RED%~/des/desreader_limited_proxy%ENDCOLOR%
+export X509_USER_KEY=%RED%~/des/desreader_limited_proxy%ENDCOLOR%
+#read password for storing proxy in myProxy in a file
+if [ ! -f  $pswd ]
+then
+        echo "password is not set in $pswd file"
+        exit 1
+fi
+passwd=`echo  $pswd `
+#upload credential to myProxyServer
+myproxy-init -v -l $user  -S -s $myProxyServer << EOF
+$passwd
+EOF
+exit $?
+</pre> 
+   1. notify set of users about globusonline endpoint, username/password for myproxy retrieval
 ---++ User's Tasks
-  1. Register in globus online
-  1. Install globus-connect (one click install  - mac, windows, linux )
-  1. Start transfer of files (will need to activate endpoint by specifying myproxy server, user/password)
-
+   1. Register with [[https://www.globusonline.org/SignUp][globus online]]
+   1. Install globus-connect [[https://www.globusonline.org/globus_connect/][download for mac, windows, linux]]
+   1. Start transfering files by selecting  DES endpoint on the left hand site of WEBUI and activate it by specifying myproxy server ( myproxy.ncsa.uiuc.edu, user/password):</br>
+     <img src="%ATTACHURLPATH%/Screen_shot_2012-10-26_at_10.18.05_AM.png" alt="Screen_shot_2012-10-26_at_10.18.05_AM.png" width='500' height='384' /> </br>On the right hand site select your Globus-connect endpoint.</br>
+ <img src="%ATTACHURLPATH%/Screen_shot_2012-10-26_at_10.18.05_AM.png" alt="Screen_shot_2012-10-26_at_10.18.05_AM.png" width='500' height='380' />    
 ---++ Monitoring and troubleshooting
 Monitoring could be done via gridftp log files:
 gridftp-auth.log
  New connection from: transfer.api.globusonline.org:35448
-[11448] Thu Oct 25 13:57:10 2012 :: DN /DC=org/DC=doegrids/OU=Services/CN=<servicename>/CN=..... successfully authorized.
+[11448] Thu Oct 25 13:57:10 2012 :: DN  /DC=org/DC=doegrids/OU=Services/CN=desreader/des09.fnal.gov successfully authorized.
 [11448] Thu Oct 25 13:57:10 2012 :: User desuser successfully authorized.
 
 gridftp log
@@ -44,9 +77,7 @@ Destination gives you the hostname of a computer from where the transfer has bee
 
 -- Main.TanyaLevshina - 26 Oct 2012
 
-   
-
-     
+  
 
 %META:FILEATTACHMENT{name="Screen_shot_2012-10-26_at_9.52.31_AM.png" attachment="Screen_shot_2012-10-26_at_9.52.31_AM.png" attr="h" comment="Endpoint Registration" date="1351263589" path="Screen shot 2012-10-26 at 9.52.31 AM.png" size="159325" stream="Screen shot 2012-10-26 at 9.52.31 AM.png" tmpFilename="/usr/tmp/CGItemp14211" user="TanyaLevshina" version="1"}%
-%META:FILEATTACHMENT{name="Screen_shot_2012-10-26_at_10.18.05_AM.png" attachment="Screen_shot_2012-10-26_at_10.18.05_AM.png" attr="h" comment="" date="1351264727" path="Screen shot 2012-10-26 at 10.18.05 AM.png" size="76014" stream="Screen shot 2012-10-26 at 10.18.05 AM.png" tmpFilename="/usr/tmp/CGItemp14091" user="TanyaLevshina" version="1"}%
+%META:FILEATTACHMENT{name="Screen_shot_2012-10-26_at_10.18.05_AM.png" attachment="Screen_shot_2012-10-26_at_10.18.05_AM.png" attr="h" comment="" date="1351288893" path="Screen shot 2012-10-26 at 10.18.05 AM.png" size="76014" stream="Screen shot 2012-10-26 at 10.18.05 AM.png" tmpFilename="/usr/tmp/CGItemp14049" user="TanyaLevshina" version="1"}%
