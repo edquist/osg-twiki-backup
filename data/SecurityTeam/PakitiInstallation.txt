@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="KevinHill" date="1354726978" format="1.1" reprev="1.7" version="1.7"}%
+%META:TOPICINFO{author="KevinHill" date="1354900712" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
 ---+ *Pakiti Installation*
 
@@ -6,11 +6,25 @@
 
 ---++ Client Installation
 ---+++ Install rpm
----+++ Edit /etc/pakiti-client.conf
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum --enablerepo osg-testing install pakiti-client
+</pre>
+---+++ Edit /etc/pakiti2/pakiti2-client.conf
+   * Change servers_name to point to your server
+   * Comment out the host_cert line, unless you want the clients to authenticate when reporting to the server. If you do, you will need to concatinate your host cert and key in one file and enter it on this line. Make sure its only readable by root! 
+
+---+++ Enable client updates
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% chkconfig pakiti2-client on
+%UCL_PROMPT_ROOT% service pakiti2-client start
+</pre>
 
 ---++ Server Installation
 ---+++ Install OSG repo and certificate packages as appropriate
    * Documentation.Release3.InstallCertAuth
+
+---+++ Install HTTP service cert if not previously done
+   * Documentation.Release3.GetHostServiceCertificates
 
 ---+++ Install pakiti-server package
 <pre class="rootscreen">
@@ -26,31 +40,33 @@ If some other dependency are needed, yum should find them automatically.
 </pre>
    * Start the mysqld service
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /etc/init.d/mysqld start
+%UCL_PROMPT_ROOT% service mysqld start
 </pre>
-   * Change the !MySQL root password
+   * Either run "/usr/bin/mysql_secure_installation"
+   * Or change the !MySQL root password manually:
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /usr/bin/mysql mysql
+%UCL_PROMPT_ROOT% mysql mysql
 ~ update mysql.user set Password=PASSWORD('strong_root_password') where User='root' and Host='localhost';
 ~ flush privileges;
 ~ quit;
 </pre>
    * Create the pakiti database
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT% mysqladmin -u root -p create pakiti2
+%UCL_PROMPT_ROOT% mysqladmin -u root -p create pakiti
 </pre>
    * Fill the tables
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /usr/bin/mysql -u root -p pakiti2 < /usr/share/doc/pakiti-server-*/pakiti2.sql
+%UCL_PROMPT_ROOT% mysql -u root -p pakiti < /usr/share/doc/pakiti-server-*/pakiti2.sql
 </pre>
    * Create a Pakiti user
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /usr/bin/mysql -u root -p mysql
-~ GRANT LOCK TABLES, SELECT,INSERT,UPDATE,DELETE ON pakiti2.* TO  'mysql_user'@'localhost' IDENTIFIED BY 'mysql_password';
+%UCL_PROMPT_ROOT% mysql -u root -p mysql
+~ GRANT LOCK TABLES, SELECT,INSERT,UPDATE,DELETE ON pakiti.* TO  'mysql_user'@'localhost' IDENTIFIED BY 'mysql_password';
 ~ flush privileges;
 ~ quit;
 </pre>
 Of course, 'mysql_user' and 'mysql_password' are up to you.
+
 ---+++ Configure Apache
 It is *strongly* recommended to use HTTPS and client authentication. One way of doing this is to create a /etc/httpd/conf.d/pakiti.conf containing:
 <pre class="rootscreen">
@@ -115,6 +131,17 @@ It is *strongly* recommended to use HTTPS and client authentication. One way of 
 
 </pre>
 
+   * If you are running !SElinux, then do:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT%  chcon -t httpd_sys_content_t /var/lib/pakiti2
+%UCL_PROMPT_ROOT%  chcon -t httpd_sys_content_t /var/lib/pakiti2/www
+%UCL_PROMPT_ROOT%  chcon -t httpd_sys_content_t /var/lib/pakiti2/www/feed
+%UCL_PROMPT_ROOT%  chcon -t httpd_sys_content_t /var/lib/pakiti2/www/pakiti
+%UCL_PROMPT_ROOT%  chcon -t httpd_sys_content_t /var/lib/pakiti2/www/pakiti/img
+%UCL_PROMPT_ROOT%  chcon -t httpd_sys_content_t /var/lib/pakiti2/config
+%UCL_PROMPT_ROOT%  chcon -t httpd_sys_content_t /var/lib/pakiti2/include 
+</pre>
+
 ---+++ Configure the Pakiti Server
 The top level configuration of the Pakiti server can be changed in /etc/pakiti2/pakiti2-server.conf
 <pre class="rootscreen">
@@ -126,7 +153,7 @@ The top level configuration of the Pakiti server can be changed in /etc/pakiti2/
 
 [mysql]
 hostname = localhost
-dbname   = pakiti2
+dbname   = pakiti
 username = mysql_user
 password = mysql_password
 
@@ -152,8 +179,15 @@ Settings are devided into three sections:
 
 Provide URLs to the OVAL definitions. Then you can select which one will be checked once a day for the updates. 
    * Add all OVAL definitions, including current year.
-   * Manually run /var/lib/pakiti2/scripts/process_oval_rh.php to fill Pakiti database with information from all OVAL definitions
+   * From the command line, anually run:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% cd /var/lib/pakiti2/scripts/
+ %UCL_PROMPT_ROOT% /usr/bin/php process_oval_rh.php
+</pre>
+ to fill Pakiti database with information from all OVAL definitions
    * Afterwards you can uncheck "Check this source for updates" for prior year OVAL definitions.
+ 
+   * Add RHEL/SL release numbers (currently 5 and 6 are supported by the vendors).
 
 ---++++ Os Group Definitions
 
