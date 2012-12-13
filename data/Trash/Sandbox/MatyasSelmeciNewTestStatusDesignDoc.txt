@@ -1,11 +1,10 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1355358298" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="TimCartwright" date="1355412492" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
 ---+ New OSG-Test Test Statuses
 
 %TOC%
 
 ---++ Overview
-
 
 We need to be able to separate the following conditions in order to gain insight into the test results:
 
@@ -22,6 +21,157 @@ Other requirements are: it must work on both Python 2.4 and 2.6, and should not 
 
 Also note that we will have to update the nightly test wrapper to handle the new output.
 To make full use of the new features, the test aggregator must also be updated.
+
+---++ New Interfaces
+
+---+++ Test Function Code
+
+Changing tests to use =OkSkip= is fairly straightforward.
+Most cases where an =OkSkip= would be appropriate are either:
+
+<pre class="file">
+if not core.rpm_is_installed('foo'):
+   core.skip("rpm foo not installed")
+   return
+</pre>
+
+which should be changed to:
+
+<pre class="file">
+okSkipUnless(core.rpm_is_installed('foo'), "rpm foo not installed")
+</pre>
+
+Or a variant which uses =core.missing_rpm()= instead of =core.rpm_is_installed()=.
+=core.missing_rpm()= automatically calls =core.skip()= (to display a skip message).
+We simply make a =core.check_missing_rpm()= that raises =OkSkip= instead of returning anything.
+
+---
+
+*Tim’s ideas.*
+
+Old code:
+
+<pre class="file">
+if not core.rpm_is_installed('foo'):
+   core.skip("rpm foo not installed")
+   return
+</pre>
+
+New code:
+
+<pre class="file">
+core.skip_unless_installed('foo-client', 'Component "foo" not installed')
+</pre>
+
+---
+
+Using =BadSkip= takes more work.
+One case where a =BadSkip= would be appropriate is a service that failed to start.
+Generally, tests that depend on that service either: =core.skip()= and =return= if the service is not reported as running;
+or plow through and try to run their tests anyway and just get failures.
+
+The test that depends on the service will have to know if the service is _supposed_ to be running, in addition to whether or not it _is_ running.
+This requires modification of the module that starts the service as well.
+
+Here is HTCondor, as an (abridged) example, with changes in bold.
+First, the test that starts the service:
+
+<pre class="file">
+class TestStartCondor(<b>XTestCase</b>):
+
+    def test_01_start_condor(self):
+        core.config['condor.lockfile'] = '/var/lock/subsys/condor_master'
+        core.state['condor.started-service'] = False
+        core.state['condor.running-service'] = False
+        <b>core.state['condor.failed-service'] = False</b>
+
+        <b>core.check_missing_rpm('condor')</b>
+        if os.path.exists(core.config['condor.lockfile']):
+            core.state['condor.running-service'] = True
+            <b>self.okSkip("apparently running")</b>
+
+        command = ('service', 'condor', 'start')
+        stdout, _, fail = core.check_system(command, 'Start Condor')
+        <b>try:</b>
+            self.assert_(stdout.find('error') == -1, fail)
+            self.assert_(os.path.exists(core.config['condor.lockfile']),
+                         'Condor run lock file missing')
+        <b>except:
+            core.state['condor.failed-service'] = True
+            raise
+        </b>
+        core.state['condor.started-service'] = True
+        core.state['condor.running-service'] = True
+</pre>
+
+Then, a test of the service:
+
+<pre class="file">
+def test_02_condor_job(self):
+    <b>core.check_missing_rpm('globus-gram-job-manager-condor', 'globus-gram-client-tools', 'globus-proxy-utils')</b>
+
+    <b>self.badSkipIf(core.state['condor.failed-service'], "Condor failed to start")</b>
+    command = ('globus-job-run', self.contact_string('condor'), '/bin/echo', 'hello')
+    stdout = core.check_system(command, 'globus-job-run on Condor job', user=True)[0]
+    self.assertEqual(stdout, 'hello\n',
+                     'Incorrect output from globus-job-run on Condor job')
+</pre>
+
+---+++ Example Output
+
+<pre class="file">
+test_01_start_condor (osgtest.tests.test_10_condor.TestStartCondor) ... okskip
+...
+test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) ... BADSKIP
+...
+
+======================================================================
+SKIPS:
+----------------------------------------------------------------------
+BADSKIP: test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) Condor failed to start
+...
+
+okskip: test_01_start_condor (osgtest.tests.test_10_condor.TestStartCondor) apparently running
+...
+
+
+Ran 165 tests in 1345.726s
+
+FAILED (failures=5, badSkips=1, okSkips=1)
+</pre>
+Unlike with failures and errors, a full traceback will not be printed.
+Also, there will be no separators between individual skips.
+=OkSkips= and =BadSkips= will be grouped together, with a single blank line between the groups.
+In case there are no bad skips, errors, or failures, the last line will be either:
+
+<pre class="file">
+OK (okSkips=1)
+</pre>
+
+or:
+
+<pre class="file">
+OK (PERFECT)
+</pre>
+
+Compare:
+
+<pre class="file">
+======================================================================
+FAIL: test_01_fetch_crl (osgtest.tests.test_06_fetch_crl.TestFetchCrl)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/osgtest/tests/test_06_fetch_crl.py", line 11, in test_01_fetch_crl
+    stdout, _, fail = core.check_system(command, 'Start fetch-crl')
+  File "/usr/lib/python2.6/site-packages/osgtest/library/core.py", line 184, in check_system
+    assert status == exit, fail
+AssertionError: Start fetch-crl
+EXIT STATUS: 1
+STANDARD OUTPUT:
+ERROR CRL verification failed for JUnet-CA/0 (JUnet-CA)
+VERBOSE(0) JUnet-CA/0: CRL has nextUpdate time in the past
+STANDARD ERROR: [none]
+</pre>
 
 ---++ Architecture of Proposed Solution
 
@@ -81,128 +231,3 @@ The subclass of =unittest.TextTestRunner= (=XTextTestRunner=) creates a test res
 
 Currently, =unittest.TestSuite= does not need to be modified.
 To make future additions easier, I will alias it anyway as =XTestSuite=.
-
-
-
----+++ Individual Test Changes
-
-Changing tests to use =OkSkip= is fairly straightforward.
-Most cases where an =OkSkip= would be appropriate are either:
-<pre>
-if not core.rpm_is_installed('foo'):
-   core.skip("rpm foo not installed")
-   return
-</pre>
-which should be changed to:
-<pre>
-okSkipUnless(core.rpm_is_installed('foo'), "rpm foo not installed")
-</pre>
-Or a variant which uses =core.missing_rpm()= instead of =core.rpm_is_installed()=.
-=core.missing_rpm()= automatically calls =core.skip()= (to display a skip message).
-We simply make a =core.check_missing_rpm()= that raises =OkSkip= instead of returning anything.
-
-Using =BadSkip= takes more work.
-One case where a =BadSkip= would be appropriate is a service that failed to start.
-Generally, tests that depend on that service either: =core.skip()= and =return= if the service is not reported as running;
-or plow through and try to run their tests anyway and just get failures.
-
-The test that depends on the service will have to know if the service is _supposed_ to be running, in addition to whether or not it _is_ running.
-This requires modification of the module that starts the service as well.
-
-Here is (HT)Condor, as an (abridged) example, with changes in bold.
-First, the test that starts the service:
-<pre>
-class TestStartCondor(<b>XTestCase</b>):
-
-    def test_01_start_condor(self):
-        core.config['condor.lockfile'] = '/var/lock/subsys/condor_master'
-        core.state['condor.started-service'] = False
-        core.state['condor.running-service'] = False
-        <b>core.state['condor.failed-service'] = False</b>
-
-        <b>core.check_missing_rpm('condor')</b>
-        if os.path.exists(core.config['condor.lockfile']):
-            core.state['condor.running-service'] = True
-            <b>self.okSkip("apparently running")</b>
-
-        command = ('service', 'condor', 'start')
-        stdout, _, fail = core.check_system(command, 'Start Condor')
-        <b>try:</b>
-            self.assert_(stdout.find('error') == -1, fail)
-            self.assert_(os.path.exists(core.config['condor.lockfile']),
-                         'Condor run lock file missing')
-        <b>except:
-            core.state['condor.failed-service'] = True
-            raise
-        </b>
-        core.state['condor.started-service'] = True
-        core.state['condor.running-service'] = True
-</pre>
-Then, a test of the service:
-<pre>
-def test_02_condor_job(self):
-    <b>core.check_missing_rpm('globus-gram-job-manager-condor', 'globus-gram-client-tools', 'globus-proxy-utils')</b>
-
-    <b>self.badSkipIf(core.state['condor.failed-service'], "Condor failed to start")</b>
-    command = ('globus-job-run', self.contact_string('condor'), '/bin/echo', 'hello')
-    stdout = core.check_system(command, 'globus-job-run on Condor job', user=True)[0]
-    self.assertEqual(stdout, 'hello\n',
-                     'Incorrect output from globus-job-run on Condor job')
-
-</pre>
-
----+++ Example Output
-<pre>
-test_01_start_condor (osgtest.tests.test_10_condor.TestStartCondor) ... okskip
-...
-test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) ... BADSKIP
-...
-
-======================================================================
-SKIPS:
-----------------------------------------------------------------------
-BADSKIP: test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) Condor failed to start
-...
-
-okskip: test_01_start_condor (osgtest.tests.test_10_condor.TestStartCondor) apparently running
-...
-
-
-Ran 165 tests in 1345.726s
-
-FAILED (failures=5, badSkips=1, okSkips=1)
-</pre>
-Unlike with failures and errors, a full traceback will not be printed.
-Also, there will be no separators between individual skips.
-=OkSkips= and =BadSkips= will be grouped together, with a single blank line between the groups.
-In case there are no bad skips, errors, or failures, the last line will be either:
-<pre>
-OK (okSkips=1)
-</pre>
-or:
-<pre>
-OK (PERFECT)
-</pre>
-
-Compare:
-<pre>
-======================================================================
-FAIL: test_01_fetch_crl (osgtest.tests.test_06_fetch_crl.TestFetchCrl)
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/usr/lib/python2.6/site-packages/osgtest/tests/test_06_fetch_crl.py", line 11, in test_01_fetch_crl
-    stdout, _, fail = core.check_system(command, 'Start fetch-crl')
-  File "/usr/lib/python2.6/site-packages/osgtest/library/core.py", line 184, in check_system
-    assert status == exit, fail
-AssertionError: Start fetch-crl
-EXIT STATUS: 1
-STANDARD OUTPUT:
-ERROR CRL verification failed for JUnet-CA/0 (JUnet-CA)
-VERBOSE(0) JUnet-CA/0: CRL has nextUpdate time in the past
-STANDARD ERROR: [none]
-</pre>
-
-
-
-<!-- vim:ft=twiki:sw=3
--->
