@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TimCartwright" date="1355412492" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1355423879" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
 ---+ New OSG-Test Test Statuses
 
@@ -43,7 +43,7 @@ okSkipUnless(core.rpm_is_installed('foo'), "rpm foo not installed")
 
 Or a variant which uses =core.missing_rpm()= instead of =core.rpm_is_installed()=.
 =core.missing_rpm()= automatically calls =core.skip()= (to display a skip message).
-We simply make a =core.check_missing_rpm()= that raises =OkSkip= instead of returning anything.
+We simply make a <s>core.check_missing_rpm()</s> =core.skip_unless_installed()= that raises =OkSkip= instead of returning anything.
 
 ---
 
@@ -64,14 +64,24 @@ core.skip_unless_installed('foo-client', 'Component "foo" not installed')
 </pre>
 
 ---
+*Mat's response.*
+This could be done as
+<pre class="file">
+core.skip_unless_installed('foo-service', 'foo-client', msg='Component "foo" not installed')
+</pre>
 
+---
 Using =BadSkip= takes more work.
-One case where a =BadSkip= would be appropriate is a service that failed to start.
+One case where a =BadSkip= would be appropriate is a service that is expected to be running but isn't.
 Generally, tests that depend on that service either: =core.skip()= and =return= if the service is not reported as running;
 or plow through and try to run their tests anyway and just get failures.
 
-The test that depends on the service will have to know if the service is _supposed_ to be running, in addition to whether or not it _is_ running.
-This requires modification of the module that starts the service as well.
+A test of the service now also has to check if the service is _supposed_ to be running, in addition to whether or not it _is_ running.
+We can assume that if the service's RPMs are installed then it is supposed to be running, so we can use =core.skip_unless_installed()=
+A useful, but not immediately necessary, enhancement to the test is to verify the service _is_ running if the test fails;
+the test will then modify the appropriate state variable.
+We need to work out a way to do this without adding extra code to every additional test of a service.
+A general class for keeping track of services is a good way to do this, but is beyond the scope of this document.
 
 Here is HTCondor, as an (abridged) example, with changes in bold.
 First, the test that starts the service:
@@ -83,23 +93,17 @@ class TestStartCondor(<b>XTestCase</b>):
         core.config['condor.lockfile'] = '/var/lock/subsys/condor_master'
         core.state['condor.started-service'] = False
         core.state['condor.running-service'] = False
-        <b>core.state['condor.failed-service'] = False</b>
 
-        <b>core.check_missing_rpm('condor')</b>
+        <b>core.skip_unless_installed('condor')</b>
         if os.path.exists(core.config['condor.lockfile']):
             core.state['condor.running-service'] = True
             <b>self.okSkip("apparently running")</b>
 
         command = ('service', 'condor', 'start')
-        stdout, _, fail = core.check_system(command, 'Start Condor')
-        <b>try:</b>
-            self.assert_(stdout.find('error') == -1, fail)
-            self.assert_(os.path.exists(core.config['condor.lockfile']),
-                         'Condor run lock file missing')
-        <b>except:
-            core.state['condor.failed-service'] = True
-            raise
-        </b>
+        stdout, _, fail = core.check_system(command, 'Start <b>HT</b>Condor')
+        self.assert_(stdout.find('error') == -1, fail)
+        self.assert_(os.path.exists(core.config['condor.lockfile']),
+                     'Condor run lock file missing')
         core.state['condor.started-service'] = True
         core.state['condor.running-service'] = True
 </pre>
@@ -108,13 +112,22 @@ Then, a test of the service:
 
 <pre class="file">
 def test_02_condor_job(self):
-    <b>core.check_missing_rpm('globus-gram-job-manager-condor', 'globus-gram-client-tools', 'globus-proxy-utils')</b>
+    <b>core.skip_unless_installed('globus-gram-job-manager-condor', 'globus-gram-client-tools', 'globus-proxy-utils',
+                               msg='Missing Globus components')</b>
+    <b>core.skip_unless_installed('condor', msg='Missing HTCondor jobmanager')</b>
 
-    <b>self.badSkipIf(core.state['condor.failed-service'], "Condor failed to start")</b>
+    <b>self.badSkipIf(core.state['condor.running-service'], "HTCondor not running")</b>
     command = ('globus-job-run', self.contact_string('condor'), '/bin/echo', 'hello')
-    stdout = core.check_system(command, 'globus-job-run on Condor job', user=True)[0]
+    <b>try:</b>
+        stdout = core.check_system(command, 'globus-job-run on <b>HT</b>Condor job', user=True)[0]
+    <b>except AssertionError, failure:
+        if not os.path.exists(core.config['condor.lockfile']):
+            core.state['condor.running-service'] = False
+            # Log a message stating that condor is not actually running when we assumed it to be.
+            # Future tests will BadSkip.
+        raise failure</b>
     self.assertEqual(stdout, 'hello\n',
-                     'Incorrect output from globus-job-run on Condor job')
+                     'Incorrect output from globus-job-run on <b>HT</b>Condor job')
 </pre>
 
 ---+++ Example Output
@@ -128,7 +141,7 @@ test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) ... BADSKIP
 ======================================================================
 SKIPS:
 ----------------------------------------------------------------------
-BADSKIP: test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) Condor failed to start
+BADSKIP: test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) HTCondor not running
 ...
 
 okskip: test_01_start_condor (osgtest.tests.test_10_condor.TestStartCondor) apparently running
