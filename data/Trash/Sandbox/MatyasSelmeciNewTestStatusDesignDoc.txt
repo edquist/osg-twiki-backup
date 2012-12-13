@@ -1,0 +1,208 @@
+%META:TOPICINFO{author="MatyasSelmeci" date="1355358298" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
+---+ New OSG-Test Test Statuses
+
+%TOC%
+
+---++ Overview
+
+
+We need to be able to separate the following conditions in order to gain insight into the test results:
+
+	1. A test is skipped due to an acceptable condition, e.g. a package that the test depends on is not installed.%BR%
+   This state needs to be distinguished from a successful test, but should not raise any red flags.
+	1. A test is skipped due to a previous test or action failing, e.g. a required service could not be started.%BR%
+   In other words, a cascading failure. This needs to be distinguished from the original failure to avoid distracting the developer, but should still raise a red flag.
+
+The existing unittest framework will be updated with two new statuses, tentatively named =OkSkip= and =BadSkip=.
+This must not cause any backward-incompatible changes, i.e. all existing tests must work without modification.
+The tests should be reworked one at a time to make use of the new feature.
+
+Other requirements are: it must work on both Python 2.4 and 2.6, and should not bring in additional dependencies.
+
+Also note that we will have to update the nightly test wrapper to handle the new output.
+To make full use of the new features, the test aggregator must also be updated.
+
+---++ Architecture of Proposed Solution
+
+Pretty much all of the classes in =unittest= need to be subclassed.
+In order to maintain backward compatibility, the derived classes should be able to work with the originals where possible.
+
+A test failure in =unittest= is represented by an instance of the built-in Python exception =AssertionError= (though under the alias =TestCase.failureException= ).
+Any other exception is considered an =Error=.
+Exceptions are caught in =TestCase.run()=.
+
+Making =BadSkip= a subclass of =AssertionError= will allow the existing =TestCase.run()= method to catch it and treat it as a test failure, which is how these things are currently considered.
+
+=OkSkip= will also be a subclass of =AssertionError=.
+This is somewhat suboptimal since it is not, technically, an error.
+However, there isn't another exception class we can use that =TestCase.run()= will not either interpret as a failure or an error.
+Also, we still want to use an exception to immediately exit the running test function and have the status be recorded in the results.
+
+Currently, tests use =osgtest.library.core.skip()= followed by an explicit =return= to handle a skip.
+Thus, their behavior will not be changed by this new exception class.
+The problem with _not_ using an exception for =OkSkip= is that we will have to add some other way of notifying =TestCase.run()= that the test was not a success.
+Also, if people forget to add a =return= after declaring the skip, we may have multiple skips, a skip and a failure, or a skip and a success, for the same test. 
+
+---++++!! =OkSkip= / =BadSkip= vs. =skip= from =unittest2=
+
+=unittest2=, which is a backport of the new features of =unittest= found in Python 2.7, also has a feature for skipping tests.
+The behavior is similar to this design.
+One notable addition is that test functions can be _decorated_ with skips, e.g.:<pre>
+@unittest2.skipIf(mylib.__version__ < (1, 3), "library too old")
+def test_foo(self):
+   ...
+</pre>
+That won't be worth adding, since our reasons for skipping a test are fairly dynamic and depend on the current environment.
+We might have multiple skip reasons in one test function.
+
+=unittest2= also does not distinguish between an 'ok' skip and a 'bad' skip.
+
+---+++ =unittest= Subclasses
+
+The subclass of =unittest.TestCase= (=XTestCase=) will contain new assertion functions rasing =OkSkip= or =BadSkip=, patterned after the existing ones in unittest, e.g.: =okSkipIf=, =badSkipUnless=.
+
+The =run()= method will be modified to record an =OkSkip= or a =BadSkip= upon receiving the appropriate exception;
+since this involves a =unittest.TestResult= instance, =run()= will first check to see if the =TestResult= supports skips. 
+
+If the =TestResult= instance cannot handle skips, then a =BadSkip= is reported as a =Failure= (if it happens while running a test) or an =Error= (if it happens during a test's =setUp()= method).
+This is the current behavior for assertion failures in unittest.
+An =OkSkip= will be logged but considered a success.
+
+The subclass of =unittest.TestResult= (=XTestResult=) will contain lists of =OkSkips= and =BadSkips=, and methods to append to them.
+The signature and behavior of these methods will match the existing methods =addError()= and =addFailure()=.
+The =wasSuccessful()= method will be modified to consider =BadSkips= unsuccessful.
+A =wasPerfect()= method will be added that will be =True= iff the tests were both successful and had no skips.
+
+The subclass of =XTestResult= (=XTextTestResult=) will behave like its parent but will also add text output to a stream according to verbosity levels passed in via its constructor.
+This mirrors how =unittest._TestResult= works in Python 2.4.
+
+The subclass of =unittest.TextTestRunner= (=XTextTestRunner=) creates a test result object that is an instance of =XTextTestResult= instead of =TextTestResult=, and adds info on =BadSkips= and =OkSkips= to the test summaries.
+
+Currently, =unittest.TestSuite= does not need to be modified.
+To make future additions easier, I will alias it anyway as =XTestSuite=.
+
+
+
+---+++ Individual Test Changes
+
+Changing tests to use =OkSkip= is fairly straightforward.
+Most cases where an =OkSkip= would be appropriate are either:
+<pre>
+if not core.rpm_is_installed('foo'):
+   core.skip("rpm foo not installed")
+   return
+</pre>
+which should be changed to:
+<pre>
+okSkipUnless(core.rpm_is_installed('foo'), "rpm foo not installed")
+</pre>
+Or a variant which uses =core.missing_rpm()= instead of =core.rpm_is_installed()=.
+=core.missing_rpm()= automatically calls =core.skip()= (to display a skip message).
+We simply make a =core.check_missing_rpm()= that raises =OkSkip= instead of returning anything.
+
+Using =BadSkip= takes more work.
+One case where a =BadSkip= would be appropriate is a service that failed to start.
+Generally, tests that depend on that service either: =core.skip()= and =return= if the service is not reported as running;
+or plow through and try to run their tests anyway and just get failures.
+
+The test that depends on the service will have to know if the service is _supposed_ to be running, in addition to whether or not it _is_ running.
+This requires modification of the module that starts the service as well.
+
+Here is (HT)Condor, as an (abridged) example, with changes in bold.
+First, the test that starts the service:
+<pre>
+class TestStartCondor(<b>XTestCase</b>):
+
+    def test_01_start_condor(self):
+        core.config['condor.lockfile'] = '/var/lock/subsys/condor_master'
+        core.state['condor.started-service'] = False
+        core.state['condor.running-service'] = False
+        <b>core.state['condor.failed-service'] = False</b>
+
+        <b>core.check_missing_rpm('condor')</b>
+        if os.path.exists(core.config['condor.lockfile']):
+            core.state['condor.running-service'] = True
+            <b>self.okSkip("apparently running")</b>
+
+        command = ('service', 'condor', 'start')
+        stdout, _, fail = core.check_system(command, 'Start Condor')
+        <b>try:</b>
+            self.assert_(stdout.find('error') == -1, fail)
+            self.assert_(os.path.exists(core.config['condor.lockfile']),
+                         'Condor run lock file missing')
+        <b>except:
+            core.state['condor.failed-service'] = True
+            raise
+        </b>
+        core.state['condor.started-service'] = True
+        core.state['condor.running-service'] = True
+</pre>
+Then, a test of the service:
+<pre>
+def test_02_condor_job(self):
+    <b>core.check_missing_rpm('globus-gram-job-manager-condor', 'globus-gram-client-tools', 'globus-proxy-utils')</b>
+
+    <b>self.badSkipIf(core.state['condor.failed-service'], "Condor failed to start")</b>
+    command = ('globus-job-run', self.contact_string('condor'), '/bin/echo', 'hello')
+    stdout = core.check_system(command, 'globus-job-run on Condor job', user=True)[0]
+    self.assertEqual(stdout, 'hello\n',
+                     'Incorrect output from globus-job-run on Condor job')
+
+</pre>
+
+---+++ Example Output
+<pre>
+test_01_start_condor (osgtest.tests.test_10_condor.TestStartCondor) ... okskip
+...
+test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) ... BADSKIP
+...
+
+======================================================================
+SKIPS:
+----------------------------------------------------------------------
+BADSKIP: test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) Condor failed to start
+...
+
+okskip: test_01_start_condor (osgtest.tests.test_10_condor.TestStartCondor) apparently running
+...
+
+
+Ran 165 tests in 1345.726s
+
+FAILED (failures=5, badSkips=1, okSkips=1)
+</pre>
+Unlike with failures and errors, a full traceback will not be printed.
+Also, there will be no separators between individual skips.
+=OkSkips= and =BadSkips= will be grouped together, with a single blank line between the groups.
+In case there are no bad skips, errors, or failures, the last line will be either:
+<pre>
+OK (okSkips=1)
+</pre>
+or:
+<pre>
+OK (PERFECT)
+</pre>
+
+Compare:
+<pre>
+======================================================================
+FAIL: test_01_fetch_crl (osgtest.tests.test_06_fetch_crl.TestFetchCrl)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/osgtest/tests/test_06_fetch_crl.py", line 11, in test_01_fetch_crl
+    stdout, _, fail = core.check_system(command, 'Start fetch-crl')
+  File "/usr/lib/python2.6/site-packages/osgtest/library/core.py", line 184, in check_system
+    assert status == exit, fail
+AssertionError: Start fetch-crl
+EXIT STATUS: 1
+STANDARD OUTPUT:
+ERROR CRL verification failed for JUnet-CA/0 (JUnet-CA)
+VERBOSE(0) JUnet-CA/0: CRL has nextUpdate time in the past
+STANDARD ERROR: [none]
+</pre>
+
+
+
+<!-- vim:ft=twiki:sw=3
+-->
