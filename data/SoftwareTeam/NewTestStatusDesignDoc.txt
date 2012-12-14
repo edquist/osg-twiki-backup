@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1355440142" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="TimCartwright" date="1355503609" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="TestingHome"}%
 ---+ New OSG-Test Test Statuses
 
@@ -24,12 +24,11 @@ To make full use of the new features, the test aggregator must also be updated.
 
 ---++ New Interfaces
 
----+++ API
+---+++ Testing API Changes
 
----++++ Assertions
+---++++ New Assertions
 
-Assertions are all instance methods in =OSGTestCase=, which is the class that all tests should be derived from.
-(Currently, all tests are derived from =unittest.TestCase=).
+The new assertions are functions of =OSGTestCase=, which is the class from which all tests will derive (someday). Currently, tests are derived from =unittest.TestCase=, and they can be converted independently.
 
    $ =skip_ok(msg=None)= : An unconditional ok skip, with optional message.
    $ =skip_bad(msg=None)= : An unconditional bad skip, with optional message.
@@ -38,69 +37,76 @@ Assertions are all instance methods in =OSGTestCase=, which is the class that al
    $ =skip_ok_unless(expr, msg=None)= : Ok skip if =expr= is False, with optional message.
    $ =skip_bad_unless(expr, msg=None)= : Bad skip if =expr= is False, with optional message.
 
----++++ Helpers
+---++++ New Library Function
 
-These are helper functions for the most common use cases of skips.
-They are defined in =osgtest.library.core=.
+A new helper functions in =osgtest.library.core= covers the most common use cases for skipping.
 
    $ =skip_ok_unless_installed(*rpms, msg=None)= : Verifies that all RPMs in =rpms= are installed.%BR%
    Raises =OkSkip= with the optional message if any of them are missing.
 
----+++ Uses of !OkSkip in Test Functions
+---+++ Using !OkSkip in Test Functions
 
-Changing tests to use =OkSkip= is fairly straightforward.
-The following are common replacement patterns where the use of =OkSkip= would be appropriate:
+Changing tests to use =OkSkip= is fairly straightforward. The following are common replacement patterns where the use of =OkSkip= would be appropriate:
 
 ---++++!! Old Code
-Case 1:
+
+Current tests use two different methods for verifying necessary RPMs are installed. One method:
+
 <pre class="file">
 if not core.rpm_is_installed('foo'):
     core.skip("rpm foo not installed")
     return
 </pre>
-Case 2:
+
+The other common method:
+
 <pre class="file">
 if core.missing_rpm('rsv', 'rsv-consumers', 'rsv-core', 'rsv-metrics'):
     return
 </pre>
 
 ---++++!! New Code
-Case 1:
+
+Both cases are now covered by a single, flexible helper function. Examples:
+
+To check for a single RPM and use the default (generated) message:
+
 <pre class="file">
-self.skip_ok_unless(core.rpm_is_installed('foo'), "rpm foo not installed")
+core.skip_ok_unless_installed('ndt')
 </pre>
-Case 2:
+
+To check for multiple RPMs and provide a message:
+
 <pre class="file">
-core.skip_ok_unless_installed('rsv', 'rsv-consumers', 'rsv-core', 'rsv-metrics',
-                           msg='RSV components are missing')
+core.skip_ok_unless_installed('rsv', 'rsv-consumers', 'rsv-core', 'rsv-metrics', message='RSV not installed')
 </pre>
 
----+++ Uses of !BadSkip in Test Functions
-One case where a =BadSkip= would be appropriate is a service that is expected to be running but isn't.
-Generally, tests that depend on that service either: =core.skip()= and =return= if the service is not reported as running;
-or plow through and try to run their tests anyway and just get failures.
+---+++ Using !BadSkip in Test Functions
 
-A test of the service now also has to check if the service is _supposed_ to be running, in addition to whether or not it _is_ running.
-We can assume that if the service's RPMs are installed then it is supposed to be running, so we can use =core.skip_ok_unless_installed()=
+The =BadSkip= result is to be used when the test run was configured to allow a test to run but actual conditions prevent the tests from succeeding. For example, if a service is installed but does not seem to be running, tests depending on the service should =BadSkip=. Currently, tests that depend on a service either =core.skip()= and =return= if the service seems to be unavailable, or continue execution and allow individual tests to fail; neither approach makes it easy for a developer to understand what happened.
 
-Some example changes follow.
+Generally, this change implies that the code separately checks and/or tracks RPM availability (which is a test configuration issue) and service or other resource availability (which is an actual conditions issue). Some tests already track resource availability via the =core.state= dictionary, others may need that kind of tracking added.
+
+Examples follow.
 
 ---++++!! Old Code
+
 <pre class="file">
 def test_03_voms_proxy_info(self):
     if core.missing_rpm('voms-client'):
         return
     if not core.state['voms.got-proxy']:
         core.skip('no proxy')
+        return
 </pre>
 
 ---++++!! New Code
+
 <pre class="file">
 def test_03_voms_proxy_info(self):
-    core.skip_ok_unless_installed('voms-client')
-    self.skip_bad_unless(core.state['voms.got-proxy'], 'no proxy')
+    %ORANGE%core.skip_ok_unless_installed('voms-client')
+    self.skip_bad_unless(core.state['voms.got-proxy'], 'no proxy')%ENDCOLOR%
 </pre>
-
 
 ---+++ Long Example
 As an example, here is how the tests for HTCondor would be rewritten, including setup, testing, and shutdown.
