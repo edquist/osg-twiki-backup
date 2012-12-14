@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TimCartwright" date="1355503609" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1355506512" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="TestingHome"}%
 ---+ New OSG-Test Test Statuses
 
@@ -30,18 +30,19 @@ To make full use of the new features, the test aggregator must also be updated.
 
 The new assertions are functions of =OSGTestCase=, which is the class from which all tests will derive (someday). Currently, tests are derived from =unittest.TestCase=, and they can be converted independently.
 
-   $ =skip_ok(msg=None)= : An unconditional ok skip, with optional message.
-   $ =skip_bad(msg=None)= : An unconditional bad skip, with optional message.
-   $ =skip_ok_if(expr, msg=None)= : Ok skip if =expr= is True, with optional message.
-   $ =skip_bad_if(expr, msg=None)= : Bad skip if =expr= is True, with optional message.
-   $ =skip_ok_unless(expr, msg=None)= : Ok skip if =expr= is False, with optional message.
-   $ =skip_bad_unless(expr, msg=None)= : Bad skip if =expr= is False, with optional message.
+   $ =skip_ok(message=None)= : An unconditional ok skip, with optional message.
+   $ =skip_bad(message=None)= : An unconditional bad skip, with optional message.
+   $ =skip_ok_if(expr, message=None)= : Ok skip if =expr= is True, with optional message.
+   $ =skip_bad_if(expr, message=None)= : Bad skip if =expr= is True, with optional message.
+   $ =skip_ok_unless(expr, message=None)= : Ok skip if =expr= is False, with optional message.
+   $ =skip_bad_unless(expr, message=None)= : Bad skip if =expr= is False, with optional message.
 
----++++ New Library Function
+---++++ New Library Function(s)
 
-A new helper functions in =osgtest.library.core= covers the most common use cases for skipping.
+New helper function(s) in =osgtest.library.core= cover the most common use cases for skipping.
+Currently only one is planned, but more may be added as other use cases are identified.
 
-   $ =skip_ok_unless_installed(*rpms, msg=None)= : Verifies that all RPMs in =rpms= are installed.%BR%
+   $ =skip_ok_unless_installed(*rpms, message=None)= : Verifies that all RPMs in =rpms= are installed.%BR%
    Raises =OkSkip= with the optional message if any of them are missing.
 
 ---+++ Using !OkSkip in Test Functions
@@ -113,31 +114,6 @@ As an example, here is how the tests for HTCondor would be rewritten, including 
 
 ---++++!! Old Code
 
----+++++!! test_10_condor.py
-<pre class="file">
-class TestStartCondor(unittest.TestCase):
-
-    def test_01_start_condor(self):
-        core.config['condor.lockfile'] = '/var/lock/subsys/condor_master'
-        core.state['condor.started-service'] = False
-        core.state['condor.running-service'] = False
-
-        if core.missing_rpm('condor'):
-            return
-        if os.path.exists(core.config['condor.lockfile']):
-            core.state['condor.running-service'] = True
-            core.skip('apparently running')
-            return
-
-        command = ('service', 'condor', 'start')
-        stdout, _, fail = core.check_system(command, 'Start Condor')
-        self.assert_(stdout.find('error') == -1, fail)
-        self.assert_(os.path.exists(core.config['condor.lockfile']),
-                     'Condor run lock file missing')
-        core.state['condor.started-service'] = True
-        core.state['condor.running-service'] = True
-</pre>
-
 ---+++++!! test_41_jobs.py
 <pre class="file">
 class TestGlobusJobRun(unittest.TestCase):
@@ -154,53 +130,9 @@ class TestGlobusJobRun(unittest.TestCase):
                          'Incorrect output from globus-job-run on Condor job')
 </pre>
 
----+++++!! test_89_condor.py
-<pre class="file">
-class TestStopCondor(unittest.TestCase):
-
-    def test_01_stop_condor(self):
-        if core.missing_rpm('condor'):
-            return
-        if core.state['condor.started-service'] == False:
-            core.skip('did not start server')
-            return
-
-        command = ('service', 'condor', 'stop')
-        stdout, _, fail = core.check_system(command, 'Stop Condor')
-        self.assert_(stdout.find('error') == -1, fail)
-        self.assert_(not os.path.exists(core.config['condor.lockfile']),
-                     'Condor run lock file still present')
-
-        core.state['condor.running-service'] = False
-</pre>
 
 ---++++!! New Code
-Changes are highlighted in bold.
-
----+++++!! test_10_condor.py
-<pre class="file">
-class TestStartCondor(<b>OSGTestCase</b>):
-
-    def test_01_start_condor(self):
-        core.config['condor.lockfile'] = '/var/lock/subsys/condor_master'
-        core.state['condor.started-service'] = False
-        core.state['condor.running-service'] = False
-
-        <b>core.skip_ok_unless_installed('condor')</b>
-        if os.path.exists(core.config['condor.lockfile']):
-            core.state['condor.running-service'] = True
-            <b>self.skip_ok("apparently running")</b>
-
-        command = ('service', 'condor', 'start')
-        stdout, _, fail = core.check_system(command, 'Start <b>HT</b>Condor')
-        self.assert_(stdout.find('error') == -1, fail)
-        self.assert_(os.path.exists(core.config['condor.lockfile']),
-                     '<b>HT</b>Condor run lock file missing')
-        core.state['condor.started-service'] = True
-        core.state['condor.running-service'] = True
-</pre>
-
-Then, a test of the service:
+Changes are highlighted.
 
 ---+++++!! test_41_jobs.py
 <pre class="file">
@@ -208,32 +140,15 @@ class TestGlobusJobRun(OSGTestCase):
     # ...
 
    def test_02_condor_job(self):
-       <b>core.skip_ok_unless_installed('globus-gram-job-manager-condor', 'globus-gram-client-tools', 'globus-proxy-utils',
-                                     msg='Missing Globus components')</b>
-       <b>core.skip_ok_unless_installed('condor', msg='Missing HTCondor jobmanager')</b>
+       %ORANGE%core.skip_ok_unless_installed('globus-gram-job-manager-condor',
+                                     'globus-gram-client-tools', 'globus-proxy-utils',
+                                     message='Globus GRAM not installed')
    
-       <b>self.skip_bad_if(core.state['condor.running-service'], "HTCondor not running")</b>
+       self.skip_bad_if(core.state['condor.running-service'], "HTCondor not running")%ENDCOLOR%
        command = ('globus-job-run', self.contact_string('condor'), '/bin/echo', 'hello')
        stdout = core.check_system(command, 'globus-job-run on <b>HT</b>Condor job', user=True)[0]
        self.assertEqual(stdout, 'hello\n',
                         'Incorrect output from globus-job-run on <b>HT</b>Condor job')
-</pre>
-
----+++++!! test_89_condor.py
-<pre class="file">
-class TestStopCondor(OSGTestCase):
-
-    def test_01_stop_condor(self):
-        <b>core.skip_ok_unless_installed('condor')</b>
-        <b>self.skip_ok_unless(core.state['condor.started-service'], 'did not start server')</b>
-
-        command = ('service', 'condor', 'stop')
-        stdout, _, fail = core.check_system(command, 'Stop Condor')
-        self.assert_(stdout.find('error') == -1, fail)
-        self.assert_(not os.path.exists(core.config['condor.lockfile']),
-                     'Condor run lock file still present')
-
-        core.state['condor.running-service'] = False
 </pre>
 
 ---+++ Example Output
@@ -242,7 +157,7 @@ Here is what output should look like in a test run with the new features.
 
 ---++++!! Current Output
 For comparison, this is what a failure looks like currently:
-<pre class="file">
+<pre class="screen">
 test_01_fetch_crl (osgtest.tests.test_06_fetch_crl.TestFetchCrl) ... FAIL
 ...
 ======================================================================
@@ -266,22 +181,22 @@ STANDARD ERROR: [none]
 A multi-line error message complete with stack backtrace is overkill for a skip.
 Instead, skips will be grouped together (i.e. all !BadSkips, then all !OkSkips below), one line per item.
 
-<pre class="file">
-test_01_start_condor (osgtest.tests.test_10_condor.TestStartCondor) ... okskip
+<pre class="screen">
+test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) ... okskip
 ...
-test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) ... BADSKIP
+test_03_voms_proxy_info (osgtest.tests.test_50_voms.TestVOMS) ... BADSKIP
 ...
 
 ======================================================================
 BADSKIPS:
 ----------------------------------------------------------------------
-test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) HTCondor not running
+test_03_voms_proxy_info (osgtest.tests.test_50_voms.TestVOMS) no proxy
 ...
 
 ======================================================================
 OKSKIPS:
 ----------------------------------------------------------------------
-test_01_start_condor (osgtest.tests.test_10_condor.TestStartCondor) apparently running
+test_02_condor_job (osgtest.tests.test_41_jobs.TestGlobusJobRun) Globus GRAM not installed (missing: globus-gram-job-manager-condor)
 ...
 </pre>
 
@@ -292,27 +207,27 @@ Here is how they will look:
 
 ---++++!! Old Output
 Case 1: some failures
-<pre class="file">
+<pre class="screen">
 FAILED (failures=5)
 </pre>
 
 Case 2: no failures
-<pre class="file">
+<pre class="screen">
 OK
 </pre>
 
 ---++++!! New Output
 Case 1: some failures and skips
-<pre class="file">
+<pre class="screen">
 FAILED (failures=5, badSkips=1, okSkips=1)
 </pre>
 Case 2a: no failures, but some skips
-<pre class="file">
+<pre class="screen">
 OK (okSkips=1)
 </pre>
 Case 2b: no failures, no skips
-<pre class="file">
-OK (PERFECT)
+<pre class="screen">
+OK
 </pre>
 
 ---++ Architecture of Proposed Solution
@@ -340,13 +255,13 @@ Also, if people forget to add a =return= after declaring the skip, we may have m
 
 =unittest2=, which is a backport of the new features of =unittest= found in Python 2.7, also has a feature for skipping tests.
 The behavior is similar to this design.
-One notable addition is that test functions can be _decorated_ with skips, e.g.:<pre>
+One notable addition is that test functions can be _decorated_ with skips, e.g.:<pre class="file">
 @unittest2.skipIf(mylib.__version__ < (1, 3), "library too old")
 def test_foo(self):
    ...
 </pre>
 That won't be worth adding, since our reasons for skipping a test are fairly dynamic and depend on the current environment.
-We might have multiple skip reasons in one test function.
+Also, we might have multiple skip reasons in one test function.
 
 =unittest2= also does not distinguish between an 'ok' skip and a 'bad' skip.
 
