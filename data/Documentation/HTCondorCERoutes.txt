@@ -1,0 +1,102 @@
+%META:TOPICINFO{author="BrianBockelman" date="1356385906" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="InstallHTCondorCE"}%
+%LINKCSS%
+
+---+!! %SPACEOUT{ "%TOPIC%" }%
+%TOC%
+
+%STARTINCLUDE%
+
+---++ Customization using the Config File
+
+A job is localized by the !JobRouter, which matches it to one *job route*, then applying the transformations specified in the route.  The most common way to specify a route is via the HTCondor configuration file.  See the [[http://research.cs.wisc.edu/htcondor/manual/v7.8/5_6HTCondor_Job.html][HTCondor documentation]] for a full reference on job routes.
+
+For example, here is the default route for a HTCondor site:
+<verbatim>
+JOB_ROUTER_ENTRIES = \
+   [ \
+     GridResource = "condor localhost localhost"; \
+     eval_set_GridResource = strcat("condor ", $(FULL_HOSTNAME), $(FULL_HOSTNAME)); \
+     TargetUniverse = 5; \
+     name = "Local_Condor"; \
+   ]
+</verbatim>
+Note all routes should have a name and set the !GridResource attribute (the reason for the latter is vestigial and may be removed in the future).  Each route is a HTCondor !ClassAd.  When writing a new route, three grammatical things to check are:
+   * Each route begins and ends with a square bracket,
+   * Each attribute ends with a semicolon, and
+   * Comments are specified with a C-style comment (=/* ... */=), as opposed to a configuration file comment (=#=).
+
+Multiple routes may be specified, one after another.  The first matching route is used; a route matches if its Requirements expression evaluates to true and it is within its !MaxJobs setting.  For example, the following route places the job in the accounting group "hcc" if it carries a VOMS attribute and the accounting group "other" otherwise.
+
+<verbatim>
+JOB_ROUTER_ENTRIES = \
+   [ \
+     GridResource = "condor localhost localhost"; \
+     eval_set_GridResource = strcat("condor ", $(FULL_HOSTNAME), $(FULL_HOSTNAME)); \
+     TargetUniverse = 5; \
+     name = "Condor_hcc"; \
+     Requirements = regexp("^/hcc/", x509UserProxyFirstFQAN); \
+     eval_set_AccountingGroup = strcat("hcc.", Owner); \
+   ] \
+   [ \
+     GridResource = "condor localhost localhost"; \
+     eval_set_GridResource = strcat("condor ", $(FULL_HOSTNAME), $(FULL_HOSTNAME)); \
+     TargetUniverse = 5; \
+     name = "Condor_other"; \
+     Requirements = regexp("^/hcc/", x509UserProxyFirstFQAN) =!= TRUE; \
+     eval_set_AccountingGroup = strcat("other.", Owner); \
+   ]
+</verbatim>
+
+Some sites may want to set a default attribute (such as a memory request) if not present in the !ClassAd.  Here is an example:
+
+<verbatim>
+JOB_ROUTER_ENTRIES = \
+   [ \
+     GridResource = "condor localhost localhost"; \
+     eval_set_GridResource = strcat("condor ", $(FULL_HOSTNAME), $(FULL_HOSTNAME)); \
+     TargetUniverse = 5; \
+     name = "Condor_hcc"; \
+     Requirements = regexp("^/hcc/", x509UserProxyFirstFQAN); \
+     eval_set_AccountingGroup = strcat("hcc.", Owner); \
+     eval_set_RequestMemory = ifThenElse(isUndefined(RequestMemory), 1000, RequestMemory); \
+   ]
+</verbatim>
+
+This example sets the !RequestMemory attribute to 1000MB of memory if not explicitly requested by the user.
+
+For PBS, SGE, LSF, or SLURM sites, it is often useful to request a specific queue.  Here's an example for a PBS site:
+
+<verbatim>
+JOB_ROUTER_ENTRIES = \
+   [ \
+     GridResource = "batch pbs"; \
+     TargetUniverse = 9; \
+     name = "Local_PBS_cms"; \
+     set_remote_queue = "cms"; \
+     Requirements = target.x509UserProxyVOName =?= "cms"; \
+   ]
+</verbatim>
+
+The route turns the CE job into a PBS grid-universe job, which will in turn be submitted to PBS.  [[http://research.cs.wisc.edu/htcondor/manual/v7.9/5_3Grid_Universe.html#SECTION00635000000000000000][See the relevant HTCondor documentation]].
+
+---++ Customization using Job Hooks
+
+Some sites may not be able to specify their desired policy solely through the !ClassAd language.  For example, they may decide to alter the accounting group based on the contents of a separate file on disk, or conduct in-depth transformations of a particular attribute.  In this case, HTCondor provides [[http://research.cs.wisc.edu/htcondor/manual/v7.9/4_4Hooks.html#SECTION00542000000000000000][JobRouter hooks]]; these provide the site admin with a means to transform the job via an arbitrary script.
+
+The job hooks currently work but are relatively difficult to work with.  Site admins are welcome to follow along the activity on [[https://htcondor-wiki.cs.wisc.edu/index.cgi/tktview?tn=3380][this ticket]].
+
+---++ Customizing Submit Files
+
+For PBS, SGE, SLURM, and LSF, the blahp submit scripts have a callout hook which allows the site to add default attributes.
+
+For PBS, the file is located at =/usr/libexec/blahp/pbs_local_submit_attributes.sh=.  The following example shows how to set a default walltime (10 minutes) for jobs:
+
+<verbatim>
+[root@example-ce1 ~]# cat /usr/libexec/blahp/pbs_local_submit_attributes.sh 
+echo "#PBS -l walltime=00:10:00"
+</verbatim>
+
+This may be used for adding default attributes, but cannot customize the submit files more than that.
+
+%STOPINCLUDE%
