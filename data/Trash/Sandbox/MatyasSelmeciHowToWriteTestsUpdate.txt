@@ -1,0 +1,180 @@
+%META:TOPICINFO{author="MatyasSelmeci" date="1358293341" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
+This is SoftwareTeam.HowToWriteTests, to be updated for osg-test-1.2.5 and its new features.
+
+Also add a link to SoftwareTeam.TestingHome
+
+-- Main.MatyasSelmeci - 15 Jan 2013
+
+
+%TOC%
+
+---+ How to Write Automated Tests for OSG Software (osg-test)
+
+---++ Where to Write Tests
+
+All of the OSG Software automated tests are located in the =osg-test= software and package.
+
+The software itself is in our Subversion repository at =software/osg-test=; current code is kept in =trunk= within that directory.
+
+The software package is defined in our Subversion repository at =native/redhat/trunk/osg-test=.
+
+---+++ Directory Organization
+
+The test software is written in Python and consists of:
+
+   * A driver program, =osg-test=
+   * A set of support libraries (Python modules) in =osgtest/library=
+   * The tests themselves (also Python modules) in =osgtest/tests=
+   * Extra files needed at runtime in =files=
+
+The whole system uses the standard Python =unittest= framework to run.
+Note that all tests have to be compatible with Python 2.4; when reading the docs for =unittest=, keep note of when a feature was introduced.
+
+---+++ Test Sequence
+
+During a test run, the test modules are run in sequence as follows:
+
+| *File* | *When* | *Purpose* |
+| =special_user.py= | Tests not suppressed,&#8232;or explicitly requested | Add user (if asked)<br>Check user<br>Set up mapfile |
+| =special_install.py= | Packages given | Check repositories<br>Clean yum cache<br>Install packages |
+| =test_NN_*.py= | Tests not suppressed | Configure<br>Test<br>Tear down |
+| =special_cleanup.py= | Explicitly requested | Remove user (if added)<br>Remove packages (if installed) |
+
+The =test_*= modules are organized roughly into three phases, based on the sequence number of the file:
+
+| *Test Files* | *Purpose* |
+| =test_[00-29]_*= | Set up |
+| =test_[30-69]_*= | Tests |
+| =test_[70-99]_*= | Tear down |
+
+---++ Coding Tips
+
+It is important to know the basics of the Python =unittest= module; [[http://docs.python.org/release/2.4.3/lib/module-unittest.html read the documentation for it]].
+
+---+++ Basic Structure of a Test Module
+
+Each test module must import the =unittest= library, plus whichever of the =osg-test= libraries are needed (conventionally with shortened aliases):
+
+<pre class="file">
+import unittest
+
+import osgtest.library.core as core
+import osgtest.library.files as files
+</pre>
+
+Then, a single test class is defined, deriving from =unittest.TestCase=; the individual tests are sequentially numbered functions within the class:
+
+<pre class="file">
+class TestFooBarBaz(unittest.TestCase):
+
+    def test_01_first_thing(self):
+        # test stuff!
+
+    def test_02_more(self):
+        # test stuff!
+
+    # Tests return (success) or raise (failure)
+</pre>
+
+---+++ Test Assertions
+
+Within each test function, use the [[http://docs.python.org/release/2.4.3/lib/testcase-objects.html TestCase object functions]] to assert things that should be true:
+
+<pre class="file">
+def test_99_example(self):
+    result = do_something()
+    self.assert_(result > 42, 'result too low')
+    self.assertEqual(result, 57, 'result ok')
+</pre>
+
+Be sure to learn and use all of the assertion functions, for greatest expressive power and clarity! For example, there are also:
+
+   * <code>assertNotEqual</code>(<em>first</em>, <em>second</em>[, <em>message</em>])
+   * <code>assertRaises</code>(<em>exception</em>, <em>callable</em>, …)
+   * <code>failIf</code>(<em>expression</em>[, <em>message</em>])
+
+---+++ Skipping Tests
+
+It is important to skip tests when the packages that they depend on are not installed. There are two patterns supported for skipping tests, use the simplest one for your case (or follow conventions of other tests):
+
+For a custom test and skip message:
+
+<pre class="file">
+def test_01_start_condor(self):
+    # ...
+    if not core.rpm_is_installed('condor'):
+        core.skip('not installed')
+        return
+</pre>
+
+For a normal check of several package names at once:
+
+<pre class="file">
+def test_02_condor_job(self):
+    if core.missing_rpm('globus-gram-job-manager-condor', 'globus-gram-client-tools', 'globus-proxy-utils'):
+        return
+</pre>
+
+*Note:* Add skip tests to *all* functions that depend on a particular package, not just the first one within a test module.
+
+---+++ Running System Commands
+
+Most tests run commands on the system; this is the nature of our testing environment. Thus, the test libraries have extra support for running system commands. Use these functions! Do not reinvent the wheel.
+
+See the !PyDoc for the =core= library for full documentation on the functions. Below are examples.
+
+The basic system-call pattern:
+
+<pre class="file">
+def test_99_made_up_example(self):
+    command = ('/usr/bin/id','-u')
+    status, stdout, stderr = core.system(command, True)
+    fail = core.diagnose('id of test user', status, stdout, stderr)
+    self.assertEqual(status, 0, fail)
+    # Maybe more checks and assertions
+</pre>
+
+In the most common case, you run the =core.system()= function, check its exit status against 0, and then possibly test its stdout and stderr for problems. There is a helper function for this common case:
+
+<pre class="file">
+def test_01_web100clt(self):
+    if core.missing_rpm('ndt'):
+        return
+    command = ('web100clt', '-v')
+    stdout, stderr, fail = core.check_system(command, 'NDT client')
+    result = re.search('ndt.+version', stdout, re.IGNORECASE)
+    self.assert_(result is not None)
+</pre>
+
+---+++ Configuration and State
+
+The test framework does not automatically preserve values across test modules, so you must do so yourself if needed. But, the test library does provide standard mechanisms for saving configuration values and system state.
+
+Store all cross-module configuration values in =core.config= (a dictionary):
+
+<pre class="file">
+def test_04_config_voms(self):
+    core.config['voms.vo'] = 'osgtestvo'
+    # ...
+</pre>
+
+Record cross-module state values in =core.state= (a dictionary):
+
+<pre class="file">
+def test_01_start_mysqld(self):
+    core.state['mysql.started-server'] = False
+    # Try to start MySQL service, raise on fail
+    core.state['mysql.started-server'] = True
+</pre>
+
+
+---+++ Module-Wide Setup and Teardown
+
+Sometimes a module needs certain operations to be done for setting up tests.
+For example, the tests for osg-configure involve importing the unit test modules provided by osg-configure itself, and need to add an entry to =sys.path=.
+This kind of setup should be put _inside_ the test class; it will not get reliably run if it is only inside the module.
+Making separate test functions for the setup and teardown steps (named, for example, =test_00_setup= and =test_99_teardown=) is a good way of handling this.
+
+<!-- vim:ft=twiki:sw=3
+-->
