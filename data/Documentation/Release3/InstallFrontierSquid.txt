@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DaveDykstra" date="1358896073" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="DaveDykstra" date="1358971727" format="1.1" reprev="1.2" version="1.2"}%
 %DOC_STATUS_TABLE%
 
 ---+!! Frontier-squid Installation Guide
@@ -21,19 +21,21 @@ The applicable software versions for this document are %RED%OSG Version >= 3.1.1
 
 ---# About frontier-squid
 
-Frontier-squid is a distribution of the [[http://squid-cache.org][standard http proxy caching software]] that is optimized for use with applications on the Worldwide LHC Computing Grid (WLCG).  It's most important feature is that it correctly supports the http standard headers Last-Modified and If-Modified-Since better than other distributions of squid.  The [[http://frontier.cern.ch][Frontier distributed database caching system]], which is used by the LHC projects ATLAS and CMS, depends on proper working of this feature so that is the main reason why that project maintains its own squid distribution.  Older versions of squid2 (including the one distributed with Redhat EL5) and all versions of squid3 (including the one on Redhat EL6) do not correctly support this feature, as documented in the infamous [[http://bugs.squid-cache.org/show_bug.cgi?id=7][squid bug #7]].  Also, the frontier-squid package contains a couple of related patches that are not in any standard squid distribution.  Details are in the beginning paragraph of the [[https://twiki.cern.ch/twiki/bin/view/Frontier/MyOwnSquid][MyOwnSquid twiki page]].   Although the package expressly supports If-Modified-Since, it also works well with applications that do not require If-Modified-Since including CVMFS.
+Frontier-squid is a distribution of the [[http://squid-cache.org][standard http proxy caching software]] that is optimized for use with applications on the Worldwide LHC Computing Grid (WLCG).  It's most important feature is that it correctly supports the http standard headers Last-Modified and If-Modified-Since better than other distributions of squid.  The [[http://frontier.cern.ch][Frontier distributed database caching system]], which is used by the LHC projects ATLAS and CMS, depends on proper working of this feature so that is the main reason why that project maintains its own squid distribution.  Older versions of squid2 (including the one distributed with Redhat EL5) and all versions of squid3 (including the one on Redhat EL6) do not correctly support this feature, as documented in the infamous [[http://bugs.squid-cache.org/show_bug.cgi?id=7][squid bug #7]].  Also, the frontier-squid package contains a couple of related patches that are not in any standard squid distribution.  Details are in the beginning paragraph of the [[http://twiki.cern.ch/twiki/bin/view/Frontier/MyOwnSquid][MyOwnSquid twiki page]].   Although the package expressly supports If-Modified-Since, it also works well with applications that do not require If-Modified-Since including CVMFS.
 
 In addition, the package has several additional features:
    1. A configuration file generator, so configuration customizations can be preserved across package upgrades even when the complicated standard configuration file changes.
    1. The ability to easily run multiple squid processes listening on the same port, in order to support more networking throughput than can be handled by a single CPU core (squid2 is single-threaded).
    1. Automatic cleanup of the old cache files in the background when starting squid, to avoid problems with cache corruption.
-   1. Default access control lists to permit remote performance monitoring from a shared monitoring server at CERN.
+   1. Default access control lists to permit remote performance monitoring from shared WLCG squid monitoring servers at CERN.
+   1. The default log format is more human readable and includes contents of client-identifying headers.
+   1. It chooses default options found to be important by years of operational experience on the WLCG.
 
 The OSG distribution of frontier-squid is a straight rebuild of the upstream frontier-squid package for the convenience of OSG users.
 
 ---# Engineering Considerations
 
-If you will be supporting the Frontier application at your site, review the [[https://twiki.cern.ch/twiki/bin/view/Frontier/InstallSquid#Hardware][upstream documentation Hardware considerations section]] to determine how to size your equipment.
+If you will be supporting the Frontier application at your site, review the [[http://twiki.cern.ch/twiki/bin/view/Frontier/InstallSquid#Hardware][upstream documentation Hardware considerations section]] to determine how to size your equipment.
 
 ---# Requirements
 
@@ -47,9 +49,15 @@ The frontier-squid installation will create one user account unless it is alread
 | *User* | *Comment* |
 | =squid= | Reduced privilege user that the squid process runs under.  Set the default gid of the "squid" user to be a group that is also called "squid". |
 
-The package can instead use another user name of your choice if you create a configuration file before installation.  Details are in the [[https://twiki.cern.ch/twiki/bin/view/Frontier/InstallSquid#Preparation][upstream documentation Preparation section]].
+The package can instead use another user name of your choice if you create a configuration file before installation.  Details are in the [[http://twiki.cern.ch/twiki/bin/view/Frontier/InstallSquid#Preparation][upstream documentation Preparation section]].
 
---## Networking
+---## Networking
+
+%STARTSECTION{"Firewalls"}%
+%INCLUDE{"Documentation/Release3.FirewallInformation" section="FirewallTable" lines="squid,squidmonitor"}% \
+%ENDSECTION{"Firewalls"}%
+
+The addresses of the WLCG monitoring servers for use in firewalls are listed in the [[http://twiki.cern.ch/twiki/bin/view/Frontier/InstallSquid#Enabling_monitoring][upstream documentation Enabling monitoring section]].
 
 ---# Install Instructions
 %INCLUDE{"YumRepositories" section="OSGRepoBrief" TOC_SHIFT="+"}%
@@ -61,13 +69,44 @@ After meeting the requirements in the previous section, install frontier-squid w
 
 ---# Configuring frontier-squid
 
+To configure frontier-squid consult the [[http://twiki.cern.ch/twiki/bin/view/Frontier/InstallSquid#Configuration][upstream documentation Configuration section]] because it is exactly the same as the OSG distribution.
+
 ---# Starting and stopping services
+
+%STARTSECTION{"Starting"}%
+Starting frontier-squid:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service frontier-squid start
+</pre> 
+
+Stopping frontier-squid:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service frontier-squid stop
+</pre> 
+
+By default, frontier-squid is set up with chkconfig to restart at boot time.
+
+%ENDSECTION{"Starting"}%
+
 
 ---# Testing the installation of frontier-squid
 
+As any user on another computer, do the following (where %RED%yoursquid.your.domain%ENDCOLOR% is the fully qualified domain name of your squid server):
+<pre class="screen">
+%UCL_PROMPT% export http_proxy=http://%RED%yoursquid.your.domain%ENDCOLOR%:3128
+%UCL_PROMPT% wget -qdO/dev/null http://frontier.cern.ch 2>&1|grep X-Cache
+X-Cache: MISS from %RED%yoursquid.your.domain%ENDCOLOR%
+%UCL_PROMPT% wget -qdO/dev/null http://frontier.cern.ch 2>&1|grep X-Cache
+X-Cache: HIT from %RED%yoursquid.your.domain%ENDCOLOR%
+</pre>
+
+If the grep doesn't print anything, try removing it from the pipeline to see if errors are obvious.  If the second try says MISS again, something is probably wrong with the squid cache writes.
+
+If your squid will be supporting the Frontier application, it is also good to do the test in the [[http://twiki.cern.ch/twiki/bin/view/Frontier/InstallSquid#Testing_the_installation][upstream documentation Testing the installation section]].
 
 ---# Frontier-squid log files
 
+Log file contents are explained in the [[http://twiki.cern.ch/twiki/bin/view/Frontier/InstallSquid#Log_file_contents][upstream documentation Log file contents section]].
 
 %BR%
 
