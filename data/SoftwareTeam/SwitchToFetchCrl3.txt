@@ -1,26 +1,16 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1359076877" format="1.1" reprev="1.6" version="1.6"}%
+%META:TOPICINFO{author="TimCartwright" date="1359130919" format="1.1" reprev="1.7" version="1.7"}%
 %META:TOPICPARENT{name="InternalDocs"}%
----+!! Proposal to switch to Fetch-CRL 3 on Enterprise Linux 5 systems
+---+!! Proposal to Migrate to Fetch CRL 3 on Enterprise Linux 5 Systems
 
 %TOC%
 
-Original ticket: [[https://jira.opensciencegrid.org/browse/SOFTWARE-689][SW-689]]
-
 ---++ Overview
 
-The version of Fetch-CRL shipped on EL5, =fetch-crl-2.8.5= is old and has some
-issues that are not likely to be fixed.  Most notable is the issue that
-occasionally blank CRLs will get generated, and will never be replaced by
-correct ones even in subsequent runs of =fetch-crl=. (That is the issue
-specifically mentioned in the ticket).
+On Enterprise Linux 5 (el5) systems, the standard version of Fetch CRL is the =fetch-crl-2.8.5= package. It is very old and has some defects that are unlikely to be fixed. Most notable is the issue that blank CRL files are generated occasionally, causing Fetch CRL to issue warnings and never update those CRLs ([[https://jira.opensciencegrid.org/browse/SOFTWARE-689][SOFTWARE-689]]). This issue affects only el5 systems, because el6 systems ship only version 3 of Fetch CRL. Further, el5 systems *do* have access to a standard Fetch CRL v3 package, named =fetch-crl3=.
 
-Because of this, we are considering switching to version 3 of Fetch-CRL on EL5.
-This is not necessary on EL6, because EL6 ships with only version 3 of
-Fetch-CRL.
+Thus, we propose migrating from version 2 to version 3 of Fetch CRL on el5 systems.
 
-Since there are configuration incompatibilities between version 2 and version 3
-that require manual changes, the RPM is called =fetch-crl3= on el5, and can be
-installed side-by-side with version 2.
+Since there are configuration incompatibilities between version 2 and version 3 that require manual changes, the RPM is called =fetch-crl3= on el5, and can be installed side-by-side with version 2.
 
 ---++ End-user upgrade procedure
 
@@ -39,49 +29,45 @@ transition from fetch-crl 2 to 3 as painless as possible for the end-user.
 
 ---++ Work required for OSG Software team (and others?)
 
----+++ Package changes
+---+++ Package Changes
 
 Packages in our SVN that have =fetch-crl= as an explicit dependency:
-   * =cms-xrootd=
+
+   * =cms-xrootd= (contrib)
    * =dcache-gratia-probe=
-   * =glite-ce-cream= ( we may not end up shipping this )
-   * =osg-gridftp= 
-   * =osg-gridftp-hdfs=
-   * =osg-gridftp-xrootd=
-   * =osg-se-bestman=
-   * =osg-se-bestman-xrootd=
-   * =osg-se-hadoop= ( and =-gridftp=, =-srm= subpackages )
-   * =osg-wn-client=
-   * =rsv-metrics= <sup>1</sup>
+   * =glite-ce-cream= (in production since 3.1.7, but we may drop support?)
+   * =osg-gridftp= (metapackage)
+   * =osg-gridftp-hdfs= (metapackage)
+   * =osg-gridftp-xrootd= (metapackage)
+   * =osg-se-bestman= (metapackage)
+   * =osg-se-bestman-xrootd= (metapackage)
+   * =osg-se-hadoop= (and =-gridftp=, =-srm= subpackages)
+   * =osg-wn-client= (metapackage)
+   * =rsv-metrics= (but see note below)
    * =voms-admin-server=
 
-<sup>1</sup>
-=rsv-metrics= says it requires =fetch-crl= but does not run it anywhere, so that dep can be removed.
-Looks like it was for an old probe that is no longer used.
+*Note on rsv-metrics:* =rsv-metrics= says it requires =fetch-crl= but does not run it anywhere, so that dependency can be removed. Looks like it was for an old probe that is no longer used.
 
 RPMs _outside_ of our SVN that have =fetch-crl= as an explicit dependency:
-   * =nordugrid-arc-ca-utils= -- provided by EPEL <sup>2</sup>
+
+   * =nordugrid-arc-ca-utils= (EPEL)
    
-<sup>2</sup> We do not use this package, but we should mention it in the announcement anyway.
-A (hopefully) minor problem with this package is that because we do not ship
-it, its dependency on =fetch-crl= will not be changed to =fetch-crl3=.
+*Note on nordugrid-arc-ca-utils:* We do not use this package, but we should mention it in the announcement anyway. A (hopefully) minor problem with this package is that because we do not ship it, its dependency on =fetch-crl= will not be changed to =fetch-crl3=. Since =fetch-crl3= does not “provide” the =fetch-crl= dependency, the user will have to keep both =fetch-crl= and =fetch-crl3= installed as long as they use =nordugrid-arc-ca-utils= and one of the OSG packages mentioned above.
 
-Since =fetch-crl3= does not "provide" the =fetch-crl= dependency, the user will
-have to keep both =fetch-crl= and =fetch-crl3= installed as long as they use
-=nordugrid-arc-ca-utils= and one of the osg packages mentioned above.
+RPMs that have =/usr/sbin/fetch-crl= as a dependency: none.
 
+---+++ Software Changes
 
-RPMs that have =/usr/sbin/fetch-crl= as a dependency: none
+Some of our software specifically runs the =fetch-crl= executable. These programs must be changed, ideally so that they run =fetch-crl3= if it exists, or =fetch-crl= if it does not. See the =osg-test= code for an example of how to do this carefully. Software to update:
 
----+++ Software changes
-
-Stuff that can invoke or use (parts of) =fetch-crl= that should be changed to use =fetch-crl3= instead (if that exists):
    * =osg-configure= (=osg_configure.modules.utilities.fetch_crl()=)
-   * *DONE* =osg-test= (=test_06_fetch_crl.py=)
-   * =osg-ca-manage=, =osg-ca-certs-status= in the =osg-ca-scripts= package (checks if it's enabled and when it was last run)
+   * =osg-test= (=test_06_fetch_crl.py=, %RED%done%ENDCOLOR%)
+   * =osg-ca-manage= and =osg-ca-certs-status= in the =osg-ca-scripts= package (checks if fetch-crl is enabled and when it was last run)
 
----+++ Docs changes
-Twiki pages to update:
+---+++ Documentation Changes
+
+!TWiki pages to update:
+
    * Documentation.Release3.InstallBestPractices
    * Documentation.Release3.InstallCertAuth
    * Documentation.Release3.InstallBestmanXrootdSE (install transcript only)
@@ -101,17 +87,11 @@ Twiki pages to update:
    * Documentation.Release3.SrmTester
    * Documentation.Release3.UnderstandingComputeElement (note: looks a lot like [[Documentation.Release3.OSGServices]], is one of those two superfluous?)
 
-Pages marked 'install transcript only' have transcripts ("screen dumps") of the output of a full installation procedure.
+Pages marked “install transcript only” have transcripts (“screen dumps”) of the output of a full installation procedure.
 
+---++ Change Plan / Social Engineering
 
----+++ Change Plan / Social
-
-   1. Need the blessing of the security group, technology group and production group
+   1. Need the blessing of Security (%RED%done%ENDCOLOR%), Technology, and Production
    1. Need the upgrade instructions ([[Documentation.UpgradeFetchCrl2to3_draft]]) reviewed and tested
-   1. Send a pre-announcement of the change a few weeks in advance;%BR%
-      include whether or not this is something to worry about, how much effort migration will take, etc.
+   1. Send a pre-announcement of the change a few weeks in advance; include whether or not this is something to worry about, how much effort migration will take, etc.
    1. Do the release; highlight this change in the release notes and announcement, and link to the upgrade instructions
-
-
-<!-- vim:ft=twiki
--->
