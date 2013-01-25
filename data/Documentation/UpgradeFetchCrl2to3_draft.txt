@@ -1,20 +1,41 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1358905197" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1359075033" format="1.1" reprev="1.5" version="1.5"}%
 %META:TOPICPARENT{name="SoftwareTeam.FetchCrl3OnEl5Proposal"}%
 %LINKCSS%
 
 %DOC_STATUS_TABLE%
 
----+!! %SPACEOUT{ "Upgrading Fetch-Crl 2 to Fetch-Crl 3 on EL5 (preview)" }%
+---+!! %SPACEOUT{ "Upgrading Fetch-Crl 2 to Fetch-Crl 3 on EL5 (draft)" }%
 %TOC%
 
 ---++ Procedure
 
-   1. =service disable fetch-crl-{boot,cron}=
-   1. Either =yum install fetch-crl3= or =yum upgrade= any package that used to require =fetch-crl= (see above lists)
-   1. =service enable fetch-crl3-{boot,cron}=
-   1. Edit =/etc/cron.d/fetch-crl3= to change parameters if desired (it's marked as a &#37;config file in the rpm)
-   1. Edit =/etc/fetch-crl3.conf= as desired, see table
-   1. Test it; once satisfied that it works, you can =yum erase fetch-crl= to get rid of the old version
+   1. Install the Fetch-CRL 3 RPM. There are two ways to do this:
+      1. Run =yum install fetch-crl3= to explictly install the package
+      1. Run =yum upgrade= on one of the packages that used to require \
+         =fetch-crl=.%BR%
+         A list of those packages is at SoftwareTeam.FetchCrl3OnEl5Proposal. \
+         %RED%(TODO that list should be moved)%ENDCOLOR%
+   1. If any changes were made to the =/etc/cron.d/fetch-crl= file, then see \
+      if those changes need to be migrated in =/etc/cron.d/fetch-crl3=.%BR%
+      Note that the =-r= or =--randomwait= option was given to =fetch-crl= in \
+      minutes, but is given to =fetch-crl3= in seconds.%BR%
+      =/etc/cron.d/fetch-crl3= is marked as a configuration file, so changes \
+      will be preserved across upgrades.
+   1. Edit =/etc/fetch-crl3.conf= as desired, see the translation table below \
+      on how to migrate customizations made in =/etc/fetch-crl.conf= to
+      =/etc/fetch-crl3.conf=. Also see the example file below the translation \
+      table.
+   1. Disable fetch-crl 2 by running the following:%BR%
+      =service disable fetch-crl-boot= %BR%
+      =service disable fetch-crl-cron= %BR%
+   1. Make sure fetch-crl 2 is not currently running.
+   1. (Optional) Test fetch-crl 3 by running =/usr/sbin/fetch-crl3= from the
+      command line.
+   1. Enable fetch-crl 3 by running the following:%BR%
+      =service enable fetch-crl3-boot= %BR%
+      =service enable fetch-crl3-cron= %BR%
+   1. If satisfied that fetch-crl 3 works, then remove fetch-crl 2 by running:%BR%
+      =yum erase fetch-crl=
 
 ---++ *Translation table from fetch-crl.conf to fetch-crl3.conf:*
 
@@ -27,7 +48,7 @@
 |<code>FETCH_CRL_OPENSSL=/usr/bin/openssl</code> |<code>openssl = /usr/bin/openssl</code> |
 |<code>FORCE_OVERWRITE=yes</code> | always 'yes' |
 |<code>HTTP_PROXY=...</code> |<code>http_proxy = ...</code> or set in <code>/etc/sysconfig/fetch-crl3</code> and use <code>http_proxy = ENV</code> |
-|<code>QUIET=yes</code> |<code>verbosity = -1</code> |
+|<code>QUIET=yes</code> |<code>verbosity = 0</code> <sup>1</sup> |
 |<code>RESETPATHMODE=yes</code> |<code>path = /bin:/usr/bin</code> <sup>3</sup> |
 |<code>RESETPATHMODE=searchopenssl</code> | not available |
 |<code>SERVERCERTCHECK=no</code> | always 'no'<sup>4<sup/> |
@@ -38,7 +59,8 @@
 |<code>WGET_TIMEOUT=120</code> |<code>httptimeout = 120</code> |
 
    1. Setting <code>nowarnings = 1</code> in the =fetch-crl3.conf= silences a few warnings, mostly about not being able to execute openssl commands.%BR%
-      The <code>verbosity</code> variable, which is an integer from -1 to 7, is a more fine-grained way of controlling the amount of output.
+      The <code>verbosity</code> variable, which is an integer from -1 to 7, is a more fine-grained way of controlling the amount of output.%BR%
+      The default <code>verbosity</code> is 0.
    1. <code>nocache</code> disables caching of CRLs, while <code>stateless</code> also disables saving metadata (such as last update time).
    1. The =$PATH= used internally in the script can now be explicitly specified by setting the =path= variable in the =fetch-crl3.conf= file.%BR%
       =searchopenssl= was primarily used to find a copy of openssl in a non-standard location, such as under the Globus hierarchy.
@@ -50,8 +72,50 @@
 
 See also =/usr/share/doc/fetch-crl3-*/fetch-crl.conf.example=
 
-*TODO* Paste examples some in here
+Example =fetch-crl3.conf= file, based on the default configuration file shipped
+with fetch-crl 2.8.5 in the EPEL 5 repository:
 
+<verbatim class="file">
+# Configuration file for fetch-crl 3.0.x
+
+# Directory containing .crl_url files and output directory
+
+info_dir = /etc/grid-security/certificates
+verbosity = 0
+nowarnings
+
+# The time in hours for which CRL download failures are accepted
+# without printing an error (instead, a warning is generated)
+# Default=24hours (used to be 0 for versions <= 2.6.6).
+#agingtolerance = 24
+
+# What do we set the path to? Uses $PATH in environment by default.
+#path = /bin:/usr/bin
+
+# Write messages also to syslog using logger(1) if and only if the facility
+# name is set. When empty, no syslog messages are generated. Default is
+# empty. For valid facility values see logger(1)
+#syslogfacility = 
+
+# Path to an explicit OpenSSL version to use. Default will look through
+# the path.
+#openssl = <path>
+
+# Path of a download cache directory, *exclusively writable by the user
+# running fetch-crl*, where the original downloads are stored. The
+# cache is used unless "nocache" or "stateless" are set. Default is a cache
+# in "/var/cache/fetch-crl3" if that exists.
+# You will need to manually create this directory first with proper permissions
+#statedir=/var/cache/fetch-crl3
+
+# What http proxy to use. By default, no proxy is used. If set to "ENV", then
+# the value of the HTTP_PROXY environment variable (in the environment
+# fetch-crl3 is run) is used. This environment variable is often set in
+# "/etc/sysconfig/fetch-crl3", which does not exist by default.
+#http_proxy = ENV
+#http_proxy = http://myproxy.domain.com:8080
+
+</verbatim>
 
 <!-- CONTENT MANAGEMENT PROJECT
 ############################################################################################################
