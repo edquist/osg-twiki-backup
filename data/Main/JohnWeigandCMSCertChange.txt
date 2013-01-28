@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1358518761" format="1.1" reprev="1.8" version="1.8"}%
+%META:TOPICINFO{author="JohnWeigand" date="1359407114" format="1.1" reprev="1.9" version="1.9"}%
 %META:TOPICPARENT{name="JohnWeigand"}%
 ---+!!<nop>Notes on CMS Certificate Change
 
@@ -44,7 +44,7 @@ For now you should be able to access vomrsdev.fnal.gov as you and do:
 
 Create your proxy and copy it in /tmp on vomrs dev..%BR%
 or 
-<pre>
+<pre class="screen">
    export X509_USER_PROXY=your_proxy
 </pre>
 Since this a pacman installed VOMRS and certificates are likely installed be RPM, you need to
@@ -62,7 +62,7 @@ The real simple way to do it  is to do the following:%BR%
       returns for each member primary cert:%BR%
         DN%BR%
         CA%BR%
-<pre>
+<pre class="screen">
 e.g:
 /opt/vomrs/vomrs/client/bin/vomrs_soapclient vomrsdev.fnal.gov 8443 vomrs/Test getMembers
 
@@ -77,7 +77,7 @@ e.g:
 </pre>
 
 then for each DN, CA do
-<pre>
+<pre class="screen">
 /opt/vomrs/vomrs/client/bin/vomrs_soapclient lcg-voms.cern.ch 8443 vo/cms getMbrDNs "DN", "CA" 
 ... this will returns all DN, CA for this member including the primary one ,eg:
 /opt/vomrs/vomrs/client/bin/vomrs_soapclient  lcg-voms.cern.ch  8443 vomrs/cms getMbrDNs "/DC=org/DC=doegrids/OU=Services/CN=vomrsdev.fnal.gov" "/DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1"
@@ -88,7 +88,7 @@ then for each DN, CA do
 </pre>
 
 if you don't want to do it and get all the information at once and parse it later you can do :
-<pre>
+<pre class="screen">
  /opt/vomrs/vomrs/client/bin/vomrs_soapclien 8443  lcg-voms.cern.ch  8443 vomrs/cms  getMembersInfo -1 % % % % % Member full Approved  %
 you will get back
 1st line: number of members in the list
@@ -113,7 +113,7 @@ Personal Info
 </pre>
 
 If member doesn't have additional certs it will be an empty line.
-<pre>
+<pre class="screen">
 e.g:
 4
 /DC=org/DC=doegrids/OU=People/CN=Tanya Levshina  123
@@ -168,27 +168,112 @@ Under the above scenario, we have no way knowing which corrective action was tak
 In this case, in order to programmatically, change the association in GUMS, we would have 
 to know the correct mappings in the storage system.
 
+---+ Initial SQL update (simple case)
+__Updated by Weigand 1/28/13__ %BR%
+<pre class="screen">
+| ID   | MAP       | DN                | ACCOUNT   | 
++------+-----------+-------------------|-----------|
+|    2 | uscmsPool | CN=weigand 002    | uscms0001 |
+|    3 | uscmsPool | CN=weigand 003    | uscms0002 |
+
+-- setting 2's account to 3's ----
+set @id_old   = (select ID from MAPPING where DN = 'CN=weigand 002');
+set @acct_old = (select ACCOUNT from MAPPING where DN = 'CN=weigand 002');
+set @id_new   = (select ID from MAPPING where DN = 'CN=weigand 003');
+set @acct_new = (select ACCOUNT from MAPPING where DN = 'CN=weigand 003');
+select @id_old,@acct_old,@id_new,@acct_new;
++---------+-----------+---------+-----------+
+| @id_old | @acct_old | @id_new | @acct_new |
++---------+-----------+---------+-----------+
+| 2       | uscms0001 | 3       | uscms0002 | 
++---------+-----------+---------+-----------+
+
+-- creating MAPPING for 2's old account --
+insert into MAPPING values (NULL,'uscmsPool',NULL,@acct_old);
+-- updating 2 with 3's account --
+update MAPPING set ACCOUNT=@acct_new where ID=@id_old;
+
+| ID      | MAP          | DN            | ACCOUNT   | 
++------+---------------+----------------|----------------|
+|    2    | uscmsPool  | CN=weigand 002  | uscms0002 | 
+|    3    | uscmsPool  | CN=weigand 003  | uscms0002 | 
+| 3015    | uscmsPool  | NULL             | uscms0001 |
+
+</pre>
 
 
----+ Other Issues
-This section just documents some other issues related to pacman versus rpm GUMS/VOMS services.
+---+ Other Issues / concerns
+This section just documents some other issues/concerns related to pacman versus rpm GUMS/VOMS services.
 
----++ GUMS Issue with allocating pool accounts
----+++ Weigand 1/10/13
-We need to look into how GUMS determines when a pool account application is full.  It currently issue
-a WARN message when there are all pool accounts are used.  
+---++ GUMS and pool account consumption - GOOD
+__Updated by Weigand 1/28/13__ %BR%
+I had a concern as to the query that GUMS used to determine how many pool accounts were allocated
+and consumed.  It appears we are OK on this count. 
+I created 6 pool accounts in the MAPPING tables.  Populated 3 of them with different users.  GUMS showed 3 of 6 consumed.
+I then inserted a 7th row in the MAPPING table with a unique DN but the same unix account (uscms0006) as another entry.
+GUMS still showed 3 of 6 consumed.  This is good as this will be the condition we will be creating.
 
-It is likely making the determination by doing:%BR%
-   * select count(*) from MAPPING where MAP = 'blah' and DN IS NOT NULL;
-the result will be misleading.
+This is true for RPM and PACMAN installations.
 
-It needs to do:
-   * select count(distinct ACCOUNT) from MAPPING where MAP = 'blah' and DN IS NOT NULL;
-
-This is likely a problem area as I think it does the simple case.
-
+---++ Does GUMS fill in open pool accounts (gaps) - GOOD
+__Updated by Weigand 1/28/13__ %BR%
 Related, sort of, is whether or not GUMS fills in open accounts (gaps so-to-speak) or just does a 'max(ACCOUNT)'
 and only assigns from the "end".
+We are good here too.  GUMS consumes unconsumed pool accounts using the first DN=NULL entry in the MAPPING table.
+
+This is true for RPM and PACMAN installations.
+
+---++ SQL update requires Tomcat restart
+__Updated by Weigand 1/28/13__ %BR%
+It appears that GUMS retains the current state of pool accounts in memory. So any direct SQL update to
+re-assign accounts will require a restart of tomcat to take affect.
+
+This is true for RPM and PACMAN installations.
+
+---++ SQL update will require an UPDATE and INSERT
+__Updated by Weigand 1/28/13__ %BR%
+The direct SQL update of GUMS will require:
+   * an UPDATE of the existing entry changing the ACCOUNT%BR%
+      __update MAPPING set ACCOUNT='uscms0005' where ID=4;__
+   * an INSERT using the updated entry's ACCOUNT %BR%
+     __insert into MAPPING values (NULL,'uscmsPool',NULL,'uscms0003')__
+This keeps the number of total pool accounts the same and opens up a pool account for consumption.
+__Note:__ This can be done in any order as the only unique key is the ID field.  
+
+---++ Is DN unique in the MAPPING table? - OPEN CONCERN
+__Updated by Weigand 1/28/13__ %BR%
+It is unknown at this time if some GUMS admins have updated their GUMS databases directly to accommodate storage.
+The GUMS MAPPING table's only unique key is ID.  There is none on DN.  So, they can create a condition where DN
+is not unique (and it should be).  Our assumption is that it is.  A means of verifying this is via this query:
+<pre class="screen">
+select b.DN from 
+(select DN,count(*) as cnt from MAPPING 
+ where MAP='uscmsPool' 
+     and DN is not NULL 
+     group by DN
+) b
+where b.cnt > 1
+;
+</pre>
+An empty set would indicate we are good.
+This may be something we can ask them to do.  It would make life easier.
+
+
+---++ How do I identify the CMS pool accounts - OPEN ISSUE
+__Updated by Weigand 1/28/13__ %BR%
+Can I assume the CMS pool accounts will start with 'uscms'?%BR%
+Should it be an argument to the script identifying the pool account names?%BR%
+Does any site use more than 1 pool account name for CMS?
+
+---++ Can DOE certs in MAPPING table be deleted at some point
+__Updated by Weigand 1/28/13__ %BR%
+If we can delete (not really delete but set the DN to NULL)  the DOE cert entries in the MAPPING at some point in time, this will
+allow us to reduce the number of allocated pool accounts and corresponding unix accounts on the
+service nodes.  At some point in time, these accounts will never be used again.  Sort of like a 
+re-cycling.
+
+__However__ , we need to be very careful if we do this.  A user could have been using a DOE cert. Was inactive
+for a long period.  Then started back up again.  __This may not be a good idea.__
 
 ---++ pacman GUMS and RPM VOMS for user group updates
 When using the pacman version of GUMS and user group updates are performed against an rpm VOMS server,
