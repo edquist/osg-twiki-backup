@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1358994702" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1359418712" format="1.1" version="1.2"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 ---+!! Orace JDK 6 Deprecation (WIP)
 
@@ -111,3 +111,89 @@ whenever we can.
    * EGI (glite-*?)
    * dCache team (dcache-srmclient, others?)
    * ...
+
+
+---++ Testing
+
+---+++ GUMS
+
+Main.MatyasSelmeci: Briefly did a functional test of GUMS on EL6. 
+Set up FC machines in parallel with GUMS from osg-testing:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install -y osg-ca-certs gums-{client,service} fetch-crl globus-proxy-utils
+%UCL_PROMPT_ROOT% service mysqld start
+%UCL_PROMPT_ROOT% mysql_secure_installation
+%UCL_PROMPT_ROOT% mysql -p mysql
+>> create user 'gums'@'localhost' identified by 'GUMSPASSWORD';
+>> grant all privileges on *.* to 'gums'@'localhost' with grant option;
+%UCL_PROMPT_ROOT% gums-setup-mysql-database --user gums --host `hostname`:3306 --password GUMSPASSWORD
+%UCL_PROMPT_ROOT% gums-add-mysql-admin YOUR_DN
+%UCL_PROMPT_ROOT% fetch-crl
+%UCL_PROMPT_ROOT% sed -i -e "s/localhost/`hostname`/" /etc/gums/gums-client.properties
+%UCL_PROMPT_ROOT% mkdir -p /etc/grid-security/http
+%UCL_PROMPT_ROOT% cd /etc/grid-security/http; for x in cert key; do rm -f http$x.pem; cp -f ../host$x.pem http$x.pem; done
+%UCL_PROMPT_ROOT% chown -R tomcat:tomcat /etc/grid-security/http
+%UCL_PROMPT_ROOT% /var/lib/trustmanager-tomcat/configure.sh
+</pre>
+(replace YOUR_DN with your DN, and GUMSPASSWORD with a password for the gums db user)
+Then I edited =/etc/gums/gums.config= and made the following changes:
+<verbatim class="file">
+--- old 2012-04-25 16:29:14.000000000 -0500
++++ new 2012-04-25 16:32:31.000000000 -0500
+@@ -31,6 +31,8 @@
+                         access='read self'
+                         description='Testing GUMS-status with GIP Probe'
+                         persistenceFactory='mysql'/>
++
++                <manualUserGroup persistenceFactory='mysql' name='LOGIN'/>
+        </userGroups>
+
+        <accountMappers>
+@@ -38,6 +40,8 @@
+                        name='gums-test'
+                        description='Testing GUMS-status with GIP Probe'
+                        accountName='GumsTestUserMappingSuccessful'/>
++
++                <groupAccountMapper name='LOGIN' accountName='LOGIN'/>
+        </accountMappers>
+
+        <groupToAccountMappings>
+@@ -48,13 +52,18 @@
+                        accountingVo=''
+                        userGroups='gums-test'
+                        accountMappers='gums-test'/>
++
++                <groupToAccountMapping name='LOGIN' userGroups='LOGIN' accountMappers='LOGIN'/>
+        </groupToAccountMappings>
+
+        <hostToGroupMappings>
++        <!--
+                <hostToGroupMapping
+                        groupToAccountMappings='gums-test'
+                        description=''
+                        cn='*/?*.fnal.gov'/>
++        -->
++                <hostToGroupMapping cn='HOSTNAME' groupToAccountMappings='LOGIN'/>
+        </hostToGroupMappings>
+
+ </gums>
+</verbatim>
+(replace =HOSTNAME= with the hostname and =LOGIN= with your login)
+
+At this point you can do the following:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% service tomcat6 start
+%UCL_PROMPT_ROOT% gums manualGroupAdd LOGIN YOUR_DN
+%UCL_PROMPT_ROOT% gums-host generateGridMapfile
+%UCL_PROMPT_ROOT% gums-host mapUser YOUR_DN
+</pre>
+as well as try out the web interface by going to =https://HOSTNAME:8443/gums=
+
+
+Once I verified that it worked on both machines, I shut off tomcat6 on the experimental machine, and did the following to replace oracle jdk with openjdk 7:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT%; yum install java-1.7.0-openjdk{,-devel}
+%UCL_PROMPT_ROOT%; yum erase java-1.6.0-openjdk
+%UCL_PROMPT_ROOT%; rpm -e --nodeps jdk java-1.6.0-sun-compat
+</pre>
+Then I restarted tomcat6, tried the previous tests, and had no problems.
