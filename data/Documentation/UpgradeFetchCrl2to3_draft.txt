@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1360355500" format="1.1" reprev="1.8" version="1.8"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1360366141" format="1.1" reprev="1.9" version="1.9"}%
 %META:TOPICPARENT{name="SoftwareTeam.SwitchToFetchCrl3"}%
 %LINKCSS%
 
@@ -9,53 +9,75 @@
 
 ---++ About This Document
 
-This document is for system administrators running the OSG Version 3 software stack.
+This document is for system administrators running existing installations of
+the OSG Software Stack Version 3.
+
+The version of Fetch-CRL version 2, which is the version of Fetch-CRL that is
+normally installed on Enterprise Linux 5 systems is outdated and is unlikely to
+receive updates. Therefore, the OSG Software stack will require Fetch-CRL 3
+instead of Fetch-CRL 2 for software that requires CRLs.
+
+Because the configuration format has changed between versions, some manual work
+is required to migrate the configuration.
 
 
+---++ Requirements
 
-
----++ Overview
-
-The version of Fetch-CRL version 2, which is the version of Fetch-CRL that is normally installed on Enterprise Linux 5 systems is outdated and is unlikely to receive updates. Therefore, the OSG Software stack is starting to require Fetch-CRL 3 instead for software that requires CRLs. An upgrade from Fetch-CRL 3 is recommended.
-
-Because the configuration format has changed between versions, some manual work is required to migrate the configuration.
-
+An installation of the OSG Software Stack Version 3 is required for this
+procedure.
 
 ---++ Procedure
 
 Fetch-CRL 3 can be installed side-by-side with Fetch-CRL 2.
-Because of this, and the fact that configuration has to be migrated, from Fetch-CRL 2 to Fetch-CRL 3, the installation procedure is as follows:
+Because of this, and the fact that configuration has to be migrated, from
+Fetch-CRL 2 to Fetch-CRL 3, the installation procedure is as follows:
    1. Install Fetch-CRL 3
    1. Migrate configuration
+   1. Disable and stop Fetch-CRL 2
    1. Validate operation of Fetch-CRL 3
-   1. Disable and uninstall Fetch-CRL 2
+   1. Enable Fetch-CRL 3
+   1. Uninstall Fetch-CRL 2
 All of this can be done without any downtime.
 
-The step-by-step procedure is:
-   1. Install the Fetch-CRL 3 RPM. You may either do this explicitly by running =yum install fetch-crl3=, or it will be done as part of an update to one of the packages that requires =fetch-crl=.
-   1. If any changes were made to the =/etc/cron.d/fetch-crl= file, then see \
-      if those changes need to be migrated in =/etc/cron.d/fetch-crl3=.%BR%
-      Note that the =-r= or =--randomwait= option was given to =fetch-crl= in \
-      minutes, but is given to =fetch-crl3= in seconds.%BR%
-      =/etc/cron.d/fetch-crl3= is marked as a configuration file, so changes \
-      will be preserved across upgrades.
-   1. Edit =/etc/fetch-crl3.conf= as desired, see the translation table below \
-      on how to migrate customizations made in =/etc/fetch-crl.conf= to
-      =/etc/fetch-crl3.conf=. Also see the example file below the translation \
-      table.
-   1. Disable fetch-crl 2 by running the following:%BR%
-      =service disable fetch-crl-boot= %BR%
-      =service disable fetch-crl-cron= %BR%
-   1. Make sure fetch-crl 2 is not currently running.
-   1. (Optional) Test fetch-crl 3 by running =/usr/sbin/fetch-crl3= from the
-      command line.
-   1. Enable fetch-crl 3 by running the following:%BR%
-      =service enable fetch-crl3-boot= %BR%
-      =service enable fetch-crl3-cron= %BR%
-   1. If satisfied that fetch-crl 3 works, then remove fetch-crl 2 by running:%BR%
-      =yum erase fetch-crl=
+The step-by-step procedure follows:
 
----++ Configuration Translation
+---+++ ##. Install Fetch-CRL 3
+
+Install the RPM named =fetch-crl3=.
+This will be done as part of one of the upcoming OSG Software Stack releases.
+
+---+++ ##. Migrate the configuration
+
+There are two parts to this: migrating changes to the cron job (in
+=/etc/cron.d/fetch-crl=), and migrating changes to the configuration (in
+=/etc/fetch-crl.conf).
+
+---++++!! Migrating cron job
+
+If any changes were made to the =/etc/cron.d/fetch-crl= file, then see
+if those changes need to be migrated in =/etc/cron.d/fetch-crl3=.
+
+One way to determine if =/etc/cron.d/fetch-crl= was changed from the installed version is to run the following:
+<pre>
+rpm --verify --nouser --nogroup fetch-crl | grep /etc/cron.d/fetch-crl
+</pre>
+That command should display no output if the file was unmodified.
+
+A typical argument that is added onto the =fetch-crl= command line is
+=--randomwait= (or its abbreviation, =-r=). This parameter determines the
+maximum amount of time to wait for before starting to download CRL files. The
+intent of this is to reduce load spikes on the servers hosting the CRLs.
+*Note:* For Fetch-CRL 2, that argument was given in minutes, but in Fetch-CRL
+3, it should be given in seconds.
+
+---++++!! Migrating configuration file
+
+Edit =/etc/fetch-crl3.conf= as desired, see the translation table below
+on how to migrate customizations made in =/etc/fetch-crl.conf= to
+=/etc/fetch-crl3.conf=. Also see the example file below the translation
+table.
+
+---+++++!! Configuration Translation
 
 | *fetch-crl.conf* | *fetch-crl3.conf* |
 |<code>ALLWARNINGS=yes</code> | No equivalent; see the =nowarnings= and =verbosity= options to achieve the same results (1) |
@@ -142,6 +164,39 @@ nowarnings
 
 </verbatim>
 %ENDTWISTY%
+
+---+++ ##. Disable and stop Fetch-CRL 2
+
+This involves running the following commands:
+<pre class="rootscreen">
+service disable fetch-crl-boot
+service disable fetch-crl-cron
+</pre>
+
+If fetch-crl is running (which can be tested by running =ps axuw= and looking
+for the process =fetch-crl=), wait for it to finish. You may kill the process,
+but that might end up leaving incomplete CRL files behind, so it is not
+recommended.
+
+---+++ ##. Validate Fetch-CRL 3 Operation
+
+This is done by running =/usr/sbin/fetch-crl3= from the command line.
+
+---+++ ##. Enable Fetch-CRL 3
+
+This involves running the following commands:
+<pre class="rootscreen">
+service enable fetch-crl3-boot
+service enable fetch-crl3-cron
+</pre>
+
+---+++ ##. Remove Fetch-CRL 2
+
+If satisfied that fetch-crl 3 works, then remove Fetch-CRL 2 by running =yum erase fetch-crl=
+
+=yum= should not be trying to remove any packages other than =fetch-crl=.
+
+
 
 <!-- CONTENT MANAGEMENT PROJECT
 ############################################################################################################
