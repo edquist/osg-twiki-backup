@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1363811006" format="1.1" reprev="1.19" version="1.19"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1364246268" format="1.1" reprev="1.20" version="1.20"}%
 %META:TOPICPARENT{name="NavUserApplications"}%
 <!-- Local variables
    * Set CONDORREL = 7.8.6
@@ -76,7 +76,7 @@ The VO Frontend will use two certificates in its communication with the Glidein 
 It is possible also to use a single certificate/proxy for both functions. It is also possible to use more than one certificate to submit glidein.
 A third certificate, User Pool Collector cert, is used to secure the communication between the User Pool Collector and the User Pool Schedd, two components of the VO Frontend.
 -->
-Certificates will be in PEM format, a certificate file and a key file. They must be owned by the user running the service (check also that it can access the directory where you stored the certificates) and have the right permission (600).
+Certificates will be in PEM format, a certificate file and a key file. They must be owned by =frontend=, the user running the service, (check also that it can access the directory where you stored the certificates) and have the right permission (600).
 
 The host certificate and key needs to be located in /etc/grid-security/hostcert.pem and /etc/grid-security/hostkey.pem.
 
@@ -199,9 +199,13 @@ The configuration file is =/etc/gwms-frontend/frontend.xml=.  The next steps wil
    &lt;schedd DN="%RED%Cert DN used by the schedd at fullname:%ENDCOLOR%" fullname="%RED%Hostname of the schedd%ENDCOLOR%"/>
    &lt;schedd DN="%RED%Cert DN used by the second Schedd at fullname:%ENDCOLOR%" fullname="%RED%schedd name%ENDCOLOR%@%RED%Hostname of second schedd%ENDCOLOR%"/>
 &lt;/schedds></pre>
-   1. The DN is that of the user submitter proxy specified above.  The Security name identifies this frontend with the Factory, it is given by the factory operator.
+   1. The DN in the _security_ entry is that of the Glidein Frontend Host cert specified above, the path is the one of a proxy created using that certificate (see below).  The Security name identifies this frontend with the Factory, it is given by the factory operator. The file in the _proxy_ entry is the User submitter proxy specified above. See below for instructions on how to create the proxies. Both files should be owned by =frontend=. 
    <pre class="file">
-&lt;security classad_proxy="%RED%/tmp/x509up_u99%ENDCOLOR%" proxy_DN="%RED%DN of proxy owned by user frontend%ENDCOLOR%" proxy_selection_plugin="ProxyAll" security_name="%RED%The security name, this is used by factory%ENDCOLOR%" sym_key="aes_256_cbc"> 
+&lt;security classad_proxy="%RED%/tmp/vofe_proxy%ENDCOLOR%" proxy_DN="%RED%DN of proxy identifying VO FE owned by frontend%ENDCOLOR%" proxy_selection_plugin="ProxyAll" security_name="%RED%The security name, this is used by factory%ENDCOLOR%" sym_key="aes_256_cbc"> 
+    &lt;proxies>
+        &lt;proxy absfname="%RED%/tmp/vofe_user_proxy%ENDCOLOR%" security_class="frontend"/>
+    &lt;/proxies> 
+&lt;/security>
 </pre>
    1. The DN of the host cert and the hostname of the collectors (the host were the VO Frontend is being installed, =hostname -fqdn=). The default Condor configuration of the VO Frontend starts multiple Collector processes on the host: the DN and the hostname on the second line are the same as the ones in the first one. The hostname (e.g. hostname.domain.tld) is filled automatically during the installation. Control that it is the desired one.
    <pre class="file">
@@ -323,29 +327,52 @@ If you don't see all the collectors and the two schedd, then the configuration m
 ---++ Create a Condor grid mapfile.
 
 The Condor grid mapfile (=/etc/condor/certs/condor_mapfile=) is used for authentication between the glidein running on a remote worker node, and the local collector.  Condor uses the mapfile to map certificates to pseudo-users on the local machine.  It is important that you map the DN's of:
-   * Each schedd that the frontend talks to (specified in the frontend.xml)
-   * The DN of the proxy that the frontend uses (User Submitter proxy DN)
+   * Each schedd that the frontend talks to (specified in the frontend.xml, including the DN of the VO Frontend,  =/tmp/vofe_proxy=)
+   * The DN of the proxy that the frontend uses (User Submitter proxy DN, =/tmp/vofe_user_proxy= in the example above)
    * The DN of the factory that you where given.
 
-Below is an example mapfile, by default found in =/etc/condor/certs/condor_mapfile=:
+Below is an example mapfile, by default found in =/etc/condor/certs/condor_mapfile=. In this example there are the line of the VO frontend (local schedd, same DN as /tmp/vofe_proxy, see configuration above), the line of the user proxy (used by the factory to start the glideins, the one in =/tmp/vofe_user_proxy=), a line for the UCSD factory, and 2 lines for 2 flocking submit hosts, =submit-host1.mydomain.edu= (used by multiple users) and =personal-submit-host2.mydomain.edu= that is mapped to the local user =myuser2=. Remember to escape the DNs :
    <pre class="file">
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=People\/CN\=Derek\ Weitzel\ 285345$" frontend
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/hcc\-grid\.unl\.edu$" dweitzel
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/cpass\.unl\.edu$" dweitzel
+GSI "^\/%RED%DN of proxy identifying VO FE owned by frontend%ENDCOLOR%$" frontend
+GSI "^\/%RED%DN of User proxy owned by frontend, %ENDCOLOR%$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=gfactory\-1\.t2\.ucsd\.edu$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\submit\-host1\.mydomain\.edu$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=personal\-submit\-host2\.mydomain\.edu$" myuser2
 GSI (.*) anonymous
 FS (.*) \1 </pre>
 
+<!--
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=People\/CN\=Marco\ Mambelli\ 325802$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=glidein\-fe\-condor\/gi\-vofe\.uchicago\.edu" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/uc3\-sub\.uchicago\.edu$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/uc3\-bosco\.uchicago\.edu$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=glidein\-1\.t2\.ucsd\.edu$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=gfactory\-1\.t2\.ucsd\.edu$" frontend
+GSI (.*) anonymous
+FS (.*) \1 </pre>
+-->
+
 ---++ Proxy Configuration
-By default, the frontend will run as user =frontend= (UID = machine dependent).  In order for the frontend to use the certificate for user =frontend=, it has to exist and be owned by the user =frontend=.
+By default, the frontend will run as user =frontend= (UID = machine dependent).  In order for the frontend to use the certificate for user =frontend=, it has to exist and be owned by the user =frontend=. This has to be done for both the VO Frontend proxy and the User proxy.
+
+Glidein Frontend Host proxy:
+   1. Create the proxy using the Glidein Frontend Host (or Service) cert
+   <pre class="screen">
+%UCL_PROMPT_ROOT% voms-proxy-init -valid &lt;hours_valid> -cert /etc/grid-security/hostcert.pem -key /etc/grid-security/hostkey.pem -out /tmp/vofe_proxy </pre>
+   1. Change ownership of the proxy
+   <pre class="rootscreen">
+%UCL_PROMPT_ROOT% chown frontend: /tmp/vofe_proxy </pre>
+
+User Submitter proxy: 
    1. Create the proxy using the User Submitter cert
    <pre class="screen">
 %UCL_PROMPT% voms-proxy-init -valid &lt;hours_valid> -voms &lt;vo> </pre>
    1. Copy the proxy to the correct name
    <pre class="screen">
-%UCL_PROMPT% cp /tmp/x509up_u`id -u` /tmp/x509up_u`id -u frontend` </pre>
+%UCL_PROMPT% cp /tmp/x509up_u`id -u` /tmp/vofe_user_proxy </pre>
    1. Change ownership of the proxy
    <pre class="rootscreen">
-%UCL_PROMPT_ROOT% chown frontend: /tmp/x509up_u`id -u frontend` </pre>
+%UCL_PROMPT_ROOT% chown frontend: /tmp/vofe_user_proxy </pre>
 
 The proxy above will be used for job submission (User Submitter proxy) and communicating with the Factory.  This sequence of commands will need to be renewed when the proxy expires or the machine reboots.  Make sure that this location is specified correctly in the =frontend.xml=. 
 You may want to automate the procedure above (or part of it) by writing a script and adding it to the crontab.
