@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1364307687" format="1.1" version="1.4"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1364310729" format="1.1" reprev="1.5" version="1.5"}%
 %META:TOPICPARENT{name="InstallGlideinWMSFrontend"}%
 ---+!! *GlideinWMS in a Campus Grid*
 %DOC_STATUS_TABLE%
@@ -11,16 +11,28 @@ To submit jobs from a Campus Grid to Open Science Grid using the !GlideinWMS sys
    1. Use an existing VO Frontend submitting to OSG (e.g. HCC, OSG-XSEDE)  and flock to it
    2. Use your own VO Frontend and configure your submit hosts to use it.
 
+Both these options use HTCondor _flocking_, a mechanism that allows jobs to overflow from a HTCondor pool to a second one. Jobs migrate from a _schedd_ of a pool to a _collector_ and _negotiator_ of a different pool.
 Option 1 is covered in CampusGrids.InstallCondorFlockSubmit. This document describe how to configure a GlideinWMS VO Frontend and submit hosts in a Campus Grid. This will show how jobs submitted to the submit host can flock to campus resources as well as going out to the OSG using !GlideinWMS.
 For *help* and *references* please refer to the [[InstallGlideinWMSFrontend][GlideinWMS VO Frontend install document]].
 
 
----+ Required Software
-   1. [[InstallGlideinWMSFrontend][GlideinWMS Frontend]]. You must have installed and configured a VO Frontend as described in the document.
 
+---+ Requirements 
+
+---++Required Software
+[[InstallGlideinWMSFrontend][GlideinWMS Frontend]]. You must have installed and configured a VO Frontend as described in the document.
+
+---++ Certificates
+All hosts using GSI authentication, e.g. =campus-submit.mydomain.edu= in the example below, must have a valid host certificate. [[GetHostServiceCertificates][Check this document]] to see what host certificates are and how to request them.
+
+---+ !GlideinWMS VO Frontend - Flocking Configuration 
+The VO Frontend hosts a HTCondor pool with the job slots of the glideins sent by the !GlideinWMS Factory.
+To receive jobs form other pools via flocking the  configuration of the central manager, e.g. =gwms-vofe.mydomain.edu=, must contain a FLOCK_FROM line including the submit host, like: <pre class="file">
+FLOCK_FROM = $(FLOCK_FROM) %RED%campus-submit.mydomain.edu%ENDCOLOR%
+</pre>
 
 ---+ !GlideinWMS VO Frontend - Security Configuration
-The configuration of the !GlideinWMS VO Frontend must allow other hosts to communicate with the frontend.  By default, the !GlideinWMS Frontend has very strong security, requiring GSI certs to communicate.  In this example, a campus factory or condor cluster is running at condor.unl.edu.  This section will describe the configuration of the !GlideinWMS Frontend.
+The configuration of the !GlideinWMS VO Frontend must allow other hosts to communicate with the frontend.  By default, the !GlideinWMS Frontend has very strong security, requiring GSI certs to communicate.  In this example, a campus submit host is running at =campus-submit.mydomain.edu=.  This section will describe the configuration of the !GlideinWMS Frontend.
 
 ---++ Using GSI authentication
 If you can use GSI authentication to connect all your submit hosts (schedd) to the frontend we recommend to use it.
@@ -31,10 +43,11 @@ If one of the submit hosts cannot use GSI authentication, then you'll have to en
 The =condor_mapfile= is used by Condor to map a authenticated user to a human readable identity to be used in authentication rules. 
 %NOTE% The =condor_mapfile= uses regular expressions to map from authentication methods to users.  This is why there are many escapes (=\=) in the below example.
 
-For each GSI authenticated submit host that you want to submit to the the VO Frontend add the following line:<pre class="file">
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\submit\-host1\.mydomain\.edu$" frontend
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=personal\-submit\-host2\.mydomain\.edu$" myuser2
+For each GSI authenticated submit host that you want to submit (flock) to the the VO Frontend find out the DN of its certificate and add the following line to the =condor_mapfile=:<pre class="file">
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=campus\-submit\.mydomain\.edu$" frontend
 </pre>  
+
+<!-- should it be anonymous@hostname ? 
 
    <pre class="file">
 GSI "^\/%RED%DN of proxy identifying VO FE owned by frontend%ENDCOLOR%$" frontend
@@ -44,20 +57,21 @@ GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\submit\-host1\.mydomain\.e
 GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=personal\-submit\-host2\.mydomain\.edu$" myuser2
 GSI (.*) anonymous
 FS (.*) \1 </pre>
-
+-->
 
 The file, including the part already there from the !GlideinWMS Frontend install, should look similar to the following example:<pre class="file">
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/hcc\-grid\.unl\.edu$" dweitzel
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/cpass\.unl\.edu$" dweitzel
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/(.*)\.unl\.edu$" \1@daemon.unl.edu
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/(.*)\.rcac\.purdue\.edu$" \1@daemon.purdue.edu
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=Name Familyname 12345$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\gwms\-vofe\.mydomain\.edu$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=gfactory\-1\.t2\.ucsd\.edu$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\submit\-host1\.mydomain\.edu$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=personal\-submit\-host2\.mydomain\.edu$" myuser2
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=campus\-submit\.mydomain\.edu$" frontend
 GSI (.*) anonymous
-FS (.*) \1
-CLAIMTOBE .* anonymous@claimtobe
-</pre>
+FS (.*) \1 </pre>
+
 
 ---++ Enabling alternative authentication methods
-It is necessary to enable authentication methods that are acceptable to the campus.  CLAIMTOBE is recommended in the [[Documentation.CampusFactoryInstall][Campus Factory Install]] guide, and will be used to implement host (ip address) based security in this document.  
+It is necessary to enable authentication methods that are acceptable to the campus. If you are on a safe network and no GSI authentication is possible with the submit hosts, then you can use CLAIMTOBE . It will be used to implement host (ip address) based security in this document.  
 
 First enable the CLAIMTOBE method.  Copy and paste the below into your local condor configuration file.  It will append the existing authentication methods to include CLAIMTOBE.  
 <pre class="file">
@@ -65,18 +79,16 @@ SEC_DEFAULT_AUTHENTICATION_METHODS = $(SEC_DEFAULT_AUTHENTICATION_METHODS), CLAI
 </pre>
 
 ---+++ Modify the =condor_mapfile= for CLAIMTOBE
-The =condor_mapfile= is used by Condor to map a authenticated user to a human readable identity to be used in authentication rules. 
-%NOTE% The =condor_mapfile= uses regular expressions to map from authentication methods to users.  This is why there are many escapes (=\=) in the below example.
-
-Add the following important line, that most hosts attempting to authenticate will use:<pre class="file">
+Also here you have o modify the =condor_mapfile= like in the GSI authentication. This time add the following line, that most hosts attempting to authenticate will use:<pre class="file">
 CLAIMTOBE .* anonymous@claimtobe</pre>  
-This means that any machine using =CLAIMTOBE= authentication method will be mapped to user anonymous@claimtobe (The user does not have to exist on the machine).  Therefore all authorization rules will use =anonymous@claimtobe= to refer to this user and can be more restrictive than the rules for GSI authenticated users.
+This means that any machine using =CLAIMTOBE= authentication method will be mapped to user anonymous@claimtobe (The user does not have to exist on the machine, it is use for HTCondor identification and accounting).  Therefore all authorization rules will use =anonymous@claimtobe= to refer to this user and can be more restrictive than the rules for GSI authenticated users.
 
 The file, including the part already there from the !GlideinWMS Frontend install, should look similar to the following example:<pre class="file">
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/hcc\-grid\.unl\.edu$" dweitzel
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/cpass\.unl\.edu$" dweitzel
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/(.*)\.unl\.edu$" \1@daemon.unl.edu
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/(.*)\.rcac\.purdue\.edu$" \1@daemon.purdue.edu
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=Name Familyname 12345$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\gwms\-vofe\.mydomain\.edu" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=gfactory\-1\.t2\.ucsd\.edu$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\submit\-host1\.mydomain\.edu$" frontend
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=personal\-submit\-host2\.mydomain\.edu$" myuser2
 GSI (.*) anonymous
 FS (.*) \1
 CLAIMTOBE .* anonymous@claimtobe
@@ -87,37 +99,97 @@ Below is an example security configuration file from the HCC !GlideinWMS Fronten
 
 <pre class="file">
 DENY_WRITE = anonymous@* 
-ALLOW_WRITE = *@unl.edu *@glidein.unl.edu execute-side@matchsession *@daemon.unl.edu *@daemon.purdue.edu <strong>*/condor.unl.edu</strong>
+ALLOW_WRITE = *@mydomain.edu *@glidein.mydomain.edu execute-side@matchsession *@daemon.mydomain.edu *@daemon.guestdomain.edu <strong>*/campus-submit.mydomain.edu</strong>
 DENY_ADVERTISE_SCHEDD = anonymous@*
 DENY_ADMINISTRATOR = anonymous@*
-DENY_DAEMON = anonymous@glidein.unl.edu 
-ALLOW_DAEMON = *@unl.edu *@glidein.unl.edu  execute-side@matchsession *@daemon.unl.edu *@daemon.purdue.edu 
-DENY_NEGOTIATOR = anonymous@glidein.unl.edu 
-ALLOW_NEGOTIATOR = */*.unl.edu *@daemon.purdue.edu <strong>*/condor.unl.edu</strong></pre>
+DENY_DAEMON = anonymous@glidein.mydomain.edu 
+ALLOW_DAEMON = *@mydomain.edu *@glidein.mydomain.edu  execute-side@matchsession *@daemon.mydomain.edu *@daemon.guestdomain.edu 
+DENY_NEGOTIATOR = anonymous@glidein.mydomain.edu 
+ALLOW_NEGOTIATOR = */*.mydomain.edu *@daemon.guestdomain.edu <strong>*/campus-submit.mydomain.edu</strong></pre>
 
 Some quick definitions:
-   $ =ALLOW_WRITE=: Hosts that are able to write to the local Condor instance.  This should include all hosts running the Campus Factory and condor clusters you wish to flock to.
-   $ =ALLOW_NEGOTIATOR=: Hosts that run Negotiators that we should trust.  This should include all hosts running the Campus Factory and condor clusters you wish to flock to.
+   $ =ALLOW_WRITE=: Hosts that are able to write to the local HTCondor instance.  This should include all hosts running HTCondor clusters you wish to flock to or from.
+   $ =ALLOW_NEGOTIATOR=: Hosts that run Negotiators that we should trust.  This should include all hosts running the Campus Factory and HTCondor clusters you wish to flock to.
 
 Breaking down the file some:
 <pre class="file">
 DENY_WRITE = anonymous@* 
-ALLOW_WRITE = *@unl.edu *@glidein.unl.edu execute-side@matchsession *@daemon.unl.edu *@daemon.purdue.edu <strong>*/condor.unl.edu</strong></pre>
-The =DENY_WRITE= statement causes Condor to disallow write access to anyone not explicitly listed in the =condor_mapfile=.  The =ALLOW_WRITE= line allows explicitly listed people access to write, along with anyone and everyone from =condor.unl.edu=.
+ALLOW_WRITE = *@mydomain.edu *@glidein.mydomain.edu execute-side@matchsession *@daemon.mydomain.edu *@daemon.guestdomain.edu <strong>*/campus-submit.mydomain.edu</strong></pre>
+The =DENY_WRITE= statement causes Condor to disallow write access to anyone not explicitly listed in the =condor_mapfile=.  The =ALLOW_WRITE= line allows explicitly listed people access to write, along with anyone and everyone from =campus-submit.mydomain.edu=.
 ---
 
 <pre class="file">
-ALLOW_NEGOTIATOR = */*.unl.edu *@daemon.purdue.edu <strong>*/condor.unl.edu</strong> </pre>
-Allow condor.unl.edu to negotiate jobs submitted at this host.
+ALLOW_NEGOTIATOR = */*.mydomain.edu *@daemon.guestdomain.edu <strong>*/campus-submit.mydomain.edu</strong> </pre>
+Allow =campus-submit.mydomain.edu= to negotiate jobs submitted at this host.
 
 
----+++ Flocking Configuration
-Set the flocking to the hostname of each campus factory and the central manager of existing condor clusters.
+---+ Submit host - Flocking Configuration 
+This configuration refer to the Submit host, =campus-submit.mydomain.edu=, and any other host that should flock jobs to the VO Frontend and the OSG
+The HTCondor configuration must contain a FLOCK_TO line with a space separated line with the VO Frontend and all the HTCondor pools the submit host should flock to. 
 <pre class="file">
-FLOCK_TO = condor.unl.edu
+FLOCK_TO = $(FLOCK_TO) %RED%gwms-vofe.mydomain.edu%ENDCOLOR%
+</pre>
+Replacing %RED%gwms-vofe.mydomain.edu%ENDCOLOR% with the full hostname or IP of the VO Frontend.
+
+To list all the pools the jobs will flock to type =condor_config_val FLOCK_TO=.
+If multiple hosts are listed, flocking happens in the order the hosts appear in the line, from left to right
+
+---+ Submit host - Security Configuration
+The configuration of the Submit host must allow its communication with the frontend.  By default, the !GlideinWMS Frontend has very strong security, requiring GSI certs to communicate also for the submit host. Submit hosts instead normally do not use GSI authentication, so you'll have to do some extra work to use it. This section will describe the configuration of the Submit host. The authentication methods should match: if you chose GSI authentication above for the VO Frontend you must choose GSI authentication also for the Submit host and vice-versa.
+
+---++ Using GSI authentication
+GSI authentication is based on x509 certificates and requires some infrastructure to work correctly.
+Normally HTCondor submit hosts are not configured to use GSI authentication and some of the required software, like the CA certificates, may not be installed.
+
+---+++ Install the CA Certificates
+If you have no CA certificates in =/etc/grid-security/certificates= (e.g. if that directory does not exist or is empty) then you must setup the OSG Yum repositories (you may have them already if you installed other OSG software on this host) and install the CA certificates.
+
+%INCLUDE{"YumRepositories" section="OSGRepoBrief" TOC_SHIFT="+++"}%
+
+%INCLUDE{"InstallCertAuth" section="OSGBriefCaCerts" TOC_SHIFT="+++"}%
+
+---+++ Configure HTCondor to use GSI authentication
+Now you can configure HTCondor to use GSI authentication. The hostname and the DN of the VO Frontend, in  %RED%red%ENDCOLOR%, must be changed to match yours. The path of the host certificate and key, also in  %RED%red%ENDCOLOR%, may need to be changed if you used a different file name.
+%NOTE% A host certificate is required. If you don't have one, before proceeding [[GetHostServiceCertificates][check this document]] to see what host certificates are and how to request them.
+<pre class="file">
+# VO Frontend hostname (FQDN) and Distinguished Name (subject of the certificate)
+MY_VOFE = %RED%gwms-vofe.mydomain.edu%ENDCOLOR%
+MY_VOFE_DN = %RED%/DC=org/DC=doegrids/OU=Services/CN=host\gwms-vofe.mydomain.edu%ENDCOLOR%
+
+# If you have other pools using GSI authentication and that you'd like to flock to you can add the hostname, DN and add them  to the flock_to and gsi_daemon_name lists
+
+# VO Frontends or other pools to flock to. Add all the hostnames
+FLOCK_TO = $(FLOCK_TO) $(MY_VOFE)
+
+# Who to trust?  Include all the DN that the submit host should trust (comma separated)
+GSI_DAEMON_NAME = $(GSI_DAEMON_NAME), $(MY_VOFE_DN)
+
+
+# Host certificates
+# Change the path of the host certificate and key if you put them in a different location
+GSI_DAEMON_CERT = %RED%/etc/grid-security/hostcert.pem%ENDCOLOR%
+GSI_DAEMON_KEY = %RED%/etc/grid-security/hostkey.pem%ENDCOLOR%
+# default? GSI_DAEMON_TRUSTED_CA_DIR = /etc/grid-security/certificates
+
+
+# Enable authentication from tne Negotiator (This is required to run on glidein jobs)
+SEC_ENABLE_MATCH_PASSWORD_AUTHENTICATION = TRUE
+
+# Enable gsi authentication (It should be already in the default: FS, KERBEROS, GSI
+SEC_DEFAULT_AUTHENTICATION_METHODS = GSI, $(SEC_DEFAULT_AUTHENTICATION_METHODS)
 </pre>
 
----++ Configuration of the Campus Factory or existing Condor cluster
+
+---++ Enabling alternative authentication methods
+If you decided to authenticate your hosts with CLAIMTOBE you must enable it also on the Submit host.
+Copy and paste the line below into your local condor configuration file.  It will append the existing authentication methods to include CLAIMTOBE.  
+<pre class="file">
+SEC_DEFAULT_AUTHENTICATION_METHODS = $(SEC_DEFAULT_AUTHENTICATION_METHODS), CLAIMTOBE
+</pre>
+
+
+
+---++ Configuration of the Submit host or existing Condor cluster
 For all the Campus Factories and any existing Condor cluster that you'd like to use, the submit host needs to be added to the =FLOCK_FROM= configuration value.   Either find the  FLOCK_FROM variable in the Condor configuration, or append it to the end of the local Condor config file:<pre class="file">
 FLOCK_FROM = $(FLOCK_FROM) %RED%submit.host%ENDCOLOR%
 </pre>
@@ -129,11 +201,19 @@ Additionally, the existing Condor cluster must have the =CLAIMTOBE= authenticati
 SEC_DEFAULT_AUTHENTICATION_METHODS = $(SEC_DEFAULT_AUTHENTICATION_METHODS), CLAIMTOBE
 </pre>
 ---
----++ *Comments*
+
+---+ References
+Other possible components of a Campus Grid
+   * [[InstallGlideinWMSFrontend][!GlideinWMS VO Frontend]]
+   * [[InstallCondorFlockSubmit][A HTCondor Submit host using OGS run Frontends]]
+OSG Software
+   * [[YumRepositories][How to setup OSG Yum repositories]]
+   * [[InstallCertAuth][How to install and use the CA certificates and other components of the x509 PKI infrastructure]]
+
+---+ Comments
 %COMMENT{type="tableappend"}%
 
 
--->
 
 <!-- CONTENT MANAGEMENT PROJECT
 ############################################################################################################
@@ -176,7 +256,7 @@ SEC_DEFAULT_AUTHENTICATION_METHODS = $(SEC_DEFAULT_AUTHENTICATION_METHODS), CLAI
  Thank for reviewing this document! Please fill in your FirstLast name here:
    * Local REVIEWER       = MarcoMambelli 	
  Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local REVIEW_PASSED  = %YES%
+   * Local REVIEW_PASSED  = %IN_PROGRESS%
 
 
  DEAR DOCUMENT TESTER
@@ -188,7 +268,3 @@ SEC_DEFAULT_AUTHENTICATION_METHODS = $(SEC_DEFAULT_AUTHENTICATION_METHODS), CLAI
    * Local TEST_PASSED    = %IN_PROGRESS%
 ############################################################################################################
 -->
-
-
-
--- Main.MarcoMambelli - 20 Mar 2013
