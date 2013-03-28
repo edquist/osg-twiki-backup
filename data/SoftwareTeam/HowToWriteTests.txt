@@ -1,6 +1,9 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1355330888" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1364502514" format="1.1" version="1.3"}%
 %META:TOPICPARENT{name="InternalDocs"}%
----+ How to Write Automated Tests for OSG Software (osg-test)
+
+---+!! How to Write Automated Tests for OSG Software (osg-test)
+
+%TOC%
 
 ---++ Where to Write Tests
 
@@ -42,22 +45,23 @@ The =test_*= modules are organized roughly into three phases, based on the seque
 ---++ Coding Tips
 
 It is important to know the basics of the Python =unittest= module; [[http://docs.python.org/release/2.4.3/lib/module-unittest.html read the documentation for it]].
+We build on top of the =unittest= module, by providing an =osgunittest= module that inherits from it.
 
 ---+++ Basic Structure of a Test Module
 
-Each test module must import the =unittest= library, plus whichever of the =osg-test= libraries are needed (conventionally with shortened aliases):
+Each test module must import the =osgunittest= library, plus whichever of the =osg-test= libraries are needed (conventionally with shortened aliases):
 
-<pre class="file">
-import unittest
+%CODE{"python"}%
+import osgunittest
 
 import osgtest.library.core as core
 import osgtest.library.files as files
-</pre>
+%ENDCODE%
 
-Then, a single test class is defined, deriving from =unittest.TestCase=; the individual tests are sequentially numbered functions within the class:
+Then, a single test class is defined, deriving from =osgunittest.OSGTestCase=; the individual tests are sequentially numbered functions within the class:
 
-<pre class="file">
-class TestFooBarBaz(unittest.TestCase):
+%CODE{"python"}%
+class TestFooBarBaz(osgunittest.OSGTestCase):
 
     def test_01_first_thing(self):
         # test stuff!
@@ -66,18 +70,21 @@ class TestFooBarBaz(unittest.TestCase):
         # test stuff!
 
     # Tests return (success) or raise (failure)
-</pre>
+%ENDCODE%
+
+*Note:* =osgunittest= was introduced in osg-test 1.2.5; tests written for earlier versions may still be using =unittest= directly.
+These tests should be updated to use =osgunittest= instead.
 
 ---+++ Test Assertions
 
 Within each test function, use the [[http://docs.python.org/release/2.4.3/lib/testcase-objects.html TestCase object functions]] to assert things that should be true:
 
-<pre class="file">
+%CODE{"python"}%
 def test_99_example(self):
     result = do_something()
     self.assert_(result > 42, 'result too low')
     self.assertEqual(result, 57, 'result ok')
-</pre>
+%ENDCODE%
 
 Be sure to learn and use all of the assertion functions, for greatest expressive power and clarity! For example, there are also:
 
@@ -87,27 +94,94 @@ Be sure to learn and use all of the assertion functions, for greatest expressive
 
 ---+++ Skipping Tests
 
-It is important to skip tests when the packages that they depend on are not installed. There are two patterns supported for skipping tests, use the simplest one for your case (or follow conventions of other tests):
+There are two cases in which a test should be skipped, and they have different semantics in =osgunittest=:
+   1. If the packages they depend on are not installed. This is called an =OkSkip=, since it does not indicate any sort of error.
+   1. If the packages they depend on _are_ installed, but required services were unavailable. This is called a =BadSkip=, since it indicates a cascading failure -- an error in a previous step that is causing problems in the current step.
+One of the extensions that =osgunittest= adds to =unittest= is the ability to report on these kinds of failures.
 
-For a custom test and skip message:
+The following =osgunittest= methods cause the test to be skipped with an =OkSkip= ( =OkSkipException= ):
+   $ <code>skip_ok</code>([<i>message</i>=<i>None</i>]): skip, with optional message
+   $ <code>skip_ok_if</code>(<i>expr</i>, [<i>message</i>=<i>None</i>]): skip if =expr= is True, with optional message
+   $ <code>skip_ok_unless</code>(<i>expr</i>, [<i>message</i>=<i>None</i>]): skip if =expr= is False, with optional message
+and the following =osgunittest= methods cause the test to be skipped with a =BadSkip= ( =BadSkipException= ):
+   $ <code>skip_bad</code>([<i>message</i>=<i>None</i>]): skip, with optional message
+   $ <code>skip_bad_if</code>(<i>expr</i>, [<i>message</i>=<i>None</i>]): skip if =expr= is True, with optional message
+   $ <code>skip_bad_unless</code>(<i>expr</i>, [<i>message</i>=<i>None</i>]): skip if =expr= is False, with optional message
 
-<pre class="file">
+Note that the =OkSkip= methods are often not directly used, and convenience functions in =osgtest.core= are used instead.
+
+---++++!! Skipping Due to Missing Packages (!OkSkip)
+
+The following two patterns are used for skipping tests due to missing packages; use the simplest one for your case (or follow conventions of other tests):
+
+Example 1: A single package with custom skip message
+%CODE{"python"}%
 def test_01_start_condor(self):
-    # ...
-    if not core.rpm_is_installed('condor'):
-        core.skip('not installed')
-        return
-</pre>
+    core.skip_ok_unless_installed('condor',
+                                  message='HTCondor not installed')
+%ENDCODE%
 
-For a normal check of several package names at once:
-
-<pre class="file">
+Example 2: A normal check of several packages at once:
+%CODE{"python"}%
 def test_02_condor_job(self):
-    if core.missing_rpm('globus-gram-job-manager-condor', 'globus-gram-client-tools', 'globus-proxy-utils'):
-        return
-</pre>
+   core.skip_ok_unless_installed('globus-gram-job-manager-condor',
+                                 'globus-gram-client-tools',
+                                 'globus-proxy-utils')
+%ENDCODE%
+
+Note that old unit test code might be using the methods =core.rpm_is_installed()= or =core.missing_rpm()= for this purpose.
+These just printed a message if the test was to be skipped, but the test writer had to actually perform the skip manually.
+
+The following patterns should be converted to match the first and second example, respectively:
+
+Old Example 1:
+%CODE{"python"}%
+if not core.rpm_is_installed('condor'): # OLD CODE
+    core.skip('not installed')
+    return
+%ENDCODE%
+Old Example 2:
+%CODE{"python"}%
+if core.missing_rpm('globus-gram-job-manager-condor', # OLD CODE
+                    'globus-gram-client-tools',
+                    'globus-proxy-utils'):
+    return
+%ENDCODE%
 
 *Note:* Add skip tests to *all* functions that depend on a particular package, not just the first one within a test module.
+
+---++++!! Skipping Due to Failure in Required Service (!BadSkip)
+
+Tests often require a service to be up and running.
+If the service is not running, then it is expected that the test will fail through no fault of the component being tested.
+These cascading failures often mask the root cause of the problem.
+In order to avoid that, we instead skip the test, and mark it as having been skipped due to a previous failure (a !BadSkip).
+Note that these should be raised only _after_ making sure the service has been installed.
+
+The following examples show how this is done:
+%CODE{"python"}%
+core.skip_ok_unless_installed('globus-gram-job-manager-condor')
+self.skip_bad_unless(core.state['condor.running-service'],
+                     message='HTCondor service not running')
+%ENDCODE%
+
+%CODE{"python"}%
+core.skip_ok_unless_installed(
+    'globus-gram-job-manager-pbs',
+    'globus-gram-client-tools',
+    'globus-proxy-utils',
+    'globus-gram-job-manager-pbs-setup-seg')
+
+if (not core.state['torque.pbs-configured'] or
+    not core.state['torque.pbs-mom-running'] or
+    not core.state['torque.pbs-server-running'] or
+    not core.state['globus.pbs_configured']):
+    
+    self.skip_bad('pbs not running or configured')
+%ENDCODE%
+
+*Note:* Add skip tests to *all* functions that depend on a particular service, not just the first one within a test module.
+
 
 ---+++ Running System Commands
 
@@ -117,18 +191,18 @@ See the !PyDoc for the =core= library for full documentation on the functions. B
 
 The basic system-call pattern:
 
-<pre class="file">
+%CODE{"python"}%
 def test_99_made_up_example(self):
     command = ('/usr/bin/id','-u')
     status, stdout, stderr = core.system(command, True)
     fail = core.diagnose('id of test user', status, stdout, stderr)
     self.assertEqual(status, 0, fail)
     # Maybe more checks and assertions
-</pre>
+%ENDCODE%
 
 In the most common case, you run the =core.system()= function, check its exit status against 0, and then possibly test its stdout and stderr for problems. There is a helper function for this common case:
 
-<pre class="file">
+%CODE{"python"}%
 def test_01_web100clt(self):
     if core.missing_rpm('ndt'):
         return
@@ -136,7 +210,7 @@ def test_01_web100clt(self):
     stdout, stderr, fail = core.check_system(command, 'NDT client')
     result = re.search('ndt.+version', stdout, re.IGNORECASE)
     self.assert_(result is not None)
-</pre>
+%ENDCODE%
 
 ---+++ Configuration and State
 
@@ -144,20 +218,20 @@ The test framework does not automatically preserve values across test modules, s
 
 Store all cross-module configuration values in =core.config= (a dictionary):
 
-<pre class="file">
+%CODE{"python"}%
 def test_04_config_voms(self):
     core.config['voms.vo'] = 'osgtestvo'
     # ...
-</pre>
+%ENDCODE%
 
 Record cross-module state values in =core.state= (a dictionary):
 
-<pre class="file">
+%CODE{"python"}%
 def test_01_start_mysqld(self):
     core.state['mysql.started-server'] = False
     # Try to start MySQL service, raise on fail
     core.state['mysql.started-server'] = True
-</pre>
+%ENDCODE%
 
 
 ---+++ Module-Wide Setup and Teardown
@@ -166,6 +240,10 @@ Sometimes a module needs certain operations to be done for setting up tests.
 For example, the tests for osg-configure involve importing the unit test modules provided by osg-configure itself, and need to add an entry to =sys.path=.
 This kind of setup should be put _inside_ the test class; it will not get reliably run if it is only inside the module.
 Making separate test functions for the setup and teardown steps (named, for example, =test_00_setup= and =test_99_teardown=) is a good way of handling this.
+
+---++ See also
+
+The main [[SoftwareTeam.TestingHome][Automated Testing for OSG RPMs]] page for more information.
 
 <!-- vim:ft=twiki:sw=3
 -->
