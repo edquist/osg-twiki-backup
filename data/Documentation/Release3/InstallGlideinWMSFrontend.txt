@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1364317071" format="1.1" version="1.22"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1364857980" format="1.1" reprev="1.23" version="1.23"}%
 %META:TOPICPARENT{name="NavUserApplications"}%
 <!-- Local variables
    * Set CONDORREL = 7.8.6
@@ -109,7 +109,7 @@ Before installing the Glidein WMS VO Frontend you need the information about a [
 To request access the OSG Glidein Factory you have to send an email to osg-gfactory-support@physics.ucsd.edu providing:
    1 Your Name
    1 The VO that is utilizing the VO Frontend
-   1 The DN of the proxy you will use to submit pilots (User Submitter cert DN) and communicate with the Factory.
+   1 The DN of the proxy you will use to communicate with the Factory (VO Frontend DN) and the one to submit pilots (User Submitter cert DN, or Glidein delegated proxy DN).
    1 You can propose a security name that will have to be confirmed/changed by the Factory managers (see below)
    1 A list of sites where you want to run:
       * Your VO must be supported on those sites
@@ -195,11 +195,11 @@ The configuration file is =/etc/gwms-frontend/frontend.xml=.  The next steps wil
    &lt;schedd DN="%RED%Cert DN used by the schedd at fullname:%ENDCOLOR%" fullname="%RED%Hostname of the schedd%ENDCOLOR%"/>
    &lt;schedd DN="%RED%Cert DN used by the second Schedd at fullname:%ENDCOLOR%" fullname="%RED%schedd name%ENDCOLOR%@%RED%Hostname of second schedd%ENDCOLOR%"/>
 &lt;/schedds></pre>
-   1. The DN in the _security_ entry is that of the Glidein Frontend Host cert specified above, the path is the one of a proxy created using that certificate (see below).  The Security name identifies this frontend with the Factory, it is given by the factory operator. The file in the _proxy_ entry is the User submitter proxy specified above. See below for instructions on how to create the proxies. Both files should be owned by =frontend=. 
+   1. The DN in the _security_ entry is that of the Glidein Frontend Host cert specified above, the path is the one of a proxy created using that certificate (see below).  The Security name identifies this frontend with the Factory, it is given by the factory operator. The file in the _proxy_ entry is the User submitter proxy specified above (the proxy delegated to the glideins). See below for instructions on how to create the proxies. Both files should be owned by =frontend=. 
    <pre class="file">
 &lt;security classad_proxy="%RED%/tmp/vofe_proxy%ENDCOLOR%" proxy_DN="%RED%DN of proxy identifying VO FE owned by frontend%ENDCOLOR%" proxy_selection_plugin="ProxyAll" security_name="%RED%The security name, this is used by factory%ENDCOLOR%" sym_key="aes_256_cbc"> 
     &lt;proxies>
-        &lt;proxy absfname="%RED%/tmp/vofe_user_proxy%ENDCOLOR%" security_class="frontend"/>
+        &lt;proxy absfname="%RED%/tmp/vofe_gi_delegated_proxy%ENDCOLOR%" security_class="frontend"/>
     &lt;/proxies> 
 &lt;/security>
 </pre>
@@ -229,7 +229,7 @@ LOCAL_CONFIG_DIR = /etc/condor/config.d</pre>
 
 For most installations, the items you need to modify are in =03_gwms_local.config=.  The lines you will have to edit are:
 
-   1. Credentials of the machine.  You can either run using a proxy, or a service certificate.  It is recommended to use a host certificate and specify it's location in the variables =GSI_DAEMON_CERT= and =GSI_DAEMON_KEY=.  The host certificate should be owned by =root= and have the correct permissions, 600.
+   1. Credentials of the machine.  You can either run using a proxy, or a service certificate.  It is recommended to use a host certificate and specify it's location in the variables =GSI_DAEMON_CERT= and =GSI_DAEMON_KEY=.  The host certificate and key should be owned by =root= and have the correct permissions, 600. *NOTE* that this configuration is for HTCondor, not for the frontend that requires a proxy as specified in other parts of this document.
    <pre class="file">
 #-- Condor user: condor
 CONDOR_IDS =
@@ -324,7 +324,8 @@ If you don't see all the collectors and the two schedd, then the configuration m
 
 The Condor grid mapfile (=/etc/condor/certs/condor_mapfile=) is used for authentication between the glidein running on a remote worker node, and the local collector.  Condor uses the mapfile to map certificates to pseudo-users on the local machine.  It is important that you map the DN's of:
    * Each schedd that the frontend talks to (specified in the frontend.xml, including the DN of the VO Frontend,  =/tmp/vofe_proxy=)
-   * The DN of the proxy that the frontend uses (User Submitter proxy DN, =/tmp/vofe_user_proxy= in the example above)
+   * The DN of the proxy that the frontend uses (=/tmp/vofe_proxy= in the example above)
+   * The DN of the proxy that the frontend forwards to the factory to use with the glideins (User Submitter proxy DN, =/tmp/vofe_gi_delegated_proxy= in the example above)
    * The DN of the factory that you where given.
 
 Below is an example mapfile, by default found in =/etc/condor/certs/condor_mapfile=. In this example there are the line of the VO frontend (local schedd, same DN as /tmp/vofe_proxy, see configuration above), the line of the user proxy (used by the factory to start the glideins, the one in =/tmp/vofe_user_proxy=), a line for the UCSD factory, and 2 lines for 2 flocking submit hosts, =submit-host1.mydomain.edu= (used by multiple users) and =personal-submit-host2.mydomain.edu= that is mapped to the local user =myuser2=. Remember to escape the DNs :
@@ -349,11 +350,12 @@ FS (.*) \1 </pre>
 -->
 
 ---++ Proxy Configuration
-By default, the frontend will run as user =frontend= (UID = machine dependent).  In order for the frontend to use the certificate for user =frontend=, it has to exist and be owned by the user =frontend=. This has to be done for both the VO Frontend proxy and the User proxy.
+By default, the frontend will run as user =frontend= (UID = machine dependent).  In order for the Frontend to use a certificate, it has to exist and be owned by the user =frontend=. This has to be done for both the VO Frontend proxy (used to authenticate with the Factory) and the User proxy (the proxy to delegate to the glideins).
 
-Glidein Frontend Host proxy:
+---+++ Manual process
+VO Frontend Host proxy:
    1. Create the proxy using the Glidein Frontend Host (or Service) cert
-   <pre class="screen">
+   <pre class="rootscreen">
 %UCL_PROMPT_ROOT% voms-proxy-init -valid &lt;hours_valid> -cert /etc/grid-security/hostcert.pem -key /etc/grid-security/hostkey.pem -out /tmp/vofe_proxy </pre>
    1. Change ownership of the proxy
    <pre class="rootscreen">
@@ -371,6 +373,58 @@ User Submitter proxy:
 %UCL_PROMPT_ROOT% chown frontend: /tmp/vofe_user_proxy </pre>
 
 %WARNING% *Proxies do expire.* You can extend the validity by using a longer time interval, e.g. =-valid 3000:0=. The proxy above will be used for job submission (User Submitter proxy) and communicating with the Factory.  This sequence of commands will need to be renewed when the proxy expires or the machine reboots.  Make sure that this location is specified correctly in the =frontend.xml=.  You may want to automate the procedure above (or part of it) by writing a script and adding it to the crontab.
+
+---+++ Example of automatic proxy renewal
+This example uses the script [[%ATTACHURL%/make-proxy.sh][make-proxy.sh]] attached to this document.
+You still need to do some prep-work but this can be done only once a year and the script will warn you with an email.
+
+Preparation for the VO Frontend Host proxy. You'll have to redo this each time the Host (or Service) certificate and key are renewed:
+   1. Copy the Host (or Service) certificate and key <pre class="rootscreen">
+%UCL_PROMPT_ROOT% cp /etc/grid-security/hostcert.pem -key /etc/grid-security/hostkey.pem /var/lib/gwms-frontend/ </pre>
+   1. Change ownership and permission of the certificate and key <pre class="rootscreen">
+%UCL_PROMPT_ROOT% chown frontend: /var/lib/gwms-frontend/host*.pem
+%UCL_PROMPT_ROOT% chmod 0600 /var/lib/gwms-frontend/host*.pem </pre>
+
+Preparation for the User Submitter proxy. You'll have to redo this each time the User gets a new Grid certificate and key pair: 
+   1. Create the proxy using the User Submitter certificate/key (as the user/submitter) <pre class="screen">%UCL_PROMPT% grid-proxy-init -valid 8800:0 -out /tmp/tmp_proxy -old</pre>
+   1. Copy the proxy to the correct name and change ownership and permissions (as root)   <pre class="rootscreen">
+%UCL_PROMPT_ROOT% cp /tmp/tmp_proxy /var/lib/gwms-frontend/vofe_base_gi_delegated_proxy
+%UCL_PROMPT_ROOT% chown frontend: /var/lib/gwms-frontend/vofe_base_gi_delegated_proxy
+%UCL_PROMPT_ROOT% chmod 0600 /var/lib/gwms-frontend/vofe_base_gi_delegated_proxy
+%UCL_PROMPT_ROOT% rm /tmp/tmp_proxy </pre>
+
+Configure the script for the VO Frontend Host proxy:
+   1. Download the [[%ATTACHURL%/make-proxy.sh][attached script]] and save it as =/var/lib/gwms-frontend/make-proxy.sh=
+   1. Edit the VARIABLES section to look something like (replace your email, host name and the paths that are different in your setup - the comments in the script will help): <pre class="file">SETUP_FILE=""
+CERT_FILE="/var/lib/gwms-frontend/hostcert.pem"
+KEY_FILE="/var/lib/gwms-frontend/hostkey.pem"
+IN_NAME="/var/lib/gwms-frontend/frontend_base_proxy"
+OUT_NAME="/tmp/vofe_proxy"
+OWNER_EMAIL="%RED%your@email_here%ENDCOLOR%"
+PROXY_DESCRIPTION="VO Fronted on %RED%hostname%ENDCOLOR%"
+VOMS_OPTION=""</pre>
+
+Configure the script for the  User Submitter proxy:
+   1. Download the [[%ATTACHURL%/make-proxy.sh][attached script]] and save it as =/var/lib/gwms-frontend/make-proxy-glidein.sh=
+   1. Edit the VARIABLES section to look something like  (replace your email, host name and the paths that are different in your setup - the comments in the script will help): <pre class="file">SETUP_FILE=""
+CERT_FILE=""
+KEY_FILE=""
+IN_NAME="/var/lib/gwms-frontend/vofe_base_gi_delegated_proxy"
+OUT_NAME="/tmp/vofe_gi_delegated_proxy"
+OWNER_EMAIL="%RED%your@email_here%ENDCOLOR%"
+PROXY_DESCRIPTION="VO Fronted glidein delegated on %RED%hostname%ENDCOLOR%"
+VOMS_OPTION="osg:/osg"</pre>
+
+Before adding the scripts to the crontab I'd recommend to test them manually once to make sure that there are no errors. As user =frontend= run: <pre class="screen">
+sh -x /var/lib/gwms-frontend/make-proxy.sh
+sh -x /var/lib/gwms-frontend/make-proxy-glidein.sh
+</pre>
+
+Add the scripts to the crontab of the user =frontend= with =crontab -e=:  <pre class="file">
+10 * * * * /var/lib/gwms-frontend/make-proxy.sh
+10 * * * * /var/lib/gwms-frontend/make-proxy-glidein.sh
+</pre>
+
 
 <!--
 Depending on the previous choices it may be used to authenticate with the factory or not. 
@@ -594,8 +648,5 @@ Other documents
 ############################################################################################################
 -->
 
-
-
--- Main.DouglasStrain - 23 Feb 2012
-
 %META:FILEATTACHMENT{name="simple_diagram.png" attachment="simple_diagram.png" attr="" comment="" date="1319061747" path="simple_diagram.png" size="36007" stream="simple_diagram.png" tmpFilename="/usr/tmp/CGItemp20094" user="MarcoMambelli" version="1"}%
+%META:FILEATTACHMENT{name="make-proxy.sh" attachment="make-proxy.sh" attr="" comment="Example of make-proxy script" date="1364853033" path="make-proxy.sh" size="4784" stream="make-proxy.sh" tmpFilename="/usr/tmp/CGItemp20416" user="MarcoMambelli" version="1"}%
