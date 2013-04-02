@@ -1,5 +1,9 @@
-%META:TOPICINFO{author="AnandPadmanabhan" date="1364489700" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="AnandPadmanabhan" date="1364877773" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
+<!-- conventions used in this document
+   * Set TWISTY_OPTS_DETAILED = mode="div" showlink="Show Detailed Output" hidelink="Hide" showimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleopen-small.gif" hideimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleclose-small.gif" remember="on" start="hide" 
+-->
+
 ---++ Security drill to access and understand user/job traceability 
 
 A number of Virtual Organizations (VOs)  are submitting job on behalf of their user by using pilot job framework, for e.g. glidein WMS. A job owner is still the person on whose behalf the job is executed and he/she is responsible for the behavior of the job. Hence being able to identify an individual user has been important. This has been traditionally been done by using X.509 digital user certificates. These user certificates are part of the job payload and are individually authenticated and authorized by the resource providers. Since the certificates are associated with individual users, it has been fairly straightforward for the sites to make connections between a executable/job to an individual.
@@ -44,4 +48,301 @@ Will be conducted on Friday March 29, 2013. We propose the following schedule:
    2. Then we will let you work on the drill on your schedule for the next few hours
    3. We convene back at 3pm CDT (1pm PDT) for a 1 hr meeting. Agenda would be to understand the gaps in conducting job traceability and make some initial recommendation for improving the situation.
 
+---++++ Findings from the drill
+
+   * Condor history and Gratia accounting logs were used to provide the information.
+   * Given just the timestamp and the worker node were the problem was noticed,  we do not have enough information to tell which jobs ran on which glideins. Without knowing the glidein pilot job that is associated with the 'misbehaving' job, timestamp alone is not able to identify a particular user since 2 or more glideins running at the same time om this node.
+   * Condor history logs rolls over too quickly. By default 20MB is kept and  rotated twice. Hence the settings was changed to the following to store more history data.
+<pre class="file">
+     MAX_HISTORY_LOG = 1000000000
+     ENABLE_HISTORY_ROTATION = True
+     MAX_HISTORY_ROTATIONS = 5
+</pre>
+   * Job/machine match information is lost when new matches are made (jobs coming out of hold state or after preemption). The following settings were added (in condor config) to keep the 10 last matches:
+<pre class="file">
+     SYSTEM_JOB_MACHINE_ATTRS = GLIDEIN_ResourceName, Name, StartdIpAddr
+     SYSTEM_JOB_MACHINE_ATTRS_HISTORY_LENGTH = 10
+</pre>
+   This helps, but we probably also need to keep JobStartDate and maybe other attributes as well. It can also make the queries really long.
+
+Below is a detailed information from the drill
+
+%TWISTY{%TWISTY_OPTS_DETAILED% showlink="Show details of the security exercise conducted at the frontend"}% 
+<pre class="file">
+Test 1
+------
+
+Given information:
+
+    When:          Wed 3/27 ~noon CDT
+    Sitename:      Firefly
+    Node hostname: c1023.local
+    Node IP:       10.158.10.23
+
+
+As these jobs were submitted before we extended our local Condor
+history log, the log had already rolled over. But we can still
+find summary records in Gratia. This will work for jobs which
+ran and then were removed. If the job was put on hold, either
+manually or automatically, the Gratia records will not be
+complete. The query used was:
+
+
+SELECT
+  LocalJobId,
+  LocalUserId,
+  CommonName,
+  WallDuration,
+  StartTime,
+  EndTime,
+  SubmitHost,
+  Host
+FROM
+  JobUsageRecord JUR
+JOIN
+  JobUsageRecord_Meta JURM ON JUR.dbid = JURM.dbid
+WHERE
+  ProbeName REGEXP 'condor:osg-xsede.grid.iu.edu' AND
+  JUR.StartTime >= '2013-03-27 00:00:00' AND
+  JUR.EndTime <= '2013-03-27 23:59:59' AND
+  Host LIKE 'c1023%'
+ORDER BY JUR.StartTime ASC
+LIMIT 10000
+;
+
+
+With the result:
+
++------------+-------------+--------------------------------------+--------------+---------------------+---------------------+-----------------------+------------------------+
+| LocalJobId | LocalUserId | CommonName                           | WallDuration | StartTime           | EndTime             | SubmitHost            | Host                   |
++------------+-------------+--------------------------------------+--------------+---------------------+---------------------+-----------------------+------------------------+
+| 8781546    | apadmana    | /CN=apadmana                         |          902 | 2013-03-27 16:51:04 | 2013-03-27 17:06:06 | osg-xsede.grid.iu.edu | c1023.local (primary)  |
+| 8772223    | jhirsch     | /CN=James Hirschauer 355966          |         5823 | 2013-03-27 17:09:30 | 2013-03-27 18:46:33 | osg-xsede.grid.iu.edu | c1023.local (primary)  |
+| 8772247    | jhirsch     | /CN=James Hirschauer 355966          |         6024 | 2013-03-27 17:12:03 | 2013-03-27 18:52:27 | osg-xsede.grid.iu.edu | c1023.local (primary)  |
+| 8773733    | jstupak     | /CN=jstupak/CN=696538/CN=John Stupak |         8151 | 2013-03-27 18:43:51 | 2013-03-27 21:09:21 | osg-xsede.grid.iu.edu | c1023.local (primary)  |
+| 8772766    | jhirsch     | /CN=James Hirschauer 355966          |         1121 | 2013-03-27 18:50:42 | 2013-03-27 19:09:23 | osg-xsede.grid.iu.edu | c1023.local (primary)  |
+| 8772859    | jhirsch     | /CN=James Hirschauer 355966          |         1142 | 2013-03-27 18:56:40 | 2013-03-27 19:15:42 | osg-xsede.grid.iu.edu | c1023.local (primary)  |
+| 8773128    | jhirsch     | /CN=James Hirschauer 355966          |         1135 | 2013-03-27 19:09:23 | 2013-03-27 19:28:18 | osg-xsede.grid.iu.edu | c1023.local (primary)  |
++------------+-------------+--------------------------------------+--------------+---------------------+---------------------+-----------------------+------------------------+
+7 rows in set (2.97 sec)
+
+Note that we do not have enough information to tell if these jobs
+ran on the same glidein or not. In this case, the timestamps
+overlap so we know that there was 2 or more glideins running
+at the same time om this node.
+
+What executable 'apadmana' ran is not available.
+
+Narrowing down on what 'apadmana' ran that day:
+SELECT
+  LocalJobId,
+  LocalUserId,
+  CommonName,
+  WallDuration,
+  StartTime,
+  EndTime,
+  SubmitHost,
+  Host
+FROM
+  JobUsageRecord JUR
+JOIN
+  JobUsageRecord_Meta JURM ON JUR.dbid = JURM.dbid
+WHERE
+  ProbeName REGEXP 'condor:osg-xsede.grid.iu.edu' AND
+  JUR.StartTime >= '2013-03-27 00:00:00' AND
+  JUR.EndTime <= '2013-03-27 23:59:59' AND
+  LocalUserId = 'apadmana'
+ORDER BY JUR.StartTime ASC
+LIMIT 10000
+;
+
++------------+-------------+--------------+--------------+---------------------+---------------------+-----------------------+---------------------------------------+
+| LocalJobId | LocalUserId | CommonName   | WallDuration | StartTime           | EndTime             | SubmitHost            | Host                                  |
++------------+-------------+--------------+--------------+---------------------+---------------------+-----------------------+---------------------------------------+
+| 8767781    | apadmana    | /CN=apadmana |            2 | 2013-03-27 15:56:21 | 2013-03-27 15:56:23 | osg-xsede.grid.iu.edu | c1203.local (primary)                 |
+| 8767780    | apadmana    | /CN=apadmana |            3 | 2013-03-27 15:56:21 | 2013-03-27 15:56:24 | osg-xsede.grid.iu.edu | nodo80 (primary)                      |
+| 8779886    | apadmana    | /CN=apadmana |            1 | 2013-03-27 16:12:37 | 2013-03-27 16:12:38 | osg-xsede.grid.iu.edu | uct2-c230.mwt2.org (primary)          |
+| 8779885    | apadmana    | /CN=apadmana |            3 | 2013-03-27 16:14:30 | 2013-03-27 16:14:33 | osg-xsede.grid.iu.edu | c0105.local (primary)                 |
+| 8781546    | apadmana    | /CN=apadmana |          902 | 2013-03-27 16:51:04 | 2013-03-27 17:06:06 | osg-xsede.grid.iu.edu | c1023.local (primary)                 |
+| 8781535    | apadmana    | /CN=apadmana |          904 | 2013-03-27 16:51:07 | 2013-03-27 17:06:11 | osg-xsede.grid.iu.edu | nodo78 (primary)                |
+| 8781562    | apadmana    | /CN=apadmana |          901 | 2013-03-27 16:51:07 | 2013-03-27 17:06:08 | osg-xsede.grid.iu.edu | uct2-c254.mwt2.org (primary)          |
+| 8781580    | apadmana    | /CN=apadmana |          906 | 2013-03-27 16:51:07 | 2013-03-27 17:06:13 | osg-xsede.grid.iu.edu | uct2-c032.mwt2.org (primary)          |
+| 8781638    | apadmana    | /CN=apadmana |          903 | 2013-03-27 16:51:47 | 2013-03-27 17:06:50 | osg-xsede.grid.iu.edu | red-d21n4.red.hcc.unl.edu (primary)   |
+| 8781678    | apadmana    | /CN=apadmana |          903 | 2013-03-27 16:51:47 | 2013-03-27 17:06:50 | osg-xsede.grid.iu.edu | compute-3-2.nys1 (primary)            |
+| 8781657    | apadmana    | /CN=apadmana |          909 | 2013-03-27 16:51:50 | 2013-03-27 17:06:59 | osg-xsede.grid.iu.edu | node088.local (primary)               |
+| 8781706    | apadmana    | /CN=apadmana |          902 | 2013-03-27 16:51:50 | 2013-03-27 17:06:52 | osg-xsede.grid.iu.edu | compute-1-10.nys1 (primary)           |
+| 8781874    | apadmana    | /CN=apadmana |          901 | 2013-03-27 16:52:26 | 2013-03-27 17:07:27 | osg-xsede.grid.iu.edu | uct2-c280.mwt2.org (primary)          |
+....
+....
++------------+-------------+--------------+--------------+---------------------+---------------------+-----------------------+---------------------------------------+
+           
+53 rows in set (3 min 57.35 sec)
+
+
+
+One missing piece of data is site name. It might be available in Gratia
+(for the BatchPilot records) but I didn't find it when I looked.
+
+
+The system secure log provides where 'apadmana' logged in from:
+
+Mar 27 13:57:21 osg-xsede gsisshd[28498]: Accepted publickey for apadmana from 76.195.221.101 port 48575 ssh2
+Mar 27 16:06:13 osg-xsede gsisshd[27112]: Accepted publickey for apadmana from 128.174.120.125 port 35401 ssh2
+
+
+
+Test 2
+------
+
+Given information:
+
+    When:          Thu 3/28 ~11:15am CDT
+    Sitename:      MWTW
+    Node hostname: uc3-c003.mwt2.org
+
+
+Similar to Test 1, but with different hostname and timestamps.
+Also simplified the query.
+
+
+SELECT
+  LocalJobId,
+  LocalUserId,
+  WallDuration,
+  StartTime,
+  EndTime,
+  Host
+FROM
+  JobUsageRecord JUR
+JOIN
+  JobUsageRecord_Meta JURM ON JUR.dbid = JURM.dbid
+WHERE
+  ProbeName REGEXP 'condor:osg-xsede.grid.iu.edu' AND
+  JUR.StartTime >= '2013-03-28 00:00:00' AND
+  JUR.EndTime <= '2013-03-28 23:59:59' AND
+  Host LIKE 'uc3-c003%'
+ORDER BY JUR.StartTime ASC
+LIMIT 10000
+;
+
++------------+-------------+--------------+---------------------+---------------------+------------------------------+
+| LocalJobId | LocalUserId | WallDuration | StartTime           | EndTime             | Host                         |
++------------+-------------+--------------+---------------------+---------------------+------------------------------+
+| 8864729    | apadmana    |          902 | 2013-03-28 16:12:30 | 2013-03-28 16:27:32 | uc3-c003.mwt2.org (primary)  |
+| 8856668    | donkri      |         2069 | 2013-03-28 16:28:09 | 2013-03-28 17:02:38 | uc3-c003.mwt2.org (primary)  |
++------------+-------------+--------------+---------------------+---------------------+------------------------------+
+162 rows in set (52.13 sec)
+
+
+All the jobs for 'apadmana' that day:
+
+SELECT
+  LocalJobId,
+  LocalUserId,
+  WallDuration,
+  StartTime,
+  EndTime,
+  Host
+FROM
+  JobUsageRecord JUR
+JOIN
+  JobUsageRecord_Meta JURM ON JUR.dbid = JURM.dbid
+WHERE
+  ProbeName REGEXP 'condor:osg-xsede.grid.iu.edu' AND
+  JUR.StartTime >= '2013-03-28 00:00:00' AND
+  JUR.EndTime <= '2013-03-28 23:59:59' AND
+  LocalUserId = 'apadmana'
+ORDER BY JUR.StartTime ASC
+LIMIT 10000
+;
++------------+-------------+--------------+---------------------+---------------------+---------------------------------+
+| LocalJobId | LocalUserId | WallDuration | StartTime           | EndTime             | Host                            |
++------------+-------------+--------------+---------------------+---------------------+---------------------------------+
+| 8864511    | apadmana    |          905 | 2013-03-28 15:56:54 | 2013-03-28 16:11:59 | cnode78.hpc.smu.edu (primary)   |
+| 8864483    | apadmana    |          903 | 2013-03-28 15:56:54 | 2013-03-28 16:11:57 | uc3-c004.mwt2.org (primary)     |
+| 8864506    | apadmana    |          905 | 2013-03-28 15:56:54 | 2013-03-28 16:11:59 | cnode49.hpc.smu.edu (primary)   |
+| 8864518    | apadmana    |          905 | 2013-03-28 15:56:54 | 2013-03-28 16:11:59 | cnode21.hpc.smu.edu (primary)   |
+| 8864716    | apadmana    |          903 | 2013-03-28 16:13:13 | 2013-03-28 16:28:16 | wn15.osg.pnl.gov (primary)      |
++------------+-------------+--------------+---------------------+---------------------+---------------------------------+
+50 rows in set (2.31 sec)
+
+Logins:
+
+Mar 28 15:42:54 osg-xsede gsisshd[28666]: Accepted publickey for apadmana from 128.174.120.125 port 42642 ssh2
+
+
+Test 3
+------
+
+Given information:
+
+    When:          Fri 3/29 ~10:20am CDT
+    Sitename:      PNNL_OSG
+    Node hostname: wn7.osg.pnl.gov
+    Node IP:       192.168.122.17
+
+
+This test took place after the Condor config changes, so the local Condor
+history was used for this trace. Start/end times were converted to epoch
+seconds:
+
+3/29/13 00:00:00   =>   1364515200
+3/29/13 23:59:59   =>   1364601599
+
+
+Jobs which ran on wn7.osg.pnl.gov:
+
+condor_history -constraint 'JobStartDate >= 1364515200 && JobStartDate <= 1364601599 &&
+                            regexp("wn7.osg.pnl.gov", LastRemoteHost, "I")'
+
+ ID      OWNER            SUBMITTED     RUN_TIME ST   COMPLETED CMD
+8952018.0   donkri          3/29 14:55   0+01:50:14 C   3/29 18:20 /local-scratch/
+8949817.0   donkri          3/29 14:40   0+02:10:54 X   ???        /local-scratch/
+8952381.0   donkri          3/29 14:57   0+01:38:49 C   3/29 18:13 /local-scratch/
+8959093.0   donkri          3/29 16:16   0+00:05:09 C   3/29 17:59 /local-scratch/
+8956728.0   donkri          3/29 15:47   0+02:10:08 X   ???        /local-scratch/
+8952955.0   apadmana        3/29 15:16   0+00:15:04 C   3/29 15:45 /home/apadmana/
+8938805.0   donkri          3/29 11:57   0+02:08:00 C   3/29 15:43 /local-scratch/
+
+Tracking a particular user
+
+condor_history -constraint 'JobStartDate >= 1364515200 && JobStartDate <= 1364601599 && Owner == "apadmana"'
+
+ ID      OWNER            SUBMITTED     RUN_TIME ST   COMPLETED CMD
+8952962.0   apadmana        3/29 15:16   0+00:15:04 C   3/29 15:50 /home/apadmana/
+8952957.0   apadmana        3/29 15:16   0+00:15:14 C   3/29 15:48 /home/apadmana/
+8952955.0   apadmana        3/29 15:16   0+00:15:04 C   3/29 15:45 /home/apadmana/
+8952958.0   apadmana        3/29 15:16   0+00:15:03 C   3/29 15:44 /home/apadmana/
+8952951.0   apadmana        3/29 15:16   0+00:15:04 C   3/29 15:41 /home/apadmana/
+8952956.0   apadmana        3/29 15:16   0+00:15:03 C   3/29 15:39 /home/apadmana/
+8952961.0   apadmana        3/29 15:16   0+00:15:04 C   3/29 15:36 /home/apadmana/
+8952960.0   apadmana        3/29 15:16   0+00:15:03 C   3/29 15:35 /home/apadmana/
+8952953.0   apadmana        3/29 15:16   0+00:15:05 C   3/29 15:34 /home/apadmana/
+8952952.0   apadmana        3/29 15:16   0+00:15:04 C   3/29 15:33 /home/apadmana/
+
+
+But we can format it nicer to get the information we really want:
+
+condor_history -constraint 'JobStartDate >= 1364515200 && JobStartDate <= 1364601599 && Owner == "apadmana"' -format '%-10s' ClusterId -format '%-50s' Cmd -format '%-20s' MATCH_GLIDEIN_Site -format '%-20s\n' LastRemoteHost
+
+8952962   /home/apadmana/osg-sec/osg-sec-test.sh            PNNL                glidein_9619@wn22.osg.pnl.gov
+8952957   /home/apadmana/osg-sec/osg-sec-test.sh            PNNL                glidein_27061@wn8.osg.pnl.gov
+8952955   /home/apadmana/osg-sec/osg-sec-test.sh            PNNL                glidein_7412@wn7.osg.pnl.gov
+8952958   /home/apadmana/osg-sec/osg-sec-test.sh            PNNL                glidein_27942@wn6.osg.pnl.gov
+8952951   /home/apadmana/osg-sec/osg-sec-test.sh            PNNL                glidein_9407@wn10.osg.pnl.gov
+8952956   /home/apadmana/osg-sec/osg-sec-test.sh            BU                  glidein_7965@atlas-cm1.bu.edu
+8952961   /home/apadmana/osg-sec/osg-sec-test.sh            BU                  glidein_28781@atlas-cm2.bu.edu
+8952960   /home/apadmana/osg-sec/osg-sec-test.sh            SMU                 glidein_26176@cwnode34.hpc.smu.edu
+8952953   /home/apadmana/osg-sec/osg-sec-test.sh            PNNL                glidein_27508@wn12.osg.pnl.gov
+8952952   /home/apadmana/osg-sec/osg-sec-test.sh            PNNL                glidein_18289@wn5.osg.pnl.gov
+
+
+Logins:
+
+Mar 29 14:30:51 osg-xsede gsisshd[2633]: Accepted publickey for apadmana from 76.195.221.101 port 32996 ssh2
+Mar 29 15:06:33 osg-xsede gsisshd[11560]: Accepted publickey for apadmana from 128.174.120.125 port 47266 ssh2
+</pre>
+%ENDTWISTY%
+---++++ Summary 
+We found that 
 -- Main.AnandPadmanabhan - 18 Mar 2013
