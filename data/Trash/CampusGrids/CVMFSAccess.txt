@@ -1,6 +1,5 @@
-%META:TOPICINFO{author="SuchandraThapa" date="1365001212" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="SuchandraThapa" date="1365027676" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="SkeletonKey"}%
-
 <!-- conventions used in this document
    * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="hostname"}%
    * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="user"}%
@@ -9,7 +8,7 @@
    * Set TOC2 =<div style="float:right; margin-right:-1.015em; padding:0.5em; background-color:white;">%TOC%<p class="twikiClear" /></div>
 -->
 
----+!! !SkeletonKey Tutorial 2: Software Access
+---+!! !SkeletonKey Tutorial 3: Software Access
 %TOC{depth="3"}%
 
 
@@ -18,20 +17,73 @@ This page introduces the user to SkeletonKey accessing remote software using Ske
 
 ---++ Prerequisites
 The following items are needed in order to complete this tutorial:
-   * Webserver where the user can place files to access using the web 
+   * Webserver where the user can place files to access using the web
+   * HTCondor Cluster (optional)
+   * A working !SkeletonKey install
    * A squid proxy for Parrot to use
    * Familiarity with basic usage of !SkeletonKey (the [[CampusGrids/Quickstart][first tutorial]] is sufficient)
 
+---++ Conventions
+In the examples given in this tutorial, text in %RED%red%ENDCOLOR% denotes strings that should be replaced with user specific values.  E.g. the URL for the user's webserver.
 
 ---++ CVMFS
+CVMFS is a remote access protocol that allows a read-only filesystem to be exported using a webserver.  Using FUSE or Parrot, this filesystem can be mounted on a system and will appear to be a local filesystem and can be used to run applications installed on the exported filesystem.    The following example will show how to mount a CVMFS repository and use it to run your applications.
+
+---+++ Using CVMFS for software access with !SkeletonKey
+---+++ Creating the application tarball
+Since we'll be running an application from a CVMFS repository, we'll create an application tarball to do some initial setup and then run the actual application
+
+   1. Create a directory for the script <pre class="screen">
+%UCL_PROMPT% mkdir /tmp/cvmfs_access
+</pre>
+   1. Create a shell script, =/tmp/cvmfs_access/myapp.sh= with the following lines: <pre class="screen">
+#!/bin/bash
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/cvmfs/uc3.uchicago.edu/sw/lib
+/cvmfs/uc3.uchicago.edu/sw/bin/Rscript ./cvmfs_access/test.R
+echo "Finishing script at: "
+echo `date`
+</pre>
+   1. Create a R script =/tmp/cvmfs/test.R= with the following lines: <pre class="file">
+hilbert<-function(n) 1/(outer(seq(n),seq(n),"+")-1)
+print("hilbert n=500")
+print(system.time(eigen(hilbert(500))))
+print("hilbert n=1000")
+print(system.time(eigen(hilbert(1000))))
+print("sort n=6")
+print(system.time(sort(rnorm(10^6))))
+print("sort n=7")
+print(system.time(sort(rnorm(10^7))))
+# loess
+loess.me<-function(n) {
+print(paste("loess n=",as.character(n),sep=""))
+for (i in 1:5) {
+    x<-rnorm(10^n); y<-rnorm(10^n); z<-rnorm(10^n)
+    print(system.time(loess(z~x+y)))
+    }
+}
+loess.me(3)
+loess.me(4)
+</pre>
+   1. Next, make sure the =myapp.sh= script is executable and create a tarball: <pre class="screen">
+%UCL_PROMPT% chmod 755 /tmp/cvmfs_access/myapp.sh
+%UCL_PROMPT% cd /tmp
+%UCL_PROMPT% tar cvzf cvmfs_access.tar.gz data_access
+</pre>
+    1. Then copy the tarball to your webserver <pre class="screen">
+%UCL_PROMPT% cd /tmp
+%UCL_PROMPT% scp cvmfs_access.tar.gz %RED%webserver:/path/to/web/directory%ENDCOLOR%
+</pre>
+    1. Finally, download the CVMFS repository key at =http://uc3-data.uchicago.edu/uc3.key= and make this available on your webserver
+
+One thing to note here is that Parrot makes mounted CVMFS repositories available under =/cvmfs/repository_name= where repository_name is replaced by the name that the repository is published under.  In addition, if your application has it's own libraries, you'll probably need to alter the =LD_LIBRARY_PATH= to point to the location of these library files as the =myapp.sh= file does in this example.
 
 ---+++ Creating a job wrapper
 You'll need to do the following on the machine where you installed SkeletonKey
-   1. Open a file called =data-access.ini= and add the following lines: <pre class="file">
-[Directories]
-export_base = /tmp
-read = /
-write = /
+   1. Open a file called =cvmfs-access.ini= and add the following lines: <pre class="file">
+[CVMFS]
+repo1 = uc3.uchicago.edu
+repo1_options = url=http://uc3-cvmfs.uchicago.edu/opt/uc3/,pubkey=%RED%http://repository_key_url%ENDCOLOR%,quota_limit=1000,proxies=%RED%squid-proxy:3128%ENDCOLOR%
+repo1_key = %RED%http://repository_key_url%ENDCOLOR%
 
 [Parrot]
 location = http://your.host/parrot.tar.gz
@@ -40,22 +92,46 @@ location = http://your.host/parrot.tar.gz
 location = http://your.host/data-access.tar.gz
 script = ./data_access/run.sh
 </pre>
-   1. In =data-access.ini=, change the url =http://your.host/parrot.tar.gz= to point to the url of the parrot tarball that you copied previously.  The read and write 
-   1. Run SkeletonKey on =data-access.ini=: <pre class="screen">
-%UCL_PROMPT% skeleton_key -c data-access.ini
+   1. In =cvmfs-access.ini=, change the url =http://your.host/parrot.tar.gz= to point to the url of the parrot tarball that you copied previously.  The squid proxy setting will also need to be changed to point to your squid proxy and the repository_key_url link should be changed to the location of the CVMFS repository key that you uploaded.
+   1. Run SkeletonKey on =cvmfs-access.ini=: <pre class="screen">
+%UCL_PROMPT% skeleton_key -c cvmfs-access.ini
 </pre>
     1. Run the job wrapper to verify that it's working correctly <pre class="screen">
-%UCL_PROMPT% sh ./job-script.sh
+%UCL_PROMPT% sh ./job_script.sh
 </pre>
-    1. 
----++ Verification
-   1. On the system running Chirp, run the following following to verify that the file was written correctly: <pre class="screen">
-%UCL_PROMPT% cat /tmp/data_test
-sample data
-</pre> The output should match the output given in the example above.
-    
 
--- Main.SuchandraThapa - 03 Apr 2013
+---+++ Using the job wrapper
+---++++ Standalone
+Once the job wrapper has been verified to work, it can be copied to another system and run: 
+<pre class="screen">
+%UCL_PROMPT% scp job_script %REDanother_host:~/%ENDCOLOR%
+%UCL_PROMPT% ssh %RED%another_host%ENDCOLOR%
+[user@another_host ~] sh ./job_script
+</pre>
+
+---++++ Submitting to HTCondor (Optional)
+The following part of the tutorial is optional and will cover using a generated job wrapper in a !HTCondor submit file.  
+   1. On your !HTCondor submit node, create a file called sk.submit with the following contents <pre class="file">
+universe = vanilla
+notification=never
+executable = ./job_script.sh
+output = /tmp/sk/test_$(Cluster).$(Process).out
+error = /tmp/sk/test_$(Cluster).$(Process).err
+log = /tmp/sk/test.log
+ShouldTransferFiles = YES
+when_to_transfer_output = ON_EXIT
+queue 1
+</pre>
+   1. Next, create =/tmp/sk= for the log and output files for condor <pre class="screen">
+[user@condor-submit-node ~] mkdir /tmp/sk
+</pre>
+   1. Then copy the job wrapper to the !HTCondor submit node <pre class="screen">
+%UCL_PROMPT% scp job_script.sh %RED%condor-submit-node%ENDCOLOR%:~/
+</pre>
+   1. Finally submit the job to !HTCondor and verify that the jobs ran successfully<pre class="screen">
+%UCL_PROMPT% ssh %RED%condor-submit-node%ENDCOLOR%
+[user@condor-submit-node ~] condor_submit sk.submit
+</pre>
 
 
 -- Main.SuchandraThapa - 03 Apr 2013
