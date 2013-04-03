@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="SuchandraThapa" date="1365001215" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="SuchandraThapa" date="1365028953" format="1.1" version="1.2"}%
 %META:TOPICPARENT{name="SkeletonKey"}%
 <!-- conventions used in this document
    * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="hostname"}%
@@ -11,58 +11,123 @@
 ---+!! !SkeletonKey Tutorial 4: Software and Data Access
 %TOC{depth="3"}%
 
-
 ---++ Introduction
-This page combines some of the concepts introduced in previous tutorials to allow the user to create applications that remotely access data and software at the same time.  After completing this, users should be able to fully utilize the capabilities of Parrot and SkeletonKey.
+This page combines some of the concepts introduced in previous tutorials to allow the user to create applications that remotely access data and software at the same time.  After completing this, users should be able to fully utilize the capabilities of Parrot and !SkeletonKey.
 
 ---++ Prerequisites
 The following items are needed in order to complete this tutorial:
-   * Webserver where the user can place files to access using the web 
-   * Familiarity with basic usage of !SkeletonKey (the [[CampusGrids/Quickstart][first tutorial]] is sufficient)
+   * Webserver where the user can place files to access using the web
+   * HTCondor Cluster (optional)
+   * A working !SkeletonKey install
    * A squid proxy for Parrot to use
+   * A running Chirp server
+   * Familiarity with using !SkeletonKey for remote data and software access (the [[CampusGrids/DataAccess][second tutorial]] and [[CampusGrids/CVMFSAccess][third tutorial]] are sufficient)
 
 
----++ Chirp Data Server
----+++ Starting and stopping Chirp
-!SkeletonKey installs =chirp-control= to so that the user can control the Chirp data server that is installed.  In order to start Chirp, run =chirp_control start= .  The user can run =chirp_control stop= to stop Chirp.  
+---++ Conventions
+In the examples given in this tutorial, text in %RED%red%ENDCOLOR% denotes strings that should be replaced with user specific values.  E.g. the URL for the user's webserver.
 
----+++ Configuration 
-The user can modify the directory that Chirp exports by editing =~/.chirp/chirp_options= and change =EXPORT_DIR= to point to the directory that Chirp should export.  If Chirp will be used to export a HDFS filesystem, =EXPORT_DIR= should be replaced with =HDFS_URI= set to the URI that should be exported (e.g. =hdfs://hdfs-namenode:9000/user_directory=).
+---++ Combined data and software access example
+The next example will be guide the user through creating a job that will read and write from a filesystem exported by Chirp using software that's available using CVMFS.  Before you start, please make sure that Chirp is installed and exporting a directory (this tutorial will assume that Chirp is exporting /tmp)
 
----++ Data access example
-The next example will be guide the user through creating a job that will read and write from a filesystem exported by Chirp.  
+---+++ Creating the application tarball
+Since we'll be running an application from a CVMFS repository, we'll create an application tarball to do some initial setup and then run the actual application
+
+   1. Create a directory for the script <pre class="screen">
+%UCL_PROMPT% mkdir /tmp/cvmfs_access
+</pre>
+   1. Create a shell script, =/tmp/cvmfs_access/myapp.sh= with the following lines: <pre class="screen">
+#!/bin/bash
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/cvmfs/uc3.uchicago.edu/sw/lib
+/cvmfs/uc3.uchicago.edu/sw/bin/Rscript ./cvmfs_access/test.R ./combined_access/test.R ./combined_access/data.grb $CHIRP_MOUNT/output/$1
+echo "Finishing script at: "
+echo `date`
+</pre>
+   1. Create a R script =/tmp/cvmfs/test.R= with the following lines: <pre class="file">
+#!/usr/bin/Rscript --vanilla
+
+library( raster)
+args <- commandArgs(TRUE)
+grbFile <- args[ 1]
+scanHowMany <- args[ 2]
+output <- args[3]
+grb <- brick( grbFile)
+
+for( n in 1:scanHowMany) {
+r <- subset( grb, n)
+cat( paste( names( r), cellStats( r, "sum"), sep= " "), "\n", file=output)
+}
+</pre>
+   1. Next, make sure the =myapp.sh= script is executable and create a tarball: <pre class="screen">
+%UCL_PROMPT% chmod 755 /tmp/cvmfs_access/myapp.sh
+%UCL_PROMPT% cd /tmp
+%UCL_PROMPT% tar cvzf combined_access.tar.gz combined_access
+</pre>
+    1. Then copy the tarball to your webserver <pre class="screen">
+%UCL_PROMPT% cd /tmp
+%UCL_PROMPT% scp cvmfs_access.tar.gz %RED%webserver:/path/to/web/directory%ENDCOLOR%
+</pre>
+    1. Finally, download the CVMFS repository key at =http://uc3-data.uchicago.edu/uc3.key= and make this available on your webserver
+
+One thing to note here is that Parrot makes mounted CVMFS repositories available under =/cvmfs/repository_name= where repository_name is replaced by the name that the repository is published under.  
 
 ---+++ Creating a job wrapper
-You'll need to do the following on the machine where you installed SkeletonKey
-   1. Open a file called =data-access.ini= and add the following lines: <pre class="file">
+You'll need to do the following on the machine where you installed !SkeletonKey
+   1. Open a file called =combined.ini= and add the following lines: <pre class="file">
 [Directories]
-export_base = /tmp
-read = /
-write = /
+export_base = /tmp/%RED%user%ENDCOLOR%
+read = /, data
+write = /, output
 
 [Parrot]
 location = http://your.host/parrot.tar.gz
 
 [Application]
-location = http://your.host/data-access.tar.gz
-script = ./data_access/run.sh
+location = http://your.host/combined-access.tar.gz
+script = ./combined_access/myapp.sh
 </pre>
-   1. In =data-access.ini=, change the url =http://your.host/parrot.tar.gz= to point to the url of the parrot tarball that you copied previously.  The read and write 
-   1. Run SkeletonKey on =data-access.ini=: <pre class="screen">
-%UCL_PROMPT% skeleton_key -c data-access.ini
+   1. In =combined-access.ini=, change the url =http://your.host/parrot.tar.gz= to point to the url of the parrot tarball that you copied previously.  
+   1. Run SkeletonKey on =combined-access.ini=: <pre class="screen">
+%UCL_PROMPT% skeleton_key -c combined-access.ini
 </pre>
     1. Run the job wrapper to verify that it's working correctly <pre class="screen">
-%UCL_PROMPT% sh ./job-script.sh
+%UCL_PROMPT% sh ./job_script.sh test.output
 </pre>
-    1. 
----++ Verification
-   1. On the system running Chirp, run the following following to verify that the file was written correctly: <pre class="screen">
-%UCL_PROMPT% cat /tmp/data_test
-sample data
-</pre> The output should match the output given in the example above.
-    
 
--- Main.SuchandraThapa - 03 Apr 2013
+---+++ Using the job wrapper
+---++++ Standalone
+Once the job wrapper has been verified to work, it can be copied to another system and run: 
+<pre class="screen">
+%UCL_PROMPT% scp job_script %REDanother_host:~/%ENDCOLOR%
+%UCL_PROMPT% ssh %RED%another_host%ENDCOLOR%
+[user@another_host ~] sh ./job_script 
+</pre>
 
+---++++ Submitting to HTCondor (Optional)
+The following part of the tutorial is optional and will cover using a generated job wrapper in a !HTCondor submit file.  
+   1. On your !HTCondor submit node, create a file called sk.submit with the following contents <pre class="file">
+universe = vanilla
+notification=never
+executable = ./job_script.sh
+arguments = test.output.$(Process)
+output = /tmp/sk/test_$(Cluster).$(Process).out
+error = /tmp/sk/test_$(Cluster).$(Process).err
+log = /tmp/sk/test.log
+ShouldTransferFiles = YES
+when_to_transfer_output = ON_EXIT
+queue 5
+</pre>
+   1. Next, create =/tmp/sk= for the log and output files for condor <pre class="screen">
+[user@condor-submit-node ~] mkdir /tmp/sk
+</pre>
+   1. Then copy the job wrapper to the !HTCondor submit node <pre class="screen">
+%UCL_PROMPT% scp job_script.sh %RED%condor-submit-node%ENDCOLOR%:~/
+</pre>
+   1. Finally submit the job to !HTCondor and verify that the jobs ran successfully<pre class="screen">
+%UCL_PROMPT% ssh %RED%condor-submit-node%ENDCOLOR%
+[user@condor-submit-node ~] condor_submit sk.submit
+</pre>
+
+Something to note in the HTCondor submit file, is that we're passing the name of the output file that should be written using the =arguments= setting and then using the =$(Process)= variable to ensure that each queued job writes to a different file.  HTCondor will then pass the variable to the job_script.sh which then makes sure that it gets appended to the arguments passed to the =myapp.sh= script.
 
 -- Main.SuchandraThapa - 03 Apr 2013
