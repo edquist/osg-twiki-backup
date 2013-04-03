@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="SuchandraThapa" date="1365000939" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="SuchandraThapa" date="1365021056" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="SkeletonKey"}%
 <!-- conventions used in this document
    * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="hostname"}%
@@ -13,13 +13,17 @@
 
 
 ---++ Introduction
-This page introduces the user to SkeletonKey accessing remote data using SkeletonKey.   After reading through this page, the user should be able to setup jobs that access data being shared by a Chirp server.
+This page introduces the user to !SkeletonKey accessing remote data using !SkeletonKey.   After reading through this page, the user should be able to setup jobs that access data being shared by a Chirp server.
 
 ---++ Prerequisites
 The following items are needed in order to complete this tutorial:
-   * Webserver where the user can place files to access using the web 
+   * Webserver where the user can place files to access using the web
+   * HTCondor Cluster (optional)
+   * A working !SkeletonKey install
    * Familiarity with basic usage of !SkeletonKey (the [[CampusGrids/Quickstart][first tutorial]] is sufficient)
 
+---++ Conventions
+In the examples given in this tutorial, text in %RED%red%ENDCOLOR% denotes strings that should be replaced with user specific values.  E.g. the URL for the user's webserver.
 
 ---++ Chirp Data Server
 ---+++ Starting and stopping Chirp
@@ -31,6 +35,28 @@ The user can modify the directory that Chirp exports by editing =~/.chirp/chirp_
 ---++ Data access example
 The next example will be guide the user through creating a job that will read and write from a filesystem exported by Chirp.  
 
+---+++ Creating the application tarball
+Since won't be able to use a single command found on potential compute nodes, we'll need to create an application tarball to containing a shell script that will do the data access on the compute nodes.  The following steps show what needs to be done:
+   1. Create a directory for the script <pre class="screen">
+%UCL_PROMPT% mkdir /tmp/data_access
+</pre>
+   1. Create a shell script, =/tmp/data_access/myapp.sh= with the following lines: <pre class="screen">
+#!/bin/bash
+echo "testing output" > $CHIRP_MOUNT/data_access_test
+cat $CHIRP_MOUNT/data_access_test
+</pre>
+   1. Next, make sure the =myapp.sh= script is executable and create a tarball: <pre class="screen">
+%UCL_PROMPT% chmod 755 /tmp/data_access/myapp.sh
+%UCL_PROMPT% cd /tmp
+%UCL_PROMPT% tar cvzf data_access.tar.gz data_access
+</pre>
+    1. Then copy the tarball to your webserver <pre class="screen">
+%UCL_PROMPT% cd /tmp
+%UCL_PROMPT% scp myapp.tar.gz %RED%webserver:/path/to/web/directory%ENDCOLOR%
+</pre>
+
+Notice the use of the $CHIRP_MOUNT variable when reading or writing to the the directory exported through Chirp.  !SkeletonKey defines and sets =$CHIRP_MOUNT= so that it will correspond to the directory being exported from the chirp server.  
+
 ---+++ Creating a job wrapper
 You'll need to do the following on the machine where you installed SkeletonKey
    1. Open a file called =data-access.ini= and add the following lines: <pre class="file">
@@ -40,25 +66,62 @@ read = /
 write = /
 
 [Parrot]
-location = http://your.host/parrot.tar.gz
+location = %RED%http://your.host/parrot.tar.gz%ENDCOLOR%
 
 [Application]
-location = http://your.host/data-access.tar.gz
-script = ./data_access/run.sh
+location = %RED%http://your.host/data-access.tar.gz%ENDCOLOR%
+script = ./data_access/myapp.sh
 </pre>
-   1. In =data-access.ini=, change the url =http://your.host/parrot.tar.gz= to point to the url of the parrot tarball that you copied previously.  The read and write 
+   1. In =data-access.ini=, change the url =http://your.host/parrot.tar.gz= to point to the url of the parrot tarball that you copied previously.  
    1. Run SkeletonKey on =data-access.ini=: <pre class="screen">
 %UCL_PROMPT% skeleton_key -c data-access.ini
 </pre>
     1. Run the job wrapper to verify that it's working correctly <pre class="screen">
 %UCL_PROMPT% sh ./job-script.sh
 </pre>
-    1. 
----++ Verification
+
+The ini file used here differs from the file used in [[CampusGrids.Quickstart][tutorial one]] by also including a =[Directories]= section.  This section allows the user to specify the directory being exported by Chirp and indicate which paths  applications will have read or write access to.  The !SkeletonKey uses the =read= setting in this section to set the directories that the application will have read access to.  One thing to note is that this setting should be a comma separated list of directories relative to the directory given in the =export_base= setting.  E.g. if =read= is set to =/,data, data/input= and =export_base= is set to =/tmp= then Chirp will be set to give read access to =/tmp, /tmp/data, /tmp/data/input=.  The =write= setting is analogous to the =read= setting except for giving read/write permissions to directories instead of just read permissions.
+
+---+++ Verification
    1. On the system running Chirp, run the following following to verify that the file was written correctly: <pre class="screen">
-%UCL_PROMPT% cat /tmp/data_test
-sample data
+%UCL_PROMPT% cat /tmp/data_access_test
+testing output
 </pre> The output should match the output given in the example above.
-    
+    1. Once the output is verified, delete the output file <pre class="screen">
+%UCL_PROMPT rm /tmp/data_access_test
+</pre>
+
+---+++ Using the job wrapper
+---++++ Standalone
+Once the job wrapper has been verified to work, it can be copied to another system and run: 
+<pre class="screen">
+%UCL_PROMPT% scp job-script %REDanother_host:~/%ENDCOLOR%
+%UCL_PROMPT% ssh %RED%another_host%ENDCOLOR%
+[user@another_host] sh ./job-script
+</pre>
+
+---++++ Submitting to HTCondor (Optional)
+The following part of the tutorial is optional and will cover using a generated job wrapper in a !HTCondor submit file.  
+   1. On your !HTCondor submit node, create a file called sk.submit with the following contents <pre class="file">
+universe = vanilla
+notification=never
+executable = ./job_script.sh
+output = /tmp/sk/test_$(Cluster).$(Process).out
+error = /tmp/sk/test_$(Cluster).$(Process).err
+log = /tmp/sk/test.log
+ShouldTransferFiles = YES
+when_to_transfer_output = ON_EXIT
+queue 1
+</pre>
+   1. Next, create =/tmp/sk= for the log and output files for condor <pre class="screen">
+[user@condor-submit-node] mkdir /tmp/sk
+</pre>
+   1. Then copy the job wrapper to the !HTCondor submit node <pre class="screen">
+%UCL_PROMPT% scp job-script.sh %RED%condor-submit-node%ENDCOLOR%:~/
+</pre>
+   1. Finally submit the job to !HTCondor and verify that the jobs ran successfully<pre class="screen">
+%UCL_PROMPT% ssh %RED%condor-submit-node%ENDCOLOR%
+[user@condor-submit-node] condor_submit sk.submit
+</pre>
 
 -- Main.SuchandraThapa - 03 Apr 2013
