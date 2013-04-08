@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnandPadmanabhan" date="1365444026" format="1.1" reprev="1.18" version="1.18"}%
+%META:TOPICINFO{author="AnandPadmanabhan" date="1365454975" format="1.1" reprev="1.19" version="1.19"}%
 %DOC_STATUS_TABLE%
 
 ---+!! How to get host and service certificates
@@ -29,6 +29,8 @@ issuer= /DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1
 notBefore=Jan  4 21:08:09 2010 GMT
 notAfter=Jan  4 21:08:09 2011 GMT
 </pre>
+
+The OSG PKI Command Line Clients are tested to work on Python version 2.4+. They have not been tested on Python version 3. 
 
 We recommend to read background information on grid certificates which can be found [[Documentation.CertificateWhatIs][here]]. In order to proceed you will also need:
 
@@ -105,24 +107,24 @@ The second mode will commonly be used by most OSG site admins
 Use *osg-cert-request* to generate a request which will be sent to the Certificate Authority you specified. Change "%RED%%UCL_HOST_FQDN%%ENDCOLOR%" to be the host name for the computer for which you need a certificate and provide your contact details for the grid admin to approve your request.
 
 <pre class="screen">
-%UCL_PROMPT% osg-cert-request -t %RED%%UCL_HOST_FQDN%%ENDCOLOR% -e %RED%emailaddress@domain.com%ENDCOLOR% -n %RED%"Your Name"%ENDCOLOR% -p %RED%9999999999 (Ph No)%ENDCOLOR% -v %RED%"Your VO"%ENDCOLOR% -y %RED%"xyz@domain.com,abc@domain.com" (CC list)%ENDCOLOR% -m %RED%"This is my comment"%ENDCOLOR% -o testkey.pem
+%UCL_PROMPT% osg-cert-request -t %RED%%UCL_HOST_FQDN%%ENDCOLOR% -e %RED%emailaddress@domain.com%ENDCOLOR% -n %RED%"Your Name"%ENDCOLOR% -p %RED%9999999999 (Ph No)%ENDCOLOR% -v %RED%"Your VO"%ENDCOLOR% -y %RED%"xyz@domain.com,abc@domain.com" (CC list)%ENDCOLOR% -m %RED%"This is my comment"%ENDCOLOR% -o %RED%hostkey.pem%ENDCOLOR%
 </pre>
 
-%TWISTY{%TWISTY_OPTS_OUTPUT%}%
-%UCL_PROMPT% osg-cert-request -T -t sectest.cigi.illinois.edu -e apadmana@domain.edu -n "Anand" -p 9999999999 -m "Testing for developing security documentation" -o testkey.pem
+Example:
+<pre class="screen">
+%UCL_PROMPT% osg-cert-request -T -t sectest.cigi.illinois.edu -e apadmana@domain.edu -n "Anand" -p 9999999999 -m "Testing for developing security documentation" -o hostkey.pem
 
-Running in test mode
-Writing key to testkey.pem
+Writing key to hostkey.pem
 
 Connecting to server...
 Succesfully submitted
 Request Id#: 570
-%ENDTWISTY%
+</pre>
 
 At this point *osg-cert-request* has created some files in the directory you specified and an e-mail has been sent to the Certificate Authority containing your request. The files will be needed again once you receive a reply from the Certificate Authority asking you to retrieve the certificate. Please note down the Request Id. You will need it for retrieving the signed certificate. 
 
----+++ Detailed description of the command line parameters
 %TWISTY{%TWISTY_OPTS_OUTPUT%}%
+---+++ Detailed description of the osg-cert-request usage
 This script:
    * Generates a new host private key and CSR
    * Only important part of CSR is CN=<hostname> component
@@ -177,18 +179,45 @@ This script:
 
 ---++ Retrieve and Install the Host Certificate
 
-Once the certificate has been approved by the Certificate Authority you will receive an e-mail which includes the *request ID*.
-
-To retrieve the host certificate we will execute *osg-cert-retrieve*: and use the %RED%request ID%ENDCOLOR% we recorded earlier
+Once the certificate has been approved by the Certificate Authority you will receive an e-mail for the GOC. Then to retrieve the host certificate we will execute *osg-cert-retrieve*: and use the %RED%request ID%ENDCOLOR% we recorded earlier. Since certificates are public, no authentication of the user is required to retrieve them.
 
 <pre class="screen">
-%UCL_PROMPT%  osg-cert-retrieve -T -i %RED%570%ENDCOLOR% -o %RED%testcert.pem%ENDCOLOR%
+%UCL_PROMPT%  osg-cert-retrieve -i %RED%570%ENDCOLOR% -o %RED%hostcert.pem%ENDCOLOR%
 Using timeout of 5 minutes
 Running in test mode
 Connecting server to retrieve certificate...
-Certificate written to testcert.pem
+Certificate written to hostcert.pem
 </pre>
 
+%TWISTY{%TWISTY_OPTS_OUTPUT%}%
+---+++ Detailed description of the osg-cert-retrive usage
+
+This osg-cert-retrive script:
+   * Accepts a request Id from the user
+   * Connects to OIM and requests the certificate identified by the request ID
+   * Writes the certificate to disk (as specified by the user)
+
+*Inputs:*
+   * Request ID
+   * Filename to store certificate [Optional, default is ./hostcert.pem]
+
+*Outputs:*
+   * Host certificate as PEM, to filename specified or ./hostcert.pem
+
+*Usage*:osg-cert-retrieve -h/--help [for detailed explanations of options]
+
+<verbatim>
+Options:
+  -h, --help            show this help message and exit
+  -i ID, --id=ID        Specify ID# of certificate to retrieve[Required]
+  -o ID, --certfile=ID  Specify the output filename for the retrieved user
+                        certificate . Default is ./hostcert.pem
+  -T, --test            Run in test mode
+  -q, --quiet           don't print status messages to stdout
+  -V, --version         Print the script version number and exit. 
+</verbatim>
+
+%ENDTWISTY%
 The certificate consists of two files (default hostcert.pem and hostkey.pem) which have been placed into the current directory. Note, If you did not use the =--o= option the filenames will be what you provided.
 
 %ICON{warning}% Please note that these files represent a %RED%public%ENDCOLOR% and a %RED%private%ENDCOLOR% and should be treated accordingly!
@@ -214,164 +243,33 @@ Finally, install the certificate in the default location */etc/grid-security/*:
 
 ---+ Request a Service Certificate
 
-
-<verbatim>
-osg-cert-request -t hostname.domain.com -e emailaddress@domain.com -n "Your Name" -p 9999999999 -y "rsv\/xyz@domain.com" -m "This is my comment"
-</verbatim>
-
-
-Web services on the grid require a *Service Certificate* to establish their identity with the grid user accessing the service. %RED%Please do not reuse your host certificate as a service certificate!%ENDCOLOR%
-
-
-A Service Certificate can be requested in the same way as a host certificate. To proceed you will need following information at hand:
-
-   * the *fully qualified domain* name of the host you need a service certificate for
-   * the *purpose* of the certificate that explains your request to the Certificate Authority
-   * the full *name of the administrator* responsible for the host
-   * the *e-mail address of the administrator*
-   * the *telephone number of the administrator*
-   * the name of the *Certificate Authority* your project is affiliated with
-   * the name of the *Virtual Organization* affiliated with the Certificate Authority
-
----++ Send the request
-Use *cert-request* to generate a request which will be sent to the Certificate Authority you specified:
+You can use the same *osg-cert-request* and *osg-cert-retrieve* commands  to request and service certificates just like any host certificate. Just use service/hostname for the -t parameter.
 
 <pre class="screen">
-%UCL_PROMPT% cert-request -ou s -service %RED%http%ENDCOLOR% -host %RED%%UCL_HOST_FQDN%%ENDCOLOR% -dir %RED%.%ENDCOLOR% -label %RED%%UCL_HOST_FQDN%-http%ENDCOLOR%
+%UCL_PROMPT% osg-cert-request -t %RED%http/%UCL_HOST_FQDN%%ENDCOLOR% -e %RED%emailaddress@domain.com%ENDCOLOR% -n %RED%"Your Name"%ENDCOLOR% -p %RED%9999999999 (Ph No)%ENDCOLOR% -v %RED%"Your VO"%ENDCOLOR% -y %RED%"xyz@domain.com,abc@domain.com" (CC list)%ENDCOLOR% -m %RED%"This is my comment"%ENDCOLOR% -o hostkey.pem
+Writing key to ./hostkey.pem
+
+Connecting to server...
+Succesfully submitted
+Request Id#: 571
+
 </pre>
 
-%TWISTY{%TWISTY_OPTS_OUTPUT%}%
-<pre class="screen">
-%UCL_PROMPT% cert-request -ou s -service %RED%http%ENDCOLOR% -host %RED%%UCL_HOST_FQDN%%ENDCOLOR% -dir %RED%.%ENDCOLOR% -label %RED%%UCL_HOST_FQDN%-http%ENDCOLOR%
+Please note down the request ID.
 
-checking CertLib version, V2-7,  This is the latest version, released 18 May 2009.
-Processing OU=Services request.
-Give reason (1 line) you qualify for certificate, such as
-  member of CMS experiment    or
-  collaborating with Condor team,  etc.
- reason: %RED%&lt;The purpose why the cetificate is needed.&gt;%ENDCOLOR%              
-input server administrator's name: %RED%First Last%ENDCOLOR%
-Generating a 2048 bit RSA private key
-..............+++
-...................................................+++
-writing new private key to './%UCL_HOST_FQDN%-httpkey.pem'
------
-input your email address: %RED%admin e-mail here%ENDCOLOR%
-input your complete phone number: %RED%admin phone here%ENDCOLOR%
-Choose a registration authority to which you are affiliated.
-If nothing else applies, pick OSG.
-_Enter__this____for this registration authority
-	ANL	 Argonne National Lab
-	ESG	 Earth System Grid
-	ESnet	 DOE Science network
-	FNAL	 Fermilab host and service certificates
-	FusionGRID	 National Fusion Collaboratory Project
-	LBNL	 Berkeley Lab
-	LCG	 LHC Computing Grid Catchall
-	NERSC	 computer center
-	ORNL	 Oak Ridge National Lab
-	OSG	 Open Science Grid (choose this if nothing else applies)
-	PNNL	 Pacific Northwest National Lab
-(choose from left column): %RED%OSG%ENDCOLOR%
-osg
-OSG
-Choose a virtual organization under your OSG affiliation:
-  ALICE:	ALICE collaboration
-  ATLAS:	United States ATLAS Collaboration
-  BNL:	Brookhaven lab researchers
-  CDF:	Collider Detector at Fermilab
-  CIGI:	CyberInfrastructure and Geospatial Information Laboratory
-  CMS:	Compact Muon Solenoid
-  CompBioGrid:	CompBioGrid
-  DayaBay:	Daya Bay Reactor Neutrino Experiment
-  DES:	Dark Energy Survey
-  DOSAR:	Distributed Organization for Scientific and Academic Research
-  DZero:	D0 Experiment at Fermilab
-  Engage:	Engagement
-  Fermilab:	Fermi National Accelerator Laboratory
-  FermilabAccelerator:	Fermilab/Accelerator
-  FermilabArgoneut:	Fermi T-962 Liquid Argon Time Projection chamber
-  FermilabAstro:	Fermilab/Astro
-  FermilabCdms:	Fermilab/Cdms
-  FermilabGrid:	fermilab VO grid group
-  FermilabHypercp:	Fermilab/Hypercp
-  FermilabKTeV:	Fermilab/KTeV
-  FermilabLbne:	Fermilab/Lbne
-  FermilabMinerva:	Fermilab/Minerva
-  FermilabMiniboone:	Fermilab/Miniboone
-  FermilabMinos:	Fermilab/Minos
-  FermilabMipp:	Fermilab/Mipp
-  FermilabMu2e:	Fermilab/Mu2e
-  FermilabNova:	Fermilab/Nova
-  FermilabNumi:	Fermilab/Numi
-  FermilabPatriot:	Fermilab/Patriot
-  FermilabTest:	Fermilab/Fgtest
-  FermilabTheory:	Fermilab/Theory
-  Geant4:	Geant4 Software Toolkit
-  GLOW:	Grid Laboratory of Wisconsin
-  Gluex:	Gluex experiment at Jefferson Lab
-  GPN:	Great Plains Network
-  GRASE:	Group Researching Advances in Software Engineering at University of New York at Buffalo
-  GridUNESP:	S?o Paulo State University Grid
-  GROW:	Grid Research and Education Group at Iowa
-  HCC:	Holland Computing Center at the University of Nebraska.
-  I2u2:	Interactions in Understanding the Universe Initiative
-  IceCube:	IceCube Neutrino Telescope
-  ILC:	International Linear Collider
-  JDEM:	Joint Dark Energy Mission
-  JLab:	Jefferson Lab researchers
-  LIGO:	Laser Interferometer Gravitational-Wave Observatory
-  Mariachi:	Mixed Apparatus for Radar Investigation of Cosmic-rays of  High Ionization Experiment
-  MIS:	OSG Monitoring Information System
-  NanoHUB:	nanoHUB Network for Computational Nanotechnology (NCN)
-  NEBioGrid:	New England Biomedical Grid
-  NWICG:	Northwest Indiana Computational Grid
-  NYSGRID:	NYSGRID
-  Ops:	WLCG Operations Group
-  OSG:	Open Science Grid
-  OSGEDU:	OSG Education Activity
-  SBGrid:	Structural Biology Grid
-  SLAC:	SLAC National Accelerator Laboratory researchers
-  STAR:	Solenoidal Tracker at RHIC
-(Choose from left column; pick osg if nothing else applies): %RED%OSG%ENDCOLOR%
-OSG:OSG
-You must agree to abide by the DOEGrids policies,
-at http://www.doegrids.org/Docs/CP-CPS.pdf
-and you assert that you are authorized to request and install this
-certificate on the specified host.
-Do you agree (y,N): %RED%y%ENDCOLOR%
-
-Your Certificate Request has been successfully submitted
-Your Certificate Request id: %RED%&lt;id&gt;%ENDCOLOR%
-
-        You will receive a notification email from the CA when your certificate
-        has been issued. Please disregard the instructions to download your
-        certificate though a web browser and use the cert-retrieve script instead.
-</pre>
-%ENDTWISTY%
-
-At this point *cert-request* has created some files in the directory you specified and an e-mail has been sent to the Certificate Authority containing your request. The files will be needed again once you receive a reply from the Certificate Authority asking you to retrieve the certificate.
-
----++ Retrieve and Install the Service Certificate
-
-Once the service certificate has been approved by the Certificate Authority you will receive an e-mail which includes the *serial number* in the format *0xYYYY*. The serial number will be needed to retrieve the certificate. 
-
-To retrieve the new certificate change to the installation directory of the Certificate Scripts Package and update your environment:
-
-Next we will use the %RED%serial number%ENDCOLOR% of the certificate and the previous values for =--label= and =--dir= to retrieve the certificate executing *cert-retrieve*:
+Once the certificate has been approved by the Certificate Authority you will receive an e-mail for the GOC. Then to retrieve the host certificate we will execute *osg-cert-retrieve*: and use the %RED%request ID%ENDCOLOR% we recorded earlier. Since certificates are public, no authentication of the user is required to retrieve them.
 
 <pre class="screen">
-%UCL_PROMPT% cert-retrieve  -serial %RED%0xYYYY%ENDCOLOR% -label %RED%%UCL_HOST_FQDN%-http%ENDCOLOR% -dir %RED%.%ENDCOLOR% -prefix %RED%%UCL_HOST_FQDN%-http%ENDCOLOR%
-checking CertLib version, V2-5,  This is latest version, released 24 Aug 2007.
- using CA OSG
-Checking that the usercert and ./%UCL_HOST_FQDN%key.pem match
-writing RSA key
-./%RED%%UCL_HOST_FQDN%%ENDCOLOR%cert.pem and ./%RED%%UCL_HOST_FQDN%%ENDCOLOR%key.pem now contain your Globus credential
+%UCL_PROMPT%  osg-cert-retrieve -i %RED%571%ENDCOLOR% -o %RED%hostcert.pem%ENDCOLOR%
+Using timeout of 5 minutes
+Running in test mode
+Connecting server to retrieve certificate...
+Certificate written to hostcert.pem
 </pre>
-
-The certificate consists of two files (%UCL_HOST_FQDN%-httpcert.pem and %UCL_HOST_FQDN%-httpkey.pem) which have been placed into the current directory. Note, If you did not use the =-prefix= option the default value =user= will be used and the resulting certificate will consist of the two files (usercert.pem and userkey.pem).
 
 %ICON{warning}% Please note that these files represent a %RED%public%ENDCOLOR% and a %RED%private%ENDCOLOR% and should be treated accordingly!
+
+---++ Install the Service Certificate
 
 The *Service Certificate* should be installed under a subdirectory in */etc/grid-security* indicating the name of the service. The next step will install the service certificate in the default location */etc/grid-security/http*:
 
@@ -382,13 +280,92 @@ The *Service Certificate* should be installed under a subdirectory in */etc/grid
 %UCL_PROMPT_ROOT% chmod 400 /etc/grid-security/http/httpkey.pem
 </pre>
 
-
 %ICON{warning}% Please note that the service certificate must also be owned by the unix user who runs the service. For *Apache/Tomcat* this is the %RED%tomcat%ENDCOLOR% user:
 
 <pre class="rootscreen">
 %UCL_PROMPT_ROOT% chown tomcat.tomcat /etc/grid-security/http/httpcert.pem
 %UCL_PROMPT_ROOT% chown tomcat.tomcat /etc/grid-security/http/httpkey.pem
 </pre>
+
+
+Please refer to [[Operations/OSGPKICommandlineClients]] for full documentation of the Client package
+
+---+ Information for Grid Admins
+If you are a grid admin then you can use a single command to request and retrieve a certificate immediately. For getting grid admin privileges please refer [[OSGRA.WebHome][here]].
+
+Request and retrieve multliple host certificates from OIM. Authenticates to OIM and is only for use by Grid Admins for certificates they are authorized to approve. This script is only supported with all hosts being in the same domain (so we ensure they go to the same Grid Admin). The certificates are stored with the format of 'hostname-requestid.pem' (i.e. the id generated from the request for the certificate). The key is stored as 'hostname-serial-key.pem'.
+
+Examples:
+<pre class="rootscreen">
+%UCL_PROMPT% osg-gridadmin-cert-request -H %UCL_HOST_FQDN%
+</pre>
+
+If you want to request more then one certificate you can list them in a file (one host per line) and use the following command
+<pre class="rootscreen">
+%UCL_PROMPT% osg-gridadmin-cert-request -f %RED%hostfile%ENDCOLOR%
+</pre>
+
+%TWISTY{%TWISTY_OPTS_OUTPUT%}%
+---+++ Detailed description of the osg-gridadmin-cert-request usage
+
+This  osg-gridadmin-cert-request script does the following in the process of acquiring certificates for the hostnames specified:
+
+    Reads a list of fully-qualified hostnames from a file specified by the user.
+    For reach hostname:
+    Generates a new private key and CSR
+    Only important part of CSR is CN= component
+    Writes the private key to a file with filename: /-key.pem
+    Prompts the user for their private key pass phrase
+    Pass phrase is cached so user is not re-prompted
+    Authenticates to OIM and posts the CSRs as a single request to OIM
+    Request id is returned and subsequently used
+    Authenticates to OIM and approves the request
+    Waits one minute for request to be processed by OIM
+    Connects to OIM and attempts to retrieve certificates
+    Writes out any certificates it retrieves with filename of /-<red-id>.pem
+    if all certificates have been retrieved, exits loop
+    Wait 5 seconds and repeat. 
+
+Inputs:
+
+    filename of list of hostnames
+    prefix path in which to write private keys and certificares [default: .]
+    path to user's certificate [Optional, default is path specified by $X509_USER_CERT environment variable, ~/.globus/usercert.pem]
+    path to user's private key [Optional, default is path specified by $X509_USER_KEY environment variable, ~/.globus/userkey.pem]
+    Passphrase for user's private key via non-echoing prompt. 
+
+Outputs:
+
+    N host certificates in PEM format
+    N private keys in PEM format 
+
+Usage:osg-gridadmin-cert-request -h/--help [for detailed explanations of options]
+
+
+*Options*:
+  -h, --help            show this help message and exit
+  -k PKEY, --pkey=PKEY  Specify Requestor's private key (PEM Format).  If not
+                        specified will take the value of X509_USER_KEY or
+                        $HOME/.globus/userkey.pem
+  -c CERT, --cert=CERT  Specify Requestor's certificate (PEM Format).  If not
+                        specified will take the value of X509_USER_CERT or
+                        $HOME/.globus/usercert.pem
+  -T, --test            Run in test mode
+  -q, --quiet           don't print status messages to stdout
+  -V, --version         Print the script version number and exit. 
+
+*Hostname Options*:
+    Use either of these options.     Specify hostname as a single hostname
+    using -H/--hostname     or specify from a file using -f/--hostfile.
+
+    -H HOSTNAME, --hostname=HOSTNAME
+                        Specify the hostname or service/hostname for which you
+                        want to request the certificate for.  If specified
+                        -f/--hostfile will be ignored
+    -f HOSTFILE, --hostfile=HOSTFILE
+                        Filename with one hostname or service/hostname per
+                        line
+%ENDTWISTY%
 
 ---+ Frequently Asked Questions
 
@@ -429,10 +406,10 @@ By default the host certificate key pair will be installed in =/etc/grid-securit
 
 <pre class="screen">
 [root@osg-se robert]# openssl x509 -in /etc/grid-security/hostcert.pem -subject -issuer -dates -noout
-subject= /DC=org/DC=doegrids/OU=Services/CN=%UCL_HOST_FQDN%
-issuer= /DC=org/DC=DOEGrids/OU=Certificate Authorities/CN=DOEGrids CA 1
-notBefore=Jan  4 21:08:41 2010 GMT
-notAfter=Jan  4 21:08:41 2011 GMT
+subject= /DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=Services/CN=%UCL_HOST_FQDN%
+issuer= /DC=com/DC=DigiCert-Grid/O=DigiCert Grid/CN=DigiCert Grid CA-1
+notBefore=Apr  8 00:00:00 2013 GMT
+notAfter=May 17 12:00:00 2014 GMT
 </pre>
 
 ---++ How can I check the expiration time of my installed host certificate?
@@ -493,10 +470,10 @@ notAfter=Jan  4 21:08:41 2011 GMT
    * Local REVIEW_READY   = %YES%
 
    change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
-   * Local TEST_READY     = %YES%
+   * Local TEST_READY     = %NO%
 
    change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
-   * Local RELEASE_READY  = %YES%
+   * Local RELEASE_READY  = %NO%
 
 
    DEAR DOCUMENT REVIEWER
@@ -506,7 +483,7 @@ notAfter=Jan  4 21:08:41 2011 GMT
    * Local REVIEWER       = MarcoMambelli
   
    Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local REVIEW_PASSED  = %YES%
+   * Local REVIEW_PASSED  = %IN_PROGRESS%
 
 
    DEAR DOCUMENT TESTER
@@ -516,9 +493,9 @@ notAfter=Jan  4 21:08:41 2011 GMT
    * Local TESTER         = MarcoMambelli
   
    Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local TEST_PASSED    = %YES%
+   * Local TEST_PASSED    = %IN_PROGRESS%
  
 -->
--- Main.AnandPadmanabhan - 10 Oct 2011
+-- Main.AnandPadmanabhan - 8 Apr 2013
 
 %META:TOPICMOVED{by="JamesWeichel" date="1318374925" from="Documentation.GetHostServiceCertificates" to="Documentation/Release3.GetHostServiceCertificates"}%
