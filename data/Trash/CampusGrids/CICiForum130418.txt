@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1366316238" format="1.1" version="1.3"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1366320581" format="1.1" reprev="1.4" version="1.4"}%
 %META:TOPICPARENT{name="BoscoInstall"}%
 <!-- conventions used in this document
    * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="hostname"}%
@@ -22,6 +22,7 @@ You will need login in your host, be able to share a =public_html= directory and
 You will need also access to  Web proxy (e.g. a squid proxy server). The closer this is to your cluster, the more efficient will be your jobs. Several campuses provide one (check with your network administrators). If you want to install one OSG provides a package and [[Documentation/Release3.InstallFrontierSquid][instructions]]. For this tutorial you can also use the OSG ITB proxy server, even if it will not be very efficient if you are far form Chicago!
 
 
+In this tutorial I will be using =bash= shell. If =echo $SHELL= returns something different from =/bin/bash= then run =/bin/bash= to start a Bash session.
 This is a very abbreviated install document for Bosco.  For the full install document, view [[BoscoInstall][Bosco Installer]].  
 And for more information on data transfer see SkeletonKey.
 
@@ -83,12 +84,12 @@ In order to confirm everything is working with the remote cluster, you may want 
    1. Pick a directory to install the CCTools and !SkeletonKey binaries in (e.g. =bin= in your home directory).  Ideally this directory should be in =$PATH=.  <pre class="screen">
 %UCL_PROMPT% mkdir ~/bin
 </pre>
-   1. Pick a directory to export from Chirp (for now the tutorial will use /tmp)
+   1. Pick a directory to export from Chirp (for now the tutorial will use /tmp/%RED%your_user%ENDCOLOR% where your_user is your username)
    1. Run the installer, specifying the directory to install and the  directory to export from Chirp: <pre class="screen">
-%UCL_PROMPT% python install-skeletonkey.py -b ~/bin -e /tmp
+%UCL_PROMPT% python install-skeletonkey.py -b ~/bin -e /tmp/%RED%your_user%ENDCOLOR%
 </pre>
    1. Add the directory specified in =-b= option (e.g. =~/bin=) to =$PATH=: <pre class="screen">
-%UCL_PROMPT% PATH=$PATH:~/bin
+%UCL_PROMPT% export PATH=$PATH:~/bin
 </pre>
    1. Edit =~/.profile= and append the following line: <pre class="file">export PATH=$PATH:~/bin</pre>
 
@@ -99,7 +100,7 @@ Add =chirp= in your path:<pre class="screen">
 %UCL_PROMPT% ln -s cctools-3.7.1-x86_64-redhat5/bin/chirp chirp
 </pre>
 
-Create your data directories: <pre class="screen">
+Create your data directories (the root directory has to be the same that you used in the -e option during the SkeletonKey installation above): <pre class="screen">
 %UCL_PROMPT% mkdir /tmp/%RED%your_user_name%ENDCOLOR%
 %UCL_PROMPT% cd /tmp/%RED%your_user_name%ENDCOLOR%
 %UCL_PROMPT% mkdir data output
@@ -162,27 +163,21 @@ R has been installed in the OSG VO space on OASIS and is available at the follow
    * RHEL5 64bit: =sw/R/rhel5/x86_64/current/=
    * RHEL6 64bit: =sw/R/rhel6/x86_64/current/=
 
+%NOTE% Before you start, please make sure that Chirp is installed and exporting a directory (this tutorial will assume that Chirp is exporting =/tmp/%RED%your_user_name%ENDCOLOR%)
 
----+++ Creating the application tarball
+---++ Creating the application tarball
 Since we'll be running an application from OASIS, we'll include in the application tarball a script to do some initial setup and then invoke the actual application
 
    1. Create a directory for the script <pre class="screen">
 %UCL_PROMPT% mkdir /tmp/rjob_test
-</pre>
-   1. Create a shell script , =/tmp/rjob_test/myapp.sh= setting up the environment and then running R (test.R requires a raster file, data.grb, the number of iterations and the output file): <pre class="screen">
-ROOT_DIR=/cvmfs/uc3.uchicago.edu/sw
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$ROOT_DIR/lib
-$ROOT_DIR/bin/Rscript ./rjob_test/test.R ./rjob_test/data.grb 100 $CHIRP_MOUNT/output/$1
-echo "Finishing script at: "
-echo `date`
 </pre>
    1. Create a R script =/tmp/rjob_test/test.R= with the following lines: <pre class="file">
 #!/usr/bin/Rscript --vanilla
 
 library( raster)
 args <- commandArgs(TRUE)
-grbFile <- args[ 1]
-scanHowMany <- args[ 2]
+grbFile <- args[1]
+scanHowMany <- args[2]
 output <- args[3]
 grb <- brick( grbFile)
 
@@ -190,6 +185,13 @@ for( n in 1:scanHowMany) {
 r <- subset( grb, n)
 cat( paste( names( r), cellStats( r, "sum"), sep= " "), "\n", file=output)
 }
+</pre>
+   1. Create a shell script , =/tmp/rjob_test/myapp.sh= setting up the environment and then running R (as visible above =test.R= requires 3 arguments: a raster file, =data.grb=, the number of iterations, =100=, and the output file): <pre class="screen">
+ROOT_DIR=/cvmfs/uc3.uchicago.edu/sw
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$ROOT_DIR/lib
+$ROOT_DIR/bin/Rscript ./rjob_test/test.R ./rjob_test/data.grb 100 $CHIRP_MOUNT/output/$1
+echo "Finishing script at: "
+echo `date`
 </pre>
    1. Next, make sure the =myapp.sh= script is executable and create a tarball: <pre class="screen">
 %UCL_PROMPT% chmod 755 /tmp/rjob_test/myapp.sh
@@ -201,7 +203,8 @@ cat( paste( names( r), cellStats( r, "sum"), sep= " "), "\n", file=output)
 %UCL_PROMPT% cp rjob_test.tar.gz %RED%~/public_html/%ENDCOLOR%
 %UCL_PROMPT% chmod 644 %RED%~/public_html/rjob_test.tar.gz %ENDCOLOR%
 </pre>
-    1. Finally, download the CVMFS repository key at =http://uc3-test.uchicago.edu/~testu1/oasis.opensciencegrid.org.pub= and make this available on your webserver: <pre clas=file>
+    1. Finally, copy or download the CVMFS repository key and make this available on your Web server. If it is already available on a public server that you trust, you can use directly that URL
+      * For OASIS the key is at =http://uc3-test.uchicago.edu/~testu1/oasis.opensciencegrid.org.pub=: <pre clas=file>
 -----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqQGYXTp9cRcMbGeDoijB
 gKNTCEpIWB7XcqIHVXJjfxEkycQXMyZkB7O0CvV3UmmY2K7CQqTnd9ddcApn7BqQ
@@ -211,7 +214,8 @@ Dy3YQXwmEPm7kAZwIsEbMa0PNkp85IDkdR1GpvRvDMCRmUaRHrQUPBwPIjs0akL+
 qoTxJs9k6quV0g3Wd8z65s/k5mEZ+AnHHI0+0CL3y80wnuLSBYmw05YBtKyoa1Fb
 FQIDAQAB
 -----END PUBLIC KEY-----
-</pre> For uc3 CVMFS the key is =http://uc3-data.uchicago.edu/uc3.key= :<pre calss=file>
+</pre> 
+      * For UC3's CVMFS the key is =http://uc3-data.uchicago.edu/uc3.key=:<pre calss=file>
 -----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3tsg79ghhbxquF3m7oQ3
 A7D77TfafuU2qK5SfW/HeERmBSfWdTNagygNhUjK1rROCmqekz3lnn25hma2Qodz
@@ -223,74 +227,81 @@ KQIDAQAB
 -----END PUBLIC KEY-----
 </pre>
 
-One thing to note here is that Parrot makes mounted CVMFS repositories available under =/cvmfs/repository_name= where repository_name is replaced by the name that the repository is published under.  
+One thing to note here is that Parrot makes mounted CVMFS repositories, like OASIS, available under =/cvmfs/repository_name= where repository_name is replaced by the name that the repository is published under (see the configuration file =rjob_test.ini= below).  
 
 ---+++ Creating a job wrapper
 You'll need to do the following on the machine where you installed !SkeletonKey
-   1. Open a file called =combined.ini= and add the following lines: <pre class="file">
+   1. Open a file called =rjob_test.ini= and add the following lines: <pre class="file">
 [CVMFS]
 repo1 = uc3.uchicago.edu
-repo1_options = url=http://uc3-cvmfs.uchicago.edu/opt/uc3/,pubkey=http://repository_key_url,quota_limit=1000,proxies=squid-proxy:3128
-repo1_key = http://repository_key_url
+repo1_options = url=http://uc3-cvmfs.uchicago.edu/opt/uc3/,pubkey=%RED%http://repository_key_url%ENDCOLOR%,quota_limit=1000,proxies=%RED%squid-proxy:3128%ENDCOLOR%
+repo1_key = %RED%http://repository_key_url%ENDCOLOR%
 repo2 = oasis.opensciencegrid.org
 repo2_options = url=http://oasis-replica.opensciencegrid.org/cvmfs/oasis/,pubkey=%RED%http://repository_key_url%ENDCOLOR%,quota_limit=1000,proxies=%RED%squid-proxy:3128%ENDCOLOR%
 repo2_key = %RED%http://repository_key_url%ENDCOLOR%
 
 [Directories]
-export_base = /tmp/%RED%user%ENDCOLOR%
+export_base = /tmp/%RED%your_user%ENDCOLOR%
 read = /, data
 write = /, output
 
 [Parrot]
-location = http://your.host/~your_user/parrot.tar.gz
+location = %RED%http://your.host/~your_user%ENDCOLOR%/parrot.tar.gz
 
 [Application]
-location = http://your.host/~your_user/rjob_test.tar.gz
+location = %RED%http://your.host/~your_user%ENDCOLOR%/rjob_test.tar.gz
 script = ./rjob_test/myapp.sh
 </pre>
-   1. In =rjob_test.ini=, change the url =http://your.host/~your_user/parrot.tar.gz= to point to the url of the parrot tarball that you copied previously.  
+   1. In =rjob_test.ini=, change the url =http://your.host/~your_user/parrot.tar.gz= to point to the url of the parrot tarball that you copied previously. And set correctly the value of the exported local directory (/tmp/your_user) and the CVMFS servers (repository keys and proxy) 
    1. Run SkeletonKey on =rjob_test.ini=: <pre class="screen">
 %UCL_PROMPT% skeleton_key -c rjob_test.ini
 </pre>
-    1. Run the job wrapper to verify that it's working correctly <pre class="screen">
+    1. Run the job wrapper locally to verify that it's working correctly <pre class="screen">
 %UCL_PROMPT% sh ./job_script.sh test.output
 </pre>
 
----+++ Using the job wrapper
----++++ Standalone
-Once the job wrapper has been verified to work, it can be copied to another system and run: 
+---++ Submitting the job wrapper via Bosco
+
+Once the job wrapper has been verified to work, multiple instances can be run via Bosco. In this example we'll run 5 instances (=queue=5= in the submit file). 
+
+<!--
 <pre class="screen">
 %UCL_PROMPT% scp job_script %REDanother_host:~/%ENDCOLOR%
 %UCL_PROMPT% ssh %RED%another_host%ENDCOLOR%
 [user@another_host ~] sh ./job_script 
 </pre>
+-->
 
----++++ Submitting to HTCondor 
-The following part of the tutorial is optional and will cover using a generated job wrapper in a !HTCondor submit file.  
-   1. On your !HTCondor submit node, create a file called sk.submit with the following contents <pre class="file">
-universe = vanilla
+Create =/tmp/bosco_logs = for the log and output files for Bosco <pre class="screen">
+%UCL_PROMPT% mkdir /tmp/bosco_logs
+</pre>
+
+Create Bosco (!HTCondor) submit file called =rjob_test.submit= with the following contents <pre class="file">
+universe = grid
+grid_resource = batch %RED%pbs%ENDCOLOR% %RED%demoXX@boscopbs.opensciencegrid.org%ENDCOLOR%
 notification=never
 executable = ./job_script.sh
 arguments = test.output.$(Process)
-output = /tmp/sk/test_$(Cluster).$(Process).out
-error = /tmp/sk/test_$(Cluster).$(Process).err
-log = /tmp/sk/test.log
+output = /tmp/bosco_logs/rjtest_$(Cluster).$(Process).out
+error = /tmp/bosco_logs/rjtest_$(Cluster).$(Process).err
+log = /tmp/bosco_logs/rjtest.log
 ShouldTransferFiles = YES
 when_to_transfer_output = ON_EXIT
 queue 5
 </pre>
-   1. Next, create =/tmp/sk= for the log and output files for condor <pre class="screen">
-[user@condor-submit-node ~] mkdir /tmp/sk
-</pre>
-   1. Then copy the job wrapper to the !HTCondor submit node <pre class="screen">
+Make sure to specify the grid_resource line as it was suggested when you added the cluster with =bosco_cluster --add=. You can use also vanilla jobs but there may be some more network requirement about the Bosco submit host. See [[CampusGrids.BoSCO]] for more information.
+
+<!--   
+Then copy the job wrapper to the !HTCondor submit node <pre class="screen">
 %UCL_PROMPT% scp job_script.sh %RED%condor-submit-node%ENDCOLOR%:~/
 </pre>
-   1. Finally submit the job to !HTCondor and verify that the jobs ran successfully<pre class="screen">
-%UCL_PROMPT% ssh %RED%condor-submit-node%ENDCOLOR%
-[user@condor-submit-node ~] condor_submit sk.submit
+-->
+
+Finally submit the job to Bosco and verify that the jobs ran successfully<pre class="screen">
+%UCL_PROMPT% condor_submit rjob_test.submit
 </pre>
 
-Something to note in the HTCondor submit file, is that we're passing the name of the output file that should be written using the =arguments= setting and then using the =$(Process)= variable to ensure that each queued job writes to a different file.  HTCondor will then pass the variable to the job_script.sh which then makes sure that it gets appended to the arguments passed to the =myapp.sh= script.
+Something to note in the HTCondor submit file, is that we're passing the name of the output file that should be written using the =arguments= setting and the file name we are using includes the =$(Process)= variable to ensure that each queued job writes to a different file.  HTCondor will pass the variable to the job_script.sh which then makes sure that it gets appended to the arguments passed to the =myapp.sh= script.
 
 
 
