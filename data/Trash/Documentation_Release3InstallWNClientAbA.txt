@@ -1,0 +1,176 @@
+%META:TOPICINFO{author="MarcoMambelli" date="1366846911" format="1.1" reprev="1.1" version="1.1"}%
+---+!! Worker Node Client Install as Tarball (Anywhere by Anyone)
+%DOC_STATUS_TABLE%
+%TOC%
+
+---# Introduction
+This document is intended to guide system administrators through the process of installing the worker node software and configuring the installed worker node software.
+
+---# About This Document
+
+%ICON{hand}% This document is intended for system administrators that are installing the worker node software on compute nodes. It covers the installation of the OSG Client Tools Package as a Tarball. This packaging is provided to allow installations "Anywhere by Anyone" (!AbA) (e.g. by non-root users or on NFS shares). If you have root access, your OS is %SUPPORTED_OS%, and have no special requirements, we recommend to use the native packages as described in InstallWNClient. 
+For more background on !AbA packages, see the [[SoftwareTeam.NonRootClients][non-root clients project page]].
+
+---# Requirements
+Requirements for the OSG worker node installation:
+
+---## Host and OS
+   * OS is %SUPPORTED_OS%.
+
+#WnContents
+---# Contents of the worker node
+
+The worker node may be updated from time to time. As of OSG 3.1.8 in September 2012, the OSG worker node client contains:
+
+   * Bestman2 Client
+   * CA certificates
+   * curl
+   * dcache-srmclient
+   * dcap-tunnel-gsi
+   * dccp
+   * edg-gridftp-client
+   * Fetch CRL
+   * FTS client
+   * globus-url-copy(!GridFTP client)
+   * lcg-utils
+   * ldapsearch
+   * LFC (client and Python bindings)
+   * !MyProxy
+   * osg-system-profiler
+   * osg-version
+   * !UberFTP
+   * vo-client (includes /etc/vomses file)
+   * wget
+
+
+---# Download, Installation and Configuration Procedure
+
+
+---## Download the WN Client
+Please pick the osg-wn-client tarball that is appropriate for your distribution and architecture.
+You will find them in [[http://vdt.cs.wisc.edu/tarball-client/]] .
+
+The latest available ones are:
+   * [[http://vdt.cs.wisc.edu/tarball-client/osg-wn-client-3.1.16-5.el5.i386.tar.gz][Worker-node client 3.1.16-5 for 32-bit RHEL5]]
+   * [[http://vdt.cs.wisc.edu/tarball-client/osg-wn-client-3.1.16-5.el5.x86_64.tar.gz][Worker-node-client 3.1.16-5 for 64-bit RHEL5]]
+   * [[http://vdt.cs.wisc.edu/tarball-client/osg-wn-client-3.1.16-5.el6.i386.tar.gz][Worker-node-client 3.1.16-5 for 32-bit RHEL6]]
+   * [[http://vdt.cs.wisc.edu/tarball-client/osg-wn-client-3.1.16-5.el6.x86_64.tar.gz][Worker-node-client 3.1.16-5 for 64-bit RHEL6]]
+
+---## Install the WN Client
+
+   1. Unpack the tarball.
+   1. Move the directory that was created to where you want the tarball WN client to be.
+   1. Run =osg-post-install= (==%RED%/path/to/client/%ENDCOLOR%osg/osg-post-install==) to fix the directories in the installation.<br/> \
+      Note that after this, you will not be able to relocate the install again.
+   1. Download and set up CA certificiates using ==osg-ca-manage==
+   1. Download !CRLs using fetch-crl (EL6) or fetch-crl3 (EL5)
+
+Example install (in =$HOME/test-install=, the ==%RED%/path/to/client/%ENDCOLOR%== is =$HOME/test-install/osg-wn-client= ):
+
+<verbatim class='screen'>
+%UCL_PROMPT% mkdir $HOME/test-install
+%UCL_PROMPT% cd $HOME/test-install
+%UCL_PROMPT% wget http://vdt.cs.wisc.edu/tarball-client/osg-wn-client-3.1.16-5.el6.x86_64.tar.gz
+%UCL_PROMPT% tar xzf osg-client-3.1.16-5.el6.x86_64.tar.gz
+%UCL_PROMPT% cd osg-wn-client
+%UCL_PROMPT% osg/osg-post-install
+%UCL_PROMPT% . setup.sh
+%UCL_PROMPT% osg-ca-manage setupCA --url osg
+%UCL_PROMPT% fetch-crl
+</verbatim>
+
+%NOTE% Unpacking the tarball creates a osg-wn-client subdirectory
+
+---# Running ATLAS jobs
+%WARNING% If you may run ATLAS jobs, i.e. if you are an ATLAS site or allow opportunistic usage by ATLAS, you have to install a couple of additional packages. These are some additional LFC-python bindings necessary to run ATLAS jobs. They were included in the Pacman release of the worker node client and have been removed in the migration to the RPM one.
+
+To run ATLAS jobs, install the LFC-python RPMs:
+%NOTE% Depending on your yum configuration the first 2 commands (installing lfc-python26 and lfc-python.i386) may be sufficient. Only if you have =multilib_policy=best= (instead of the default =multilib_policy=all= , current default) in =/etc/yum.conf=, then yum will install only the x86_64 package on an x86_64 system, so you'll need to install explicitly also =lfc-python26.i386=.
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install lfc-python26
+%UCL_PROMPT_ROOT% yum install lfc-python.i386
+%UCL_PROMPT_ROOT% yum install lfc-python26.i386
+</pre>
+
+---# Services
+The WN client is a collection of client programs that do not require service startup or shutdown. 
+The only services are osg-update-certs that keeps uptodate the CA certificates and fetch-crl that keeps uptodate the CRLs.
+
+---## Auto-updating certificates and CRLs
+
+You must create cron jobs to run fetch-crl/fetch-crl3 and osg-update-certs to update your !CRLs and certificates automatically.
+
+Here is what they should look like. (Note: fill in %RED%&lt;OSG_LOCATION&gt;%ENDCOLOR% with the full path of your tarball install, including =osg-client= that is created by the tarball).
+
+<pre class='file'>
+# Cron job to update certs.
+# Runs every hour by default, though does not update certs until they're at
+# least 24 hours old.  There is a random sleep time for up to 45 minutes (2700
+# seconds) to avoid overloading cert servers.
+10 * * * *   ( . %RED%&lt;OSG_LOCATION&gt;%ENDCOLOR%/setup.sh && osg-update-certs --random-sleep 2700 --called-from-cron )
+</pre>
+
+<pre class='file'>
+# Cron job to update CRLs for EL5:
+# Runs every 6 hours at, 45 minutes +/- 3 minutes.
+42 */6 * * *   ( . %RED%&lt;OSG_LOCATION&gt;%ENDCOLOR%/setup.sh && fetch-crl3 -q -r 360 )
+</pre>
+
+<pre class='file'>
+# Cron job to update CRLs for EL6:
+# Runs every 6 hours at, 45 minutes +/- 3 minutes.
+42 */6 * * *   ( . %RED%&lt;OSG_LOCATION&gt;%ENDCOLOR%/setup.sh && fetch-crl -q -r 360 )
+</pre>
+
+You might want to configure proxy settings in $OSG_LOCATION/etc/fetch-crl.conf (EL6) or $OSG_LOCATION/etc/fetch-crl3.conf (EL5)
+
+---## Starting and Enabling Services
+To start the services you must edit your cron with ==crontab -e== and add the lines above.
+
+---## Stopping and Disabling Services
+To stop the services you must edit your cron with ==crontab -e== and remove the lines above.
+
+
+
+---# Configuring the CE for wn-client tarballs (!AbA)
+Using the wn-client software installed from the tarball will require a few changes on the compute element so that the resource's configuration can be correctly reported.  The =$OSG_GRID= variable, which points to the location of the wn-client installation directory, will need to point to the installation directory including =osg-wn-client= that is part of the tarball (referred above as &lt;OSG_LOCATION&gt;).  Most jobs source =$OSG_GRID/setup.sh= before performing any work.   So set =$OSG_GRID= (in the CE config.ini) to =%RED%&lt;OSG_LOCATION&gt;%ENDCOLOR%= .
+
+On an mixed RPM/pacman based system, a possible solution would be to symlink the existing =$OSG_GRID= location (%RED%&lt;OSG_LOCATION&gt;%ENDCOLOR% defined above) to =/etc/osg/wn-client=.
+
+
+---# How to get Help?
+To get assistance please use this [[HelpProcedure][Help Procedure]].
+
+
+---# References
+   * InstallWNClient explains how to install the RPM based WN Client
+
+About !AbA software:
+   * SoftwareTeam.NonRootClientBeta
+   * SoftwareTeam.NonRootClients
+
+---# Comments
+%COMMENT{type="tableappend"}%
+
+<!-- REVIEW PROCESS
+
+   * Local DOC_ROLE		  = SysAdmin
+   
+   * Local DOC_TYPE		  = Installation
+   
+   * Local DOC_AREA               = ComputeElement
+
+   * Local OWNER                  = MarcoMambelli
+   * Local INCLUDE_REVIEW = %YES%
+   * Local INCLUDE_TEST   = %YES%
+   * Local REVIEW_READY   = %YES%
+   * Local TEST_READY     = %YES%
+   * Local RELEASE_READY  = %NO%
+
+   * Local REVIEWER       = MarcoMambelli
+   * Local REVIEW_PASSED  = %IN_PROGRESS%
+ 
+   * Local TESTER         = SuchandraThapa
+   * Local TEST_PASSED  = %IN_PROGRESS%
+
+-->
