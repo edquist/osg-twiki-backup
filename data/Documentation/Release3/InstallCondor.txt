@@ -1,94 +1,103 @@
-%META:TOPICINFO{author="TimTheisen" date="1369336742" format="1.1" reprev="1.19" version="1.19"}%
----+!! Installing Condor for your cluster
+%META:TOPICINFO{author="TimCartwright" date="1369413326" format="1.1" reprev="1.20" version="1.20"}%
 %DOC_STATUS_TABLE%
-%TOC{depth="3"}%
 
-<!-- Local variables
-   * Set CONDORREL = 7.8.7
-   * Set AS_OF_DATE = January 22, 2013
+---+!! Installing HTCondor as a Batch System
+
+%TOC{depth="2"}%
+
+<!-- Variables used in this document
 -->
 
----+ About This Document
 
-This installation document uses the HTCondor RPM from the OSG repository.  
-OSG borrowed the RPM from Fedora, (by which we mean that we've copied their source RPM and rebuilt it against the version of Globus which we provide). This version of HTCondor provides most of HTCondor's functionality, except for Standard Universe and HTCondor-G support for CREAM and NorduGrid.
+---# About This Document
 
-Other RPM installations, e.g. from the Fedora or the HTCondor repositories, are very similar but the instructions may need some adapting.
-Installing Condor using a tarball distribution is instead quite different.
-Some cluster management tools, like Rocks, may install and setup Condor for you.
+This document describes the process of installing and configuring HTCondor to use as the batch system for your compute cluster. It is intended to help site administrators who are responsible for setting up and maintaining the cluster. HTCondor is a very large and rich software system, so this document cannot cover all of its possible use cases and configuration settings; instead, it presents the most common use cases and basic configuration. For more information about HTCondor, please refer to [[http://research.cs.wisc.edu/htcondor/manual/ the HTCondor Manual]].
 
-See CondorInformation for an overview of the different options for having HTCondor.
+
+---# About the HTCondor Package
+
+This document uses the HTCondor RPM from the OSG repository. Our RPM was inspired by the Fedora project, which means that started with their source RPM and modified it for use in the OSG environment. The RPM provides most of HTCondor’s functionality, except for Standard Universe and HTCondor-G support for CREAM and !NorduGrid.
+
+Other RPMs, including those from the Fedora or HTCondor repositories, may be similar but the instructions in this document may need some adapting. Installing HTCondor using some other packaging (e.g., a tarball) is very different. Some cluster management tools, like Rocks, may install and configure HTCondor for you.
+
+See CondorInformation for an overview of the different options for installing HTCondor.
  
-%NOTE% During 2012 the name of this workflow management system changed form *Condor* to *High Throughput Condor* (or *HTCondor*). In this and other OSG documents you may see the use of both names to refer to the same software.
-
----+ Engineering Considerations
-
-HTCondor needs to be installed (using the procedure below) on all nodes of the batch queue, the head node (=gc-hn=, HTCondor central manager with Collector and Negotiator) the worker nodes (=gc-cXXX=, with the Startd), and also on the nodes used to submit HTCondor jobs, like interactive nodes or the %LINK_GLOSSARY_CE% (=gc-uiXXX= and =gc-ce=, with the Schedd).
-
-Certain operations, like the RPM installation and some system configuration, has to be repeated on each node.
-Some steps like the configuration of _condor_config_ are performed only once, e.g. on the head node =osg-hn=, others like the customization of the local condor configuration file is different for each node.
-
-In the absence of a cluster management system that is automatically replicating files, sharing at least the directory hosting the configuration files allows to simplify a bit the configuration by making it easy to make cluster-wide configuration changes.
-Anyway this installation is possible also having no shared directories if the customized _condor_config_ file is replicated on all nodes of the queue.
-
-When using RPMs HTCondor is installed in the default path, so there is no need of special setup to use it. It will be automatically in the environment of every user.
-
-*A note about the directory structure:*
-This Condor installation was structured to facilitate upgrades to Condor with minimal effort:  
-   * Condor RPM follows the [[http://www.pathname.com/fhs/][Filesystem Hierarchy Standard]]. This is different from the self-contained tarball installation. For more information on the directory structure check the [[http://www.cs.wisc.edu/condor/yum/condor_install.html][release notes]]. 
-   * The =/var/lib/condor= directory contains the Condor spool and may be mounted from a different partition as detailed in the section about [[#Mounting_a_separate_partition_fo][isolated spool directory]].
-   * The =/etc/condor= directory contains the configuration
-   * There may be a shared directory to simplify the configuration (=/nfs/condor/condor-etc=) in addition to the files provided by the RPM. Below you can find how to avoid any shared file (either using a cluster management system or without). Check the [[#HTCondor_configuration][configuration section]].
-
-*Decide if you plan to use GSI (x509 PKI) authentication* in this HTCondor installation. The CA Certificates are not always necessary. You'll need them if you use GSI authentication with HTCondor. If you are not using GSI authentication you can skip the installation of the CA Certificates below.
+%NOTE% Until late 2012, the HTCondor software was known as “Condor”. You may still see the older name referring to the same software.
 
 
----+ Requirements
----++ Host and OS
-   1 A host to install the Condor head node (Collector and Negotiator).
-   1 A host to install the Condor submit node (Schedd).
-   1 Hosts to run the Condor jobs (Startd).
-   1 OS is %SUPPORTED_OS%.  Currently most of our testing has been done on Scientific Linux 5.
-   1 Root access
+---# Engineering Considerations
+
+HTCondor must be installed and configured on all nodes of the batch system, including:
+   * Worker nodes (_aka_ computer nodes, execute nodes)
+   * One or more submit nodes, including the %LINK_GLOSSARY_CE% and any local interactive submission nodes
+   * A head node, containing the HTCondor Central Manager
+
+Installation and some configuration steps must be performed on each node, but the specific configuration for each node varies by the type of that node. For example, the head node and submit nodes may each have custom configuration, but all worker nodes may have the same configuration. For nodes that have similar or identical configuration, it may be helpful to use a cluster management system (e.g., cfengine, puppet, chef) to manage machine configuration centrally, or to use a shared filesystem for common configuration files. Deciding on and implementing a cluster configuration approach is beyond the scope of this document.
+
+Installing HTCondor from the RPMs means that all files are installed in common, default paths; generally, the RPMs follow [[http://www.pathname.com/fhs/ Filesystem Hierarchy Standard]]. Therefore, tasks like running common commands and viewing man pages just work for all users following the installation. Further, the installation procedure below is designed to simplify HTCondor software upgrades. Further notes on the layout of files in the HTCondor RPMs:
+   * The =/var/lib/condor= directory contains the HTCondor spool and may be mounted from a different partition (see [[#Mounting_a_separate_partition_fo][below]])
+   * The =/etc/condor= directory contains the HTCondor configuration files
+   * It is possible to use a shared configuration directory (e.g., =/nfs/condor/condor-etc=); see [[#HTCondor_configuration][below]] for options on sharing configuration
+
+Finally, it is important to decide if you plan to use GSI (x509 PKI) authentication with this HTCondor installation. The CA Certificates are not always necessary. You will need them if you use GSI authentication with HTCondor. If you are not using GSI authentication you can skip the installation of the CA Certificates below.
+
+
+---# Requirements
+
+---## Host and OS
+
+To install HTCondor, you will need:
+
+   * One host for the HTCondor head node (Collector and Negotiator)
+   * A %LINK_GLOSSARY_CE% for an HTCondor submit node (Schedd), plus other local submit nodes as desired
+   * Hosts for HTCondor to execute jobs (Startds)
+   * OS is %SUPPORTED_OS%
+   * Root access
 
 #NetworkingReq
----++ Networking
+---## Network
 %STARTSECTION{"Firewalls"}%
 %INCLUDE{"FirewallInformation" section="FirewallTable" lines="condorcollector,condor"}%
 
-=LOWPORT= and =HIGHPORT= are two values set in the %LINK_GLOSSARY_CONDOR% configuration file, e.g. <pre class="file">
-LOWPORT = &lt;low port&gt;
+=LOWPORT= and =HIGHPORT= are two values set in the %LINK_GLOSSARY_CONDOR% configuration file, e.g.,\
+<pre class="file">LOWPORT = &lt;low port&gt;
 HIGHPORT = &lt;high port&gt;</pre>
-The %LINK_GLOSSARY_CONDOR% collector port can be changed in the configuration file.
-For more information please check the [[http://research.cs.wisc.edu/condor/manual/v7.8/3_7Networking_includes.html][Networking section of the Condor manual]].
 
+The %LINK_GLOSSARY_CONDOR% collector port can be changed in the configuration file. For more information please check the [[http://research.cs.wisc.edu/condor/manual/v7.8/3_7Networking_includes.html][Networking section of the HTCondor manual]].
 %ENDSECTION{"Firewalls"}%
 
-You'll find more client specific details also in the [[#Firewall_Considerations][Firewall section]] of this document.
 
----+ Installation procedure
+---# Installation Procedure
+
 %INCLUDE{"YumRepositories" section="OSGRepoBrief" TOC_SHIFT="+"}%
 
-%NOTE% The CA Certificates are not always necessary. You'll need them if you use GSI (x509 PKI) authentication with HTCondor. If you are not using GSI authentication you can skip the following section
+%NOTE% The CA Certificates are not always necessary. You will need them if you use GSI (x509 PKI) authentication with HTCondor. If you are not using GSI authentication you can skip the following section
 
 %INCLUDE{"Documentation/Release3.InstallCertAuth" section="OSGBriefCaCerts" TOC_SHIFT="+"}%
  
+
 %STARTSECTION{"InstallCondorRPMs"}%
----++ Condor Installation
-*On each node* Start with installing Condor from the repository
-<pre  class="rootscreen">
-%UCL_PROMPT_ROOT% yum install condor
-</pre>
 
----++ HTCondor configuration
-The cluster you are installing Condor on most likely includes many nodes. Below we talk present 2 alternative ways to manage the configuration:
-   1.  If you have a cluster management system (e.g. [[http://puppetlabs.com/][Puppet]], [[http://cfengine.com/][cfengine]], [[http://www.opscode.com/chef/][Chef]], or some similar tool), you can use that to manage centrally the different files. 
-   1. Otherwise you can use a shared file system to avoid copying by hand all the configurations, specially the ones of the many worker nodes
-You can use option 1 (avoiding a shared directory) even if you have no cluster management system but the burden of copying all the files and maintaining them in sync will fall onto you and manual operations may be error prone.
-Use the option that works better for you.
+---## Installing HTCondor
 
----+++ Configuration using a cluster/configuration management system
-Cluster management systems differ in ways to describe what to do and you'll have to consult the manual of your system for that. This description is generic. All cluster management systems allow to group nodes in classes. For the HTCondor configuration we'll distinguish a head node (generally one), submit nodes and worker nodes, as discussed in the engineering consideration above.
+   1. Install HTCondor from the OSG yum repository:\
+      <pre  class="rootscreen">%UCL_PROMPT_ROOT% yum install condor</pre>
+
+---## Configuring HTCondor
+
+Most likely, your HTCondor system includes many nodes, especially worker nodes. Different nodes or types of nodes may require different configuration files, and yet the different configuration files may have many shared settings. There are several ways to manage your HTCondor configuration files, including:
+
+   * Manually create, maintain, and distribute configuration files to each machine
+   * Manually create and maintain configuration files centrally, and use a shared filesystem to distribute them (especially to worker nodes)
+   * Use a cluster management tool (e.g., [[http://cfengine.com/][cfengine]], [[http://puppetlabs.com/][Puppet]], [[http://www.opscode.com/chef/][Chef]]) to manage configuration centrally
+
+Select a method that works best for you.
+
+---### Configuration using a cluster management tool
+
+Generally, cluster management tools (e.g., [[http://cfengine.com/][cfengine]], [[http://puppetlabs.com/][Puppet]], [[http://www.opscode.com/chef/][Chef]]) allow you to define machine configuration centrally and to reduce duplication of configuration settings, then provide mechanisms to distribute configuration to a variety of machines. Each tool has its own structure and methods for defining and pushing configuration, so please consult the documentation for your particular tool.
+
+Cluster management tools allow you to group nodes into types. For HTCondor, we node types such as a head node, submit nodes, and worker nodes, as discussed in the Engineering Considerations, above.
 
 The HTCondor configuration is in =/etc/condor=. The following sections describe the files and configuration changes that should be applied to the different type of nodes and (at the end) to all the nodes.
 
@@ -312,35 +321,39 @@ The partition can be mounted on =/var/lib/condor= before installing Condor or at
 </pre>
 
 
----+ Services
-The condor master on each node taked care to start and monitor the correct services as selected in the configuration file.
+---# Services
 
----++ Starting and Enabling Services
+The HTCondor master on each node taked care to start and monitor the correct services as selected in the configuration file.
+
+---## Starting and Enabling Services
+
 To start the services:
-   1. To start Condor you can use the service command, e.g.: <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/service condor start
-</pre>
 
-You should also enable the appropriate services so that they are automatically started when your system is powered on: 
-   * To enable Condor by default on the node: <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/chkconfig condor on
-</pre>
+   1. To start Condor you can use the service command, e.g.:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% /sbin/service condor start</pre>
 
----++ Stopping and Disabling Services
+You should also enable the appropriate services so that they are automatically started when your system is powered on:
+
+   * To enable Condor by default on the node:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% /sbin/chkconfig condor on</pre>
+
+---## Stopping and Disabling Services
+
 To stop the services:
-   1. To stop Condor you can use: <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/service condor stop
-</pre>
+
+   1. To stop Condor you can use:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% /sbin/service condor stop</pre>
 
 In addition, you can disable services by running the following commands.  However, you don't need to do this normally.
-   * Optionally, to disable Condor: <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/chkconfig condor off
-</pre>
 
----+ Troubleshooting
+   * Optionally, to disable Condor:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% /sbin/chkconfig condor off</pre>
+
+
+---# Troubleshooting
 
 #ImportantFiles
----++ Useful configuration and log files
+---## Useful configuration and log files
 
 Configuration Files
 | *Service or Process* | *Configuration File* | *Description* |
@@ -351,9 +364,10 @@ Log files
 | *Service or Process* | *Log File* | *Description* |
 | condor | =/var/log/condor/= | All log files |
 
----++ Test Condor
+---## Test Condor
 
-After starting Condor you can check if it is running correctly<pre  class="screen">
+After starting Condor you can check if it is running correctly:\
+<pre  class="screen">
 %UCL_PROMPT% condor_config_val log   # (should be /var/log/condor/)
 %UCL_PROMPT% cd /var/log/condor/
 #check master log file
@@ -361,16 +375,16 @@ After starting Condor you can check if it is running correctly<pre  class="scree
 # verify the status of the negotiator
 %UCL_PROMPT% condor_status -negotiator</pre>
 
-You can see the resources in your Condor cluster using =condor_status= and submit test jobs with =condor_submit=. 
-Check CondorTest for more.
+You can see the resources in your Condor cluster using =condor_status= and submit test jobs with =condor_submit=. Check CondorTest for more.
 
 
+---# How to get Help?
 
----+ How to get Help?
 To get assistance please use this [[HelpProcedure][Help Procedure]].
 
 
----+ References
+---# References
+
    * [[http://research.cs.wisc.edu/condor/manual/][Condor manuals]]
    * [[CondorInformation][Options for installing Condor]]
    * The Condor team has a wonderful set of How-To recipes for condor's admins: [[http://nmi.cs.wisc.edu/node/1465]]
@@ -381,7 +395,7 @@ On using Condor:
    * Documentation.CondorSubmittingMultipleJobs
    * Documentation.CondorSubmittingMultipleComplexJobs
 
----+ Comments
+---# Comments
 %COMMENT{type="tableappend"}%
 
 <!-- CONTENT MANAGEMENT PROJECT
@@ -438,6 +452,6 @@ On using Condor:
    * Local TESTER         = TimTheisen
   
    Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
-   * Local TEST_PASSED    = %IN_PROGRESS%
+   * Local TEST_PASSED    = %YES%
 ############################################################################################################ 
 -->
