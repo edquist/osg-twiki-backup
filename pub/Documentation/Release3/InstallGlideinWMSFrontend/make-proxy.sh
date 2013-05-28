@@ -38,7 +38,7 @@ IN_NAME="/var/lib/gwms-frontend/frontend_base_proxy"
 OUT_NAME="/tmp/vofe_proxy"
 # These emails (OWNER_EMAIL, CC_EMAIL) will receive a message if the base-proxy is missing, expired os about to expire
 # E.g. You can send th email to the owner and add a support mailing list in CC (this may be empty)
-OWNER_EMAIL="marco@hep.uchicago.edu"
+OWNER_EMAIL="name@uchicago.edu"
 CC_EMAIL=""
 # Proxy description used in the email sent when the proxy is missing, expired os about to expire
 PROXY_DESCRIPTION="VO Fronted on ui-gwms"
