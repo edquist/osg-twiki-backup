@@ -1,0 +1,80 @@
+%META:TOPICINFO{author="CarlEdquist" date="1369950226" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="UnifiedHTCondorRPM"}%
+---+!! *Unified HTCondor RPM Detailed Implementation Plan*
+%DOC_STATUS_TABLE%
+%TOC%
+
+---++ About This Document
+This document covers the implementation details of the project to unify the different versions of the HTCondor RPM.
+
+See also the parent [[UnifiedHTCondorRPM]] page for a higher-level summary of this project.
+
+
+---++ Implementation Details
+
+---+++ Start with OSG source RPM
+
+As a starting point we'll be using a copy of the OSG condor rpm spec from the osg upcoming branch (using the condor-7.9.6 source).  This is a convenient starting place as a working source rpm that we control, that already covers a lot of what we want out of the final product.
+
+---+++ Add missing features from Fedora RPM / reconcile file locations
+
+From there we can integrate any missing features.  The Fedora version is already close to the OSG version.  There are some differences in what gets enabled and included in the build, and the location of some files.  Where there are different build features enabled, we can put conditional %defines in the rpm spec, probably defaulting to enabling a feature that is currently enabled in either the OSG or Fedora version.  Files packaged in different locations between the versions will have to be considered on a case-by-case basis to decide what the “correct” location is.  Additionally, any changes should be noted and consideration given to whether the change will be disruptive to users who might expect one location or the other.
+
+---+++ Add missing features from UW RPM, standard universe in particular
+
+We also want to incorporate any features that are only present in the UW rpm.  One key feature that is only available in the UW rpm is standard universe.  (The LIGO community relies heavily on this.)  The trouble with the UW style build is that it pulls in and builds specific, patched versions of various external libraries.  Much of this can probably be replaced with the proper !BuildRequires in the rpm spec file, which will ensure that the proper libraries are installed on the system at build time.  The custom version of glibc is one possible exception, but we should see if newer versions of glibc address our need for the custom version, or if for any reason we are able to do without the custom version we use.  We would like to be able to build standard universe without bringing in the external packages (ie, to do a PROPER build), or at a least to limit externals to the bare minimum required for standard universe.  This will require changes to the cmake build scripts (possibly by a FW developer that is more familiar with them), as there is currently no combination of build flags that can achieve this.
+
+After getting standard universe to build with the source rpm, we can partition off the files specific to this feature into a subpackage, something like condor-std-universe.  That way the default condor install won't have to bring it in if it's undesirable for some reason.
+
+---+++ Comply with Fedora guidelines
+
+The Fedora community has stated that following their packaging guidelines is a strict requirement for them, and standard universe is somewhat troublesome since it is statically linked against a custom version of glibc.  We would like to find a way to package standard universe which still conforms to their guidelines.  If we are able to remove the requirements for external libraries (including glibc) we may be fine, but otherwise we should discuss our building and packaging of standard universe with the Fedora folks (Matt Farrellee and Tim St Clair), and possibly ask for an exception to be made.  See the following areas in particular from Fedora's packaging guidelines:
+
+   * http://fedoraproject.org/wiki/Packaging:Guidelines#Packaging_Static_Libraries
+   * http://fedoraproject.org/wiki/Packaging:Guidelines#Duplication_of_system_libraries
+
+---+++ Support for parallel universe
+
+Supporting for parallel universe jobs is another feature that should be easy to have included as a subpackage.  This should be less trouble than standard universe since it does not require any custom external libraries to be built.  The building and packaging of parallel universe should be controlled in the rpm spec by a conditional %define, and the files should be put in a parallel universe subpackage when enabled.  Currently, there is some amount of configuration that must be done after an install before parallel universe jobs can be used.  We would like to have the rpm itself either drop the appropriate config files into place or perform the appropriate setup steps when the parallel universe subpackage gets installed so that parallel universe jobs work out-of-the-box.
+
+---+++ Support for cgroups
+
+Similarly, we would like to support cgroups on newer kernels (RHEL6+).  This should also be built with a conditional %define in the rpm spec, it can probably be put into a subpackage, and, if possible, we should see if the appropriate condor cgroup config file(s) can be dropped into place with the subpackage install, to have cgroup support work out-of-the-box.
+
+---+++ Reconcile config file differences
+
+As mentioned earlier, the location of certain config files is not consistent between the UW / OSG / Fedora versions of the rpm.  (For example condor_config.local)  The differences in the contents of config files needs to be reconciled as well – again, paying attention to what will likely be disruptive to users doing upgrades.  The main files I have in mind here are condor_config, sysconfig, and the init.d script.  Note that in the OSG version, there are actually two sysconfig files, /usr/share/osg/sysconfig/condor and /etc/sysconfig/condor, where the first is meant to be for the distributor to tweak the environment and the second is for the sysadmins to manage site-specific settings...  It would be nice to accommodate this kind of configuration in a non-osg-specific way.  We may encounter other such differences in the process of sorting this out, which will have to be considered as they are discovered.
+
+---+++ Address init.d script limitations
+
+With the init.d script in particular, in addition to just reconciling differences, there are some limitations brought up by Steve Timm of Fermilab that need to be addressed.  They make customizations to their condor init.d script, but they get lost on upgrades because we do not mark it as a config file.  We would like to make the fixes and provide a proper place for the customizations.  In particular:
+   1. add a ulimit statement to boost the number of allowed file descriptors,
+   1. add a new command to the init script, service condor drain, which sends a condor_off -peaceful to the condor_master on the node, and
+   1. fix the /var/lock/subsys file so it is the correct name (otherwise the redhat shutdown script doesn't even attempt to shut down condor at system shutdown, which can lead to a virtual machine hang if you are running condor in a VM).  Brian Lin has begun work on this.
+
+---+++ Investigate different upgrade scenarios
+
+Some thought needs to go into what different upgrade scenarios look like in general.  First, as mentioned above, we need to consider the changes in config files and file locations – any changes that are likely to be disruptive when upgrading from any existing version to the unified one should be documented.  Then, more generally, should the condor service be stopped / restarted on an upgrade?  And when the service is stopped, when is it appropriate to do condor_off -fast vs -graceful, etc?  That is, when does it makes sense to end services immediately (to avoid hanging indefinitely) vs. to wait for jobs to finish (to avoid disrupting an active pool).  Different situations may call for different action, and we would like to find a way to have it do the right thing either way.  Maybe it would be appropriate to make this a configuration setting somewhere?  Something else to consider: when upgrading in a large active pool, does it make sense to behave differently depending on the node type?  (submit node vs execute node vs central manager)  If so, would it make sense to have different rpms for the different node types?  (My hunch is no, but it may be worth looking into.)
+
+---+++ Future directions
+
+Once we have all of these features integrated into the unified condor source rpm (living in the osg upcoming branch), we should be able to build it automatically in koji and it should be retrievable from the appropriate osg upcoming yum repository.  We have not yet charted out where we will go from there, which is to say, how everyone else will get it.  In particular, will building the new unified rpm be automated in the !BaTLab/NMI builds & testing?  Will UW/CHTC continue hosting their own builds of HTCondor, or will they use the ones built in koji for OSG?  Will the UW/CHTC host their own yum repository to distribute the rpms?  Will Fedora want to incorporate our changes for the unified rpm?  Etc.  None of this has been decided.  In any case the rpms should be available in the osg repo, and at some point we can figure out where to go from there.
+
+---++ Development Milestones
+
+   1. Integrate missing features from Fedora-specific  [2 days]
+   1. Allow for building standard universe with a PROPER build -- that is, remove the requirement for downloading and building all externals in order to build standard universe. [2-3 days for someone familiar with the cmake scripts, 4-6 days for anyone else]
+   1. Investigate removing the requirement for custom glibc for standard universe [2 days for someone familiar with how the glibc customizations and how it gets used, 4 days for anyone else]
+   1. Partition standard universe into a sub-package [ < 1 day]
+   1. Investigate and reconcile differences in file locations & contents [2 days]
+   1. Implement suggestions from Fermi for fixing / improving init.d script behavior [3 days]
+   1. Partition parallel universe into a sub-package and automate configuration [1-2 days]
+   1. Partition cgroups functionality into a sub-package and automate configuration [1-2 days]
+   1. Investigate different upgrade scenarios / customizing upgrade behavior [3 days]
+
+---++ References
+   * [[UnifiedHTCondorRPM][UnifiedHTCondorRPM Summary]]
+   * [[https://htcondor-wiki.cs.wisc.edu/index.cgi/tktview?tn=3638][Main GitTrack Ticket]]
+
+---++ *Comments*
+%COMMENT{type="tableappend"}%
