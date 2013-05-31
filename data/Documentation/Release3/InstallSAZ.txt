@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="NehaSharma" date="1369838256" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="NehaSharma" date="1370027657" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="NavTechSAZ"}%
 %DOC_STATUS_TABLE%
 
@@ -7,7 +7,7 @@
 
 ---# Introduction
 
-%LINK_GLOSSARY_SAZ%SAZ enables a Grid site administrator to enforce a Grid job whitelist/blacklist capability at his/her site. It does so by providing the site administrator the capability to ban (disable) or enable identity attributes that are associated with the credential that the user uses to run Grid jobs.  These identity attributes are:
+SAZ enables a Grid site administrator to enforce a Grid job whitelist/blacklist capability at his/her site. It does so by providing the site administrator the capability to ban (disable) or enable identity attributes that are associated with the credential that the user uses to run Grid jobs.  These identity attributes are:
    * =User= - A user can be authorized or disabled from running grid jobs based on his/her DN (Distinguished Name), certificate serial number or proxy remaining lifetime. This is useful if you want to temporarally (or permanently) ban a user in response to a security incident or investigation (e.g. following a report that a certificate has been compromised).
    * =Proxy Lifetime= - Enforce a limit on proxy lifetime on your grid resource.
    * =CA= (Certificate Authority) based on its DN. This would ban a CA and thus all users using grid certificates issued by that CA from running grid jobs on your site.
@@ -60,7 +60,7 @@ Note that if UIDs 27 and 91 are taken already but not used for the appropriate u
 %INCLUDE{"YumRepositories" section="OSGRepoBrief" TOC_SHIFT="+"}%
 %INCLUDE{"InstallCertAuth" section="OSGBriefCaCerts" TOC_SHIFT="+"}%
 
----## Install and Configure GUMS
+---## Install and Configure SAZ
 
 ---### Install SAZ
 
@@ -84,168 +84,7 @@ In this section, you will configure the SAZ !MySQL database by creating a new da
 
 In this section, you will set up an initial SAZ configuration file
 
-The =saz-db-conf-setup= command above created a default, pre-configured =/etc/gums/gums.config= file. It is almost certainly not what you want. Instead, it is recommended that you start with an OSG template for your configuration.
 
-   1. Copy the OSG template over the default configuration file<pre class="rootscreen">%UCL_PROMPT_ROOT% cp /etc/gums/gums.config.template /etc/gums/gums.config</pre>
-   1. Edit the new =/etc/gums/gums.config= file and change the following settings<p><strong>Note:</strong> Each placeholder occurs exactly once in the file</p>
-| *Search for* | *Replace with* |
-| @USER@ | The name of the !MySQL GUMS user. If you followed the instructions above, this will be =gums=. |
-| @PASSWORD@ | The password for the !MySQL gums user (see above). |
-| @SERVER@ | The name of your computer and port (e.g. =my.computer:3306=) .%BR%Normally !MySQL is running on the same machine as GUMS (as in the instructions above).<br>We *highly recommend* using =localhost= instead of the actual hostname; this will cause !MySQL to use a local Unix socket instead of listening on the network, which is more secure. If you use localhost, there is no need to specify a port.  |
-| @DOMAINNAME@ | Your local domain, such as =wisc.edu=. |
-
----#### Existing Installation
-
-If you are migrating from an older version of GUMS (i.e., from OSG 1.2.x), you can copy your existing =gums.config= file to its new location, then update it for the new version of GUMS.
-
-   1. Copy your existing =gums.config= into =/etc/gums/gums.config=
-   1. Edit =/etc/gums/gums.config= as follows
-      * Update the !MySQL username and password (if different)
-      * Change the connection string for =hibernate.connection.url= so that the port is 3306 instead of 49xxx
-      * If you're migrating from GUMS installed by pacman, change =vomsServer= elements to remove the =services/VOMSAdmin= string from each =baseURL=.  
-      * If you're migrating from GUMS installed by pacman, update the =sslCAFiles= attribute in the =vomsServer= element to identify correctly to your CA certificate files (=/etc/grid-security/certificates/*.0=, if you are using default settings).  
-   1. If you have updated GUMS from another server or from an OSG 1.2.x installation, you will need to authorize the user being used by GUMS to access the =GUMS_1_3= database. Using the table above, replace values in the following command and run it<pre class="rootscreen">%UCL_PROMPT_ROOT% mysql -u root mysql
-mysql> GRANT ALL ON GUMS_1_3.* TO '@USER@'@'@SERVER@' IDENTIFIED BY '@PASSWORD@';
-mysql> FLUSH PRIVILEGES;
-mysql> quit</pre>
-
-For convenience, you can use the following sed commands to make the changes to the =vomsServer=  and =sslCAFiles= elements:
-%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Sed command to change vomsServer elements"}%
-<pre class="rootscreen">
-
-%UCL_PROMPT_ROOT% sed -i -e "s@/services/VOMSAdmin'@'@g" gums.config.template_from_pacman
-</pre>
-%ENDTWISTY%
-%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Sed command to change sslCAFiles elements"}%
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% sed -i -e "s@sslCAFiles=''@sslCAFiles='/etc/grid-security/certificates/*.0'@g" gums.config.template_from_pacman
-</pre>
-%ENDTWISTY%
-
----# Services
-
-The GUMS service is actually a web application running within the Tomcat web application server. It uses the !MySQL database server for storage and the Fetch CRL service to maintain each %LINK_GLOSSARY_CRL%.
-
----## Starting and Enabling Services
-
-To start GUMS and associated services:
-
-   1. Start the GUMS and associated services
-      * %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlStart"}%
-      * Start other services:<pre class="rootscreen">%UCL_PROMPT_ROOT% /sbin/service mysqld start
-%RED% # For RHEL 5, CentOS 5, and SL5 %ENDCOLOR%
-%UCL_PROMPT_ROOT% /sbin/service tomcat5 start
-%RED% # For RHEL 6, CentOS 6, and SL6  %ENDCOLOR%
-%UCL_PROMPT_ROOT% /sbin/service tomcat6 start
-</pre>
-   1. [Optional but recommended:] Enable services so that they start automatically when your system is powered on
-      * %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlEnable"}%
-      * Enable other services: <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/chkconfig mysqld on
-%RED%# For RHEL 5, CentOS 5, and SL5 %ENDCOLOR%
-%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 on
-%RED%# For RHEL 6, CentOS 6, and SL6 %ENDCOLOR%
-%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat6 on
-</pre>
----## Stopping and Disabling Services
-
-To stop GUMS, stop it and associated services in the opposite order from which you started them:
-
-   1. Stop the GUMS and associated services:
-      * Stop main services: <pre class="rootscreen">
-%RED%# For RHEL 5, CentOS 5, and SL5 %ENDCOLOR%
-%UCL_PROMPT_ROOT% /sbin/service tomcat5 stop
-%RED%# For RHEL 6, CentOS 6, and SL6 %ENDCOLOR%
-%UCL_PROMPT_ROOT% /sbin/service tomcat6 stop
-%RED%# For RHEL 5/6, CentOS 5/6, and SL5/6%ENDCOLOR%
-%UCL_PROMPT_ROOT% /sbin/service mysqld stop
-</pre>
-      * (other grid service running on the machine may still use it) %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlStop"}%
-   1. Stop services from starting when the system is powered on:
-      * Disable the main services: <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/chkconfig mysqld off
-%RED%# For RHEL 5, CentOS 5, and SL5 %ENDCOLOR%
-%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 off
-%RED%# For RHEL 6, CentOS 6, and SL6 %ENDCOLOR%
-%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat6 off
-</pre>
-      * (other grid service running on the machine may still use it) %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlDisable"}%
-
-
----# Validating GUMS
-
-This section is optional, but if you would like to verify that your GUMS installation and configuration are good, consider using some or all of the sections below.
-
----## Connect to the GUMS web page
-
-Connect to =https://<em>HOSTNAME</em>:8443/gums/= to use your GUMS instance. You must have the certificate that you used for =gums-add-mysql-admin= above loaded in your browser. You should see the GUMS web page load.
-
-If you do not see it load, check a few things:
-
-%RED%#For OSG 3.x (RPM) installs on EL5 systems%ENDCOLOR% 
-   * Look for errors in =/var/log/tomcat5/catalina.out= and =/var/log/tomcat5/catalina.err=.
-   * Look for errors in =/var/log/tomcat5/trustmanager.log=. There are likely to be CRL errors in this file, this can be ignored unless all your CA's get CRL errors in which case you should check to make sure that your CRL updates are running correctly.
-
-%RED%#For OSG 3.x (RPM) installs on EL6 systems%ENDCOLOR%
-   * Look for errors in =/var/log/tomcat6/catalina.out= and =/var/log/tomcat6/catalina.err=.
-   * Look for errors in =/var/log/tomcat6/trustmanager.log=. There are likely to be CRL errors in this file, this can be ignored unless all your CA's get CRL errors in which case you should check to make sure that your CRL updates are running correctly.
-
-%RED%#For both EL5/EL6 systems%ENDCOLOR%
-   * Ensure that you have an http certificate in =/etc/grid-security/http/httpcert.pem= and =/etc/grid-security/http/httpkey.pem=. Make sure it is readable by the =tomcat= user. Permissions should be as follows:<pre class="screen">
-# ls -l /etc/grid-security/http/
-total 8
--r--r--r-- 1 tomcat tomcat 1671 Jul  2 15:54 httpcert.pem
--r-------- 1 tomcat tomcat 1675 Jul  2 15:54 httpkey.pem</pre>
-
----## Check accounts
-
-After you connect to the GUMS web page, go to the Summary tab to check the configuration. You should see several dozen OSG VOs listed.
-
-In the Account column on the summary page, you will see the local Unix user accounts that these VO users will be mapped to. It is critical that these accounts exist on the gatekeeper and worker nodes at your site. If they do not, there will be errors when users attempt to access your site.
-
----## Update VO members list
-
-GUMS contacts each VOMS server to update its knowledge of VO membership every 6 hours. After installing or updating GUMS, you should trigger the update manually by going to the Update VO Members tab, and clicking update.
-
-You can track the progress of the update process by watching a log file: <pre class="rootscreen">
-%RED%#For OSG 3.x (RPM) installs on EL5 systems%ENDCOLOR%
-%UCL_PROMPT_ROOT% tail -f /var/log/tomcat5/gums-service-admin.log
-%RED%#For OSG 3.x (RPM) installs on EL6 systems%ENDCOLOR%
-%UCL_PROMPT_ROOT% tail -f /var/log/tomcat6/gums-service-admin.log
-</pre>
-
-With so many VOMS servers in the OSG config, several member updates may fail for various reasons (e.g., host down "connect timed out", bad or expired host certificates, etc.). Unfortunately, this situation is normal. Typically, you will see about 5 or 6 failed updates, with the rest succeeding. The update will take a while and then should display any errors that occurred during the updates. To get more details or track the update process in real time, look at  =/var/log/gums-service-admin.log=.
-
----## Map a known good user DN
-
-   1. Go to Map Grid Identity to Account tab:  =https://<em>HOSTNAME</em>:8443/gums/map_grid_identity_form.jsp=
-   1. Fill in the required info. Service DN means the DN of the host certificate of your CE (see above). Use the DN of a user (probably yourself) who you know belongs to a particular VO. Fill in the VO name in the VOMS FQAN field. 
-   1. Click "map user". A failed mapping will display "null". A successful mapping will display a UNIX account name. 
-
----# Miscellaneous Procedures
-
----## Forcing GUMS to update the set of users
-
-GUMS automatically contacts each VOMS server every 6 hours to update its knowledge of VO membership. To trigger a manual update:
-
-   1. Access the “Update VO Members” tab
-   1. Click “Update”
-   1. [Optional:] Monitor update progress via a log file<pre class="rootscreen">%UCL_PROMPT_ROOT% tail -f /var/log/tomcat5/gums-service-admin.log</pre>
-
-With so many VOMS servers in the OSG config, several member updates may fail for various reasons (e.g., host down "connect timed out", bad or expired host certificates, etc.). Unfortunately, this situation is normal.
-
----## Updating the GUMS configuration
-
-Periodically, the OSG Grid Operations Center will release an updated template for the GUMS configuration that updates information about an existing VO or adds a new VO. You may get the update as part of a regular update process, or you can force an update by using yum:
-
-<pre class="rootscreen">%UCL_PROMPT_ROOT% yum update osg-gums-config</pre>
-
-This step does *not* update your GUMS configuration (=/etc/gums/gums.config=) but will update the template for your configuration (=/etc/gums/gums.config.template=), because RPM cannot merge configuration changes. Instead, use GUMS to merge in the new VO configuration information.
-
-   1. Go to the Merge Configuration tab: =https://<em>HOSTNAME</em>:8443/gums/mergeConfiguration.jsp=
-   1. Cut and paste the URL of the OSG template into the Configuration URI field.<p>For the template provided in the RPM, use: =file:///etc/gums/gums.config.template=%BR%To fetch it directly from the GOC, use =http://software.grid.iu.edu/pacman/tarballs/vo-version/gums.template=</p>
-   1. Click Merge<p>You should get a green success message if it has worked, along with a suggestion that you update the VO members.</p>
-   1. Check the Summary tab to verify the set of VOs you have, as well as their accounts
 
 ---# Troubleshooting
 
@@ -256,6 +95,7 @@ Configuration Files
 | !MySQL | =/etc/my.cnf= | !MySQL configuration, e.g. server port |
 | tomcat (EL5) | =/etc/tomcat5/= | Tomcat configuration files |
 | tomcat (EL6) | =/etc/tomcat6/= | Tomcat configuration files |
+| SAZ | =/etc/saz/= | SAZ configuration files |
 
 Log files
 | *Service or Process* | *Log File* | *Description* |
@@ -263,24 +103,13 @@ Log files
 | | =/var/log/tomcat5/trustmanager.log= | The trustmanager handles things related to authentication. Useful errors are sometimes here. |
 | tomcat (EL6) | =/var/log/tomcat6/catalina.out= | This is the Tomcat log file. Problems (and a lot of noise) are reported here. |
 | | =/var/log/tomcat6/trustmanager.log= | The trustmanager handles things related to authentication. Useful errors are sometimes here. |
-| *GUMS* (EL5) | =/var/log/tomcat5/gums-service-admin.log= | GUMS outputs error messages related to it's operations here. |
-| | =/var/log/tomcat5/gums-service-cybersecurity.log= | GUMS outputs security related messages to this file. |
-| *GUMS* (EL6) | =/var/log/tomcat6/gums-service-admin.log= | GUMS outputs error messages related to it's operations here. |
-| | =/var/log/tomcat6/gums-service-cybersecurity.log= | GUMS outputs security related messages to this file. |
-
-|  *GUMS* (EL5/EL6) | =/var/log/gums/gums-developer.root.log= | |
-| | =/var/log/gums/gums-egee-security.root.log= | GUMS may also output some security related messages to this file as well. |
-| | =/var/log/gums/gums-privilege.root.log= | GUMS  outputs mapping related errors to this file. |
-
----## Tuning GUMS for a big Site
-GumsScalability contains several performance tips built form the experience of running the service on !FermiGrid, a big OSG Site.
+| *SAZ* | =/var/log/saz/sazserver.log= | SAZ server logs and error messages |
 
 ---# How to get Help?
 
 To get assistance please use the [[HelpProcedure][Help Procedure]].
 
 ---# References
-   * [[GumsScalability][GUMS tuning and scalability tips]]
    * [[http://tomcat.apache.org/tomcat-5.5-doc/]] Official tomcat5 documentation
    * [[http://tomcat.apache.org/tomcat-6.0-doc/]] Official tomcat6 documentation
    * [[http://www.hibernate.org/docs]] Official hibernate documentation
@@ -329,7 +158,7 @@ To get assistance please use the [[HelpProcedure][Help Procedure]].
  ======================
 
  Thank for reviewing this document! Please fill in your FirstLast name here:
-   * Local REVIEWER       = NehaSharma 	
+   * Local REVIEWER       = StevenTimm 	
  Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local REVIEW_PASSED  = %NO%
 
@@ -338,7 +167,7 @@ To get assistance please use the [[HelpProcedure][Help Procedure]].
  ====================
 
  Thank for testing this document! Please fill in your FirstLast name here:
-   * Local TESTER         = NehaSharma 	
+   * Local TESTER         = StevenTimm 	
  Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local TEST_PASSED    = %NO%
 ############################################################################################################
