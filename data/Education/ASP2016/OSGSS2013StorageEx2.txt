@@ -1,0 +1,743 @@
+%META:TOPICINFO{author="DerekWeitzel" date="1371589430" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="UserSchool13Materials"}%
+---+!!Data Management Exercises (Part II) 
+%TOC{depth="3"}%
+
+---+ Introduction
+In the second part of our exercises we will continue to work with BLAST application, now adding storage into the picture.
+
+---+ Customize this Document
+
+<!-- OSG Summer School 2011 Defaults
+   * Local VO= %URLPARAM{"INPUT_VO" encode="quote" default="osgedu"}%
+   * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="osg-ss-glidein"}%
+   * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="user"}%
+   * Local UCL_DOMAIN = %URLPARAM{"INPUT_DOMAIN" encode="quote" default="chtc.wisc.edu"}%
+   * Local GATEKEEPER = %URLPARAM{"INPUT_GATEKEEPER" encode="quote" default="red.unl.edu"}%
+   * Local UCL_CWD= %URLPARAM{"INPUT_CWD" encode="quote" default="/share/users/%UCL_USER%/osg_school/dm_part_2"}%
+   * Local BATCH_SYSTEM = %URLPARAM{"BATCH_SYSTEM" encode="quote" default="condor"}%
+   * Local REMOTE_ROOT = %URLPARAM{"INPUT_REMOTE_ROOT" encode="quote" default="/mnt/hadoop/user"}%
+   * Local REMOTE_SRM = %URLPARAM{"INPUT_SRM" encode="quote" default="red-srm1.unl.edu:8443"}%
+   * Local REMOTE_GRIDFTP= %URLPARAM{"INPUT_GRIDFTP" encode="quote" default="red-gridftp.unl.edu"}%
+   * Local SURL = srm://%REMOTE_SRM%/srm/v2/server?SFN=%REMOTE_ROOT%
+   * Local TURL= gsiftp://%REMOTE_GRIDFTP%/%REMOTE_ROOT%
+   * Local OSG_DATA=%URLPARAM{"INPUT_OSG_DATA" encode="quote" default="/osg/data"}%
+   * Local BLAST_DB_SUBMIT=%URLPARAM{"INPUT_BLAST_DB_SUBMIT" encode="quote" default="/share/blast"}%
+   * Local VDT_LOCATION=/opt/osg-client
+-->
+
+%ICON{"warning"}% %RED% Please change your user name and click on the Customize button!%ENDCOLOR%
+<form action="%SCRIPTURLPATH{"view"}%/%WEB%/%TOPIC%">
+<table>
+  <tr>
+    <td>
+      %RED%Login Name%ENDCOLOR%
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_USER" value="%UCL_USER%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      VO
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_VO" value="%VO%"/>
+    </td>
+  <tr>
+    <td>
+      Host Name
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_HOST" value="%UCL_HOST%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      Domain Name
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_DOMAIN" value="%UCL_DOMAIN%"/>
+    </td>
+  </tr>
+<!-- <tr>
+    <td>
+      Exercise Path
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_CWD" value="%UCL_CWD%"/>
+    </td>
+  </tr>
+-->
+  <tr>
+    <td>
+      Remote SE root directory
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_REMOTE_ROOT" value="%REMOTE_ROOT%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      SRM host endpoint
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_SRM" value="%REMOTE_SRM%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      !GridFTP host endpoint
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_GRIDFTP" value="%REMOTE_GRIDFTP%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+     &nbsp;
+     <input type="submit" class="twikiSubmit" value="Customize" />
+    </td>
+  </tr>
+</table>
+</form>
+
+---+ Exercises 
+---++ Prerequisite 
+
+   * Login on submission node <pre class="screen">
+ssh %UCL_USER%@%UCL_HOST%.%UCL_DOMAIN%
+</pre>
+<!--   * Initialize the OSG client environment <pre class="screen">
+source %VDT_LOCATION%/setup.sh
+</pre>
+-->
+   * Obtain proxy certificate, if you have not done so already <pre class="screen">
+voms-proxy-init -voms %VO%:/%VO%
+</pre>
+   * Make a directory for this exercise<pre class="screen">
+mkdir -p %UCL_CWD%
+cd %UCL_CWD%
+</pre>
+
+---++ Hands-on with SRM and !GridFTP
+
+As discussed in the lecture, the primary protocol for accessing storage on the OSG is SRM.  SRM is an XML-based protocol that provides users with the ability to:
+   1 Invoke Unix-like metadata commands on the storage (ls, rm, mkdir).
+   1 Load-balance file transfers done via other "transfer" protocols.  The most common transfer protocol on the OSG is !GridFTP.
+   1 Manage storage reservations.
+
+<div style="margin-left: 1em; margin-right: 1em; background-color: #ffff66; border: 1px solid black; padding: 0.5em;">
+Food for thought: !GridFTP, being built on top of the venerable FTP protocol, also can invoke metadata commands.  Why is SRM necessary?
+%TWISTY{
+showlink="Show the answer!"
+hidelink="Ok, move on..."
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+While !GridFTP *can* perform metadata commands, SRM still retains some advantages:
+   1 Ability to perform load-balancing, including across more common protocols such as HTTP.
+   1 Ability to queue some metadata commands.  Listing a directory, in particular, can cause heavy loads on the remote system if enough clients do it at once.  SRM has the ability to ask clients to back off and perform the request later.
+   1 !GridFTP has no ability to manage space reservations.  This is used heavily by some VOs on grids that interoperate with the OSG, although it's not common in smaller OSG VOs.
+%ENDTWISTY%
+</div>
+
+For the school, and in this exercise, you will utilize a suite of SRM clients called =lcg-utils=.  =lcg-utils= is a mature, multi-protocol package originally written for the LHC Computing Grid (LCG).  Because of this, all of the commands we will perform will have a few extra flags necessary to have the client work on OSG.
+
+---+++ File Movement: Upload
+We'll need the BLAST databases on the remote endpoint SE for our later exercises.  Let's copy them over.
+
+Let's start with one file with =lcg-cp=.  =lcg-cp= has the following usage syntax:
+<pre class="screen">
+lcg-cp [OPTIONS] SOURCE_URL DEST_URL
+</pre>
+A local file has a URL starting with =file:/=, followed by the filename.  A SRM-based file has a URL of the following form:
+<pre>
+srm://$ENDPOINT/$URL_PREFIX?SFN=$FILENAME
+</pre>
+For our class, we'll use the following values:
+   * =ENDPOINT=%REMOTE_SRM%=
+   * =URL_PREFIX=srm/v2/server=
+   * =FILENAME=%REMOTE_ROOT%/%VO%/%UCL_USER%=
+
+So, the SRM URLs in our example will be of the following form:
+<pre>
+%SURL%/%VO%/%UCL_USER%
+</pre>
+
+Try the following invocation of =lcg-cp=
+<pre class="screen">
+lcg-cp -v -b -D srmv2 file:%BLAST_DB_SUBMIT%/data/drosoph.aa %SURL%/%VO%/%UCL_USER%/drosoph.aa
+</pre>
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ lcg-cp -v -b -D srmv2 file:%BLAST_DB_SUBMIT%/data/drosoph.aa %SURL%/%VO%/%UCL_USER%/drosoph.aa
+Using grid catalog type: UNKNOWN
+Using grid catalog : (null)
+VO name: %VO%
+Checksum type: None
+Destination SE type: SRMv2
+Destination SRM Request Token: put:53178
+Source URL: file:%BLAST_DB_SUBMIT%/data/drosoph.aa
+File size: 8498541
+Source URL for copy: file:%BLAST_DB_SUBMIT%/data/drosoph.aa
+Destination URL: %TURL%/%VO%/%UCL_USER%/drosoph.aa
+# streams: 1
+      1048576 bytes    620.62 KB/sec avg    620.62 KB/sec inst
+Transfer took 3050 ms
+</pre>
+Note that the "Destination URL" refers to the actual !GridFTP server used, and will vary from site-to-site.
+%ENDTWISTY%
+
+Now, let's do multiple files.  Unfortunately, none of the common SRM clients support recursive copying, so we have to resort to a bit of shell scripting to copy over all the BLAST DB files.  Using the above single-invocation as a starter, try to write a simple bash for-loop yourself (or see the posted solution).
+%TWISTY{
+showlink="Show solution"
+hidelink="Hide solution"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+for i in `ls -1 %BLAST_DB_SUBMIT%/data/drosoph*`; do
+filename=`basename $i`
+lcg-cp -b -D srmv2 -v file:%BLAST_DB_SUBMIT%/data/$filename %SURL%/%VO%/%UCL_USER%/$filename
+done
+</pre>
+%ENDTWISTY%
+
+---+++ File Movement: Download
+
+Writing files to storage is only half the solution - we need to read them back out!  With =lcg-cp=, we can do this by making the source URL SRM and the destination the local filesystem.  Let's do this for the drosoph.aa file:
+
+<pre class="screen">
+lcg-cp -v -b -D srmv2 %SURL%/%VO%/%UCL_USER%/drosoph.aa file:/tmp/drosoph.aa.%UCL_USER%
+</pre>
+
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ lcg-cp -v -b -D srmv2 %SURL%/%VO%/%UCL_USER%/drosoph.aa file:/tmp/drosoph.aa.%UCL_USER%
+Using grid catalog type: UNKNOWN
+Using grid catalog : (null)
+VO name: %VO%
+Checksum type: None
+Trying SURL %SURL%/%VO%/%UCL_USER%/drosoph.aa ...
+Source SE type: SRMv2
+Source SRM Request Token: get:55177
+Source URL: %SURL%/%VO%/%UCL_USER%/drosoph.aa
+File size: 8498541
+Source URL for copy: %TURL%/%VO%/%UCL_USER%/drosoph.aa
+Destination URL: file:/tmp/drosoph.aa.%UCL_USER%
+# streams: 1
+      1048576 bytes    511.82 KB/sec avg    511.82 KB/sec inst
+Transfer took 3030 ms
+</pre>
+%ENDTWISTY%
+
+*On your own* (or with your buddy): Write a small shell script to download all of the drosoph files into a directory named =/tmp/drosoph.%UCL_USER%=.
+
+---+++ File Movement: !GridFTP
+On other grids, !GridFTP may be more common than SRM.  Let's take a moment to use the most common !GridFTP client, =globus-url-copy= directly.
+
+=globus-url-copy= has a simple usage syntax of =globus-url-copy [OPTIONS] SOURCE_URL DEST_URL=.  The source and destination must be either be prefixed with =file://= (designating a file on the local disk) or =gsiftp://= (designating a file on a remote server).  You can see what the various OPTIONS are by looking at the output of =-help=; we'll be using =-vb= in the examples to increase the verbosity of the client.
+
+First, let's copy a file to the remote !GridFTP server:
+<pre class="screen">
+globus-url-copy -cd -vb file:%BLAST_DB_SUBMIT%/data/drosoph.aa %TURL%/%VO%/%UCL_USER%.gridftp/drosoph.aa
+</pre>
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ globus-url-copy -cd -vb file:%BLAST_DB_SUBMIT%/data/drosoph.aa %TURL%/%VO%/%UCL_USER%.gridftp/drosoph.aa
+Source: file:/opt/workshop/dm_exercises/part2/
+Dest:   %TURL%/%VO%/%UCL_USER%.gridftp/
+  drosoph.aa
+      1048576 bytes         2.67 MB/sec avg         2.67 MB/sec inst
+</pre>
+Note that the =-cd= command line flag is required to create the destination directory.
+%ENDTWISTY%
+
+Next, let's copy it back to the local disk:
+<pre class="screen">
+globus-url-copy -vb %TURL%/%VO%/%UCL_USER%.gridftp/drosoph.aa file:/tmp/drosoph.aa.%UCL_USER%
+</pre>
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ globus-url-copy -vb %TURL%/%VO%/%UCL_USER%.gridftp/drosoph.aa file:/tmp/drosoph.aa.%UCL_USER%
+Source: %TURL%/%VO%/%UCL_USER%.gridftp/
+Dest:   file:/tmp/
+  drosoph.aa  ->  drosoph.aa.%UCL_USER%
+      4194304 bytes         2.00 MB/sec avg         2.00 MB/sec inst
+</pre>
+%ENDTWISTY%
+
+Finally, we can use =md5sum= to verify the contents:
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ md5sum %BLAST_DB_SUBMIT%/data/drosoph.aa /tmp/drosoph.aa.%UCL_USER% 
+a0689a9b03257c1be05fe555bd6e1d3c  %BLAST_DB_SUBMIT%/data/drosoph.aa
+a0689a9b03257c1be05fe555bd6e1d3c  /tmp/drosoph.aa.%UCL_USER%
+</pre>
+As long as the hash results are the same for both files, they should be identical!
+
+---+++ List Files
+
+Listing of a single file or the contents of a directory can be done with =lcg-ls=.  If you pass the =-l= flag, it will print out some additional information (analogous to =ls -l=).
+
+<pre class="screen">
+lcg-ls -b -D srmv2 -l %SURL%/%VO%/%UCL_USER%
+</pre>
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ lcg-ls -b -D srmv2 -l %SURL%/%VO%/%UCL_USER%
+----------   1     2     2 8498541              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa
+----------   1     2     2 1781790              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.phr
+----------   1     2     2  114720              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.pin
+----------   1     2     2  114648              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.pnd
+----------   1     2     2     492              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.pni
+----------   1     2     2  436372              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.psd
+----------   1     2     2   10001              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.psi
+----------   1     2     2 7193188              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa.psq
+----------   1     2     2 124327488              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt
+----------   1     2     2  190733              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nhr
+----------   1     2     2   14116              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nin
+----------   1     2     2    9360              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nnd
+----------   1     2     2      84              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nni
+----------   1     2     2   32880              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nsd
+----------   1     2     2     822              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nsi
+----------   1     2     2 31368306              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.nt.nsq
+----------   1     2     2 3399727              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa
+----------   1     2     2  624891              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.phr
+----------   1     2     2   50456              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.pin
+----------   1     2     2   50384              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.pnd
+----------   1     2     2     244              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.pni
+----------   1     2     2  199316              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.psd
+----------   1     2     2    4538              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.psi
+----------   1     2     2 2980337              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.aa.psq
+----------   1     2     2 12308631              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt
+----------   1     2     2    2305              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nhr
+----------   1     2     2     280              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nin
+----------   1     2     2     136              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nnd
+----------   1     2     2      52              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nni
+----------   1     2     2     456              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nsd
+----------   1     2     2      64              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nsi
+----------   1     2     2 3038769              UNKNOWN %REMOTE_ROOT%/%VO%/%UCL_USER%/yeast.nt.nsq
+</pre>
+%ENDTWISTY%
+
+---+++ Remove files
+
+We won't actually need the file we uploaded directly to the gridftp server.  Let's delete it using =lcg-del=.  After going through the previous =lcg-cp= examples, you can probably guess the command line invocation; the only hiccup is the need for the =-l= flag.
+
+<pre class="screen">
+lcg-del -l -b -D srmv2 -v %SURL%/%VO%/%UCL_USER%/drosoph.aa
+</pre>
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ lcg-del -l -b -D srmv2 -v %SURL%/%VO%/%UCL_USER%/drosoph.aa
+VO name: %VO%
+SE type: SRMv2
+%SURL%/%VO%/%UCL_USER%.gridftp/drosoph.aa - DELETED
+</pre>
+%ENDTWISTY%
+
+Notice the same filename (=%REMOTE_ROOT%/%VO%/%UCL_USER%/drosoph.aa=) is used for both !GridFTP and SRM.
+
+---+++ On your own
+
+It's always a good idea to keep only the minimal set of files on a remote SE, especially if you are using it opportunistically.  We won't be using the drosoph database for the next exercise.  Instead, we'll be using the yeast database.
+   1 Remove all the drosoph files you just transferred
+   1 Copy over the yeast database.
+   1 Verify all the remote files are of the correct size.
+
+---++ Running BLAST 
+We will try to build on exercises you have been doing for the last two days. You have already submitted a simple script to the grid that ran BLAST ([[Education.OSGSS2012CondorBLAST][see exercise]]). In this case, the BLAST application and databases were already pre-deployed on the remote cluster.  However, these exercises depended on the BLAST database being accessible on the shared file system.
+
+<div style="margin-left: 1em; margin-right: 1em; background-color: #ffff66; border: 1px solid black; padding: 0.5em;">
+Food for thought: Why is this a bad idea?
+%TWISTY{
+showlink="Show the answer!"
+hidelink="Ok, move on..."
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+Shared file systems such as NFS are not highly scalable, especially on the OSG.  The actions of one user can deteriorate the system for all others.  The shared file system from one site is not present at other sites and, on the OSG, might not even be present uniformly at a site.  Thus, uniform deployment and access of a dataset onto a shared file system can be a nightmare.
+%ENDTWISTY%
+</div>
+
+In this exercise, we will improve on the situation by replacing the shared file system with an OSG storage element.
+
+---+++ Serving files from a single SE
+First, copy a sequence query you will need to use as input to blast executable (copy ==query1== from ==%BLAST_DB_SUBMIT%/queries/== to your working directory).  Do a ==lcg-ls== on the remote SE (=%SURL%/%VO%/%UCL_USER%=) and verify that the yeast database files are actually there; if not, return to the previous set of exercises and copy them over.
+
+Then, write a simple script that will do the following:
+   1. Find all the files related to the database you want to search (==yeast==)  at the SE (==%SURL%/%VO%/%UCL_USER%==)
+   1. Download all the files associated with ==yeast== to the worker node.
+   1. Run BLAST executable with required parameters (database name, sequence query and log file).
+The Condor submit file should describe input and output files you want to transfer for the job.
+
+You can try to solve this problem on your own. If you need help you can try the solution below.
+
+   * Copy the wrapper script ==%BLAST_DB_SUBMIT%/bin/blast_wrapper.sh== to ==%UCL_CWD%==.<pre class="file">
+more blast_wrapper.sh
+%TWISTY%
+#!/bin/bash
+################################################################################
+#  blast_wrapper - download specific blast databases from a particular Storage Element  #
+#          execute blast query for a particular query                           #
+#          do cleanup                                                           #
+#################################################################################
+usage ()
+{
+     log "Usage: ./blast_wrapper.sh surl db_name query_file [logfile]"
+     log "Sample: ./blast_wrapper.sh %SURL%/%VO%/%UCL_USER% yeast query.fasta"
+}
+log ()
+{
+if [ "x$logname" == x ]
+then
+        echo $1
+else
+        echo $1 >>$logfile
+fi
+}
+# test if we have four arguments on the command line
+if [ $# -lt  3 ]
+then
+    usage
+    exit 1
+fi
+surl=$1
+dbname=$2
+query=$3
+logname=""
+if [ $# -eq 4 ]
+then
+        logname=$4
+        logfile=$PWD/$logname
+        #just in case create a logfile
+        touch $logfile
+fi
+retVal=0
+log "Start blast_wrapper.sh on $HOSTNAME"
+
+downloadFiles=0
+
+mkdir -p db-1
+#get all the databases we need to download
+log "Executing: lcg-ls -b -D srmv2 $surl | grep ${dbname}.aa."
+for name in `lcg-ls -b -D srmv2 $surl | grep ${dbname}.aa. | xargs -L 1 basename`
+do
+        downloadFiles=1
+
+        if [ -e $PWD/db-1/$name ]
+        then
+                log "Not downloading $name as it is already present."
+        else
+                log "Executing: lcg-cp -b -D srmv2 $surl/$name file:/$PWD/db-1/$name "
+                lcg-cp -b -D srmv2 $surl/$name file:/$PWD/db-1/$name
+                curRetVal=$?
+                log "Return value $curRetVal"
+                if [ $curRetVal -ne 0 ]
+                then
+                        retVal=$curRetVal
+                        log "New Return value $curRetVal"
+                        break
+                fi
+        fi
+done
+
+if [ $downloadFiles = 0 ]
+then
+        retVal=111
+        log "Unable to perform lcg-ls or no source files present."
+fi
+
+log "Return value $retVal"
+if [ $retVal -eq 0 ]
+then
+        option=""
+        log "Executing: ./blastp -db db-1/${dbname}.aa -query $query"
+        if [ "x$logname" != x ]
+        then
+                ./blastp -db db-1/${dbname}.aa -query $query  >>$logfile  2>&1
+        else
+                ./blastp -db db-1/${dbname}.aa -query $query 2>&1
+        fi
+        retVal=$?
+        log "Return value $retVal"
+fi
+log "End blast_wrapper.sh"
+exit $retVal
+%ENDTWISTY%
+</pre>
+   * Copy ==%BLAST_DB_SUBMIT%/queries/query1== and ==%BLAST_DB_SUBMIT%/bin/blastp== to %UCL_CWD%
+   * Create Condor submission file ==test.submit==: <pre class="file">
+universe=vanilla
+Executable = blast_wrapper.sh
+Log = test.$(Cluster).$(Process).log
+Output = test.$(Cluster).$(Process).out
+Error = test.$(Cluster).$(Process).err
+transfer_executable = true
+query_input_name=query1
+transfer_input_files = blastp,$(query_input_name)
+WhenToTransferOutput = ON_EXIT_OR_EVICT
+transfer_output_files = blast_results.$(Cluster).$(Process)
+should_transfer_files   = YES
+Arguments =  %SURL%/%VO%/%UCL_USER% yeast $(query_input_name) blast_results.$(Cluster).$(Process)
++DESIRED_Sites="UNL"
+queue
+</pre>
+   * Submit this Condor job. The logfile should look similar to this: <pre class="file">
+more  blast_results.%BLUE%12.0%ENDCOLOR%
+%TWISTY%
+[%UCL_USER%@%UCL_HOST% ~]$ ./blast_wrapper.sh %SURL%/%VO%/%UCL_USER% yeast query1
+Start blast_wrapper.sh
+Executing: lcg-ls -b -D srmv2 %SURL%/%VO%/%UCL_USER% | grep yeast.aa.
+Executing: lcg-cp -b -D srmv2 %SURL%/%VO%/%UCL_USER%/yeast.aa.phr file://var/lib/condor/execute/dir_15067/glide_O15332/execute/dir_21745/db-1/yeast.aa.phr
+Return value 0
+Executing: lcg-cp -b -D srmv2 %SURL%/%VO%/%UCL_USER%/yeast.aa.pin file://var/lib/condor/execute/dir_15067/glide_O15332/execute/dir_21745/db-1/yeast.aa.pin
+Return value 0
+Executing: lcg-cp -b -D srmv2 %SURL%/%VO%/%UCL_USER%/yeast.aa.pnd file://var/lib/condor/execute/dir_15067/glide_O15332/execute/dir_21745/db-1/yeast.aa.pnd
+Return value 0
+Executing: lcg-cp -b -D srmv2 %SURL%/%VO%/%UCL_USER%/yeast.aa.pni file://var/lib/condor/execute/dir_15067/glide_O15332/execute/dir_21745/db-1/yeast.aa.pni
+Return value 0
+Executing: lcg-cp -b -D srmv2 %SURL%/%VO%/%UCL_USER%/yeast.aa.psd file://var/lib/condor/execute/dir_15067/glide_O15332/execute/dir_21745/db-1/yeast.aa.psd
+Return value 0
+Executing: lcg-cp -b -D srmv2 %SURL%/%VO%/%UCL_USER%/yeast.aa.psi file://var/lib/condor/execute/dir_15067/glide_O15332/execute/dir_21745/db-1/yeast.aa.psi
+Return value 0
+Executing: lcg-cp -b -D srmv2 %SURL%/%VO%/%UCL_USER%/yeast.aa.psq file://var/lib/condor/execute/dir_15067/glide_O15332/execute/dir_21745/db-1/yeast.aa.psq
+Return value 0
+Return value 0
+Executing: ./blastp -db db-1/yeast.aa -query query1
+BLASTP 2.2.23+
+
+
+Reference: Stephen F. Altschul, Thomas L. Madden, Alejandro A.
+Schaffer, Jinghui Zhang, Zheng Zhang, Webb Miller, and David J.
+Lipman (1997), "Gapped BLAST and PSI-BLAST: a new generation of
+protein database search programs", Nucleic Acids Res. 25:3389-3402.
+
+
+
+Reference for composition-based statistics: Alejandro A. Schaffer,
+L. Aravind, Thomas L. Madden, Sergei Shavirin, John L. Spouge, Yuri
+I. Wolf, Eugene V. Koonin, and Stephen F. Altschul (2001),
+"Improving the accuracy of PSI-BLAST protein database searches with
+composition-based statistics and other refinements", Nucleic Acids
+Res. 29:2994-3005.
+
+
+
+Database: yeast.aa
+           6,298 sequences; 2,974,038 total letters
+
+
+
+Query=  Brian's first query!
+Length=80
+                                                                      Score     E
+Sequences producing significant alignments:                          (Bits)  Value
+
+ref|NP_009511.1|  uridine permease; Fui1p                              170    4e-44
+ref|NP_012677.1|  dolichyl phosphate-D-mannose:protein O-D-mannos...  23.9    4.6  
+ref|NP_015305.1|  Smt3-processing enzyme; Ulp1p                       23.9    4.8  
+ref|NP_011691.1|  Squalene monooxygenase; Erg1p                       23.9    5.1  
+ref|NP_009545.1|  putative repressor protein homologous to yeast ...  23.1    7.3  
+
+
+>ref|NP_009511.1| uridine permease; Fui1p
+Length=639
+
+ Score =  170 bits (430),  Expect = 4e-44, Method: Composition-based stats.
+ Identities = 80/80 (100%), Positives = 80/80 (100%), Gaps = 0/80 (0%)
+
+Query  1   MPVSDSGFDNSSKTMKDDTIPTEDYEEITKESEMGDATKITSKIDANVIEKKDTDSENNI  60
+           MPVSDSGFDNSSKTMKDDTIPTEDYEEITKESEMGDATKITSKIDANVIEKKDTDSENNI
+Sbjct  1   MPVSDSGFDNSSKTMKDDTIPTEDYEEITKESEMGDATKITSKIDANVIEKKDTDSENNI  60
+
+Query  61  TIAQDDEKVSWLQRVVEFFE  80
+           TIAQDDEKVSWLQRVVEFFE
+Sbjct  61  TIAQDDEKVSWLQRVVEFFE  80
+
+
+>ref|NP_012677.1| dolichyl phosphate-D-mannose:protein O-D-mannosyltransferase; 
+Pmt4p
+Length=762
+
+ Score = 23.9 bits (50),  Expect = 4.6, Method: Composition-based stats.
+ Identities = 10/39 (25%), Positives = 21/39 (53%), Gaps = 0/39 (0%)
+
+Query  18   DTIPTEDYEEITKESEMGDATKITSKIDANVIEKKDTDS  56
+            D   + +++E  K+S +   +K  +  D   I+ +DTD+
+Sbjct  311  DAFMSAEFQETLKDSPLSVDSKTVNYFDIITIKHQDTDA  349
+
+
+>ref|NP_015305.1| Smt3-processing enzyme; Ulp1p
+Length=621
+
+ Score = 23.9 bits (50),  Expect = 4.8, Method: Compositional matrix adjust.
+ Identities = 15/35 (42%), Positives = 22/35 (62%), Gaps = 1/35 (2%)
+
+Query  31   ESEMGDATKITSKIDANVIEKKDTDSENNITIAQD  65
+            ESE G  T  TS I +   +K + DS+N+IT ++D
+Sbjct  173  ESE-GVGTPSTSPISSLASQKSNCDSDNSITFSRD  206
+
+
+>ref|NP_011691.1| Squalene monooxygenase; Erg1p
+Length=496
+
+ Score = 23.9 bits (50),  Expect = 5.1, Method: Composition-based stats.
+ Identities = 9/23 (39%), Positives = 15/23 (65%), Gaps = 0/23 (0%)
+
+Query  9    DNSSKTMKDDTIPTEDYEEITKE  31
+            D + K ++D TI  +DYE+  +E
+Sbjct  121  DGNDKVLEDSTIHIKDYEDDERE  143
+
+
+>ref|NP_009545.1| putative repressor protein homologous to yeast Tup1p and mammalian 
+retinal transducin; contains nuclear targeting signal; 
+Hir1p
+Length=840
+
+ Score = 23.1 bits (48),  Expect = 7.3, Method: Compositional matrix adjust.
+ Identities = 12/25 (48%), Positives = 18/25 (72%), Gaps = 1/25 (4%)
+
+Query  45   DANVIEKKDTDSENNITIAQDDEKV  69
+            +A V +KKD D EN + + Q+D+KV
+Sbjct  294  NAGVKQKKDDDPENAL-VGQNDDKV  317
+
+
+
+Lambda     K      H
+   0.304    0.123    0.327 
+
+Gapped
+Lambda     K      H
+   0.267   0.0410    0.140 
+
+Effective search space used: 74103176
+
+
+  Database: yeast.aa
+    Posted date:  May 4, 2010  9:00 PM
+  Number of letters in database: 2,974,038
+  Number of sequences in database:  6,298
+
+
+
+Matrix: BLOSUM62
+Gap Penalties: Existence: 11, Extension: 1
+Neighboring words threshold: 11
+Window for multiple hits: 40
+Return value 0
+End blast_wrapper.sh
+%ENDTWISTY%
+</pre>
+
+
+---+++ More realistic BLAST jobs
+The previous example covered running one query against the yeast database.  As the yeast DB is very small, one query less than a second.
+   1 Generate many queries and place them all in the =query1= file.  I wrote a small script to generate random queries (biologists hopefully don't need to generate random queries!); you can do the following: <pre class="screen"> %BLAST_DB_SUBMIT%/data/query_generator.py query.fasta</pre>
+   1 Replace the yeast database with the human genome.
+
+<!--
+---+++ Running on Several SEs
+
+Let's extend the exercises to be a bit more realistic.  Because most of the resources %VO% can access are opportunistic, we really shouldn't hard-code one storage element and site into our submit scripts.  Instead, we ought to build a system that can use multiple SEs and sites at once.
+   1 Upload the human genome DB to two storage elements.
+   1 Generate more queries!  Do 100 queries per job, and about 100 jobs.
+-->
+---+++ Extra Credit: BLAST Workflows
+
+After the last exercise, you likely have more output data than you care for!  Write a DAG script that automates the whole procedure:
+   1 Upload the human genome to Nebraska.
+   1 Execute all the queries from the previous exercise.
+   1 Aggregate all returned results into a single tarball and upload the result to the %VO%-dedicated storage element.
+
+---++ Extra Credit: Storage Discovery
+
+You should know by now enough about storage to be able to try to figure out how to use it on your own. The problem is that we didn't give any tools to figure out what Storage Element will support your VO. Also, how you would find the surl of a SE. You can always use ==condor_status== and various constraints to try to figure out this information, but it is not a trivial task. The OSG has a  [[http://is.grid.iu.edu/cgi-bin/status.cgi][BDII service]] which aggregates LDAP information provided by sites. The information reported by each site describes static and dynamic resources available at that site and VOs that are authorized to use these resources. The [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/OSGStorageDiscoveryTool][OSG Discovery Tools]] allow users to discover what SE supports thier VO and how to access it.
+
+   1. See all the ==get_== commands available for information discovery: <pre class="screen">
+%UCL_PROMPT% ls /usr/bin/get_*
+/usr/bin/get_gridftp_storage_element_id  /usr/bin/get_site_name		     /usr/bin/get_srm_storage_element_id
+/usr/bin/get_gridftp_url		 /usr/bin/get_site_name_for_seid     /usr/bin/get_storage_area
+/usr/bin/get_module			 /usr/bin/get_srm_copy_cmd	     /usr/bin/get_storage_element_id
+/usr/bin/get_mount_path			 /usr/bin/get_srmcp_cmd		     /usr/bin/get_surl
+/usr/bin/get_os_versions		 /usr/bin/get_srm_reserve_space_cmd
+/usr/bin/get_runtime_versions		 /usr/bin/get_srm_sp_reserve_cmd
+
+</pre>
+   1.  Check what SEs are available for ==%VO%== and the corresponding endpoints: <pre class="screen">
+[%UCL_USER%@%UCL_HOST% ~]$ get_surl --vo %VO% --show_storage_element_id
+STORAGE ELEMENT ID            SURL                                                                                                
+bsrm-1.t2.ucsd.edu            srm://bsrm-1.t2.ucsd.edu:8443/srm/v2/server?SFN=/hadoop/%VO%/TESTFILE                             
+cit-se.ultralight.org         srm://cit-se.ultralight.org:8443/srm/v2/server?SFN=/mnt/hadoop/osg/%VO%/TESTFILE                  
+dcache07.unl.edu              srm://dcache07.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/user/%VO%/TESTFILE                      
+dcsrm.usatlas.bnl.gov         srm://dcsrm.usatlas.bnl.gov:8443/srm/managerv2?SFN=/pnfs/usatlas.bnl.gov/osg/%VO%/TESTFILE        
+ff-se.unl.edu                 srm://ff-se.unl.edu:8443/srm/v2/server?SFN=/panfs/panasas/CMS/data/%VO%/TESTFILE                  
+osg-se.sprace.org.br          srm://osg-se.sprace.org.br:8443/srm/managerv2?SFN=/pnfs/sprace.org.br/data//TESTFILE                
+se.grid.unesp.br              srm://se.grid.unesp.br:8443/srm/v2/server?SFN=/store/%VO%/TESTFILE                                
+se-dcache.hepgrid.uerj.br     srm://se-dcache.hepgrid.uerj.br:8443/srm/managerv2?SFN=/pnfs/hepgrid.uerj.br/data/%VO%/TESTFILE   
+sigmorgh.hpcc.ttu.edu         srm://sigmorgh.hpcc.ttu.edu:49443/srm/v2/server?SFN=/lustre/hep/osg/%VO%/TESTFILE                 
+srm.unl.edu                   srm://srm.unl.edu:8443/srm/v2/server?SFN=/mnt/hadoop/user/%VO%/TESTFILE                           
+uct2-dc1.uchicago.edu         srm://uct2-dc1.uchicago.edu:8443/srm/managerv2?SFN=/pnfs/uchicago.edu/TESTFILE                      
+%REMOTE_SRM%         %SURL%/%VO%/TESTFILE                      
+</pre>
+The above output implies you can use ==%SURL%/%VO%/%BLUE%TESTFILE%ENDCOLOR%== to upload a file named %BLUE%TESTFILE%ENDCOLOR% to the storage element ==%REMOTE_SRM%==.
+
+<div style="margin-left: 1em; margin-right: 1em; background-color: #ffff66; border: 1px solid black; padding: 0.5em;">
+Food for thought: How do the URLs returned above compare with the URLs we used for the BLAST examples.  Why are they different?
+%TWISTY{
+showlink="Show the answer!"
+hidelink="Ok, move on..."
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+You should notice that, in the previous examples, we added on a directory named %UCL_USER%.  The =get_surl= tool returns the top-level directory a *VO* may use at a storage element.  However, within the VO such as %VO%, we need a mechanism to avoid two users writing different files to the remote SE.  By adding the extra subdirectory that is unique to your user name, we are able to guarantee no one else in the OSGEDU accidentally overwrites your working files!
+%ENDTWISTY%
+</div>
+
+---+++ On your own
+Try other commands and see if they are useful.
+
+
+
+-- Main.DerekWeitzel - 19 Jun 2012
