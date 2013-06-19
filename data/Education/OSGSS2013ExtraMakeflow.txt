@@ -1,0 +1,96 @@
+%META:TOPICINFO{author="BrettHalverson" date="1371674923" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="UserSchool13Materials"}%
+---+ 2013 OSG User School Makeflow Tutorial
+
+Written by: Professor Douglas Thain, University of Notre Dame, June 2011
+
+This is an extra credit exercise developed for the 2013 OSG User School. It provides an introduction to the use of Makeflow, assuming that the reader is familiar with the concepts of high throughput computing and Condor.
+
+---++ Introduction
+
+Makeflow is a *workflow engine* for distributed computing. It accepts a specification of a large amount of work to be performed, and runs it on remote machines in parallel where possible. Makeflow is similar to Condor's DAGMan, in that it allow you to construct workflows that are large directed graphs. It is different in the following ways:
+
+   * Makeflows are specified using the familiar Make syntax.
+   * Makeflows are portable across multiple systems, including Condor, SGE, and others.
+   * When used with Work Queue, Makeflow provides much better performance on workflows with short jobs, shared datasets, or both.
+
+This document gives a brief introduction to Makeflow, and suggests some exercises for the reader to follow, to learn more about Makeflow. Rather than repeat what is available elsewhere, each exercise is preceded by a brief introduction and a link to the relevant part of the manual for the reader to explore.
+
+For complete information, please consult the following information online:
+
+   * Makeflow Web Site: http://www.nd.edu/~ccl/software/makeflow
+   * Makeflow Manual: http://www.nd.edu/~ccl/software/manuals/makeflow.html
+   * Makeflow Download: http://www.cse.nd.edu/~ccl/software/download.shtml
+
+---++ Part 1: Setup
+
+<div style="margin: 1em; background-color: #FFC; border: solid 1px black; padding: 1ex;">
+*Exercise 1:* Download and install Makeflow on your workstation. Makeflow is part of the Cooperative Computing Tools (cctools) package. The cctools is typically installed in your home directory (=${HOME}/cctools=), so no special privileges are required to get started.
+</div>
+
+You may find the following recipe useful:
+
+<pre class="screen">
+cd $HOME
+wget http://www.nd.edu/~ccl/software/files/cctools-3.2.2-src.tar.gz
+tar xvzf cctools-3.2.2-src.tar.gz
+cd cctools-3.2.2-src
+./configure
+make all
+make install
+cd $HOME
+</pre>
+
+Then, add the cctools to your path, using TCSH:
+
+<pre class="screen">setenv PATH ${HOME}/cctools/bin:${PATH}</pre>
+
+Or using BASH:
+
+<pre class="screen">export PATH=${HOME}/cctools/bin:${PATH}</pre>
+
+When you can run =makeflow -v= to see the version of Makeflow available, you are ready to move on to Part 2.
+
+---++ Part 2: Makeflow
+
+The Makeflow language is very similar to Make. A Makeflow script consists of a set of rules, each specifying a set of target files to create, a set of source files needed to create them, and a command to run. Where possible, Makeflow will run rules in parallel on your local machine, or in a batch system such as Condor. Note that Makeflow is a small subset of the Make language, and requires that each rule accurately state the files needed for both input and output.
+
+<div style="margin: 1em; background-color: #FFC; border: solid 1px black; padding: 1ex;">
+*Exercise 2:*
+
+   1. Read the section titled “The Makeflow Language” in the manual
+   1. Save the example Makeflow in the manual as =example.makeflow=
+   1. Run it on your local machine via =makeflow -T local example.makeflow=
+   1. Vary the number of jobs that run simultaneously with the =-j= option, and observe how long it takes to run
+   1. Between each run, use =makeflow -c example.makeflow= to clean up
+   1. Then, run the Makeflow on Condor using the =-T condor= option. Does it run faster or slower? Why?
+</div>
+
+You may find that, when running this Makeflow on remote machines, the =convert= command fails because it is not installed on that machine. To solve this problem, you can arrange for the =convert= program to be transferred along with the other input files. Unfortunately, it’s not quite that simple, because =convert= depends on a number of libraries and other files that might not be installed.
+
+Fortunately, we provide a tool to solve this problem. =starch= (Standalone Archiver) takes an ordinary problem, packages up all the dependencies, and produces a standalone archive (=.sfx=) that can be copied and run on other machines. You can run =starch= by hand like this:
+
+<pre class="screen">starch -x convert convert.sfx</pre>
+
+Now, to ensure that =convert.sfx= is transferred along with each task, you must specify it as an input file:
+
+<pre class="screen">
+capitol.90.jpg: capitol.jpg convert.sfx
+        ./convert.sfx capitol.jpg -swirl 90 capitol.90.jpg
+</pre>
+
+<div style="margin: 1em; background-color: #FFC; border: solid 1px black; padding: 1ex;">
+*Exercise 3:* Modify the Makeflow from Exercise 2 to construct a portable program using =starch=, and then pass it along with each task in the workflow. How large is the =.sfx= file compared to the original program? Re-run the Makeflow in both local and Condor modes, as above. Does it run faster or slower using the standalone archive?
+</div>
+
+One limitation of using a batch system is that it can take a significant amount of time to start a job, often as much as 30 seconds. This can be a real problem when running a large number of tasks that complete in a few seconds. To avoid this problem, we provide the Work Queue system. Briefly, you dispatch =work_queue_worker= processes to Condor, which may take a little while to start running. Once running, they contact the Makeflow process at the submit node, and then arrange to run many jobs in rapid succession, caching data as needed. If you have access to multiple batch systems, you can run workers on each one, creating a sort of private cluster for your workflow. (This general technique is also known as _glide-ins_ or _pilot jobs_ in the grid computing community.)
+
+<div style="margin: 1em; background-color: #FFC; border: solid 1px black; padding: 1ex;">
+*Exercise 4:* Read “Running Makeflow with Work Queue” in the manual. Start several workers running on Condor (or other machines you can use), then run Makeflow in Work Queue mode. Compare the runtime to running Makeflow in Condor mode. Which is faster? Why?
+</div>
+
+Makeflow is a static description language, and so is rather tedious for constructing workflows that consist of hundreds or thousands of nodes. Many users of Makeflow write simple scripts that generate Makeflows that do the desired task. For example, a bioinformatics website that runs at Notre Dame accepts users’ input from the web, then generates a Makeflow that runs thousands of copies of the BLAST application simultaneously.
+
+<div style="margin: 1em; background-color: #FFC; border: solid 1px black; padding: 1ex;">
+*Exercise 5:* Write a program in your favorite scripting language (such as Python or Perl) that generates a Makeflow. The Makeflow should create an animation of _N_ frames, where each frame is swirled one degree from the previous frame. _N_ should be given on the command line. Run the script using the Work Queue system on top of Condor.
+</div>
