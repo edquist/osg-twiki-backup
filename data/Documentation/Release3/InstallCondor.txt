@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1371507077" format="1.1" reprev="1.22" version="1.22"}%
+%META:TOPICINFO{author="BrianLin" date="1371756517" format="1.1" reprev="1.23" version="1.23"}%
 %DOC_STATUS_TABLE%
 
 ---+!! Installing HTCondor as a Batch System
@@ -91,34 +91,67 @@ Most likely, your HTCondor system includes many nodes, especially worker nodes. 
 
 Select a method that works best for you.
 
----## Configuration using a cluster management tool
+---## Head Node
 
-Generally, cluster management tools (e.g., [[http://cfengine.com/][cfengine]], [[http://puppetlabs.com/][Puppet]], [[http://www.opscode.com/chef/][Chef]]) allow you to define machine configuration centrally and to reduce duplication of configuration settings, then provide mechanisms to distribute configuration to a variety of machines. Each tool has its own structure and methods for defining and pushing configuration, so please consult the documentation for your particular tool.
+Configure your head node by edit the following file, depending on your configuration method:
 
-Cluster management tools allow you to group nodes into types. For HTCondor, we node types such as a head node, submit nodes, and worker nodes, as discussed in the [[#3Engineering_Considerations][Engineering Considerations]] section above.
+| *Configuration method*   | *File* |
+| Shared filesystem        | =/nfs/condor/condor-etc/condor_config.headnode= |  
+| Cluster management tool  | =/etc/condor/config.d/local.conf= |
+| Manual                   | =/etc/condor/config.d/local.conf= |
 
-The HTCondor configuration is in =/etc/condor=. The following sections describe the files and configuration changes that should be applied to the different type of nodes and (at the end) to all the nodes.
+And add the following text:
 
----+++ Node-specific configuration
-
-The daemons that are required by HTCondor differ between node types and are controlled by =/etc/condor/config.d/local.conf=. Create the file and add the following line, with the proper list of daemons for the type of node: 
 <pre class="file">
-DAEMON_LIST = %RED%DAEMONS (see table below)%ENDCOLOR%
+DAEMON_LIST = MASTER, COLLECTOR, NEGOTIATOR
 </pre>
 
-|*Node Type*        |*DAEMONS*|
-|Head               |MASTER, COLLECTOR, NEGOTIATOR|
-|Submit             |MASTER, SCHEDD|
-|Worker             |MASTER, STARTD|
-|Head (Gatekeeper)  |MASTER, COLLECTOR, NEGOTIATOR, SCHEDD|
+%NOTE% If your head node is also the gatekeeper of the cluster, then  you need to set the daemon list to the union of the two e.g. =DAEMON_LIST = MASTER, COLLECTOR, NEGOTIATOR, SCHEDD=
 
-%NOTE% If your head node also acts as a submit node, use the Head (Gatekeeper) node type.
+---## Submit Node
 
----+++ Common configuration
-*On all nodes* add the =/etc/condor/config.d/cluster.conf= file with the following content (changing the values in %RED%red%ENDCOLOR% to suit your cluster). You may find some suggestions in a previously installed local configuration file =/etc/condor/condor_config.local=:<pre class="file">
-## Condor configuration for OSG Clusters
-## For more detial please see
+Configure your submit node by edit the following file, depending on your configuration method:
+
+| *Configuration method*   | *File* |
+| Shared filesystem        | =/nfs/condor/condor-etc/condor_config.submit= |  
+| Cluster management tool  | =/etc/condor/config.d/local.conf= |
+| Manual                   | =/etc/condor/config.d/local.conf= | 
+
+And add the following text:
+
+<pre class="file">
+DAEMON_LIST = MASTER, SCHEDD
+</pre>
+
+---## Worker Node
+
+Configure your worker node by edit the following file, depending on your configuration method:
+
+| *Configuration method*   | *File* |
+| Shared filesystem        | =/nfs/condor/condor-etc/condor_config.worker= |  
+| Cluster management tool  | =/etc/condor/config.d/local.conf= |
+| Manual                   | =/etc/condor/config.d/local.conf= | 
+
+And add the following text:
+
+<pre class="file">
+DAEMON_LIST = MASTER, STARTD
+</pre>
+
+---## Common Configuration
+
+*On all nodes* add the appropriate file with the following content (changing the values in %RED%red%ENDCOLOR% to suit your cluster). You may find some suggestions in a previously installed local configuration file =/etc/condor/condor_config.local=:
+
+This table specifies parameters and values that are required by each configuration method. Alternatively, this means that if an entire line is in %RED%red%ENDCOLOR%, it can be removed unless it is specified by your configuration method.
+| *Configuration method* | *File* | *Parameter* | *Value* |
+| Shared filesystem | =/nfs/condor/condor-etc/condor_config.cluster=| LOCAL_CONFIG_FILE |  =/nfs/condor/condor-etc/condor_config.$(HOSTNAME)= |
+| Cluster management tool | =/etc/condor/config.d/cluster.conf= | REQUIRE_LOCAL_CONFIG_FILE | FALSE |
+| Manual | =/etc/condor/config.d/cluster.conf= | REQUIRE_LOCAL_CONFIG_FILE | FALSE |
+
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show full text of cluster config"}%<pre class="file">## Condor configuration for OSG Clusters
+## For more detail please see
 ## http://www.cs.wisc.edu/condor/manual/v7.8/3_3Configuration.html
+%RED%LOCAL_CONFIG_FILE = /nfs/condor/condor-etc/condor_config.$(HOSTNAME)%ENDCOLOR%
 # The following should be your cluster domain. This is an arbitrary string used by Condor, not necessarily matching your IP domain
 UID_DOMAIN = %RED%yourdomain.org%ENDCOLOR%
 # Human readable name for your Condor pool
@@ -153,108 +186,25 @@ SUSPEND = FALSE
 PREEMPT = FALSE
 KILL = FALSE
 # In this setup we use the config directory instead of the local config
-REQUIRE_LOCAL_CONFIG_FILE = False
+%RED%REQUIRE_LOCAL_CONFIG_FILE = False%ENDCOLOR%
 </pre>
+%ENDTWISTY%
+
 %NOTE% =CONDOR_HOST= can be set with or without the domain name: =gc-ce= or =gc-hn.yourdomain.org=
 
 ---+++ Remaining node configuration
 *On each node* perform these remaining configuration steps.
-1. If present, remove the previously installed condor_config.local in the /etc/condor directory to avoid possible confusion.<pre class="rootscreen">
+   1. If present, remove the previously installed =/etc/condor/condor_config.local= to avoid possible confusion.<pre class="rootscreen">
 %UCL_PROMPT_ROOT% rm /etc/condor/condor_config.local
 </pre>
    1. Set the password that will be used by the Condor system (at the prompt enter the same password for all nodes):<pre class="rootscreen">
 %UCL_PROMPT_ROOT% condor_store_cred -c add
 </pre>
-   1. Start Condor and enable automatic startup as [[#Starting_and_Enabling_Services][illustrated below]].
-
-
----## Configuration using a shared file system
----+++ Shared configuration files
-The following files are all in the shared directory =/nfs/condor/condor-etc/=. To edit them you must be on a node that has write access to it, e.g. the NFS server exporting the directly (other nodes cannot write if you choose to export the directory with root squash). 
-
----++++ Node-specific configuration
-   * Create the files with the host configuration specific for the nodes using the following content. We will create 3 base configuration files: one for the head node, one for worker nodes, one for the submit nodes (interactive nodes and CE) copying the following line. These control that the correct daemons are started: <pre class="file">
-DAEMON_LIST = %RED%DAEMONS (see table below)%ENDCOLOR%
-</pre>
-|*Node Type*        |*FILE*                                          |*DAEMONS*|
-|Head               |=/nfs/condor/condor-etc/condor_config.headnode= |MASTER, COLLECTOR, NEGOTIATOR|
-|Submit             |=/nfs/condor/condor-etc/condor_config.submit=   |MASTER, SCHEDD|
-|Worker             |=/nfs/condor/condor-etc/condor_config.worker=   |MASTER, STARTD|
-|Head (Gatekeeper)  |=/nfs/condor/condor-etc/condor_config.headnode= |MASTER, COLLECTOR, NEGOTIATOR, SCHEDD| 
-%NOTE% If your head node also acts as a submit node, use the Head (Gatekeeper) node type.
-   * Create a link for each node pointing to the template, e.g.:<pre class="rootscreen">
-%UCL_PROMPT_ROOT% cd /nfs/condor/condor-etc/
-%UCL_PROMPT_ROOT% ln -s condor_config.headnode condor_config.gc-hn
-%UCL_PROMPT_ROOT% ln -s condor_config.submit condor_config.gc-ce
-%UCL_PROMPT_ROOT% ln -s condor_config.submit condor_config.gc-ui1
-%UCL_PROMPT_ROOT% ln -s condor_config.worker condor_config.gc-c001
-%UCL_PROMPT_ROOT% ln -s condor_config.worker condor_config.gc-c002
-%UCL_PROMPT_ROOT% ln -s condor_config.worker condor_config.gc-c003
-</pre> Each node must have its own =condor_config.&lt;hostname>= file. If some worker nodes require a special configuration you can copy the template (e.g. =condor_config.worker=) and customize it.
-
----++++ Common configuration
-
-Create the cluster Condor configuration file =/nfs/condor/condor-etc/condor_config.cluster= with the following content (changing the values in %RED%red%ENDCOLOR% to suit your cluster). You may find some suggestions in a previously installed local configuration file =/etc/condor/condor_config.local=:<pre class="file">
-## Condor configuration for OSG Clusters
-## For more detial please see
-## http://www.cs.wisc.edu/condor/manual/v7.6/3_3Configuration.html
-LOCAL_CONFIG_FILE = /nfs/condor/condor-etc/condor_config.$(HOSTNAME)
-# The following should be your cluster domain. This is an arbitrary string used by Condor, not necessarily matching your IP domain
-UID_DOMAIN = %RED%yourdomain.org%ENDCOLOR%
-# Human readable name for your Condor pool
-COLLECTOR_NAME = "OSG Cluster Condor at $(UID_DOMAIN)"
-# A shared file system (NFS), e.g. job dir, is assumed if the name is the same
-FILESYSTEM_DOMAIN = $(UID_DOMAIN)
-# Here you have to use your network domain, or any comma separated list of hostnames and IP addresses including all your 
-# condor hosts. * can be used as wildcard
-ALLOW_WRITE = *.%RED%yourdomain.org%ENDCOLOR%
-CONDOR_ADMIN = root@$(FULL_HOSTNAME)
-# The following should be the full name of the head node (Condor central manager)
-CONDOR_HOST = %RED%gc-hn.yourdomain.org%ENDCOLOR%
-# Port range should be opened in the firewall (can be different on different machines)
-# This 9000-9999 is coherent with the iptables configuration in the Firewall documentation 
-IN_HIGHPORT = 9999
-IN_LOWPORT = 9000
-# This is to enforce password authentication
-SEC_DAEMON_AUTHENTICATION = required
-SEC_DAEMON_AUTHENTICATION_METHODS = password
-SEC_CLIENT_AUTHENTICATION_METHODS = password,fs,gsi
-SEC_PASSWORD_FILE = /var/lib/condor/condor_credential
-ALLOW_DAEMON = condor_pool@*
-##  Sets how often the condor_negotiator starts a negotiation cycle 
-##  for negotiator and schedd). 
-#  It is defined in seconds and defaults to 60 (1 minute), default is 300. 
-NEGOTIATOR_INTERVAL = 20
-##  Scheduling parameters for the startd
-TRUST_UID_DOMAIN = TRUE
-# start as available and do not suspend, preempt or kill
-START = TRUE
-SUSPEND = FALSE
-PREEMPT = FALSE
-KILL = FALSE
-</pre>
-%NOTE% =CONDOR_HOST= can be set with or without the domain name: =gc-ce= or =gc-hn.yourdomain.org=
-
----+++ Remaining node configuration
-*On each node* perform these remaining configuration steps.
-   1. Edit the file =/etc/condor/condor_config=. This is the default configuration that will be invoked when condor is started. We will direct Condor to follow this configuration with the OSG specific configuration (=condor_config.cluster=). Replace:<pre class="file">
-##  Where is the machine-specific local config file for each host?
-LOCAL_CONFIG_FILE      = $(RELEASE_DIR)/etc/$(HOSTNAME).local
-</pre>With<pre class="file">
+   1. *Shared filesystem configuration only:* Edit the file =/etc/condor/condor_config=. This is the default configuration that will be invoked when condor is started. We will direct Condor to follow this configuration with the OSG specific configuration. Set the local config file to:<pre class="file">
 ##  Next configuration to be read is for the OSG cluster setup
 LOCAL_CONFIG_FILE       = /nfs/condor/condor-etc/condor_config.cluster
 </pre>
-   1. If present, remove the previously installed condor_config.local in the /etc/condor directory to avoid possible confusion.<pre class="rootscreen">
-%UCL_PROMPT_ROOT% rm /etc/condor/condor_config.local
-</pre>
-   1. Set the password that will be used by the Condor system (at the prompt enter the same password for all nodes):<pre class="rootscreen">
-%UCL_PROMPT_ROOT% condor_store_cred -c add
-</pre>
    1. Start Condor and enable automatic startup as [[#Starting_and_Enabling_Services][illustrated below]].
-
-
----## Manual configuration
-
 
 ---## Special needs
 The following sections present instructions or suggestion for uncommon configurations
@@ -280,10 +230,10 @@ Changes to the cluster config or to the configuration of one of the node types r
 -->
 
 ---+++ Mounting a separate partition for /var/lib/condor
-=/var/lib/condor= is the directory used by Condor for status files and spooling, sometime referred as scratch space.
-For performance reason it should always be on a local disk.
+=/var/lib/condor= is the directory used by Condor for status files and spooling, sometime referred as the scratch space.
+For performance reasons it should always be on a local disk.
 Is is recommended for it to be big in order to accommodate jobs that use a lot of disk space (e.g. ATLAS recommends 20GB for each job slot on the worker nodes) and possibly on a separate partition so that when a job fills up the disk, it will not fill the system disk and bring down the system.
-The partition can be mounted on =/var/lib/condor= before installing Condor or at a latter time, e.g.:<pre class="rootscreen">
+The partition can be mounted on =/var/lib/condor= before installing Condor or at a later time, e.g.:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% /sbin/service condor stop
 %UCL_PROMPT_ROOT% cd /var/lib
 %UCL_PROMPT_ROOT% mv condor condor_old
