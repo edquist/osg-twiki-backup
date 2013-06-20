@@ -1,0 +1,269 @@
+%META:TOPICINFO{author="TimCartwright" date="1371762903" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="UserSchool13Materials"}%
+<style type="text/css">
+pre em { font-style: normal; background-color: yellow; }
+pre strong { font-style: normal; font-weight: bold; color: #008; }
+</style>
+
+---+ Monday Exercise 2: Run Jobs!
+
+The goal of this exercise is to submit jobs to HTCondor and have them run on the local pool (CHTC). This is a huge step in learning to use an HTC system!
+
+This exercise will take longer than the first two, short ones. It is the essential part of this exercise time. If you are having any problems getting the jobs to run, please ask the instructors! It is very important that you know how to run simple jobs.
+
+
+---++ Running a Simple Command
+
+For your first job, you will use a special HTCondor command to prepare, submit, and run a single command. This is a fine method for very simple tasks, but it is so limited that we will use it here and then not again for the rest of the School. But, this method is occasionally helpful to test a simple job.
+
+The command that we are going to run is the =hostname= command. It prints a single line of text, showing the full hostname of the machine. If we succeed in running =hostname= via HTCondor, it will display the hostname of the *execute machine*, not the *submit machine* that you are logged in to now.
+
+Try this:
+
+<pre class="screen">
+%UCL_PROMPT_SHORT% <strong>condor_run hostname</strong>
+</pre>
+
+This command prepare your job (=hostname=), submits it, waits for it to finish, then shows its output.
+
+As we will discuss in the next lecture, HTCondor does not run your simple job immediately. It can take several minutes, in fact, to be assigned to a specific slot in the pool and run. HTCondor does not optimize for fast job start times, but rather for overall high throughput. In the meantime, you will see nothing…
+
+So, open another login connection to our submit machine, and use the =condor_q= command to keep an eye on your job. Or, while you are waiting, you can move on to the next section.
+
+When the =condor_run= command finishes, you should see a single line of output, perhaps something like this:
+
+<pre class="screen">
+aci-048.chtc.wisc.edu
+</pre>
+
+Whatever the exact output shows, it is the hostname of the machine that actually run the job. You just ran a job on the local pool using HTCondor! Congratulations.
+
+
+---++ Running a Simple Command Using a Submit File
+
+Nearly all of the time, when you want to run an HTCondor job, you first write an HTCondor submit file for it. In this section, you will run the same =hostname= command as above, but using a submit file.
+
+Here is a simple submit file for the =hostname= command:
+
+<pre class="file">
+universe = vanilla
+executable = /bin/hostname
+
+output = simple.out
+error = simple.err
+log = simple.log
+
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+
+queue
+</pre>
+
+Write those lines of text in a file named =simple.sub=.
+
+*Note:* There is nothing magic about the name of an HTCondor submit file. It can be any filename you want. I always include the =.sub= extension, but it is not needed; I just use it for my own organization.
+
+The lines of the submit file have the following meanings:
+
+| =universe= | The type of job this is. The =vanilla= universe is a normal job. Later on, we will discuss other, special universes. |
+| =executable= | The name of the program to run (relative to the directory from which you submit). |
+| =output= | The filename where HTCondor will write the standard output from your job. |
+| =error= | The filename where HTCondor will write the standard error from your job. This particular job is not likely to have any, but it is best to include this line for every job. |
+| =log= | The filename where HTCondor will write information about your job run. Technically not required, it is a *really* good idea to have a log file for every job. |
+| =should_transfer_files= | Tell HTCondor to transfer input and output files, instead of relying on a shared filesystem. We will talk about this setting in the next lecture; for now, just use it. |
+| =when_to_transfer_output= | Another file-transfer setting that, for now, you should just use. |
+| =queue= | Tells HTCondor to run your job with the settings above. |
+
+Double-check your submit file, so that it matches the text above. Then, tell HTCondor to run your job:
+
+<pre class="screen">
+%UCL_PROMPT_SHORT% <strong>condor_submit simple.sub</strong>
+Submitting job(s).
+1 job(s) submitted to cluster <em>NNNN</em>.
+</pre>
+
+The actual cluster number will be shown instead of =NNNN=.
+
+If, instead of the text above, there are error messages, read them carefully and then try to correct your submit file.
+
+Notice that =condor_submit=, unlike =condor_run=, returns back to the shell prompt right away. It does *not* wait for your job to run. Instead, as soon as it has finished submitting your job into the queue, the submit command finishes.
+
+Now, use =condor_q= to watch for your job in the queue. You probably will not see the job in the =R= running state, because the =hostname= command runs very quickly. When the job itself is finished, it will no longer be listed in the =condor_q= output.
+
+The output from your job is written to the filename given in the =output= line of your submit file. Thus, after the job finishes, you should be able to see a hostname in =simple.out=:
+
+<pre class="screen">
+%UCL_PROMPT_SHORT% <strong>cat simple.out</strong>
+e171.chtc.wisc.edu
+</pre>
+
+The =simple.err= file should be empty. The =simple.log= is more complex and will be the focus of a later exercise.
+
+
+---+++ Running a Job With Arguments
+
+Very often, when you run a command on the command line, it includes arguments after the command name itself:
+
+<pre class="screen">
+%UCL_PROMPT_SHORT% <strong>cat <em>simple.out</em></strong>
+%UCL_PROMPT_SHORT% <strong>sleep <em>60</em></strong>
+%UCL_PROMPT_SHORT% <strong>dc <em>-e '6 7 * p'</em></strong>
+</pre>
+
+In an HTCondor submit file, the command name itself goes in the =executable= statement and *all remaining arguments* go into an =arguments= statement. For example, if the full command is:
+
+<pre class="screen">
+%UCL_PROMPT_SHORT% <strong>sleep <em>60</em></strong>
+</pre>
+
+Then in the submit file, we put:
+
+<pre class="file">
+executable = sleep
+arguments = "60"
+</pre>
+
+*Note:* Put the entire list of arguments inside one pair of double-quotes.
+
+For the command-line command:
+
+<pre class="screen">
+%UCL_PROMPT_SHORT% <strong>dc <em>-e '6 7 * p'</em></strong>
+</pre>
+
+Then in the submit file, we put:
+
+<pre class="file">
+executable = sleep
+arguments = "-e '6 7 * p'"
+</pre>
+
+Let’s try a job submission with arguments. We will use the =sleep= command shown above, which simply does nothing for the specified number of seconds, then exits normally. It is convenient for simulating a job that takes a while to run.
+
+Create a new submit file (you name it this time!) and save the following text in it.
+
+<pre class="file">
+universe = vanilla
+executable = /bin/sleep
+<em>arguments = "60"</em>
+
+output = sleep.out
+error = sleep.err
+log = sleep.log
+
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+
+queue
+</pre>
+
+Except for changing a few filenames, this submit file is nearly identical to the last one. But, see the extra =arguments= line?
+
+Submit this new job. Again, watch for it to run using =condor_q=; check once every 15 seconds or so. Once the job starts running, it will take about 1 minute to run (because of the =sleep= command, right?), so you should be able to see it running for a bit. When the job finishes, it will disappear from the queue, but there will be no output in the output or error files, because =sleep= does not produce any output.
+
+---+++ Extra Challenge 1
+
+Try creating a submit file for the =dc= command above. (=dc= is a Desktop Calculator, and the command above simply prints the result of calculating 6 &times; 7.) Submit the job. When it finishes, does the output file have the expected output?
+
+---+++ Extra Challenge 2
+
+If you can get the =dc= command above working, try running this invalid =dc= command instead:
+
+<pre class="screen">
+%UCL_PROMPT_SHORT% <strong>dc <em>-e '6 7 * 10 - p -'</em></strong>
+</pre>
+
+After the job has finished, what is in the output file? What about the error file? Why? (To answer the question, you will have to understand a little bit about the =dc= command. Or, try running the invalid command right from the command-line yourself, and see if that helps.)
+
+
+---++ Running a Script Job From the Submit Directory
+
+So far, we have been running programs (executables) that come with a standard Linux system. But you are not limited to standard programs. In this example, you will write a simple shell script executable in the submit directory, then write a submit file to run it.
+
+   1. Put the following contents into a file named =test-script.sh=:\
+       <pre class="file">
+#!/bin/sh
+
+# Written by Tim Cartwright for the 2013 OSG User School
+
+echo 'Date:   ' `date`
+echo 'Host:   ' `hostname`
+echo 'System: ' `uname -spo`
+echo "Program: $0"
+echo "Args:    $*"
+</pre>
+   1. Make the file itself executable:\
+       <pre class="screen">
+%UCL_PROMPT_SHORT% <strong>chmod +x test-script.sh</strong>
+</pre>
+   1. Test your script from the command line:\
+       <pre class="screen">
+%UCL_PROMPT_SHORT% <strong>./test-script.sh hello 42</strong>
+Date:    Mon Jun 24 10:02:20 CDT 2013
+Host:    osg-ss-submit.chtc.wisc.edu
+System:  Linux x86_64 GNU/Linux
+Program: ./test-script.sh
+Args:    hello 42
+</pre>\
+       <p>This step is *really* important! If you cannot run your executable from the command-line, HTCondor probably cannot run it on another machine, either. And debugging simple problems like this one is surprisingly difficult. So, if possible, test your =executable= and =arguments= as a command at the command-line first.</p>
+   1. Write the submit file (this should be getting easier by now):\
+       <pre class="file">
+universe                = vanilla
+executable              = <em>test-script.sh</em>
+arguments               = "foo bar baz"
+output                  = script.out
+error                   = script.err
+log                     = script.log
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+queue
+</pre>\
+       <p><strong>Note:</strong> As this example shows, blank lines and spaces around the = sign do not matter to HTCondor. Use whitespace to make things clear to *you*. What format do you prefer to read?</p>
+   1. Submit the job, wait for it to finish, check the output. (Are you surprised by the =Program:= line in the output? Why is it like that? Google for it, or ask an instructor if you are curious, although the answer is not that exciting.)
+
+In this example, the =executable= that was named in the submit file did *not* start with a =/=, so the location of the file is relative to the submit directory itself. In other words, in this format the executable must be in the same directory as the submit file.
+
+---+++ Extra Challenge 3
+
+Below is a simple Python script that does something similar to the shell script above. Run this Python script using HTCondor.
+
+<pre class="file">
+#!/usr/bin/env python
+
+"""Extra Challenge for 2013 OSG User School
+Monday, 24 June 2013
+Written by Tim Cartwright
+Submitted to CHTC by #YOUR_NAME#
+"""
+
+import getpass
+import os
+import platform
+import socket
+import sys
+import time
+
+arguments = None
+if len(sys.argv) > 1:
+    arguments = '"' + ' '.join(sys.argv[1:]) + '"'
+
+print >> sys.stderr, __doc__
+print 'Time    :', time.strftime('%Y-%m-%d (%a) %H:%M:%S %Z')
+print 'Host    :', getpass.getuser(), '@', socket.gethostname()
+uname = platform.uname()
+print "System  :", uname[0], uname[2], uname[4]
+print "Version :", platform.python_version()
+print "Program :", sys.executable
+print 'Script  :', os.path.abspath(__file__)
+print 'Args    :', arguments
+</pre>
+
+---+++ Extra Challenge 4
+
+Do you have a programs of your own that
+
+   * Is written in a common scripting language (e.g., shell, Perl, Python, Ruby)?
+   * Does not require other files (e.g., input files, libraries)
+   * Runs on common Linux systems (our machines are mostly compatible with Red Hat Enterprise Linux 5 and 6)?
+
+If so, try to run your program with HTCondor now.
