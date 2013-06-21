@@ -1,0 +1,173 @@
+#!/usr/bin/env python
+import math
+
+# l - line (x,y,dx,dy)
+# c - circle (x,y,r)
+# returns (ix,iy)
+def intersect(l,c):
+    x,y,dx,dy=l
+    cx,cy,cr=c
+
+
+    if dx==0:
+        # have to use a different formula here
+        return intercept0(l,c)
+    
+    #covert line expression into y=m*x+b
+    m=dy/dx
+    b=y-m*x
+    
+    s = math.sqrt(cr**2 - b**2 + m**2 * cr**2  - 2*b*m*cx -
+                  (m**2 * cx**2) + 2*b*cy + 2*m*cx*cy - cy**2)
+    ix= (cx+m*cy-b*m+s)/(1+m**2)
+    if abs(x-ix)>abs(dx):
+        # too far away, get the other one (since there are two solutions)
+        ix= (cx+m*cy-b*m-s)/(1+m**2)
+        assert (abs(x-ix)<abs(dx))
+
+    iy=m*ix+b
+
+    return (ix,iy)
+
+def intersect0(l,c):
+    x,y,dx,dy=l
+    cx,cy,cr=c
+
+    assert (dx==0)
+
+    s=math.sqrt(cr**2 - (x-cx)**2)
+    iy=cy+s
+    if abs(y-iy)>abs(dy):
+        # too far away, get the other one (since there are two solutions)
+        iy=cy-s
+        assert (abs(y-iy)<abs(dy))
+
+    ix=x
+    return (ix,iy)
+
+
+#
+# Main function
+#
+# start - (x,y,ang)
+
+def check(start,max_bounce,out_png=None):
+    startx,starty,startang=start
+
+    use_graph=not (out_png is None)
+    if use_graph:
+        from PIL import Image, ImageDraw
+
+    tw=1000.0
+    th=400.0
+
+    # (x,y,r)
+    pins=[(100.0,50.0,30.0),
+          (140.0,210,40.0),
+          (200.0,140.0,25.0),
+          (250.0,65.0,25.0),
+          (300.0,320.0,35.0),
+          (350.0,200.0,22.0),
+          (400.0,120.0,22.5),
+          (500.0,200.0,40.0),
+          (550.0,60.0,30.0),
+          (600.0,250.0,35.0),
+          (700.0,125.0,30.0),
+          (775.0,330.0,30.0),
+          (820.0,210.0,42.0),
+          (840.0,40.0,22.5),
+          (920.0,95.0,30.0),
+          (950.0,290.0,15.0)
+          ]
+
+
+    x=startx
+    y=starty
+    ang=startang
+
+    if use_graph:
+        image = Image.new("RGB", (int(tw)+1, int(th)+1))
+        draw = ImageDraw.Draw(image)
+
+        for i in range(10):
+            for p in range(i+1):
+                image.putpixel((1000-i+p,p),(255,255,0))
+
+        for pin in pins:
+            px,py,pr=pin
+            draw.ellipse((int(px - pr), int(py - pr),
+                          int(px + pr), int(py + pr)))
+
+    # keep step small enough so we never get two reflections
+    # in one step
+    step=10.0
+
+    found=False
+    nbounce=0
+    while nbounce<max_bounce:
+        if use_graph:
+            image.putpixel((int(x),int(y)),(int(255*nbounce/max_bounce),255,0))
+
+        dx = math.cos(ang)*step
+        dy = math.sin(ang)*step
+
+        newx = x + dx
+        newy = y + dy
+        new_ang=ang # assume no reflection
+
+        if x>990 and y<10 and newx>=995 and newy<=5:
+            found=True
+            break
+
+        # check reflection from the walls
+        if newx < 0.0:
+            newx=-newx
+            new_ang=math.pi-ang
+            nbounce+=1
+        elif newx > tw:
+            newx=tw-(newx-tw)
+            new_ang=math.pi-ang
+            nbounce+=1
+        if newy < 0.0:
+            newy=-newy
+            new_ang=-ang
+            nbounce+=1
+        elif newy > th:
+            newy=th-(newy-th)
+            new_ang=-ang
+            nbounce+=1
+
+        # check if inside a ball
+        for pin in pins:
+            px,py,pr=pin
+            if (((newx-px)**2) + ((newy-py)**2)) < (pr**2):
+                # ok, inside, now reflect
+                # find intersection point
+                ix,iy=intersect((x,y,dx,dy),pin)
+
+                # angle of the circle point
+                pang = math.atan2(iy - py, ix - px)
+                # reversed collision angle of the ball
+                new_ang=math.pi+2*pang-ang
+
+                # find out how much we still need to travel
+                # but first, how much I did so far?
+                istep=math.sqrt((ix-x)**2+(iy-y)**2)
+
+                idx = math.cos(new_ang)*(step-istep)
+                idy = math.sin(new_ang)*(step-istep)
+                newx=ix+idx
+                newy=iy+idy
+                nbounce+=1
+
+        x=newx
+        y=newy
+        ang=new_ang
+
+    if use_graph:
+        image.save(out_png, "PNG")
+
+    if found:
+        return nbounce
+    else:
+        return None
