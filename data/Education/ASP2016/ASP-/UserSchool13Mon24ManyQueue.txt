@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TimCartwright" date="1371933445" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="TimCartwright" date="1371942413" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="UserSchool13Materials"}%
 <style type="text/css">
 pre em { font-style: normal; background-color: yellow; }
@@ -11,6 +11,15 @@ The goal of this exercise is to submit many jobs with a single submit file by us
 
 
 ---++ Submitting Many Jobs With One Submit File
+
+Suppose you have a program that you want to run many times. The program takes an argument, and you want to change the argument for each run of the program. With what you know so far, you have a couple of choices (assuming that you cannot change the job itself to work this way):
+
+   * Write one submit file; submit one job, change the argument in the submit file, submit another job, change the submit file, …
+   * Write many submit files that are nearly identical except for the program argument
+
+Neither of these options seems very satisfying. Fortunately, we can do better with HTCondor.
+
+Here is a simple Python script that calculates the greatest number of [[http://en.wikipedia.org/wiki/Fibonacci_number][the Fibonacci sequence]] up to the given numeric command-line argument:
 
 <pre class="file">
 #!/usr/bin/env python
@@ -25,6 +34,8 @@ while n2 &lt;= maximum:
     n1, n2 = n2, n1 + n2
 print 'The greatest Fibonacci number up to %d is %d' % (maximum, n1)
 </pre>
+
+Now suppose that you want to run this program for a variety of arguments: 1, 10, 100, 1000, 10000, etc. (Why you would want to do this is not clear to me, so we will just pretend.) Here is a single HTCondor submit file that will run three of these jobs:
 
 <pre class="file">
 universe = vanilla
@@ -49,19 +60,93 @@ error  = fibonacci-10000.err
 <em>queue</em>
 </pre>
 
+Note the repeated =queue= statements. Each =queue= statement will cause HTCondor to create another job (called a *process* in HTCondor terminology). Up until now, you have used a single =queue= statement per submit file, so each time that you run =condor_submit=, it created exactly one job.
+
+Let’s see exactly what happens when you submit a file with multiple =queue= statements.
+
+   1. Save the Python program to a file named =fibonacci.py=
+   1. Save the submit file
+   1. Submit the submit file\
+       <p>Note the slightly different message from =condor_submit=:</p>\
+       <pre class="screen"><em>3 job(s)</em> submitted to cluster <i>NNNN</i>.</pre>
+   1. Before the jobs execute, run =condor_q= (or =condor_q <em>userid</em>=) to see your jobs in the queue
+
+Here is some sample =condor_q= output from my test run:
+
+<pre class="file">
+2441<em>.0</em>   cat             6/24 11:57   0+00:00:00 I  0   0.0  fibonacci.py      
+2441<em>.1</em>   cat             6/24 11:57   0+00:00:00 I  0   0.0  fibonacci.py      
+2441<em>.2</em>   cat             6/24 11:57   0+00:00:00 I  0   0.0  fibonacci.py      
+</pre>
+
+In this sample, all three jobs are part of cluster =2441=. The first =queue= statement resulted in process =0=, the second =queue= statement resulting in process =1=, and the third one resulted in process =2=. (Historical note: Programmers like to start counting from 0, hence the odd numbering scheme.)
+
+At this time, it is worth reviewing the definition of a __job ID__. It is a job’s cluster number, a dot, and the job’s process number. So in the example above, the job ID that corresponds to the second =queue= statement is =2441.1=.
+
+*Pop Quiz:* Do you remember how to ask HTCondor to list all of the jobs from one cluster? How about a particular job ID?
+
+While you wait for your jobs to finish, keep reading the next section.
+
+---+++ Submit File Statements and Other queue Statements
+
+In the submit file above, did you notice how some of the statements were given just once (e.g., =executable=, =log=), and others were repeated (e.g., =output=, =error=)? It is important to understand the meaning of repeated statements within a submit file.
+
+Any statement that occurs *between* two consecutive =queue= statements changes that value of that attribute for the following =queue= statement. Otherwise, all attributes defined earlier continue to have the same value for every remaining =queue= statement. Here is a simplified submit file, with line numbers, to consider:
+
+<pre class="file">
+1. executable = fibonacci.py
+2. log = fibonacci.log
+3. arguments = "10"
+4. output = fibonacci-10.out
+5. queue
+6. arguments = "100"
+7. output = fibonacci-100.out
+8. queue
+</pre>
+
+Line 1 defines the executable. As it turns out, you may define the executable *only once* in a submit file, regardless of the number of =queue= statements. Line 2–4 define the remaining parameters for the first job, which is created in Line 5. Now things get interesting. Lines 6 and 7 redefine the =arguments= and =output= attributes. Doing so has no effect on the first job, because its =queue= statement is earlier in the file. However, the changed attributes apply to the second job, created by the next =queue= statement in Line 8. Because the =executable= and =log= attribute were *not* redefined, their values remain the same for the second job. So, this simple submit file results in the following two jobs:
+
+%TABLE{sort="off"}%
+| *Attribute* | *Job (= Process) 0* | *Job (= Process) 1* |
+| =executable= | =fibonacci.py= ||
+| =log= | =fibonacci.log= ||
+| =arguments= | ="10"= | ="100"= |
+| =output= | =fibonacci-10.out= | =fibonacci-100.out= |
+
+You can change (or not) *any* attributes between =queue= statements, except for the =executable= as noted above.
+
+*Question:* Going back to the submit file that you used above, which attributes changed for each job and which attributes stayed the same?
+
+When the three jobs finish, look at the files that resulted. Do they match your expectations? There should be a single log file, but three separate output files and three separate (and hopefully empty) error files, one for each job.
+
+Take a minute to read the log file. Look carefully at the sequence of events, and the process number for each event.
+
+   * Were all three jobs submitted in numeric order?
+   * Did all three jobs begin executing in numeric order?
+   * Did all three jobs complete in numeric order?
+
+Essentially, once a set of jobs have been submitted from a single submit file, they act independently. HTCondor decides when to run each job separately, and so they may run at the same time on separate slots, one after another on the same slot, or in some other order. Depending on how busy the pool is, your priority, and other factors, some of your jobs may finish quickly, and others may take a long time to get their turn.
 
 ---+++ Extra Challenge 1
 
-Change the name of the log file for each job.
+In the example above, you used a single log file for all three jobs. HTCondor handles this situation with no problem; each job writes its events into the log file without getting in the way of other events and other jobs. But as you may have seen, it can be difficult for a person to understand the events for any particular job in the combined log file.
 
+Create a new submit file that works just like the one above, except that each job writes its own log file.
 
 ---+++ Extra Challenge 2
 
-Define output, error, and log just once, before the first queue statement. Thus, just arguments vary. What happens? May need to submit a few times to figure it out.
+Going back to the original submit file above, it gave different names to the output and error files for each job. What happens if multiple jobs name the same output and error files? Does HTCondor write the output from every job into the same output and error files, or something else?
 
+Create a new submit file that works just like the first one, except that *only* the arguments change for each job. That is, the output and error filenames stay the same for each job. There is more than one way to do this, but one way results in the simplest submit file. Submit the jobs and observe the resulting output. What happened? It may take a few separate submissions, one after the other, to figure out exactly what happened. Also, the sequence information in the log file may be helpful.
 
 ---+++ Extra Challenge 3
 
-*Note:* This challenge requires basic programming skills. If you are not a programmer, that is OK, skip ahead to the next exercise.
+*Note:* This challenge requires basic programming skills. If you are not a programmer, that is OK; skip ahead to the next exercise.
 
-Write a program that outputs an HTCondor submit file to run a set of Fibonacci jobs, one for each power of ten up to some number. For example, if your program is given the argument =3=, it should run one Fibonacci job for each of the following arguments: =1=, =10=, =100=, and =1000=.
+Writing a submit file with many =queue= statements and corresponding changes to =output=, =error=, and =arguments= statements is easy… up to a point. What if we wanted to write a submit file for 10 jobs? 100? 1000? In the next exercise, we will learn a new technique to improve the situation, but the repetition never goes away completely. So, if you can program, it is possible to write a program that *outputs* a submit file, with all the repetition handled by the code.
+
+Try writing a simple program that outputs one HTCondor submit file to run a set of Fibonacci jobs, varying the argument, output, error parameters for each job. Pick an interesting range of arguments — perhaps counting up by 10 or something like that. For example, if your program is given the argument =4=, it could prepare a Fibonacci job for each of the following arguments: =10=, =20=, =30=, and =40=.
+
+Ideally, your program would get the unchanging parts of the submit file from a template file, instead of from within the code itself. That way, it is easy to change the submit file without modifying code.
+
+Once your program outputs a valid submit file for 3–4 jobs, try having it create a submit file for 100 jobs. Submit the resulting file. Did it work?
