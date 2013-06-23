@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TimCartwright" date="1371944523" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="TimCartwright" date="1371952941" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="UserSchool13Materials"}%
 <style type="text/css">
 pre em { font-style: normal; background-color: yellow; }
@@ -38,6 +38,7 @@ use warnings;
 print "Random number: " . rand() . "\n";
 </pre>
 
+   1. Save the Perl script to a file named =random.py=
    1. Create a simple submit file that runs this Perl program once
    1. Test your submit file to make sure it works — do you get the output?
    1. Change the submit file to run the program many times, say 10–20
@@ -48,7 +49,111 @@ Not quite what you want, right?
 
 ---++ Using $(Process) to Separate Files
 
-- define output and error in terms of $(process); get all output files
-- add $(cluster); save across runs
-- define arguments in terms of $(process); change script
-- extra: queue 10 sleep, add +Something, queue 10 more, view in condor_q
+When processing a submit file, HTCondor defines and uses a special variable for the process number of each job. If you write =$(Process)= in a submit file, HTCondor will replace it with the process number of the job, independently for each job added to the queue. Using this variable allows you, for example, to define an output file per process. For example, suppose the following two lines occur in a submit file:
+
+<pre class="file">
+output = my-output-file-$(Process).out
+queue 10
+</pre>
+
+Even though the =output= is the “same” for each job created by the =queue 10= statement, the actual output filename will be different for each job:
+
+| First job | =my-output-file-0.out= |
+| Second job | =my-output-file-1.out= |
+| Third job | =my-output-file-2.out= |
+| ... ||
+| Last (tenth) job | =my-output-file-9.out= |
+
+Let’s try this in a real example.
+
+   1. If not done above, save the Perl script from the previous exercise to a file named =random.py=
+   1. Create a submit file that runs the Perl script 10 times; use =$(Process)= to name each output and error file uniquely
+   1. Submit your jobs, wait for them to finish, then look at the output
+
+Did you get 10 output files, each named differently? Each with a different random number?
+
+
+---++ Using $(Cluster) to Separate Files Across Runs
+
+As it stands now, you can get separate output (and error) filenames for each job within a run. However, the next time you submit the same file, all of the output and error files are overwritten by new ones created by the new jobs. Maybe this is the behavior that you want. But sometimes, you may want to separate files by run, as well.
+
+In addition to =$(Process)=, there is also a =$(Cluster)= variable that you can use in your submit files. It works just like =$(Process)=, except it is replaced with the cluster number of the entire submission. Obviously, the cluster number is the same for all jobs within a single submission, so it does not help separate files by job. But when used *with* =$(Process)=, it can be used to separate files by run. For example, consider this =output= statement:
+
+<pre class="file">
+output = my-output-file-$(Cluster)-$(Process).out
+</pre>
+
+For one particular run, it might result in output filenames like this:
+
+| First job | =my-output-file-2444-0.out= |
+| Second job | =my-output-file-2444-1.out= |
+| Third job | =my-output-file-2444-2.out= |
+| ... ||
+
+If you like, change your submit file from the previous exercise to use both =$(Cluster)= and =$(Process)=. Submit your file twice to see the separate files for each run. Be careful how many jobs you run total, as the number of output files grows quickly!
+
+
+---++ Using $(Process) and $(Cluster) in Other Statements
+
+The =$(Cluster)= and =$(Process)= variables can be used in any submit file statement, although they seem to be useful in some kinds of statements more than others. For instance, it is hard to imagine a truly good reason to use the =$(Process)= variable in a =rank= statement (i.e., for preferring some execute slots over others), and in general the =$(Cluster)= variable often makes little sense to use.
+
+But in some situations, the =$(Process)= variable can be very helpful. Common uses are in the following kinds of statements — can you think of a scenario in which each use might be helpful?
+
+   * =log=
+   * =transfer_input_files=
+   * =transfer_output_files=
+   * =arguments=
+
+The first three of those statements define filenames, which we have already seen above. The last possibility, the command =arguments=, is interesting in a different way. If your program accepts arguments, you may want to run it differently for each job. We saw this scenario earlier with the =fibonacci= program. You can use the =$(Process)= variable (or =$(Cluster)=, or both) anywhere in an =arguments= statement: as part of a filename, as a bare number, or for another reason.
+
+Unfortunately, HTCondor does not let you perform math on the =$(Process)= number when using it. So, for example, if you use =$(Process)= as a numeric argument to a command, it will always result in jobs getting the arguments 0, 1, 2, and so on. If you have control over your program and the way in which it uses command-line arguments, then you are fine. Otherwise, you might need to transform the =$(Process)= numbers into something more appropriate using a __wrapper script__, which will be discussed on Thursday.
+
+Let’s change the Perl random-number generator to use a numeric argument. It turns out that Perl can initialize its random number generator with a “seed” integer; given the same initial seed, Perl will produce the same series of random numbers thereafter. Different seeds yield different random number sequences. Here is a version of the Perl script that accepts a command-line argument and uses it to seed the random-number generator:
+
+<pre class="file">
+#!/usr/bin/env perl
+use strict;
+use warnings;
+if (scalar(@ARGV) != 1) {
+    print "Usage: $0 SEED\n";
+    exit 1;
+}
+srand($ARGV[0]);
+print "Random number: " . rand() . "\n";
+</pre>
+
+   1. Save this version of the script to a file named =random-seed.pl=
+   1. Write a submit file to run this script many times (10–20)
+      * Use a separate numeric argument for each job
+      * Write separate output files per job
+      * Leave out the error file, if you like
+
+
+---++ (Optional) Defining Extra Attributes for Tracking
+
+During the lecture, it was mentioned that you can define arbitrary attributes in your submit file, and that one purpose of such attributes is to track or report on different jobs separately. In this optional exercise, you will see how this technique can be used.
+
+Once again, we will use =sleep= jobs, so that your jobs remain in the queue long enough to experiment on.
+
+   1. Create a basic submit file that runs =sleep 120= (or some reasonable duration)
+   1. Instead of a single =queue= statement, write this:\
+       <pre class="file">
+<em>+MyJobAttribute = 1</em>
+queue 5
+<em>+MyJobAttribute = 2</em>
+queue 5
+</pre>\
+       <p>The highlighted statements give the extra attribute =MyJobAttribute= to your jobs; the first 5 jobs have one value, and the second 5 have another.
+   1. Submit the file
+
+Check on the submissions using a normal =condor_q=. Of course, your special attribute does not appear in the standard =condor_q= output, but it is present in each job’s !ClassAd. You can see the effect of the attribute by limiting your =condor_q= output to one type of job or another. First, run this command:
+
+<pre class="screen">
+%UCL_PROMPT_SHORT% <strong>condor_q -constraint 'Owner == "<em>userid</em>" && MyJobAttribute == 1'</strong>
+</pre>
+
+Use your own =userid=, of course. Do you get the output that you expected?
+
+Using the example command above, how would you list your other five jobs?
+
+%META:TOPICMOVED{by="TimCartwright" date="1371952941" from="Education.UserSchool13Mon15QueueN" to="Education.UserSchool13Mon25QueueN"}%
