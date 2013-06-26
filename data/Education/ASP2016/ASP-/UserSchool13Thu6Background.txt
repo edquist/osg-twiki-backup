@@ -1,0 +1,80 @@
+%META:TOPICINFO{author="LaurenMichael" date="1372280751" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="UserSchool13Materials"}%
+<style type="text/css">
+pre em { font-style: normal; background-color: yellow; }
+pre strong { font-style: normal; font-weight: bold; color: #008; }
+</style>
+
+---+ Thursday Exercise 6: Background Information: Joe's Computing Work
+Joe Biologist studies the influence of genetic differences (genotypes) on the growth characteristics (phenotypes) of a common crop. Joe has come to you with some computing work he’d like to make into a workflow on your computing grid. Joe has used HTCondor to submit separate jobs, but has only run in a smaller, dedicated cluster where he doesn’t have to request CPU, disk, or RAM and he’s not familiar with DAGman.
+
+---+++ After asking Joe many questions, you realize the following things:
+
+*1) Joe starts with a file called =input.csv= that comes from a previous program on his desktop.* When you open this file in excel, Joe shows you that each row corresponds to an individual plant. For each individual, the first three columns are phenotype measurements for each of three different growth traits (T240, T300, T360), and the remaining columns contain the genotype (A or B) of that individual across multiple genes.
+
+*2) Joe performs two steps _for each trait_: a "Permutation preparation" step and a “QTL mapping” step that each need only 1 CPU core.*
+   * For each trait, the phenotype and genotype information for all individuals is first used for permutation testing carried out by an R program, =run_perm.R=, which generates a set number of permutations according to an argument that is passed to the program. Joe needs to run 25,000 total permutations per trait.
+   * A g-zipped tarball of all the permutation output for a trait is then created to be used in the second step.
+   * In the QTL mapping step, =qtl.R=, takes in the data from =input.csv=, data from a tarball of the trait-specific permutation output, and an argument indicating the input.csv column number for the trait. 
+   * The QTL step produces multiple output files that Joe then needs to tar and compress so he can copy the final data back to his own computer.
+
+*3) Joe uses a special wrapper script to execute his two steps with HTCondor.* This perl script, =runR.pl=, installs R from a squid proxy and sets up the R environment. For both of Joe’s R programs, the =runR.pl= wrapper script is run as the HTCondor executable with the name of either R program passed as an argument to the wrapper (along with arguments for the R programs themselves).
+
+*4) Joe has brought all of his inputs/outputs and submit files for you to modify. You’ll see them in the exercises.*
+
+*5) When Joe runs all 25,000 permutations as one condor job, it will run for hours (too long for _your _cluster, which only runs jobs for up to 1 hour).* He has cut the permutations up into multiple HTCondor jobs before, but doesn’t remember the details.
+
+
+---+++ Joe’s Job Summaries
+
+Based upon Joe’s description and submit files you determine the following details for each step:
+
+---++++ *Permutation Step* (example if permutation1.submit)
+
+execution: 	
+   * =./runR.pl 1_$(Process) run_perm.R 1 $(Process) 25000=
+
+arg descriptions:	
+   * =1_$(Process)=, used by =runR.pl= to name its log file
+   * =1=, trait column in =input.csv= (i.e. this is 3 for permutation3.submit)
+   * =$(Process)=,	used by =run_perm.R= for naming the permutation output
+   * =25000=,	indicates that 25,000 permutations should be done for this job process
+
+input: 		
+   * =run_perm.R=, =input.csv=, =RLIBS.tar.gz=
+
+ output: 	
+   * =runR.1_0.out=, log file for =runR.pl=, where "=1_0=" is from arg
+   * =perm_part.1_0.Rdat=, output from =run_perm.R=, "1" and "0" are from args
+
+*Note:* =tarit.sh= is run after each trait's Permutation step to compresses =perm_part.1_0.Rdat= for the QTL step
+		
+---++++ *QTL Mapping Step* (example if =qtl1.submit=)
+
+execution:	
+   * =./runR.pl qtl_1 qtl.R 1=
+
+arg descriptions:	
+   * =qtl_1=, used by =runR.pl= to name its log file
+   * =1=, trait column in =input.csv=
+
+input:		
+        =qtl.R, input.csv=, =RLIBS.tar.gz=, =perm_combined.tar.gz= (created by =tarit.sh=)
+
+output:	
+   * =runR.qtl_1.out=, log file for =runR.pl=, where "=qtl_1=" is from arg
+   * =perm_combined_1.Rdat=,	"1" is from =qtl.R= arg
+   * =perm_summary_1.txt=, “”
+   * =sim_geno_results_1.Rdat=, “”
+   * =qtl_1.Rdat=, “”
+   * =refined_qtl_summary_1.txt=, “”
+   * =refined qtl_1.Rdat=, “”
+   * =fit_qtl_results_1.Rdat=, "”
+
+*Note:* results_1.tar.gz is made by =taritall.sh= after the QTL step for each trait finishes, where "1" reflects the trait column number in the output above.
+
+
+
+
+
+-- Main.LaurenMichael - 26 Jun 2013
