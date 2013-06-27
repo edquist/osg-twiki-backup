@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1372283422" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1372358380" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="Integration.MinutesCampusItb130627"}%
 <!-- conventions used in this document
    * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="hostname"}%
@@ -64,12 +64,16 @@ Follow the instructions off the [[http://cran.rstudio.com/][R Website]]:
    * on RHEL you can install the RPM or the tarball
    * on Debian the DEB or the tarball
 
----+ Download and install !GridR
+---+ Download and install the modified !GridR
 
+This is explained in CampusGrids.BoscoR . Here is a summary:
+   * Download [[https://www.dropbox.com/s/n5144nnyod5l3ll/GridR_0.9.5.tar.gz][GridR]].  
+   * Install with the command line:<pre class="screen">%UCL_PROMPT% R CMD INSTALL --build Downloads/GridR_0.9.5.tar.gz 
+</pre>
 
 ---+ Example
 
-Thank you to Lincoln to prepare this example for the UC3 Jamboree. Here I will run on R interactive instead or using scripts.
+Thank you to Lincoln to prepare this [[https://wiki.uchicago.edu/display/uc3jam201305/Application+Example+-+R][example for the UC3 Jamboree]]. Here I will run on R interactive instead or using scripts.
 
 ---++Background
 Some background is useful here. We define a square inscribed by a unit circle. We randomly sample points, and calculate the ratio of the points outside of the circle to the points inside for the first quadrant. This ratio approaches pi/4.
@@ -82,6 +86,14 @@ _(Source: [[http://en.wikipedia.org/wiki/Monte_Carlo_method]] )_
 
 
 ---++ Startin BOSCO and R
+
+Be sure to have bosco running.  To ensure that Bosco is running, you can run, from the command line:
+<pre class="screen">
+%UCL_PROMPT% source ~/bosco/bosco_setenv;
+%UCL_PROMPT% bosco_start
+</pre>
+
+Start R, or RStudio, or whatever R environment you prefer.  
 
 ---++ Running R code
 Now that we can run R, let's try using the Pi estimation code:
@@ -99,34 +111,69 @@ Now that we can run R, let's try using the Pi estimation code:
 montecarloPi(10000000)
 </pre>
 
----++ Run and analyze
+---++ Run and analyze on BOSCO-R
 
-Submit and analyze
-Finally, submit the job to UC3!
+---+++ Initialize the use of BOSCO-R (via !GridR)
 
-[cnetid@uc3-sub uc3-R]$ condor_submit R.submit
-Submitting job(s)....................................................................................................
-100 job(s) submitted to cluster 85823.
-[cnetid@uc3-sub uc3-R]$ condor_q cnetid
+First, you need to load the !GridR library: <pre class="screen">
+> library("GridR")
+Loading required package: codetools
+</pre>
 
+Then, you need to specify a temporary directory and initialize !GridR to use Bosco:
+<pre class="screen">
+> grid.init(service="bosco.direct", localTmpDir="tmp")
+</pre>
 
--- Submitter: uc3-sub.uchicago.edu : <10.1.3.94:9618?sock=25212_0c25_14> : uc3-sub.uchicago.edu
- ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD
-85823.2   cnetid        5/17 11:21   0+00:00:15 R  0   0.0  R-wrapper.sh mcpi.
-85823.4   cnetid        5/17 11:21   0+00:00:12 R  0   0.0  R-wrapper.sh mcpi.
-85823.5   cnetid        5/17 11:21   0+00:00:15 R  0   0.0  R-wrapper.sh mcpi.
-85823.7   cnetid        5/17 11:21   0+00:00:11 R  0   0.0  R-wrapper.sh mcpi.
-85823.8   cnetid        5/17 11:21   0+00:00:11 R  0   0.0  R-wrapper.sh mcpi.
+The function =montecarloPi= should be already defined from above.
+
+To send it to the remote cluster you could use =grid.apply("x", montecarloPi, 10000000)= but we want to run it many times so we'll do it within a loop:
+<pre class="screen">
+> i <- 1
+> while (i<=100) {
++ grid.apply(paste("xvec",i,sep=""), montecarloPi, 10000000)
++  i <- i+1
++ }
+starting bosco.direct mode
 ...
-Since our jobs just output their results to standard out, we can do the final analysis from the log files. Let's see what one looks like:
+</pre>
 
-[cnetid@uc3-sub uc3-R]$ cat log/mcpi.out.85823.1
-[1] 3.14175
-I'm just going to use a bit of awk magic to do the average for me.
+You can check on the status of the job with the command grid.printJobs():
+<pre class="screen">
+> grid.printJobs()
+</pre>
 
-[cnetid@uc3-sub uc3-R]$ cat log/mcpi.out.* | awk '{sum+=$2} END { print "Average = ", sum/NR}'
-Average =  3.14151
-Not bad!
+On the shell you can see your jobs also with condor_q<pre class="screen">
+$ watch -n2 condor_q
+</pre>
+
+
+Once all the jobs are completed I want to copy the values in a vector:
+<pre class="screen">
+> res = numeric(length=100)
+> i <- 1
+> while (i<=100) {
++ res[i] <- get(paste("xvec",i,sep=""))
++ i <- i+1
++ }
+</pre>
+
+Now we have all the results in a vector and we can check the average:
+<pre class="screen">
+> mean(res)
+
+</pre>
+
+And we can also plot the results and estimate the error:<pre class="screen">
+n.breaks <- seq(min(res), max(res)+5, by = 5)
+hist(res, breaks = n.breaks)
+sd(res)
+</pre>
+<!-- 
+> median(res)
+> var(res)
+> sd(res)
+-->
 
 
 
