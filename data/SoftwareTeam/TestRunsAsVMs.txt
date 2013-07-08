@@ -1,11 +1,11 @@
-%META:TOPICINFO{author="TimCartwright" date="1372786924" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="TimCartwright" date="1373319078" format="1.1" version="1.2"}%
 %META:TOPICPARENT{name="TestingHome"}%
 ---+ Running Tests as VM Jobs
 
 This page is my (cat) collected notes and ideas about running osg-test runs as VM jobs, either locally (e.g., CHTC) or in OSG.
 
 
----++ HTCondor VM Universe
+---++ Using VM Universe in HTCondor
 
 For HTCondor 8.0, the documentation for VM universe is in [[http://research.cs.wisc.edu/htcondor/manual/v8.0/2_11Virtual_Machine.html][section 2.11]] of [[http://research.cs.wisc.edu/htcondor/manual/v8.0/ the manual]].
 
@@ -17,7 +17,45 @@ Some quick notes:
    * Must select a =vm_type= of =vmware=, =xen=, or =kvm=
 
 
+---++ Using VM Universe in CHTC
+
+The only VM universe support in CHTC was using a now-archaic version of [[http://www.vmware.com VMware]]; this was set up in support of the Thomas Jahns lab. Essentially, in July 2013, there is no current support. However, the CHTC infrastructure team is interested in adding real support for at least kvm.
+
+On 3 July 2013, Nate Yehle proposed working with us to add kvm support in stages. Roughly:
+
+   1. Nate will set up kvm on =osghost.chtc.wisc.edu= to create a playground
+   1. Nate will show !TimC how to run an arbitrary image on =osghost=
+   1. !TimC will iterate on a basic SL6 VM image (probably using !BoxGrinder, see below) until it starts, runs a simple process, and exits cleanly
+   1. Nate and !TimC will work together to identify and solve any issues with the test VM image, especially concerning networking
+   1. Nate will set up one CHTC node with kvm support
+   1. !TimC will try to run the test VM image on the CHTC node using HTCondor
+   1. Iterate and grow as needed and possible
+
+
+---++ Selecting a VM Type
+
+On 2 July 2013, Jaime and !ToddM suggested focusing on kvm as the VM type. People on the team have the most experience with kvm. Avoid !VMware (no reasons recorded).
+
+To run our test code, use the =rc.local= system (file? directory?). It should run last in the startup sequence, after all other services are running. Ask !ToddM for help, if needed. Once the tests are done, shut down the VM from the same script.
+
+
 ---++ Creating VM Images
 
    * John Hover has used [[http://boxgrinder.org BoxGrinder]] to do his virtualization work. It has not received an update since mid-2012, but may be sufficient.
    * A newer project is [[http://imgfac.org imagefactory]], although it is unclear whether it support the simple case of creating an image to be deployed without a commercial cloud.
+
+To handle input and output, Jaime and !ToddM recommended having separate, small image files for them. Thus, up to three images may be needed:
+
+   * The base OS image. It could be created periodically, say once a week, and reused many times. If there are performance issues with transferring this image, likely to be 4GB or so, the CHTC infrastructure folks could set up some kind of caching, possibly via the Ken Hahn Filesystem.
+
+   * An input image, containing only a single text file with test run conditions.
+
+   * An output image, initially empty and for saving the output log file(s). This image would be the only file transferred back from the run.
+
+The =qemu-img= tool make images and may be sufficient for the input and output images.
+
+---+++ Hostname and Host Certificates
+
+The test runs will need a valid host certificate. How to accomplish this?
+
+Jaime and !ToddM suggested getting a single, static hostname from the CSL. Then, the networking system in the base OS images would be set up such that this name would resolve, but only on the VM itself, not going out to the network. Then, we could request a host certificate from !DigiCert for this fixed hostname, and that host certificate would be shipped with the base OS VM image. Jaime and !ToddM know how to set up the fake hostname lookups in the VM configuration.
