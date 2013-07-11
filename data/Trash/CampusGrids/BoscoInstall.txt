@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DerekWeitzel" date="1373394234" format="1.1" version="1.48"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1373508069" format="1.1" reprev="1.49" version="1.49"}%
 %META:TOPICPARENT{name="BoSCO"}%
 <!-- conventions used in this document
    * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="bosco"}%
@@ -548,6 +548,108 @@ echo "#PBS -l select=$NumJobs"
 </pre>
 
 This will set the number of requested cores from PBS to !NumJobs specified in the original Bosco Submit file.
+
+---## Flocking to a BOSCO installation
+In some special cases you may desire to flock to your BOSCO installation. If you don't know what I'm talking about, then skip this section.
+
+In order to enable flocking you must use an IP so that all the hosts you are flocking from can communicate with the BOSCO host.
+Then you must setup FLOCK_FROM and the security configuration so that the communications are authorized.
+
+BOSCO has strong security settings. Here are two examples:
+   1 Using GSI authentication (a strong authentication method) you must provide and install X509 certificates, you must change the configuration %TWISTY{%TWISTY_OPTS_DETAILED% showlink="Click to see the configuration file" }%   <pre class="file">#
+# Networking - If you did not already, remember that you need to set BOSCO not to use the loopback port
+#
+NETWORK_INTERFACE =
+
+#
+# Hosts definition
+#
+# BOSCO host
+H_BOSCO = %RED%bosco.mydomain.edu%ENDCOLOR%
+H_BOSCO_DN = %RED%/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=Services/CN=bosco.mydomain.edu%ENDCOLOR%
+
+# submit host (flocking to BOSCO host)
+H_SUB = %RED%sub.mydomain.edu%ENDCOLOR%
+H_SUB_DN = %RED%/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=Services/CN=sub.mydomain.edu%ENDCOLOR%
+
+#
+# Flocking configuration
+# 
+FLOCK_FROM = $(FLOCK_FROM) $(H_SUB)
+
+#
+# Security definitions
+# 
+# Assuming system-wide installed CA certificates 
+GSI_DAEMON_DIRECTORY = /etc/grid-security
+# This host's certificates
+GSI_DAEMON_CERT = /etc/grid-security/hostcert.pem
+GSI_DAEMON_KEY = /etc/grid-security/hostkey.pem
+# default GSI_DAEMON_TRUSTED_CA_DIR = $(GSI_DAEMON_DIRECTORY)/certificates
+CERTIFICATE_MAPFILE= $HOME/bosco/local.bosco/certs/condor_mapfile
+
+# Not used
+MY_DN = $(H_BOSCO_DN)
+
+# Who to trust?  Include the submitters flocking here
+GSI_DAEMON_NAME = $(GSI_DAEMON_NAME), $(H_BOSCO_DN), $(H_SUB_DN)
+
+# Enable authentication from the Negotiator
+SEC_ENABLE_MATCH_PASSWORD_AUTHENTICATION = TRUE
+
+# Enable gsi authentication, and claimtobe (for campus factories)
+# The default (unix) should be: FS, KERBEROS, GSI
+SEC_DEFAULT_AUTHENTICATION_METHODS = FS,GSI, PASSWORD, $(SEC_DEFAULT_AUTHENTICATION_METHODS)
+SEC_CLIENT_AUTHENTICATION_METHODS = FS, PASSWORD, GSI, CLAIMTOBE
+SEC_DAEMON_AUTHENTICATION_METHODS = FS, PASSWORD, GSI, CLAIMTOBE
+SEC_WRITE_AUTHENTICATION_METHODS = FS, PASSWORD, GSI, CLAIMTOBE
+SEC_ADVERTISE_SCHEDD_METHODS = FS, PASSWORD, GSI, CLAIMTOBE
+
+ALLOW_DAEMON = $(ALLOW_DAEMON) condor_pool@*/* %RED%boscouser%ENDCOLOR%@*/* $(FULL_HOSTNAME) $(IP_ADDRESS)
+ALLOW_ADVERTISE_SCHEDD = %RED%boscouser%ENDCOLOR%@*/*
+</pre> %ENDTWISTY% and define or update the condor_mapfile (e.g. =$HOME/bosco/local.bosco/certs/condor_mapfile=) %TWISTY{%TWISTY_OPTS_DETAILED% showlink="Click to see the condor_mapfile" }%   <pre class="file">#
+GSI "^%RED%\/DC\=com\/DC\=DigiCert\-Grid\/O\=Open\ Science\ Grid\/OU\=Services\/CN\=sub\.mydomain\.edu%ENDCOLOR%$" %RED%boscouser@sub.mydomain.edu%ENDCOLOR%
+GSI "^%RED%\/DC\=com\/DC\=DigiCert\-Grid\/O\=Open\ Science\ Grid\/OU\=Services\/CN\=bosco\.mydomain\.edu%ENDCOLOR%$" %RED%boscouser%ENDCOLOR%
+# #
+SSL (.*) ssl@unmapped
+CLAIMTOBE (.*) \1
+PASSWORD (.*) \1
+# #
+GSI (.*) anonymous
+FS (.*) \1
+</pre> %ENDTWISTY% Remember to enable and configure GSI authentication also on the host you are flocking form.
+   1 Relaxing BOSCO security setting to allow CLAIMTOBE authentication. This is not very secure. Use it only if you can trust all the machines on the network and remember to enable CLAIMTOBE also on the host you are flocking from %TWISTY{%TWISTY_OPTS_DETAILED% showlink="Click to see the configuration file" }%   <pre class="file">#
+# Networking - If you did not already, remember that you need to set BOSCO not to use the loopback port
+#
+NETWORK_INTERFACE =
+
+#
+# Flocking configuration
+# 
+FLOCK_FROM = %RED%host_from.domain%ENDCOLOR%
+
+#
+# Security definitions overrides
+# 
+SEC_DEFAULT_ENCRYPTION = OPTIONAL
+SEC_DEFAULT_INTEGRITY = PREFERRED
+# To allow status read
+SEC_READ_INTEGRITY = OPTIONAL
+
+SEC_CLIENT_AUTHENTICATION_METHODS = FS, PASSWORD, CLAIMTOBE
+
+ALLOW_ADVERTISE_SCHEDD = */%RED%IP_of_the_host_in_flock_from%ENDCOLOR% $(FULL_HOSTNAME) $(IP_ADDRESS) $(ALLOW_DAEMON)
+
+SEC_DAEMON_AUTHENTICATION = PREFERRED
+SEC_DAEMON_INTEGRITY = PREFERRED
+SEC_DAEMON_AUTHENTICATION_METHODS = FS,PASSWORD,CLAIMTOBE
+SEC_WRITE_AUTHENTICATION_METHODS = FS,PASSWORD,CLAIMTOBE
+</pre> %ENDTWISTY%
+
+After copying from the examples (click above to expand the example files) or editing your configuration file, save it as =$HOME/bosco/local.bosco/config/zzz_condor_config.flocking=. 
+Other names are OK as long as its definition override the default ones of BOSCO (check with =condor_config_val -config=).
+
+Then stop and restart BOSCO.
 
 %ENDSECTION{"BoscoAdvancedUseInstContent"}%
 %ENDSECTION{"BoscoAdvancedUse"}%
