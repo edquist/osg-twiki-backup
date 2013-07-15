@@ -1,11 +1,11 @@
-%META:TOPICINFO{author="JohnWeigand" date="1373902598" format="1.1" version="1.11"}%
+%META:TOPICINFO{author="JohnWeigand" date="1373918384" format="1.1" reprev="1.12" version="1.12"}%
 %META:TOPICPARENT{name="GratiaInterfacesApelLcg"}%
 <!--
    * Set LCG_CONF        = [[#lcg_conf][lcg.conf]]
    * Set LCG_DB_CONF = [[#lcg_db_conf][lcg-db.conf]]
    * Set CRONTAB          = [[#lcg_conf][lcg.conf]]
-   * Set CRONTAB           = [[#lcg_reportablesites][lcg-reportableSites]]
-   * Set CRONTAB          = [[#lcg_reportablevos][lcg-reportableVOs]]
+   * Set REPORTABLE_SITES = [[#SiteFilterFile_lcg_reportableSit][SiteFilterFile]] 
+   * Set REPORTABLE_VOS= [[#lcg_reportablevos][lcg-reportableVOs]]
    * Set CRONTAB           = [[#crontab][crontab entry]]
    * Set SSM_CFG          = [[#ssm_cfg][ssm.cfg]]
    * Set SSM_LOG_CFG = [[#ssm_log_cfg][ssm.log.cfg]]
@@ -36,9 +36,32 @@ File Locations:
 All the executable scripts in this section can be found in the %SCRIPT_LOCATION%  directory.
 
 ---++ LCG.py
-Usage:
+This is the main interface program performing the following functions: 
+
+ 1. Retrieves the accounting data from the Gratia database for selected OSG sites and VOs for a month. 
+   * The __resource_groups__ (and Normalization Factors) are defined in a file identified by the %REPORTABLE_SITES% attribute of the %LCG_CONF%  file. 
+   * VOs are defined in a file identified by the 'VOFilterFile' attribute of the %LCG_CONF%  file.
+   * For each __resource_group__ in the _Site_File
+
+With the change implemented on 6/19/07 providing for individual normalization factor by site, instead of a single query being used to retrieve the Gratia data, individual queries by site are performed.  In order to reduce the verbage in the log file, only the first query is output to the log file.  The site and normalization factor used is displayed for the other site queries.
+
+2. Formats the SSM message sent to APEL to update  APEL/WLCG database. The %LCG_DB_CONF% file defines  For testing purposes a clone table called OSG_TABLE_TEST can be set instead. The SQL DML statements for the last run are placed in a directory defined by the 'LogSqlDir' attribute of the lcg.conf file. The file name is YYYY-MM.sql and contains only the DML from the last update run. 
+
+ 3. Updates the APEL/CLG database. In order to handle site and VO name changes, the SQL DML is set up to DELETE all data for the month/year and then INSERT the new data. This is a simple approach to handling these kinds of changes and works as of 4/25/2007.  It may be this will not hold up over the long run and will have to be re-visited.
+
+Additional functionality:
+
+  1. The script has been design to do everything EXCEPT update the APEL database unless the --update option is used.  This prevents accidental running of the script especially when testing.
+
+  2. Log files are created in the directory specified by the 'LogSqlDir' attribute of the lcg.conf file. The format of the log files is YYYY-MM.log.
+
+  3. A file containing the latest SQL DML statements used to update the APEL database is created in the same directory as the log files. The format of the sql file is YYYY-MM.sql
+
+  4. The script will, after completing the APEL database update, create  xml and html files of the data contained in the APEL database table. This was added on 4/17/08 to provide visibility into the data being sent.  No functionality is contained in this script to use these files.  This just makes them available.
+
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show usage"}%
 <blockquote><pre>
-  LCG.py(lcg.sh)  --conf=config_file --date=month [--update] [--no-email]
+  LCG.py   --conf=config_file --date=month [--update] [--no-email]
 
      --conf - specifies the main configuration file to be used
               which would normally be the lcg.conf file
@@ -66,28 +89,7 @@ Usage:
      --no-email - this option says to turnoff the sending of email
                 notifications on failures and successful completions.
 </pre></blockquote>
-
-This is the main interface program performing the following functions: 
-
- 1. Retrieves the accounting data from the Gratia database for selected OSG sites and VOs for a month. 
-   * The __resource_groups__ are defined in a file identified by the 'SiteFilterFile' attribute of the %LCG_CONF%  file. 
-   * VOs are defined in a file identified by the 'VOFilterFile' attribute of the %LCG_CONF%  file.
-With the change implemented on 6/19/07 providing for individual normalization factor by site, instead of a single query being used to retrieve the gratia data, individual queries by site are performed.  In order to reduce the verbage in the log file, only the first query is output to the log file.  The site and normalization factor used is displayed for the other site queries.
-
-2. Formats the SSM message sent to APEL to update  APEL/WLCG database. The %LCG_DB_CONF% file defines  For testing purposes a clone table called OSG_TABLE_TEST can be set instead. The SQL DML statements for the last run are placed in a directory defined by the 'LogSqlDir' attribute of the lcg.conf file. The file name is YYYY-MM.sql and contains only the DML from the last update run. 
-
- 3. Updates the APEL/CLG database. In order to handle site and VO name changes, the SQL DML is set up to DELETE all data for the month/year and then INSERT the new data. This is a simple approach to handling these kinds of changes and works as of 4/25/2007.  It may be this will not hold up over the long run and will have to be re-visited.
-
-Additional functionality:
-
-  1. The script has been design to do everything EXCEPT update the APEL database unless the --update option is used.  This prevents accidental running of the script especially when testing.
-
-  2. Log files are created in the directory specified by the 'LogSqlDir' attribute of the lcg.conf file. The format of the log files is YYYY-MM.log.
-
-  3. A file containing the latest SQL DML statements used to update the APEL database is created in the same directory as the log files. The format of the sql file is YYYY-MM.sql
-
-  4. The script will, after completing the APEL database update, create  xml and html files of the data contained in the APEL database table. This was added on 4/17/08 to provide visibility into the data being sent.  No functionality is contained in this script to use these files.  This just makes them available.
-
+%ENDTWISTY%
 
 
 
@@ -152,6 +154,8 @@ Methods used:
 Class used to query !MyOSG for __resource groups__ with __resources__ having  the !WLCGInformation !InteropAccounting flag set to True indicating that this __resource group__ should be interfaced to APEL/WLCG.
 
 Since some access was required to query the !MyOSG data, it seemed it would be nice to have an easy to use command line view of the for trouble shooting purpose.  So this process can be executed from the command line with the following usage.
+
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show usage"}%
 <blockquote><pre>
 ./InteropAccounting.py action
     Actions:
@@ -211,6 +215,7 @@ Methods used:
         interfaced will be used and hopefully it is correct.
     """
 </pre></blockquote>
+%ENDTWISTY%
 
 
 ---++ !Rebus.py
@@ -222,7 +227,8 @@ The rationale for using this class in the interface is to insure that the OSG an
 which  OSG __resource_groups__ should be reported.  If a WLCG site (OSG __resource_group__ ) registers with WLCG and 
 OSG does not indicate it should be interface (and visa versa), then we to take action.
 
-Additionally, this module can be executed from the command line to more easily view the topology.
+Additionally, this module can be executed from the command line to more easily view the topology.%BR%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show usage"}%
 <blockquote><pre>
 Usage: %(program)s action [-help]
 
@@ -249,10 +255,13 @@ Methods used:
         If not registered, it will return an empty string.
     """
 </pre></blockquote>
+%ENDTWISTY%
 
 ---++ !NormalizationFactors.py
 This module is currently __NOT__ used in the APEL/WLCG interface.  It could be at some point in the future, however.  At this point in time (Aug 2011), there does not exist a reliable means of determining this value agreeable to all.  It was written to aid in the viewing of the currently
-used values maintained in the __lcg-reportableSites__ file with options to compare that against a simple algorithm normalizing using the weighted average of the individual cluster values for a __resource_group__ based on GIP data.  The command line options for viewing this data are:
+used values maintained in the __lcg-reportableSites__ file with options to compare that against a simple algorithm normalizing using the weighted average of the individual cluster values for a __resource_group__ based on GIP data. 
+
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show usage"}%
 <blockquote><pre>
 Usage:  %(program)s  action [--help] [--debug] [--site=<resource group>]
 
@@ -274,7 +283,7 @@ Usage:  %(program)s  action [--help] [--debug] [--site=<resource group>]
    --show-benchmark
         Displays the SI2K value for all processor models
 </pre></blockquote>
-
+%ENDTWISTY%
 
 
 ---++ find-late-updates.sh
@@ -292,17 +301,29 @@ The _lcg.conf_ is the main configuration file used by the interface.
 
 
 %TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
-%EDITTABLE{   format="| text, 25 | textarea, 4x50 |"  changerows="on" quietsave="on" editbutton="Edit table" }% 
+%EDITTABLE{   format="| text, 45 | textarea, 4x90 |"  changerows="on" quietsave="on" editbutton="Edit table" }% 
 | *File* | *Description* |
-| !GratiaCollector | Data directory for Gratia collector: <br />   * /data/tomcat-gratia/webapps/gratia-data/interfaces/apel-lcg <br />The dat/xml/html files are made accessible via this collector. If you do not want the files copied to a collector, then use the keyword 'DO_NOT_SEND'. <br /> |
+| !WebLocation | Data directory for access by gratiaweb url. The xml and html files are made accessible. <br />If you do not want the files copied to a collector, then use the keyword 'DO_NOT_SEND'. <br />copied to a collector, then use the keyword 'DO_NOT_SEND'. <br /> |
+| !LogFile | Directory for the log files |
+| !TmpDataDir | Directory for temporary files |
+| !UpdatesDir | Directory for files sent to APEL |
+| !WebappsDir | Directory for files accessible by the !WebLocation |
+| !SSMFile | SSM executable |
+| !SSMConfig | SSM configuration file |
+| !SSMUpdatesDir | Directory for files sent to APEL via SSM |
+| !SSMUpdates | Base name of the file sent to SSM with updates |
+| !SSMDeletes | Base name of the file sent to SSM with deletes |
 | [[#SiteFilterFile_lcg_reportableSit][SiteFilterFile]] | File with list of __resource_groups__ to be reported and their normalization factor. |
-| [[#SiteFilterHistory_lcg_reportable][SiteFilterHistory]] | History directory for keeping previous periods (months)!SiteFilterFile's (<NAME>.YYYYMM) <br /> |
+| [[#SiteFilterHistory_lcg_reportable][SiteFilterHistory]] | History directory for keeping previous period's !SiteFilterFile (lcg-reportableSites.YYYYMM) <br /> |
 | [[#VOFilterFile_lcg_reportableVOs][VOFilterFile]] | File with list of VOs to be reported |
 | [[#DBConfFile_lcg_db_conf][DBConfFile]] | Configuration file for databases and SSM configurations |
 | !LogSqlDir | Directory for log files, dat/xml/html and SSM update and delete files. |
-| !MissingDataDays | Number of days where a __resource_group__ has no data reported to Gratia for the month.  If more than this number of days, a warning/advisory email will be generated. |
+| !MissingDataDays | Number of days where a __resource__ has no data reported to Gratia for the month.  If more than this number of days, a warning/advisory email will be generated if there is no scheduled maintenance (in OIM) for those days or the __resource__ has been marked as inactive in OIM. |
 | !FromEmail | Email address of the sender.  Since this is a cron run process, this is dependent on how email is set up locally. |
 | !ToEmail | List of comma separated email addresses.  Email notifications are sent to this list for all executions of this interface for both success and failure. |
+| !CcMail | List of comma separated email address.  It is recommended that the goc be specified here.  Specify NONE if no cc. |
+
+
 
 <a name="lcg_reportablesites"/>
 ---++ !SiteFilterFile (lcg-reportableSites)
@@ -311,7 +332,7 @@ This file identifies the set of sites/resources reportable to the APEL-LCG datab
    * token 2 - The normalization value to be used. 
 These tokens are whitespace separated.   Comments inidcated with a line starting with a # sign. Empty lines are permitted.
 
-Example:
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show an example lcg-reportableSites"}%
 <blockquote><pre>
 ##--- CMS Tier 1 -----
 USCMS-FNAL-WC1     10264
@@ -329,6 +350,8 @@ HU_ATLAS_Tier2      8872
 #--- ALICE Tier 2 ----
 NERSC-PDSF         13920
 LC-glcc            15680
+%ENDTWISTY%
+
 
 </pre></blockquote>
 <b>Note: In the future, the need for this configuration file should be eliminated.  It would be replaced by a query of !MyOSG</b>
@@ -363,11 +386,8 @@ Identifies access information for the Gratia and APEL databases.
 | !GratiaHost | Gratia database host |
 | !GratiaPort | Gratia database port |
 | !GratiaDB | Gratia database (schema) |
-| | |
-| SSMHome | The HOME directory for the SSM interface software. |
-| SSMConfig | The SSM configuration file |
-| SSMupdates | The base name of the SSM message file containing updates.  Format: YYYY-MM. [SSMupdate] |
-| SSMdeletes | The base name of the SSM message file containing the same records as the SSMupdates file but with all values zeroed out..  Format: YYYY-MM. [SSMdeletes] |
+| !GratiaUser | Should be a read-only user. |
+| !GratiaPswd | Password for a read-only user. |
 
 
 
@@ -376,33 +396,33 @@ Identifies access information for the Gratia and APEL databases.
 The crontab file can be found in %CRONTAB_LOCATION%.
 
 As mentioned somewhere way back in this document, the general practice has been run this interface from the 1st of the current month thru the 8th of the next month (e.g. for November, it will run nightly from 11/1 thru 12/8) to accommodate sites/resources that may have had reporting problems and are in "catch-up" mode.  So 2 cron entries are required:
+
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show an example /etc/cron.d/gratia-apel.cron"}%
 <blockquote><pre>
-##########################################################################
-# Gratia-to-APEL (WLCG) transfer crontab entry
-#
-# Note: When scheduling the time of these scripts, you should first
-#       check with the root cron's database backup to insure there
-#       is not a conflict.
-#       This script also must be run on the same host as the
-#       tomcat-gratia collector as it copies files into its
-#       ./webapps/gratia-data/interfaces/apel-lcg directory.
 #-------------------------------------------------------------------------
+# Gratia/APEL-EGI interface crontab entry
+#-------------------------------------------------------------------------
+# Previous month's transfers are run for just the 1st n days of the month to 
+# insure all sites have reported to Gratia. 
+# The n days is dependent on when LCG accounting issues the monthly MOU reports
 #
-# Previous month's transfers
-# For just the 1st n days of the month to insure all have reported
+# Note the lock file not existing is success hence the the slightly odd logic
+# below.
 #
-15 0 1-8 * *   dir=/home/gratia/interfaces/apel-lcg; cd $dir; ./lcg.sh --config=lcg.conf --date=previous --update;
-                     ./create-apel-index.sh /data/tomcat-gratia
+# The lock file can be enabled or disabled via a
+#   service   gratia-apel-cron start
+#   chkconfig gratia-apel-cron on
+#-------------------------------------------------------------------------
+15 0 1-8 * *  root   [ ! -f /var/lock/subsys/gratia-apel-cron ] || (/usr/share/gratia-apel/LCG.py --config=/etc/gratia-apel/lcg.conf --date=previous --update)
 #
 #-------------------------------------------------------------------------
-# Current month's transfers.
-# Always daily.
+# Current month's transfers - Always daily.
+#-------------------------------------------------------------------------
+15 1 * * *  root [ ! -f /var/lock/subsys/gratia-apel-cron ] || ( /usr/share/gratia-apel/LCG.py --config=/etc/gratia-apel/lcg.conf --date=current --update && /usr/share/gratia-apel/create-apel-index.sh /etc/gratia-apel/lcg.conf) 
 #
-15 1 * * *   dir=/home/gratia/interfaces/apel-lcg; cd $dir; ./lcg.sh --config=lcg.conf --date=current --update;
-                ./find-late-updates.sh /data/tomcat-gratia; ./create-apel-index.sh /data/tomcat-gratia
-#
-##########################################################################
+#-------------------------------------------------------------------------
 </pre></blockquote>
+%ENDTWISTY%
 
 ---+ Output Data Files
 
@@ -421,13 +441,16 @@ Additional information about APEL can be found here:
 
 
 ---++ SSM Installation
-These sections provide a little more detail obtained from the [[https://wiki.egi.eu/wiki/APEL/SSMInstallation][APELs SSM Installation twiki]] especially related to the configuration.
+The SSM software is distributed as a part of the gratia-apel rpm package.  This is done to insure compatibility between the 2 systems.  If not, independent updates of SSM may not be compatible with the Gratia-APEL interface.
+
+These sections provide a little more detail obtained from the [[https://wiki.egi.eu/wiki/APEL/SSMInstallation][APELs SSM Installation twiki]] related to the configuration.
 
 ---+++ Prerequistes
 The SSM protocal uses SSI authentication and therefore requires a set of CA certificates and a service certificate.  
    * Instructions for installing the CA certificates: [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/InstallCertAuth][OSG - Installing Certificate Authorities Certificates and related RPMs twiki]].
    * Instructions for obtaining a service certificate: [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/GetHostServiceCertificates][OSG - How to get host service certificates]]
 
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show an example CA certificates install"}%
 This is a sample install of the CA certificates:
 <blockquote><pre>
 &gt; rpm -Uvh http://repo.grid.iu.edu/osg-el5-release-latest.rpm  # OSG repo
@@ -440,9 +463,10 @@ This is a sample install of the CA certificates:
 &gt; chkconfig fetch-crl-cron on
 &gt; /sbin/service fetch-crl-cron start
 
-## etch-crl must have run once for the certificates to be verified successfully
+## fetch-crl must have run once for the certificates to be verified successfully
 &gt; /sbin/service fetch-crl-boot start    # this will take a little while
 </pre></blockquote>
+%ENDTWISTY%
 
 In addition, there are several python libraries required:
 <blockquote><pre>
@@ -514,6 +538,8 @@ Then, to send your messages:
 
 ---++ Log file (/var/log/apel/ssm.log)
 The APEL/SSM log file for a successful run will look like this:
+
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show an example ssm.log"}%
 <blockquote><pre>
 2012-07-23 13:37:02,301 - SSM - INFO - =======================================================
 2012-07-23 13:37:02,301 - SSM - INFO - Starting the SSM...
@@ -553,6 +579,7 @@ The APEL/SSM log file for a successful run will look like this:
 2012-07-23 13:37:07,440 - SSM - INFO - The SSM has shut down.
 2012-07-23 13:37:07,440 - SSM - INFO - =======================================================
 </pre></blockquote>
+%ENDTWISTY%
 
 
 %STOPINCLUDE%
