@@ -1,12 +1,12 @@
-%META:TOPICINFO{author="JohnWeigand" date="1373991514" format="1.1" reprev="1.14" version="1.14"}%
+%META:TOPICINFO{author="JohnWeigand" date="1374002903" format="1.1" reprev="1.15" version="1.15"}%
 %META:TOPICPARENT{name="GratiaInterfacesApelLcg"}%
 <!--
    * Set LCG_CONF        = [[#lcg_conf][lcg.conf]]
    * Set LCG_DB_CONF = [[#lcg_db_conf][lcg-db.conf]]
    * Set CRONTAB          = [[#lcg_conf][lcg.conf]]
-   * Set REPORTABLE_SITES = [[#SiteFilterFile_lcg_reportableSit][SiteFilterFile]] 
+   * Set REPORTABLE_SITES = [[#SiteFilterFile_lcg_reportableSit][SiteFilterFile]]
    * Set REPORTABLE_VOS = [[#VOFilterFile_lcg_reportableVOs][VOFilterFile]]
-   * Set CRONTAB           = [[#crontab][crontab entry]]
+   * Set INTEROP_ACCOUNTING = [[#InteropAccounting_py][InteropAccounting class]]
    * Set SSM_CFG          = [[#ssm_cfg][ssm.cfg]]
    * Set SSM_LOG_CFG = [[#ssm_log_cfg][ssm.log.cfg]]
    * Set SCRIPT_LOCATION  = _/usr/share/gratia-apel_
@@ -37,12 +37,17 @@ File Locations:
 All the executable scripts in this section can be found in the %SCRIPT_LOCATION%  directory.
 
 ---++ LCG.py
-This is the main interface program performing the following functions: 
+---+++ Basic functionality
+This is the main interface program performing the following basic functions to collect the accounting data and send it to APEL:
 
- 1. Retrieves the accounting data from the Gratia database for selected OSG sites and VOs for a month. 
-   * The __resource_groups__ (and Normalization Factors) are defined in a file identified by the %REPORTABLE_SITES% attribute of the %LCG_CONF%  file. 
+ 1. This is a very critical step.  The very first thing that has to be done is to zero all the updates from the previous successful run.  The reason for this is that Gratia has a couple of "correction" type filters built in, such as, a VO Name correction and probe/site relationship,  From one day to the next, adjustments can be made in these areas affecting the data being sent up.   Therefore, what was reported yesterday, may not be the same as what would be reported today if any of these adjustments occur.  Since the only method of maintaining the APEL data is via updates, i.e., incremental ones.   So, this module creates a "delete" file for each set of daily updates made.  This must be processed first.  If this update fails, the module is terminated.   %BR%%BR% Prior migrating to the SSM protocol,  direct access to the APEL database was available and we were able to a SQL delete by resource group which was much simpler.
+
+ 2. Retrieves the accounting data from the Gratia database for selected OSG sites and VOs for a month.
+   * Access to the Gratia database is defined in the %LCG_DB_CONF% file,
+   * The __resource__ __groups__ (and Normalization Factors) are defined in a file identified by the %REPORTABLE_SITES% attribute of the %LCG_CONF%  file.
    * VOs are defined in a file identified by the %REPORTABLE_VOS% attribute of the %LCG_CONF%  file.
-   * For each __resource_group__ in the %REPORTABLE_SITES% attribute and for the VOs defined in the %REPORTABLE_VOS% atttibute, a query is made in Gratia for each of the __resources__  with WLCG Information !InteropAccounting flag set to True.%BR% %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show query using AGLT2 as an example."}%<blockquote><pre>
+   * For each __resource__ __group__ in the %REPORTABLE_SITES% attribute and for the VOs defined in the %REPORTABLE_VOS% atttibute, a query is made in Gratia for each of the __resources__  with WLCG Information !InteropAccounting flag set to True (using the %INTEROP_ACCOUNTING%) %BR% 
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show query using AGLT2 as an example."}%<blockquote><pre>
 SELECT "AGLT2"                  as Site,
    VOName                          as "Group",
    min(UNIX_TIMESTAMP(EndTime))    as EarliestEndTime,
@@ -64,33 +69,99 @@ where
   and Site.siteid = Probe.siteid
   and Probe.ProbeName  = Main.ProbeName
   and Main.VOName in ( "alice","usatlas","atlas","uscms","cms" )
-  and  "2013-07-01 00:00:00" <= Main.EndTime and Main.EndTime < "2013-08-01 00:00:00"
+  and  "2013-07-01 00:00:00" &lt;= Main.EndTime and Main.EndTime &lt; "2013-08-01 00:00:00"
   and Main.ResourceType = "Batch"
 group by Site,
          VOName,
          Month,
          Year,
          GlobalUserName
+</pre></blockquote>
+%ENDTWISTY% %BR%
+   * In order to reduce the verbage in the log file, only the first query is output to the log file.  The __resources__ and normalization factor used is displayed for the other __resource__ __group__ queries.
 
+3. For each __resource__ __group__ then, an SSM update message is created for the current monthly values. as defined by the _UpdatesDir_ and _UpdateFileName_ attributes of %LCG_CONF%.   A matching update file designed to remove the updates (as noted above in #1) is also created for processing first in the next iteration of this interface using the _DeleteFileName_ attribute of %LCG_CONF%.
+
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show !UpdatesDir Files"}%
+<blockquote><pre>
+<b><u>/var/lib/gratia-apel/apel-updates</b></u>
+-rw-rw-r-- 1 root root 180732 Jul  8 00:15 2013-06.ssm-deletes.txt
+-rw-rw-r-- 1 root root 189072 Jul  8 00:15 2013-06.ssm-updates.txt
+-rw-rw-r-- 1 root root 155920 Jul 16 01:15 2013-07.ssm-deletes.txt
+-rw-rw-r-- 1 root root 162184 Jul 16 01:15 2013-07.ssm-updates.txt
+
+<b><u>2013-07.ssm-updates.txt</b></u>
+APEL-summary-job-message: v0.2
+Site: AGLT2
+Group: atlas
+EarliestEndTime: 1372654800
+LatestEndTime: 1373605200
+Month: 07
+Year: 2013
+GlobalUserName: /DC=com/..... CN=somebody1
+CpuDuration: 0
+NormalisedWallDuration: 116
+NormalisedCpuDuration: 2
+NumberOfJobs: 559
+%%
+Site: AGLT2
+Group: atlas
+EarliestEndTime: 1372654800
+LatestEndTime: 1373950800
+Month: 07
+Year: 2013
+GlobalUserName: /DC=com/..... CN=somebody2
+WallDuration: 1
+CpuDuration: 0
+NormalisedWallDuration: 6
+NormalisedCpuDuration: 0
+NumberOfJobs: 4115
+%%
+
+<b><u>2013-07.ssm-deletes.txt</b></u>
+APEL-summary-job-message: v0.2
+Site: AGLT2
+Group: atlas
+EarliestEndTime: 1372654800
+LatestEndTime: 1373605200
+Month: 07
+Year: 2013
+GlobalUserName: /DC=com/..... CN=somebody1
+WallDuration: 0
+CpuDuration: 0
+NormalisedWallDuration: 0
+NormalisedCpuDuration: 0
+NumberOfJobs: 0
+%%
+Site: AGLT2
+Group: atlas
+EarliestEndTime: 1372654800
+LatestEndTime: 1373950800
+Month: 07
+Year: 2013
+GlobalUserName: /DC=com/..... CN=somebody2
+WallDuration: 0
+CpuDuration: 0
+NormalisedWallDuration: 0
+NormalisedCpuDuration: 0
+NumberOfJobs: 0
+%%
 </pre></blockquote>
 %ENDTWISTY%
-   * next line
 
-With the change implemented on 6/19/07 providing for individual normalization factor by site, instead of a single query being used to retrieve the Gratia data, individual queries by site are performed.  In order to reduce the verbage in the log file, only the first query is output to the log file.  The site and normalization factor used is displayed for the other site queries.
 
-2. Formats the SSM message sent to APEL to update  APEL/WLCG database. The %LCG_DB_CONF% file defines  For testing purposes a clone table called OSG_TABLE_TEST can be set instead. The SQL DML statements for the last run are placed in a directory defined by the 'LogSqlDir' attribute of the lcg.conf file. The file name is YYYY-MM.sql and contains only the DML from the last update run. 
+---+++ Additional functionality
+In addition, these tasks are performed as a means of proactively validating Gratia, OIM and APEL/EGI/WLCG data.
 
- 3. Updates the APEL/CLG database. In order to handle site and VO name changes, the SQL DML is set up to DELETE all data for the month/year and then INSERT the new data. This is a simple approach to handling these kinds of changes and works as of 4/25/2007.  It may be this will not hold up over the long run and will have to be re-visited.
+1. Log files are created in the directory specified by the _LogDir_  attribute of the %LCG_CONF%. The format of the log files is YYYY-MM.log.  These show enough detail to determine any problems that might occur.
 
-Additional functionality:
-
-  1. The script has been design to do everything EXCEPT update the APEL database unless the --update option is used.  This prevents accidental running of the script especially when testing.
-
-  2. Log files are created in the directory specified by the 'LogSqlDir' attribute of the lcg.conf file. The format of the log files is YYYY-MM.log.
-
-  3. A file containing the latest SQL DML statements used to update the APEL database is created in the same directory as the log files. The format of the sql file is YYYY-MM.sql
+2. Since there is no critical RSV probe for individual __resources__ (aka Gratia site) not reporting to Gratia, the script runs a separate query for each __resource__ of the __resource groups__ using the same %INTEROP_ACCOUNTING% as the main query.  This query ignores VO and is looking for days in the month when no data has been reported to Gratia.  
+  
 
   4. The script will, after completing the APEL database update, create  xml and html files of the data contained in the APEL database table. This was added on 4/17/08 to provide visibility into the data being sent.  No functionality is contained in this script to use these files.  This just makes them available.
+
+---+++ Usage
+The module has been design to do everything EXCEPT update the APEL database unless the --update option is used.  This prevents accidental running of the script and is especially useful when testing changes.
 
 %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show usage"}%
 <blockquote><pre>
@@ -110,7 +181,7 @@ Additional functionality:
               entry for the 'previous' month for n days into the current
               month in order to insure all reporting has been completed.
 
-     The following 2 options are to facillitate testing and to avoid
+     The following 2 options are to facilitate testing and to avoid
      accidental running and sending of the SSM message to APEL and are
      therefore considered optional:
 
@@ -119,7 +190,7 @@ Additional functionality:
                 EXCEPT the actual sending of the SSM message to APEL.
                 The message file will be created.
 
-     --no-email - this option says to turnoff the sending of email
+     --no-email - this option says to turn off the sending of email
                 notifications on failures and successful completions.
 </pre></blockquote>
 %ENDTWISTY%
@@ -337,26 +408,51 @@ The _lcg.conf_ is the main configuration file used by the interface.
 %EDITTABLE{   format="| text, 45 | textarea, 4x90 |"  changerows="on" quietsave="on" editbutton="Edit table" }% 
 | *File* | *Description* |
 | !WebLocation | Data directory for access by gratiaweb url. The xml and html files are made accessible. <br />If you do not want the files copied to a collector, then use the keyword 'DO_NOT_SEND'. <br />copied to a collector, then use the keyword 'DO_NOT_SEND'. <br /> |
-| !LogFile | Directory for the log files |
+| !LogDir | Directory for the log files.  Format YYYY-MM.log |
 | !TmpDataDir | Directory for temporary files |
 | !UpdatesDir | Directory for files sent to APEL |
 | !WebappsDir | Directory for files accessible by the !WebLocation |
+| !UpdateFileName | Base name of files sent to SSM with updates.  Format YYYY-MM.UpdateFileName.txt |
+| !DeleteFileName | Base name of files sent to SSM with deletes.  Format YYYY-MM.DeleteFileName.txt |
 | !SSMFile | SSM executable |
 | !SSMConfig | SSM configuration file |
-| !SSMUpdatesDir | Directory for files sent to APEL via SSM |
-| !SSMUpdates | Base name of the file sent to SSM with updates |
-| !SSMDeletes | Base name of the file sent to SSM with deletes |
+| | |
 | [[#SiteFilterFile_lcg_reportableSit][SiteFilterFile]] | File with list of __resource_groups__ to be reported and their normalization factor. |
 | [[#SiteFilterHistory_lcg_reportable][SiteFilterHistory]] | History directory for keeping previous period's !SiteFilterFile (lcg-reportableSites.YYYYMM) <br /> |
-| [[#VOFilterFile_lcg_reportableVOs][VOFilterFile]] | File with list of VOs to be reported |
-| [[#DBConfFile_lcg_db_conf][DBConfFile]] | Configuration file for databases and SSM configurations |
-| !LogSqlDir | Directory for log files, dat/xml/html and SSM update and delete files. |
+| [[#VOFilterFile_lcg_reportableVOs][VOFilterFile]] | File with list of VOs to be reported. |
+| [[#DBConfFile_lcg_db_conf][DBConfFile]] | Configuration file for database access. |
+| | |
 | !MissingDataDays | Number of days where a __resource__ has no data reported to Gratia for the month.  If more than this number of days, a warning/advisory email will be generated if there is no scheduled maintenance (in OIM) for those days or the __resource__ has been marked as inactive in OIM. |
 | !FromEmail | Email address of the sender.  Since this is a cron run process, this is dependent on how email is set up locally. |
 | !ToEmail | List of comma separated email addresses.  Email notifications are sent to this list for all executions of this interface for both success and failure. |
 | !CcMail | List of comma separated email address.  It is recommended that the goc be specified here.  Specify NONE if no cc. |
 
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show an example lcg.conf"}%
+<blockquote><pre>
+## WebLocation      DO_NOT_SEND
+WebLocation       /var/www/html/gratia-apel
+LogDir            /var/log/gratia-apel
+TmpDataDir        /var/lib/gratia-apel/tmp
+UpdatesDir        /var/lib/gratia-apel/apel-updates
+WebappsDir        /var/lib/gratia-apel/webapps
+UpdateFileName    ssm-updates
+DeleteFileName    ssm-deletes
 
+SSMFile           /usr/share/gratia-apel/ssm/ssm_master.py
+SSMConfig         /etc/gratia-apel/ssm/ssm.cfg
+
+SiteFilterFile    /etc/gratia-apel/lcg-reportableSites
+SiteFilterHistory /etc/gratia-apel/lcg-reportableSites.history
+VOFilterFile      /etc/gratia-apel/lcg-reportableVOs
+DBConfFile        /etc/gratia-apel/lcg-db.conf
+
+MissingDataDays   2
+
+FromEmail  whomever@somewhere.edi
+ToEmail    whomever@somewhere.edi,whomever2@somewhere.edi
+CcEmail    goc@somewhere.org
+</pre></blockquote>
+%ENDTWISTY%
 
 <a name="lcg_reportablesites"/>
 ---++ !SiteFilterFile (lcg-reportableSites)
@@ -383,10 +479,11 @@ HU_ATLAS_Tier2      8872
 #--- ALICE Tier 2 ----
 NERSC-PDSF         13920
 LC-glcc            15680
+</pre></blockquote>
 %ENDTWISTY%
 
 
-</pre></blockquote>
+
 <b>Note: In the future, the need for this configuration file should be eliminated.  It would be replaced by a query of !MyOSG</b>
 
 
