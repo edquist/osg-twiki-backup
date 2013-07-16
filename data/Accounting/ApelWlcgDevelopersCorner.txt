@@ -1,11 +1,11 @@
-%META:TOPICINFO{author="JohnWeigand" date="1373918384" format="1.1" reprev="1.12" version="1.12"}%
+%META:TOPICINFO{author="JohnWeigand" date="1373991391" format="1.1" reprev="1.13" version="1.13"}%
 %META:TOPICPARENT{name="GratiaInterfacesApelLcg"}%
 <!--
    * Set LCG_CONF        = [[#lcg_conf][lcg.conf]]
    * Set LCG_DB_CONF = [[#lcg_db_conf][lcg-db.conf]]
    * Set CRONTAB          = [[#lcg_conf][lcg.conf]]
    * Set REPORTABLE_SITES = [[#SiteFilterFile_lcg_reportableSit][SiteFilterFile]] 
-   * Set REPORTABLE_VOS= [[#lcg_reportablevos][lcg-reportableVOs]]
+   * Set REPORTABLE_VOS = [[#VOFilterFile_lcg_reportableVOs][VOFilterFile]]
    * Set CRONTAB           = [[#crontab][crontab entry]]
    * Set SSM_CFG          = [[#ssm_cfg][ssm.cfg]]
    * Set SSM_LOG_CFG = [[#ssm_log_cfg][ssm.log.cfg]]
@@ -14,6 +14,7 @@
    * Set CRONTAB_LOCATION = _/etc/cron.d_
    * Set SERVICES_LOCATION = _/etc/init.d_
 -->
+
 
 ---+!! APEL/WLCG Interface Developers Corner
 
@@ -40,8 +41,40 @@ This is the main interface program performing the following functions:
 
  1. Retrieves the accounting data from the Gratia database for selected OSG sites and VOs for a month. 
    * The __resource_groups__ (and Normalization Factors) are defined in a file identified by the %REPORTABLE_SITES% attribute of the %LCG_CONF%  file. 
-   * VOs are defined in a file identified by the 'VOFilterFile' attribute of the %LCG_CONF%  file.
-   * For each __resource_group__ in the _Site_File
+   * VOs are defined in a file identified by the %REPORTABLE_VOS% attribute of the %LCG_CONF%  file.
+   * For each __resource_group__ in the %REPORTABLE_SITES% attribute and for the VOs defined in the %REPORTABLE_VOS% atttibute, a query is made in Gratia for each of the __resources__  with WLCG Information !InteropAccounting flag set to True.%BR% %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show query using AGLT2 as an example."}%<blockquote><pre>
+SELECT "AGLT2"                  as Site,
+   VOName                          as "Group",
+   min(UNIX_TIMESTAMP(EndTime))    as EarliestEndTime,
+   max(UNIX_TIMESTAMP(EndTime))    as LatestEndTime,
+   "07"                     as Month,
+   "2013"                      as Year,
+   IF(DistinguishedName NOT IN ("", "Unknown"),IF(INSTR(DistinguishedName,":/") &gt; 0,LEFT(DistinguishedName,INSTR(DistinguishedName,":/")-1), DistinguishedName),CommonName) as GlobalUserName,
+   Round(Sum(WallDuration)/3600)                        as WallDuration,
+   Round(Sum(CpuUserDuration+CpuSystemDuration)/3600)   as CpuDuration,
+   Round((Sum(WallDuration)/3600) * 8.72 )            as NormalisedWallDuration,
+   Round((Sum(CpuUserDuration+CpuSystemDuration)/3600) * 8.72) as NormalisedCpuDuration,
+   Sum(NJobs) as NumberOfJobs
+from
+     Site,
+     Probe,
+     VOProbeSummary Main
+where
+      Site.SiteName in ("AGLT2","AGLT2_CE_2","AGLT2_SL6")
+  and Site.siteid = Probe.siteid
+  and Probe.ProbeName  = Main.ProbeName
+  and Main.VOName in ( "alice","usatlas","atlas","uscms","cms" )
+  and  "2013-07-01 00:00:00" <= Main.EndTime and Main.EndTime < "2013-08-01 00:00:00"
+  and Main.ResourceType = "Batch"
+group by Site,
+         VOName,
+         Month,
+         Year,
+         GlobalUserName
+
+</pre></blockquote>
+%ENDTWISTY%
+   * next line
 
 With the change implemented on 6/19/07 providing for individual normalization factor by site, instead of a single query being used to retrieve the Gratia data, individual queries by site are performed.  In order to reduce the verbage in the log file, only the first query is output to the log file.  The site and normalization factor used is displayed for the other site queries.
 
