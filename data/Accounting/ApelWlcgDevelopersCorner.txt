@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1374002903" format="1.1" reprev="1.15" version="1.15"}%
+%META:TOPICINFO{author="JohnWeigand" date="1374078713" format="1.1" reprev="1.16" version="1.16"}%
 %META:TOPICPARENT{name="GratiaInterfacesApelLcg"}%
 <!--
    * Set LCG_CONF        = [[#lcg_conf][lcg.conf]]
@@ -7,12 +7,18 @@
    * Set REPORTABLE_SITES = [[#SiteFilterFile_lcg_reportableSit][SiteFilterFile]]
    * Set REPORTABLE_VOS = [[#VOFilterFile_lcg_reportableVOs][VOFilterFile]]
    * Set INTEROP_ACCOUNTING = [[#InteropAccounting_py][InteropAccounting class]]
+   * Set DOWNTIMES                    = [[#DownTimes_py][Downtimes class]]
+   * Set INACTIVE_RESOURCES  = [[#InactiveResources_py][InactiveResources class]]
+   * Set SSMINTERFACE               = [[#SSMInterface_py][SSMInterface class]]
+   * Set REBUS_CLASS                = [[#Rebus_py][Rebus class]]
+   * Set SSM_PROTOCOL            = [[#SSM][SSM protocol]]
    * Set SSM_CFG          = [[#ssm_cfg][ssm.cfg]]
    * Set SSM_LOG_CFG = [[#ssm_log_cfg][ssm.log.cfg]]
    * Set SCRIPT_LOCATION  = _/usr/share/gratia-apel_
    * Set CONFIG_LOCATION = _/etc/gratia-apel_
    * Set CRONTAB_LOCATION = _/etc/cron.d_
    * Set SERVICES_LOCATION = _/etc/init.d_
+   * Set MYOSG                         = [[http://myosg.grid.iu.edu][MyOsg/OIM]]
 -->
 
 
@@ -149,16 +155,36 @@ NumberOfJobs: 0
 </pre></blockquote>
 %ENDTWISTY%
 
+4. Log files are created in the directory specified by the _LogDir_  attribute of the %LCG_CONF%. The format of the log files is YYYY-MM.log.  These show enough detail to determine any problems that might occur.%BR%%BR%
+
 
 ---+++ Additional functionality
 In addition, these tasks are performed as a means of proactively validating Gratia, OIM and APEL/EGI/WLCG data.
 
-1. Log files are created in the directory specified by the _LogDir_  attribute of the %LCG_CONF%. The format of the log files is YYYY-MM.log.  These show enough detail to determine any problems that might occur.
+1. Verification that all __resources__ with a __resource_group__ are reporting to Gratia.
 
-2. Since there is no critical RSV probe for individual __resources__ (aka Gratia site) not reporting to Gratia, the script runs a separate query for each __resource__ of the __resource groups__ using the same %INTEROP_ACCOUNTING% as the main query.  This query ignores VO and is looking for days in the month when no data has been reported to Gratia.  
-  
+Since there is no critical RSV probe for individual __resources__ (aka Gratia site) not reporting to Gratia, the script runs a separate query for each __resource__ of the __resource groups__ using the same %INTEROP_ACCOUNTING% as the main query.  This query ignores VO and is looking for days in the month when no data has been reported to Gratia.
 
-  4. The script will, after completing the APEL database update, create  xml and html files of the data contained in the APEL database table. This was added on 4/17/08 to provide visibility into the data being sent.  No functionality is contained in this script to use these files.  This just makes them available.
+Non-reporting days can be the result of a resource being down for maintenance, therefore a check is made against %MYOSG% for scheduled downtime using:
+   * the %DOWNTIMES%
+   * the %INACTIVE_RESOURCES% since, as a convenience to administrators, in lieu of scheduling downtime when a __resource__ is not available for an extended period.
+   * additionally, in order to not overreact to what might be a a short term Gratia reporting problem, there is a _MissingDataDays_ attribute in the %LCG_CONF% file that functions as a threshold before warning messages are generated.
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample email message"}% <blockquote><pre>
+Subject: GRATIA-APEL interface for 2013/07 - WARNINGS/ADVISORY
+
+Gratia to APEL/WLCG transfer.  
+This is run as a root cron process on gr13x6.fnal.gov.
+
+The interface from Gratia to the APEL (WLCG) database was successful.
+
+However, the following possible problems were detected during the execution 
+of the interface script and should be investigated.
+
+WARNING/ADVISORY: Resource: AGLT2_SL6 in Resource Group: AGLT2  missing data for more than 2 days:
+ ['2013-07-11', '2013-07-13', '2013-07-14', '2013-07-15']
+</pre></blockquote>%ENDTWISTY%
+
+2. The script will, after completing the APEL database update, create  xml and html files of the data contained in the APEL database table. This was added on 4/17/08 to provide visibility into the data being sent.  No functionality is contained in this script to use these files.  This just makes them available.
 
 ---+++ Usage
 The module has been design to do everything EXCEPT update the APEL database unless the --update option is used.  This prevents accidental running of the script and is especially useful when testing changes.
@@ -361,6 +387,32 @@ Methods used:
 </pre></blockquote>
 %ENDTWISTY%
 
+---++ !SSMInterface.py
+This class is used to send the accounting to APEL via the %SSM_PROTOCOL% .  
+
+Additionally, this module can be executed from the command line for some functions.%BR%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show usage"}%
+<blockquote><pre>
+Usage: %(program)s --config <SSM config file> Actions [-help]
+
+  Provides visibility into SSM interface information.
+
+  Note: You must have the SSM_HOME environmental variable set.
+
+  --config <SSM config file>
+    This is the SSM configuration file used by the interface.
+
+  Actions:
+    --show-outgoing
+        Displays the outgoing SSM messages directory contents.
+    --send-outgoing
+        Sends any outgoing SSM messages directory contents.
+    --send-file FILE
+        Copies the specified FILE to the SSM outgoing directory and sends it.
+
+</pre></blockquote>
+%ENDTWISTY%
+
 ---++ !NormalizationFactors.py
 This module is currently __NOT__ used in the APEL/WLCG interface.  It could be at some point in the future, however.  At this point in time (Aug 2011), there does not exist a reliable means of determining this value agreeable to all.  It was written to aid in the viewing of the currently
 used values maintained in the __lcg-reportableSites__ file with options to compare that against a simple algorithm normalizing using the weighted average of the individual cluster values for a __resource_group__ based on GIP data. 
@@ -388,6 +440,7 @@ Usage:  %(program)s  action [--help] [--debug] [--site=<resource group>]
         Displays the SI2K value for all processor models
 </pre></blockquote>
 %ENDTWISTY%
+
 
 
 ---++ find-late-updates.sh
