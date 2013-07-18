@@ -1,16 +1,18 @@
-%META:TOPICINFO{author="JohnWeigand" date="1374085161" format="1.1" reprev="1.17" version="1.17"}%
+%META:TOPICINFO{author="JohnWeigand" date="1374163519" format="1.1" reprev="1.18" version="1.18"}%
 %META:TOPICPARENT{name="GratiaInterfacesApelLcg"}%
 <!--
    * Set LCG_CONF        = [[#lcg_conf][lcg.conf]]
    * Set LCG_DB_CONF = [[#lcg_db_conf][lcg-db.conf]]
    * Set CRONTAB          = [[#lcg_conf][lcg.conf]]
    * Set REPORTABLE_SITES = [[#SiteFilterFile_lcg_reportableSit][SiteFilterFile]]
+   * Set REPORTABLE_SITES_HISTORY = [[#SiteFilterHistory_lcg_reportable][SiteFilterHistory]]
    * Set REPORTABLE_VOS = [[#VOFilterFile_lcg_reportableVOs][VOFilterFile]]
    * Set INTEROP_ACCOUNTING = [[#InteropAccounting_py][InteropAccounting class]]
    * Set DOWNTIMES                    = [[#DownTimes_py][Downtimes class]]
    * Set INACTIVE_RESOURCES  = [[#InactiveResources_py][InactiveResources class]]
    * Set SSMINTERFACE               = [[#SSMInterface_py][SSMInterface class]]
    * Set REBUS_CLASS                = [[#Rebus_py][Rebus class]]
+   * Set REBUS_TOPOLOGY        = [[http://gstat-wlcg.cern.ch/apps/topology/][Rebus topology]]
    * Set SSM_PROTOCOL            = [[#SSM][SSM protocol]]
    * Set SSM_CFG          = [[#ssm_cfg][ssm.cfg]]
    * Set SSM_LOG_CFG = [[#ssm_log_cfg][ssm.log.cfg]]
@@ -19,6 +21,7 @@
    * Set CRONTAB_LOCATION = _/etc/cron.d_
    * Set SERVICES_LOCATION = _/etc/init.d_
    * Set MYOSG                         = [[http://myosg.grid.iu.edu][MyOsg/OIM]]
+   * Set EGI_PORTAL                =  [[http://accounting.egi.eu/tier2.php][EGI Accounting Portal]]
 -->
 
 
@@ -42,11 +45,12 @@ File Locations:
 ---+ Scripts
 All the executable scripts in this section can be found in the %SCRIPT_LOCATION%  directory.
 
+<!-- ---------------------------------------------------------------------------- -->
 ---++ LCG.py
 ---+++ Basic functionality
 This is the main interface program performing the following basic functions to collect the accounting data and send it to APEL:
 
- 1. This is a very critical step.  The very first thing that has to be done is to zero all the updates from the previous successful run.  The reason for this is that Gratia has a couple of "correction" type filters built in, such as, a VO Name correction and probe/site relationship,  From one day to the next, adjustments can be made in these areas affecting the data being sent up.   Therefore, what was reported yesterday, may not be the same as what would be reported today if any of these adjustments occur.  Since the only method of maintaining the APEL data is via updates, i.e., incremental ones.   So, this module creates a "delete" file for each set of daily updates made.  This must be processed first.  If this update fails, the module is terminated.   %BR%%BR% Prior migrating to the SSM protocol,  direct access to the APEL database was available and we were able to a SQL delete by resource group which was much simpler.
+ 1. This is a very critical step.  The very first thing that has to be done is to zero all the updates from the previous successful run.  The reason for this is that Gratia has a couple of "correction" type filters built in, such as, a VO Name correction and probe/site relationship,  From one day to the next, adjustments can be made in these areas affecting the data being sent up.   Therefore, what was reported yesterday, may not be the same as what would be reported today if any of these adjustments occur.  Since the only method of maintaining the APEL data is via updates, i.e., incremental ones.   So, this module creates a "delete" file for each set of daily updates made.  This must be processed first.  If this update fails, the module is terminated.   %BR%%BR% Prior to migrating to the SSM protocol,  direct access to the APEL database was available and we were able to a SQL delete by resource group which was much simpler.
 
  2. Retrieves the accounting data from the Gratia database for selected OSG sites and VOs for a month.
    * Access to the Gratia database is defined in the %LCG_DB_CONF% file,
@@ -157,7 +161,7 @@ NumberOfJobs: 0
 
 4. Log files are created in the directory specified by the _LogDir_  attribute of the %LCG_CONF%. The format of the log files is YYYY-MM.log.  These show enough detail to determine any problems that might occur.%BR%%BR%
 
-
+<!-- ---------------------------------------------------------------------------- -->
 ---+++ Additional functionality
 In addition, these tasks are performed as a means of proactively validating Gratia, OIM and APEL/EGI/WLCG data.
 
@@ -169,23 +173,35 @@ Non-reporting days can be the result of a resource being down for maintenance, t
    * the %DOWNTIMES%
    * the %INACTIVE_RESOURCES% since, as a convenience to administrators, in lieu of scheduling downtime when a __resource__ is not available for an extended period.
    * additionally, in order to not overreact to what might be a a short term Gratia reporting problem, there is a _MissingDataDays_ attribute in the %LCG_CONF% file that functions as a threshold before warning messages are generated.
-%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample email message"}% <blockquote><pre>
-Subject: GRATIA-APEL interface for 2013/07 - WARNINGS/ADVISORY
 
-Gratia to APEL/WLCG transfer.  
-This is run as a root cron process on gr13x6.fnal.gov.
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show messages"}%
+   * Resource: %(resource)s in Resource Group %(rg)s  missing data for more than 2 days:  ['2013-07-11', '2013-07-13', '2013-07-14', '2013-07-15']
+%ENDTWISTY%
 
-The interface from Gratia to the APEL (WLCG) database was successful.
+2. Verification that %MYOSG% _WLCGInformation_ is consistent with the WLCG %REBUS_TOPOLOGY%
 
-However, the following possible problems were detected during the execution 
-of the interface script and should be investigated.
+Using the %REBUS_CLASS% and %INTEROP_ACCOUNTING%, a verification is made to insure that OSG __resource groups__ being reported do indeed have an approved MOU and have been registered correctly in the %REBUS_TOPOLOGY%.  If inconsistencies are found, then an email message is generated indicating the problem.
 
-WARNING/ADVISORY: Resource: AGLT2_SL6 in Resource Group: AGLT2  missing data for more than 2 days:
- ['2013-07-11', '2013-07-13', '2013-07-14', '2013-07-15']
-</pre></blockquote>%ENDTWISTY%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show messages"}%
+   * The WLCG REBUS topology was not accessible today. We are using a previous days data for validations.
+   * The WLCG REBUS topology was not accessible today and there is not previous days cvs file to use. We cannot provide the correct data for OSG WLCG reporting. No updates today.
+   * Resource group (%s) !MyOsg !AccountingName (%s) does NOT match the REBUS Accounting Name (%s)
+   * Resource group (%s) is being reported and is registered in MyOSG/OIM and has resources (%s) with the !InteropAccounting flag set in !MyOsg
+   * Resource group (%s) is being reported and has resources (%s) with the !InteropAccounting flag set in !MyOsg
+   * Resource group (%s) is being reported  BUT has NO resources with the !InteropAccounting flag set in !MyOsg
+   * Resource group (%(rg)s) is NOT being reported BUT HAS resources (%(resources)s) with the !InteropAccounting flag set in !MyOsg but IS registered in REBUS as %s
+   * Resource group (%(rg)s) is NOT being reported BUT HAS resources (%(resources)s) with the !InteropAccounting flag set in !MyOsg and is NOT registered in REBUS
+%ENDTWISTY%
 
-2. The script will, after completing the APEL database update, create  xml and html files of the data contained in the APEL database table. This was added on 4/17/08 to provide visibility into the data being sent.  No functionality is contained in this script to use these files.  This just makes them available.
+3. With each execution, the module will copy the %REPORTABLE_SITES% file to a %REPORTABLE_SITES_HISTORY% directory defined in %LCG_CONF%.  The is required in the the event a previous month's accounting data must be sent as the reportable __resource groups__ and normalization factors change over time.  There is no place to record these changes other than here.%BR% <b>Note:  It is important that these files get saved in some form of repository, e.g. svn, git, so that they are not lost. A message is generated at the beginning of each month as a reminder.</b> 
 
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show messages"}%
+   * The %s files should be checked to see if any updates should be made to SVN/CVS in order to retain their history.
+%ENDTWISTY%
+
+4. The script will, after completing the APEL database update, create  xml and html files of the data contained in the APEL database table. This was added on 4/17/08 to provide visibility into the data being sent.  No functionality is contained in this script to use these files.  This just makes them available.
+
+<!-- ---------------------------------------------------------------------------- -->
 ---+++ Usage
 The module has been design to do everything EXCEPT update the APEL database unless the --update option is used.  This prevents accidental running of the script and is especially useful when testing changes.
 
@@ -224,11 +240,12 @@ The module has been design to do everything EXCEPT update the APEL database unle
 
 
 
-
+<!-- ---------------------------------------------------------------------------- -->
 ---++ !DownTimes.py
 Class used to query !MyOSG for planned downtimes for a site/resource.
 
-The LCG.py module does a check for __resource groups__ that have not reported any data to Gratia for each day in the month and will report this in a warning email so corrective action can be initiated.  In order to avoid a "false" reporting of this in the event this was a planned/scheduled shutdown, this module retrieves all downtime data from !MyOSG using the following criteria:
+The LCG.py module does a check for __resource groups__ that have not reported any data to Gratia for each day in the month and will report this in a warning email so corrective action can be initiated.  In order to avoid a "false" reporting of this in the event this was a planned/scheduled shutdown,.
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show !MyOsg/OIM criteria"}%
 <blockquote><pre>
 Information to display: Downtime Information
 Show Past Downtime for: All
@@ -240,13 +257,12 @@ For Resource Group: Grid type OSG
 For Resource: Provides following Services - Grid Service/CE
 Active Status: active
 </pre></blockquote>
-
-
 [[http://myosg.grid.iu.edu/rgdowntime/?datasource=downtime&summary_attrs_showgipstatus=on&summary_attrs_showwlcg=on&summary_attrs_showservice=on&summary_attrs_showrsvstatus=on&summary_attrs_showfqdn=on&summary_attrs_showenv=on&summary_attrs_showcontact=on&gip_status_attrs_showtestresults=on&downtime_attrs_showpast=90&account_type=cumulative_hours&ce_account_type=gip_vo&se_account_type=vo_transfer_volume&bdiitree_type=total_jobs&bdii_object=service&bdii_server=is-osg&start_type=7daysago&start_date=08%2F03%2F2011&end_type=now&end_date=08%2F03%2F2011&all_resources=on&gridtype=on&gridtype_1=on&service=on&service_1=on&service_central_value=0&service_hidden_value=0&active=on&active_value=1&disable_value=1][MyOSG Query]]
  - 
 [[http://myosg.grid.iu.edu/rgdowntime/xml?datasource=downtime&summary_attrs_showgipstatus=on&summary_attrs_showwlcg=on&summary_attrs_showservice=on&summary_attrs_showrsvstatus=on&summary_attrs_showfqdn=on&summary_attrs_showenv=on&summary_attrs_showcontact=on&gip_status_attrs_showtestresults=on&downtime_attrs_showpast=90&account_type=cumulative_hours&ce_account_type=gip_vo&se_account_type=vo_transfer_volume&bdiitree_type=total_jobs&bdii_object=service&bdii_server=is-osg&start_type=7daysago&start_date=08%2F03%2F2011&end_type=now&end_date=08%2F03%2F2011&all_resources=on&gridtype=on&gridtype_1=on&service=on&service_1=on&service_central_value=0&service_hidden_value=0&active=on&active_value=1&disable_value=1][MyOSG XML Query]]
 
-Methods used:
+%ENDTWISTY%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show methods"}%
 <blockquote><pre>
  def site_is_shutdown(self,site,date,service):
     """ For a site/date(YYYY-MM-DD)/service determine if this is a
@@ -254,11 +270,14 @@ Methods used:
         Returns:  Boolean
     """
 </pre></blockquote>
+%ENDTWISTY%
 
+<!-- ---------------------------------------------------------------------------- -->
 ---++ !InactiveResources.py
 Class used to query !MyOSG for sites/resources that have been marked as <I>inactive</i>.
 
-As an alternative to updating !MyOSG for planned downtime, an admin can also mark a __resource__ as *inactive*.  So when the LCG.py is checking for a __resource group__ not reporting to Gratia, it must also check for those marked inactive using the following criteria:
+As an alternative to updating !MyOSG for planned downtime, an admin can also mark a __resource__ as *inactive*.  So when the LCG.py is checking for a __resource group__ not reporting to Gratia, it must also check for those marked inactive.
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show !MyOsg/OIM criteria"}%
 <blockquote><pre>
 Information to display: Resource Group Summary
 For Resource: Show services
@@ -270,7 +289,9 @@ For Resource: Provides the following services - Grid Services / CE
 [[http://myosg.grid.iu.edu/rgsummary/?datasource=summary&summary_attrs_showservice=on&gip_status_attrs_showtestresults=on&downtime_attrs_showpast=all&account_type=cumulative_hours&ce_account_type=gip_vo&se_account_type=vo_transfer_volume&bdiitree_type=total_jobs&bdii_object=service&bdii_server=is-osg&start_type=7daysago&start_date=08%2F03%2F2011&end_type=now&end_date=08%2F03%2F2011&all_resources=on&gridtype=on&gridtype_1=on&service=on&service_1=on&service_central_value=0&service_hidden_value=0&active_value=0&disable_value=1][MyOSG Query]]
  - 
 [[http://myosg.grid.iu.edu/rgsummary/xml?datasource=summary&summary_attrs_showservice=on&gip_status_attrs_showtestresults=on&downtime_attrs_showpast=all&account_type=cumulative_hours&ce_account_type=gip_vo&se_account_type=vo_transfer_volume&bdiitree_type=total_jobs&bdii_object=service&bdii_server=is-osg&start_type=7daysago&start_date=08%2F03%2F2011&end_type=now&end_date=08%2F03%2F2011&all_resources=on&gridtype=on&gridtype_1=on&service=on&service_1=on&service_central_value=0&service_hidden_value=0&active_value=0&disable_value=1][MyOSG XML Query]]
-
+</pre></blockquote>
+%ENDTWISTY%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show methods"}%
 Methods used:
 <blockquote><pre>
   def resource_is_inactive(self,resource):
@@ -279,35 +300,13 @@ Methods used:
         Returns:  Boolean
     """
 </pre></blockquote>
+%ENDTWISTY%
 
+<!-- ---------------------------------------------------------------------------- -->
 ---++ !InteropAccounting.py
 Class used to query !MyOSG for __resource groups__ with __resources__ having  the !WLCGInformation !InteropAccounting flag set to True indicating that this __resource group__ should be interfaced to APEL/WLCG.
 
-Since some access was required to query the !MyOSG data, it seemed it would be nice to have an easy to use command line view of the for trouble shooting purpose.  So this process can be executed from the command line with the following usage.
-
-%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show usage"}%
-<blockquote><pre>
-./InteropAccounting.py action
-    Actions:
-    --show
-        Displays MyOsg resource WLCG InteropAccounting and AccountingName data
-        for all resouce groups with at least 1 InteropAccounting set to True.
-    --is-interfaced=resource_group
-        Displays the WLCG InteropAccounting option and AccountingName for the
-        resource group specified.
-    --interfaced-resource-groups
-        Using the interfacedResourceGroups() API, returns a sorted list of the
-        resource groups with the InteropAccounting set to True
-    --resources=resource_group
-        Using the interfacedResources(resource_group) API, returns a sorted list
-        of the resources for a specified resource group with the
-        Interopaccounting set to True.
-    --is-registered=resource_group
-        Using the isMyOsgResourceGroup(resource_group) API, returns True if
-        the resource group specified is registered in MyOsg
-</pre></blockquote>
-
-The !MyOSG criteria used is:
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show !MyOsg/OIM criteria"}%
 <blockquote><pre>
  For Resource: Show WLCG Informatinon
                          Show services
@@ -318,9 +317,9 @@ For Resource Group: Grid Type - OSG
 [[http://myosg.grid.iu.edu/rgsummary/?datasource=summary&summary_attrs_showwlcg=on&summary_attrs_showservice=on&summary_attrs_showfqdn=on&gip_status_attrs_showtestresults=on&downtime_attrs_showpast=&account_type=cumulative_hours&ce_account_type=gip_vo&se_account_type=vo_transfer_volume&start_type=7daysago&start_date=03%2F20%2F2009&end_type=now&end_date=03%2F27%2F2009&all_resources=on&facility_10009=on&site_10026=on&gridtype=on&gridtype_1=on&service_1=on&service_5=on&service_2=on&service_3=on&service_central_value=0&service_hidden_value=0&active_value=1&disable_value=1][MyOSG Query]]
  - 
 [[http://myosg.grid.iu.edu/rgsummary/xml?datasource=summary&summary_attrs_showwlcg=on&summary_attrs_showservice=on&summary_attrs_showfqdn=on&gip_status_attrs_showtestresults=on&downtime_attrs_showpast=&account_type=cumulative_hours&ce_account_type=gip_vo&se_account_type=vo_transfer_volume&start_type=7daysago&start_date=03%2F20%2F2009&end_type=now&end_date=03%2F27%2F2009&all_resources=on&facility_10009=on&site_10026=on&gridtype=on&gridtype_1=on&service_1=on&service_5=on&service_2=on&service_3=on&service_central_value=0&service_hidden_value=0&active_value=1&disable_value=1][MyOSG XML Query]]
-
-
-Methods used:
+</pre></blockquote>
+%ENDTWISTY%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show methods"}%
 <blockquote><pre>
   def isRegistered(self,resource_grp):
     """ Returns True if the resource group is defined in MyOsg. """
@@ -346,38 +345,50 @@ Methods used:
     """
 </pre></blockquote>
 %ENDTWISTY%
-
-
----++ !Rebus.py
-This class retrieves the latest WLCG Rebus topology csv file and provides various methods for viewing/using the data by executing:
-   * wget http://wlcg-rebus.cern.ch/apps/topology/all/csv
-It is important to understand that in the WLCG Rebus topology __site__ is equivalent to !MyOsg __resource_group__.
-
-The rationale for using this class in the interface is to insure that the OSG and Rebus are in sync in terms of 
-which  OSG __resource_groups__ should be reported.  If a WLCG site (OSG __resource_group__ ) registers with WLCG and 
-OSG does not indicate it should be interface (and visa versa), then we to take action.
-
-Additionally, this module can be executed from the command line to more easily view the topology.%BR%
-%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show usage"}%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show command line usage"}%
 <blockquote><pre>
-Usage: %(program)s action [-help]
-
-  Provides visibility into the WLCG Rebus topology for use in the
-  Gratia/APEL/WLCG interface.     
-
-  Actions:
-    --show all | accountingnames | sites
-        Displays the Rebus topology for the criteria specificed 
-    --is-registered SITE
-        Shows information for a site registered in WLCG REBUS topology
-    --is-available
-        Shows status of query against Rebus url.
+./InteropAccounting.py action
+    Actions:
+    --show
+        Displays MyOsg resource WLCG InteropAccounting and AccountingName data
+        for all resouce groups with at least 1 InteropAccounting set to True.
+    --is-interfaced=resource_group
+        Displays the WLCG InteropAccounting option and AccountingName for the
+        resource group specified.
+    --interfaced-resource-groups
+        Using the interfacedResourceGroups() API, returns a sorted list of the
+        resource groups with the InteropAccounting set to True
+    --resources=resource_group
+        Using the interfacedResources(resource_group) API, returns a sorted list
+        of the resources for a specified resource group with the
+        Interopaccounting set to True.
+    --is-registered=resource_group
+        Using the isMyOsgResourceGroup(resource_group) API, returns True if
+        the resource group specified is registered in MyOsg
 </pre></blockquote>
+%ENDTWISTY%
 
+<!-- ---------------------------------------------------------------------------- -->
+---++ !Rebus.py
+This class is used to perform validation  of %MYOSG% _WLCGInformation_ data versus the %REBUS_TOPOLOGY%. 
+If they are __not__ in sync then the Gratia accounting data sent to APEL will never be forwarded to the %EGI_PORTAL% which is
+used for MOU reporting. The table below shows the mapping of Rebus and !MyOsg/OIM terminology.
+
+%TABLE%
+| *Rebus* | *MyOsg/OIM* |
+| Federation Accounting Name | WLCGInformation/AccountingName |
+| Site(s) | resource group |
+
+If a WLCG __site__ (OSG __resource group__ ) registers with WLCG and 
+OSG does not indicate it should be interfaced (and visa versa), then we need to take action.
+
+This class retrieves the latest WLCG %REBUS_TOPOLOGY% csv file (wget http://wlcg-rebus.cern.ch/apps/topology/all/csv) 
+and  provides various methods for viewing/using the data.
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show methods"}%
 Methods used:
 <blockquote><pre>
   def isRegistered(self,site):
-    """ Returns Trues if a resource group/site is registered in the WCLG."""
+    """ Returns Trues if a resource group/site is registered in the WLCG."""
 
   def accountingName(self,site):
     """ Returns the WLCG REBUS Federation Accounting Name for a 
@@ -386,7 +397,24 @@ Methods used:
     """
 </pre></blockquote>
 %ENDTWISTY%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show command line usage"}%
+<blockquote><pre>
+Usage: %(program)s action [-help]
 
+  Provides visibility into the WLCG Rebus topology for use in the
+  Gratia/APEL/WLCG interface.     
+
+  Actions:
+    --show all | accountingnames | sites
+        Displays the Rebus topology for the criteria specified 
+    --is-registered SITE
+        Shows information for a site registered in WLCG REBUS topology
+    --is-available
+        Shows status of query against Rebus url.
+</pre></blockquote>
+%ENDTWISTY%
+
+<!-- ---------------------------------------------------------------------------- -->
 ---++ !SSMInterface.py
 This class is used to send the accounting to APEL via the %SSM_PROTOCOL% .  
 
@@ -413,6 +441,7 @@ Usage: %(program)s --config <SSM config file> Actions [-help]
 </pre></blockquote>
 %ENDTWISTY%
 
+<!-- ---------------------------------------------------------------------------- -->
 ---++ !NormalizationFactors.py
 This module is currently __NOT__ used in the APEL/WLCG interface.  It could be at some point in the future, however.  At this point in time (Aug 2011), there does not exist a reliable means of determining this value agreeable to all.  It was written to aid in the viewing of the currently
 used values maintained in the __lcg-reportableSites__ file with options to compare that against a simple algorithm normalizing using the weighted average of the individual cluster values for a __resource_group__ based on GIP data. 
@@ -442,13 +471,15 @@ Usage:  %(program)s  action [--help] [--debug] [--site=<resource group>]
 %ENDTWISTY%
 
 
-
+<!-- ---------------------------------------------------------------------------- -->
 ---++ find-late-updates.sh
 Shell script used to show sites/resource that have updated Gratia for the previous month during the current month.  This output of this is visible in the table column <i>late updates</i> here: http://gratia-osg-prod.opensciencegrid.org/gratia-data/interfaces/apel-lcg/
 
+<!-- ---------------------------------------------------------------------------- -->
 ---++ create-apel-index.sh
 Shell script that creates the index.html for: http://gratia-osg-prod.opensciencegrid.org/gratia-data/interfaces/apel-lcg/ <br />This is based on certain files in the log directory specified by the <i>LogSqlDir</i> attribute in the <i>lcg.conf</i> file.
 
+<!-- ---------------------------------------------------------------------------- -->
 ---+ Configuration files
 All configuration files can be found in the %CONFIG_LOCATION% directory.
 
@@ -539,7 +570,7 @@ LC-glcc            15680
 
 <b>Note: In the future, the need for this configuration file should be eliminated.  It would be replaced by a query of !MyOSG</b>
 
-
+<!-- ---------------------------------------------------------------------------- -->
 ---+++ !SiteFilterHistory (lcg-reportableSites.history files)
 This directory (lcg-reportableSites.history) contains the lcg-reportableSites files for each month (format: lcg-reportableSites/lcg-reportableSites.YYYYMM.  
 
@@ -547,6 +578,7 @@ Since the normalization factor changes over time, the only means of recreating p
 
 When re-running a "past" (not current), the interface uses the time-stamped file for the respective month.  When updates are made, the file should be commited into CVS.
 
+<!-- ---------------------------------------------------------------------------- -->
 <a name="lcg_reportablevos"/>
 ---++ !VOFilterFile (lcg-reportableVOs)
 This file identifies the VO data reported for each reportable site/resource.  
@@ -559,6 +591,7 @@ usatlas
 alice
 </pre></blockquote>
 
+<!-- ---------------------------------------------------------------------------- -->
 <a name="lcg_db_conf"/>
 ---++ !DBConfFile (lcg-db.conf)
 Identifies access information for the Gratia and APEL databases.
@@ -573,7 +606,7 @@ Identifies access information for the Gratia and APEL databases.
 | !GratiaPswd | Password for a read-only user. |
 
 
-
+<!-- ---------------------------------------------------------------------------- -->
 <a name="crontab"/>
 ---+ Crontab
 The crontab file can be found in %CRONTAB_LOCATION%.
@@ -607,9 +640,10 @@ As mentioned somewhere way back in this document, the general practice has been 
 </pre></blockquote>
 %ENDTWISTY%
 
+<!-- ---------------------------------------------------------------------------- -->
 ---+ Output Data Files
 
-
+<!-- ---------------------------------------------------------------------------- -->
 ---+ SSM
 Effective June 2012, accounting data sent to the EGI/WLCG APEL accounting system using the Secure Stomp Messanger (SSM).
 
@@ -622,12 +656,13 @@ Additional information about APEL can be found here:
    * [[https://wiki.egi.eu/wiki/APEL/Server][APEL/Server]]
    * [[https://wiki.egi.eu/wiki/APEL/SSM][APEL/SSM interface]]
 
-
+<!-- ---------------------------------------------------------------------------- -->
 ---++ SSM Installation
 The SSM software is distributed as a part of the gratia-apel rpm package.  This is done to insure compatibility between the 2 systems.  If not, independent updates of SSM may not be compatible with the Gratia-APEL interface.
 
 These sections provide a little more detail obtained from the [[https://wiki.egi.eu/wiki/APEL/SSMInstallation][APELs SSM Installation twiki]] related to the configuration.
 
+<!-- ---------------------------------------------------------------------------- -->
 ---+++ Prerequistes
 The SSM protocal uses SSI authentication and therefore requires a set of CA certificates and a service certificate.  
    * Instructions for installing the CA certificates: [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/InstallCertAuth][OSG - Installing Certificate Authorities Certificates and related RPMs twiki]].
@@ -671,7 +706,7 @@ The RPM carries out a number of steps to run the SSM in a specific way.
    * It creates the pidfile directory __/var/run/apel__
 
 
-
+<!-- ---------------------------------------------------------------------------- -->
 ---++ SSM Configuration files
 There are 2 configuration files in __/opt/apel/ssm/conf__ that require some modifications:
    * ssm.cfg
@@ -680,6 +715,7 @@ There are 2 configuration files in __/opt/apel/ssm/conf__ that require some modi
 These sections define the specific changes made for this interface.%BR%
 More detail regarding other options can be found in the [[https://wiki.egi.eu/wiki/APEL/SSMConfiguration][APEL/SSM Configuration twiki]]
 
+<!-- ---------------------------------------------------------------------------- -->
 ---+++ ssm.cfg
 The table below indicates the changes necessary for test and production:
 %TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
@@ -690,12 +726,14 @@ The table below indicates the changes necessary for test and production:
 |                   | [certificates]  | certificate: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostcert.pem%BR%key: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostkey.pem |
 |                   | [producer]     | consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=rap.esc.rl.ac.uk |
 
-
+<!-- ---------------------------------------------------------------------------- -->
 ---+++ ssm.log.cfg
 The only change required in the interface logging configuration is to hard code the directory path to the log directory and file:
 %TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
 | [handler]        | args=('/var/log/apel/ssm.log', 'a') |
 
+
+<!-- ---------------------------------------------------------------------------- -->
 ---++ Running the SSM
 The SSM needs to be run once without sending any messages in order to create the necessary
 directory structure in __/var/opt/apel/messages__:
@@ -718,7 +756,7 @@ Then, to send your messages:
    * export SSM_HOME=/opt/apel/ssm
    * $SSM_HOME/bin/run-ssm
 
-
+<!-- ---------------------------------------------------------------------------- -->
 ---++ Log file (/var/log/apel/ssm.log)
 The APEL/SSM log file for a successful run will look like this:
 
