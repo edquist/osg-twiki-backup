@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1375313971" format="1.1" version="1.16"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1375372014" format="1.1" version="1.17"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 ---+!! Notes on Koji-Hub Setup
 
@@ -61,20 +61,18 @@ For =koji-hub.batlab.org=, we have allocated 35G for =/var/lib/mock=.
 
 ---+++ Authentication
 Most of the "Koji Authentication Selection" section can be skipped.
-We got our certs from !DOEGrids. *Note* that we had to run =dos2unix= on them before they would work.
+We got our certs from !DigiCert. *Note* that certs are sensitive to line ending issues -- you may have to run =dos2unix= on them before they would work.
 
-We have 2 certs, with the following subjects:
-   * =/DC=org/DC=doegrids/OU=Services/CN=koji-hub.batlab.org= (for koji-hub, koji-web, and kojid)
-   * =/DC=org/DC=doegrids/OU=Services/CN=kojira/koji-hub.batlab.org= (for kojira)
+We have 3 certs, with the following subjects:
+   * =/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=Services/CN=koji-hub.batlab.org= (for koji-hub, koji-web, and kojid)
+   * =/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=Services/CN=kojira/koji-hub.batlab.org= (for kojira)
+   * =/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=Services/CN=kojibuilder1.batlab.org= (for kojid on kojibuilder1)
 kojid needed a different cert than kojira because the two would connect to koji-hub at the same time and log each other off.
 
-Copies of the certs exist in AFS at =/p/condor/home/certificates/koji-hub/=
+Copies of the certs exist in AFS at =/p/condor/home/certificates/koji-hub/= and =/p/condor/home/certificates/kojibuilder1/=
 
-Clients connecting to koji-hub need a file containing the CA certs; this is just a concatenation of the !ESNet and !DOEGrids CA certs, which can be obtained by doing the following:
-   * Install the =osg-ca-certs= RPM onto a host.
-   * Concatenate ESNet and DOEGrids CA Certificates into a bundle: <pre>user@localhost$ cat /etc/grid-security/certificates/d1b603c3.0 \
-/etc/grid-security/certificates/1c3f2ca8.0 > doe-chain.crt</pre>
-We have a =doe-chain.crt= in =/etc/pki/tls/certs/doe-chain.crt= on =koji-hub=
+Clients connecting to koji-hub need a file containing the CA certs; this is just a concatenation of the !DigiCert Grid Root CA and the !DigiCert Grid CA-1 certs, which can be obtained from !DigiCert's website (get PEM format).
+We have a =digicert-chain.crt= in =/etc/pki/tls/certs/digicert-chain.crt= on =koji-hub=
 
 We made a =kojiadmin= user, but we didn't make a cert for it so we just used user/pass authentication until we set up our own accounts and then disabled =kojiadmin=.
 
@@ -192,7 +190,7 @@ Other notes:
    * Must be readable by the apache user though
 
 Finally, there is a =[policy]= section for controlling ACLs.
-Still working on it.
+The contents of that are described later in this document.
 
 <blockquote>
 ---++++!! /etc/httpd/conf.d/kojihub.conf:
@@ -221,12 +219,12 @@ These options should point to where the certificates are located on the hub.
 </blockquote>
 
 These are the config lines we use:
-<pre>SSLCertificateFile /etc/pki/tls/certs/doegrids_hostcert.crt</pre>
+<pre>SSLCertificateFile /etc/pki/tls/certs/digicert_hostcert.crt</pre>
 The host cert for koji-hub.
-<pre>SSLCertificateKeyFile /etc/pki/tls/private/doegrids_hostkey.key</pre>
+<pre>SSLCertificateKeyFile /etc/pki/tls/private/digicert_hostkey.key</pre>
 The private key for koji-hub.
-<pre>SSLCertificateChainFile /etc/pki/tls/certs/doe-chain.crt</pre>
-The concatenation of the !ESNet and !DOEgrids CA certs we made above.
+<pre>SSLCertificateChainFile /etc/pki/tls/certs/digicert-chain.crt</pre>
+The concatenation of the !DigiCert CA certs we made above.
 <pre>SSLCACertificateFile /etc/pki/tls/certs/ca-bundle.crt</pre>
 All the CA certs on the system.
 <pre>
@@ -300,15 +298,15 @@ Note that we use a patched koji-builder, so be sure to install what's in the OSG
 
 The following files should be in the =/etc/pki/tls= tree:
 
-   $ =/etc/pki/tls/private/doegrids_hostkey.key=: the host key from doegrids
-   $ =/etc/pki/tls/private/kojiweb.pem=: doegrids_hostcert.crt catted together with doegrids_hostkey.key (public key first)
-   $ =/etc/pki/tls/private/kojira.key=: kojira's private key from doegrids
+   $ =/etc/pki/tls/private/digicert_hostkey.key=: the host key from !DigiCert
+   $ =/etc/pki/tls/private/kojiweb.pem=: digicert_hostcert.crt catted together with digicert_hostkey.key (public key first)
+   $ =/etc/pki/tls/private/kojira.key=: kojira's private key from !DigiCert
    $ =/etc/pki/tls/private/kojira.pem=: kojira.crt catted together with kojira.key (public key first)
    $ =/etc/pki/tls/cert.pem=: symlink to certs/ca-bundle.crt
-   $ =/etc/pki/tls/certs/ca-bundle.crt=: all certs available on the system; the !ESNet and !DOEgrids certs should be in here
+   $ =/etc/pki/tls/certs/ca-bundle.crt=: all certs available on the system; the !DigiCert Grid certs should be in here
    $ =/etc/pki/tls/certs/kojira.crt=: kojira's cert
-   $ =/etc/pki/tls/certs/doegrids_hostcert.crt=: the host cert from doegrids
-   $ =/etc/pki/tls/certs/doe-chain.crt=: the !ESNet root cert and !DOEgrids CA cert catted together
+   $ =/etc/pki/tls/certs/digicert_hostcert.crt=: the host cert from !DigiCert
+   $ =/etc/pki/tls/certs/digicert-chain.crt=: the !DigiCert CAs catted together
 
 ---++++ Adding koji-builder host to database
 <pre>
