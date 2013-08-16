@@ -1,0 +1,121 @@
+%META:TOPICINFO{author="TimCartwright" date="1376663365" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="ComponentHome"}%
+---+ A Guide to the Major Components in the OSG Software Stack
+
+Originally written by Alain Roy in September 2012; since modified by Tim Cartwright et al.
+
+---++ Software at a Site
+
+<img src="%ATTACHURLPATH%/osg-software-component-diagram.png" alt="OSG Software Component Diagram" width="800"/>
+
+---+++ Component: Gatekeeper/Jobmanager
+
+The Globus gatekeeper and jobmanager (GRAM for short) are provided by the Globus Team, www.globus.org. We have a meeting with them (attended by the OSG Software Coordinator and the Project Manager) every six to eight weeks to make sure they understand our needs and we understand their progress. 
+
+It allows jobs to be submitted from remote clients to the local batch system. The gatekeeper is a long-running process that does authentication and authorization. Assuming the user is acceptable, the request is given to the long-running jobmanager process (one per remote user), which submits it to the batch system, monitors it, and returns results to the user.
+
+Most users do not use the gatekeeper/jobmanager directly, but instead submit jobs via glidein. The glidein factory (which is invisible to users) will submit jobs to GRAM as needed.
+
+We have had scalability and reliability issues with GRAM, some of them due to the (new as of Globus 5) fact that the gatekeeper and jobmanager are now long-running processes instead of short-lived processes.
+
+For authorization, GRAM either relies on built-in access to the grid-mapfile (which is usually created with edg-mkgridmap) or a plugin called LCMAPS which communicates with GUMS.
+
+An alternative to Globus GRAM is the HTCondor-CE software.
+
+!BrianB knows a ton about GRAM, even at the code level. Suchandra is fairly comfortable with GRAM, particularly the various job managers. Mat is very comfortable with our packaging of GRAM.
+
+---+++ Component: !GridFTP
+
+!GridFTP also comes from Globus and uses the same authorization mechanisms, so see above.
+
+!GridFTP on the CE is used primarily to stage applications to OSG_APP (a shared filesystem mounted on the CE and the worker nodes) or to stage large datasets (also a shared filesystem mounted on the CE and the worker nodes).
+
+!GridFTP is very stable and works well. We have no particular concerns about it. Because it is used by Globus Online (a funded service run by the Globus Project), it is likely to have a long-term future.
+
+!BrianB knows quite a bit about the !GridFTP software itself, and Mat knows about how it is packaged.
+
+---+++ Gratia Probes
+
+Gratia is an accounting system. It record information about every job that is run and every data transfer that is made. There is a special Gratia protocol that is used to upload the data to a Gratia service. Most sites upload directly to a Gratia service located at Fermilab, but a few sites run a local Gratia service for local accounting purposes that forwards the data to our centralized Gratia service.
+
+Gratia helps us understand the activity on OSG. For example: 
+   * http://display.grid.iu.edu/
+   * http://gratia-osg-prod-reports.opensciencegrid.org/gratia-reporting/
+
+The Gratia probes are written in Python. There are separate probes for each activity that can be probed. For instance, there are separate probes for Condor, PBS, and Grid Engine. They share some common functionality, particularly the reliable upload functionality. 
+
+---+++ CEMon/GIP
+
+Conceptually you can think of CEMon as being a cron plus a script that periodically pushes a file to a web server, but it is actually a giant Tomcat webapp that implements that functionality. It is a bit more because it expects the file to be in a certain format (LDIF) and can convert it to other formats (such as ClassAds).
+
+CEMon invokes the GIP every 5–10 minutes. The GIP gathers information about the current state of the CE. This is information like “The site is running OSG 3.1.8, uses Condor, has 1000 batch slots of which 959 are in use”. Of course, there is a ton more data than that. You can think of it as describing what a site offers.
+
+CEMon comes from EMI while the GIP comes from CMS. Our main contacts for the GIP are Burt Holzman and Tony Tiradani at Fermilab. The GIP is pretty straightforward Python code. !BrianB used to hack on GIP and knows a lot about it. Parag Mhashilkar from Fermilab used to work with CEMon and knows a lot about it.
+
+Both CEMon and GIP are stable and reliable, but people aren’t real happy with the setup. There is an alternative to CEMon called “osg-info-services” which is a relatively simple Python script. It’s never been hardened for production but is in use by a few brave sites. 
+
+---+++ RSV
+
+RSV tests a site to see if it is working and shares the results with a central server at the GOC so everyone can see. It primarily tests fork jobs, basic data transfers, and a few CE characteristics like “are the CA certificates up to date?” It might sound similar to CEMon/GIP, so you can think of it this way:
+
+   * CEMon/GIP publishes information about what functionality a site claims to be offering
+   * RSV publishes information about whether or not a site is actually functioning correctly
+
+We used to always run RSV on the CE, but these days it is just as easy to install it on a separate computer. That might be slightly more realistic of a test than running on the CE.
+
+RSV tends to be the public face of failures. That is, people will say “RSV is failing, why?” and the answer is that RSV is correctly reporting the existence of a problem. So helping people on a ticket about an RSV problem is sort of the “OSG-complete” problem: an RSV ticket could require knowledge about GRAM or GridFTP or CA certificate distribution or GUMS or … 
+
+One confusing thing: RSV uploads its test results using the same protocol as Gratia. In fact, there is a “Gratia metric probe” that uploads the data. (The word “metric” comes from the fact that a single RSV test is called an “RSV metric”.) To confuse the issue, RSV can do some basic tests that Gratia is working, so there is an “RSV Gratia metric”, but sometimes people call it a “probe”. The names will confuse you for a while. 
+
+---+++ GUMS
+
+GUMS is a service used to authorize and map users from their global identity to their local (unix id) identity. It is not a required service (some sites use the simple edg-mkgridmap to construct a grid-mapfile instead) but it is commonly used. It’s helpful when you have more than one resource (compute element, storage element, etc) because they can share authorization and mapping data. It is particularly helpful when using glexec at a site, because glexec runs on every worker node and needs authorization and mapping information. 
+
+---++ Worker Node
+
+The worker node software can best be thought in two categories:
+
+   * Software to be used on-demand by end-user applications. These are hard to keep a handle on. People will say things like “Oh, I wish Microsoft PowerPoint could be installed on all worker nodes”, so we add it to the worker node package. Three years later they stop using it but we still maintain and ship it. These utilities are things like globus-url-copy (to copy files from a GridFTP server), grid-proxy-info and voms-proxy-info, and lcg-utils (to copy files from an SE). 
+   * Software and data to maintain a worker node. This includes the CA certificates and the fetch-crl utility to install CRLs.
+
+---++ Software for a VO
+
+A VO may run various bits of software. These include:
+
+---+++ VOMS
+
+VOMS maintains membership lists for VOs and can produce signed certificates stating the membership. These signed certificates are included in a grid proxy certificate and are made with voms-proxy-init. 
+
+VOMS is two pieces of software: VOMS itself is a C++ program that maintains the database of members and can generate the signed certificates. VOMS Admin is the web interface used to manage VOMS. 
+
+Some VOs run their own VOMS servers, but OSG and Fermilab run a few VOMS servers on behalf of smaller VOs. You can see the list of VOMS servers because we ship this list: in an install of the osg-client, just look in /etc/vomses. This file comes from the vo-client RPM. 
+
+We don't have any really deep experts with VOMS and VOMS Admin. Tanya knows a lot about VOMS Admin because she used to maintain the VOMRS web service on top of VOMS Admin. (Most of the VOMRS functionality has been rolled into VOMS Admin.) Mat has done some packaging and updates. !BrianB has some familiarity with it.
+
+---+++ Glideinwms VO Front-End
+
+Think of this as a Condor submit host (that is, it runs the condor_schedd). Through magic (the glidein factory, below), it can create a HTCondor pool using various worker nodes in OSG sites. Quite a few VOs now use glideinwms. We ship the glideinwms front end as an RPM.
+
+---++ Part 3: OSG-run software
+
+OSG runs a bunch of software. In theory the OSG Software team owns most or all of it, but in practice we have a mostly hands-off relationship. 
+
+---+++ Gratia Collector
+
+Fermilab runs the central Gratia collector. This collects accounting data from all the Gratia probes at all OSG sites. (In some cases, a few sites run their own collectors, in which case the local collector summarizes and forwards the data to the central collector.)
+
+We ship the collector. Tanya Levshina maintains it. We don’t have a lot of OSG Software Team experience with it.
+
+---+++ RSV Collector
+
+The Gratia collector is also used to collect RSV results from all over OSG. It’s run at the GOC in Indiana. I don’t know much about it, except that it exists.
+
+---+++ CEMon Collector
+
+The GOC runs a CEMon Collector. This collects CEMon data from all CEs in OSG. They procure the software independently and we have nothing to do with it. They know everything about their deployment.
+
+---+++ Glidein Factory
+
+The OSG runs a glidein factory, based at UCSD. There’s a small time (2 or 3 people?) who run it. The factory will make Condor pools for each glideinwms front-end. It’s a complicated piece of software to install and run, and we know nothing about it. Igor is a good contact for it.
+
+%META:FILEATTACHMENT{name="osg-software-component-diagram.png" attachment="osg-software-component-diagram.png" attr="h" comment="OSG Software Component Diagram" date="1376662833" path="osg-software-component-diagram.png" size="135928" stream="osg-software-component-diagram.png" tmpFilename="/usr/tmp/CGItemp56324" user="TimCartwright" version="1"}%
