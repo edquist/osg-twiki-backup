@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1372454704" format="1.1" reprev="1.36" version="1.36"}%
+%META:TOPICINFO{author="JohnWeigand" date="1377878457" format="1.1" reprev="1.37" version="1.37"}%
 %META:TOPICPARENT{name="NavUserApplications"}%
 <!-- Local variables
    * Set CONDORREL = 7.8.6
@@ -236,11 +236,14 @@ The configuration file is =/etc/gwms-frontend/frontend.xml=.  The next steps wil
 ---++ Configuring Condor
 The condor configuration for the frontend is placed in =/etc/condor/config.d=.
    * 00_gwms_general.config
+   * 00personal_condor.config  (this is added by Condor if not already installed)
    * 01_gwms_collectors.config
    * 02_gwms_schedds.config
    * 03_gwms_local.config
+   * 11_gwms_secondary_collectors.config
+   * 90_gwms_dns.config
  
-
+The =00personal_condor.config= may or may not exist if you already have a Condor installed.  This config file should be removed.
 
 <!--
 In versions of Condor 7.4.4 and above, this configuration is read automatically.
@@ -251,14 +254,16 @@ If you have a version lower than 7.4.4, the local condor configuration file whic
 LOCAL_CONFIG_DIR = /etc/condor/config.d</pre>
 -->
 
-For most installations, the items you need to modify are in =03_gwms_local.config=.  The lines you will have to edit are:
+For most installations, the items you need to modify are in =03_gwms_local.config=.  
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show example 03_gwms_local.config."}%<pre class="file">
+#
+# Reminder: You may want to define these in later files
+#
 
-   1. Credentials of the machine.  You can either run using a proxy, or a service certificate.  It is recommended to use a host certificate and specify it's location in the variables =GSI_DAEMON_CERT= and =GSI_DAEMON_KEY=.  The host certificate and key should be owned by =root= and have the correct permissions, 600. *NOTE* that this configuration is for HTCondor, not for the frontend that requires a proxy as specified in other parts of this document.
-   <pre class="file">
-#-- Condor user: condor
-CONDOR_IDS =
+#-- Condor user: enter uid condor in form xxuid.xxgid e.g. 4716.4716
+#CONDOR_IDS = 
 #--  Contact (via email) when problems occur
-CONDOR_ADMIN =
+#CONDOR_ADMIN = 
 
 ############################
 # GSI Security config
@@ -276,24 +281,15 @@ CERTIFICATE_MAPFILE= /etc/condor/certs/condor_mapfile
 ###################################
 # Whitelist of condor daemon DNs
 ###################################
-#DAEMON_LIST = COLLECTOR, MASTER, NEGOTIATOR, SCHEDD, STARTD
 </pre>
+%ENDTWISTY% %BR%
 
-After configuring condor, be sure to restart condor:
+The lines you will have to edit are:
+   1. Credentials of the machine.%BR%You can either run using a proxy, or a service certificate.  It is recommended to use a host certificate and specify it's location in the variables =GSI_DAEMON_CERT= and =GSI_DAEMON_KEY=.  The host certificate and key should be owned by =root= and have the correct permissions, 600.%BR%*NOTE* that this configuration is for HTCondor, not for the frontend that requires a proxy as specified in other parts of this document.
+   2. Verify the =GSI_DAEMON_TRUSTED_CA_DIR= is correct and that your CRLs are up-to-date.
+   3. Verify the =CERTIFICATE_MAPFILE= is correct.
+   4. Uncomment and update the =CONDOR_IDS= and =CONDOR_ADMIN= attributes
 
-<pre class="rootscreen">
-service condor restart</pre>
-
-<!--
-   1. Add the DN's for the certificates that your daemons will use, e.g. the factory (=/DC=org/DC=doegrids/OU=Services/CN=glidein-1.t2.ucsd.edu=), the Glidein Frontend Condor cert DN and the User Submitter cert DN.  Examples are placed below.
-   <pre class="file">
-#####################################
-# Add whitelist of condor daemon DNs EDIT THIS
-#####################################
-#GSI_DAEMON_NAME=/DC=org/DC=doegrids/OU=Services/CN=glidein-1.t2.ucsd.edu,/DC=org/DC=doegrids/OU=Services/CN=glidein-fe-condor/gi-vofe.uchicago.edu,/DC=org/DC=doegrids/OU=People/CN=Marco Mambelli 325802
-GSI_DAEMON_NAME=/DC=org/DC=doegrids/OU=People/CN=Derek Weitzel 285345,/DC=org/DC=doegrids/OU=People/CN=Derek Weitzel 285345/CN=993078166,/DC=org/DC=doegrids/OU=Services/CN=host/glidein.unl.edu,/DC=org/DC=doegrids/OU=Services/CN=glidein-1.t2.ucsd.edu
- </pre>
--->
 
 
 ---+++ Using other Condor RPMs, e.g. UW Madison HTCondor RPM
@@ -329,49 +325,68 @@ In general if you are using a non OSG RPM or if you added custom configuration f
 Configuration source:
 	/etc/condor/condor_config
 Local configuration sources:
-	/etc/condor/config.d/00_gwms_general.config
-	/etc/condor/config.d/01_gwms_collectors.config
-	/etc/condor/config.d/02_gwms_schedds.config
-	/etc/condor/config.d/03_gwms_local.config
-	/etc/condor/condor_config.local
+        /etc/condor/config.d/00_00personal_condor.config
+        /etc/condor/config.d/00_gwms_general.config
+        /etc/condor/config.d/01_gwms_collectors.config
+        /etc/condor/config.d/02_gwms_schedds.config
+        /etc/condor/config.d/03_gwms_local.config
+        /etc/condor/config.d/11_gwms_secondary_collectors.config
+        /etc/condor/config.d/90_gwms_dns.config
+	<b><font color="blue">/etc/condor/condor_config.local</font></b>
 </pre>
 If, like in the example above, the !GlideinWMS configuration files are not the last ones in the list please verify that important configuration options have not been overridden by the other configuration files.
-Especially check that all the expected HTCondor daemons are running: <pre class="screen">
+
+---+++ Verify your Condor configuration
+1. The !glideinWMS configuration files in =/etc/condor/config.d= should be the last ones in the list.  If not, please verify that important configuration options have not been overridden by the other configuration files.
+
+2. Verify the alll the expected HTCondor daemons are running: <pre class="screen">
 %UCL_PROMPT% condor_config_val -verbose DAEMON_LIST
-DAEMON_LIST: MASTER,  COLLECTOR, NEGOTIATOR COLLECTOR0 COLLECTOR1 COLLECTOR2 COLLECTOR3 COLLECTOR4 COLLECTOR5 COLLECTOR6 COLLECTOR7 COLLECTOR8 COLLECTOR9 COLLECTOR10 , COLLECTOR11, COLLECTOR12, COLLECTOR13, COLLECTOR14, COLLECTOR15, COLLECTOR16, COLLECTOR17, COLLECTOR18, COLLECTOR19, COLLECTOR20, COLLECTOR21, COLLECTOR22, COLLECTOR23, COLLECTOR24, COLLECTOR25, COLLECTOR26, COLLECTOR27, COLLECTOR28, COLLECTOR29, COLLECTOR30, COLLECTOR31, COLLECTOR32, COLLECTOR33, COLLECTOR34, COLLECTOR35, COLLECTOR36, COLLECTOR37, COLLECTOR38, COLLECTOR39, COLLECTOR40,  SCHEDD, SCHEDDJOBS2
-  Defined in '/etc/condor/config.d/02_gwms_schedds.config', line 77.
+DAEMON_LIST: MASTER,  COLLECTOR, NEGOTIATOR,  SCHEDD, SHARED_PORT, SCHEDDJOBS2 COLLECTOR0 COLLECTOR1 
+COLLECTOR2 COLLECTOR3 COLLECTOR4 COLLECTOR5 COLLECTOR6 COLLECTOR7 COLLECTOR8 COLLECTOR9 
+COLLECTOR10 , COLLECTOR11, COLLECTOR12, COLLECTOR13, COLLECTOR14, COLLECTOR15, COLLECTOR16, COLLECTOR17, 
+COLLECTOR18, COLLECTOR19, COLLECTOR20, COLLECTOR21, COLLECTOR22, COLLECTOR23, COLLECTOR24, COLLECTOR25, 
+COLLECTOR26, COLLECTOR27, COLLECTOR28, COLLECTOR29, COLLECTOR30, COLLECTOR31, COLLECTOR32, COLLECTOR33, 
+COLLECTOR34, COLLECTOR35, COLLECTOR36, COLLECTOR37, COLLECTOR38, COLLECTOR39, COLLECTOR40
+  Defined in '/etc/condor/config.d/11_gwms_secondary_collectors.config', line 193.
 </pre>
-If you don't see all the collectors and the two schedd, then the configuration must be corrected.
+If you don't see all the collectors. shared port and the two schedd, then the configuration must be corrected.  There should __no__ startd daemons listed.
 
 
----++ Create a Condor grid mapfile.
+---+++ Create a Condor grid mapfile.
 
-The Condor grid mapfile (=/etc/condor/certs/condor_mapfile=) is used for authentication between the glidein running on a remote worker node, and the local collector.  Condor uses the mapfile to map certificates to pseudo-users on the local machine.  It is important that you map the DN's of:
-   * Each schedd that the frontend talks to (specified in the frontend.xml, including the DN of the VO Frontend,  =/tmp/vofe_proxy=)
-   * The DN of the proxy that the frontend uses (=/tmp/vofe_proxy= in the example above)
-   * The DN of the proxy that the frontend forwards to the factory to use with the glideins (User Submitter proxy DN, =/tmp/vofe_gi_delegated_proxy= in the example above)
-   * The DN of the factory that you where given.
+The Condor grid mapfile (=/etc/condor/certs/condor_mapfile=) is used for authentication between the !glideinWMS pilot running on a remote worker node, and the local collector.  Condor uses the mapfile to map certificates to pseudo-users on the local machine.  It is important that you map the DN's of:
+   * <font color="red">Each schedd proxy</font>: The =DN= of each schedd that the frontend talks to. Specified in the frontend.xml schedd element =DN= attribute:<pre class="file">
+&lt;schedds>
+    &lt;schedd DN="/DC=org/DC=doegrids/OU=Services/CN=YOUR_HOST" fullname="YOUR_HOST"/>
+    &lt;schedd DN="/DC=org/DC=doegrids/OU=Services/CN=YOUR_HOST" fullname="schedd_jobs2@YOUR_HOST"/>
+ &lt;/schedds>
+</pre>
+   * <font color="green">Frontend proxy</font>: The DN of the proxy that the frontend uses to communicate with the other !glideinWMS services. Specified in the frontend.xml security element =proxy_DN= attribute:<pre class="file">
+&lt;security classad_proxy="/tmp/vo_proxy" proxy_DN="DN of vo_proxy" ....
+</pre>
+   * <font color="blue">Each pilot proxy</font> The DN of __each__ proxy that the frontend forwards to the factory to use with the !glideinWMS pilots.  This allows the !glideinWMs pilot jobs to communicate with the User Collector. Specified in the frontend.xml proxy =absfname= attribute (you need to specify the =DN= of each of those proxies:<pre class="file">
+&lt;security ....
+   &lt;proxies&gt;
+         &lt; proxy absfname="/tmp/vo_proxy" ....
+         :
+   &lt;/proxies&gt;
+</pre>
 
-Below is an example mapfile, by default found in =/etc/condor/certs/condor_mapfile=. In this example there are the line of the VO frontend (local schedd, same DN as /tmp/vofe_proxy, see configuration above), the line of the user proxy (used by the factory to start the glideins, the one in =/tmp/vofe_user_proxy=), a line for the UCSD factory, and 2 lines for 2 flocking submit hosts, =submit-host1.mydomain.edu= (used by multiple users) and =personal-submit-host2.mydomain.edu= that is mapped to the local user =myuser2=. Remember to escape the DNs :
-   <pre class="file">
-GSI "^\/%RED%DN of proxy identifying VO FE owned by frontend%ENDCOLOR%$" frontend
-GSI "^\/%RED%DN of User proxy owned by frontend, %ENDCOLOR%$" frontend
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=gfactory\-1\.t2\.ucsd\.edu$" frontend
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\submit\-host1\.mydomain\.edu$" frontend
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=personal\-submit\-host2\.mydomain\.edu$" myuser2
+
+Below is an example mapfile, by default found in =/etc/condor/certs/condor_mapfile=. In this example there are lines for each of services mentioned above.  <b>Note:</b> The =example_of_format= entry as each DN should use this format for security purposes.
+<pre class="file">
+GSI "%RED%DN of schedd proxy%ENDCOLOR%" schedd
+GSI "%GREEN%DN of frontend proxy%ENDCOLOR%" frontend
+GSI "%BLUE%DN of pilot proxy%ENDCOLOR%$" pilot_proxy
+GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=personal\-submit\-host2\.mydomain\.edu$" <b>example_of_format</b>
 GSI (.*) anonymous
 FS (.*) \1 </pre>
 
-<!--
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=People\/CN\=Marco\ Mambelli\ 325802$" frontend
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=glidein\-fe\-condor\/gi\-vofe\.uchicago\.edu" frontend
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/uc3\-sub\.uchicago\.edu$" frontend
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=host\/uc3\-bosco\.uchicago\.edu$" frontend
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=glidein\-1\.t2\.ucsd\.edu$" frontend
-GSI "^\/DC\=org\/DC\=doegrids\/OU\=Services\/CN\=gfactory\-1\.t2\.ucsd\.edu$" frontend
-GSI (.*) anonymous
-FS (.*) \1 </pre>
--->
+---+++ Restart Condor
+After configuring condor, be sure to restart condor:
+<pre class="rootscreen">
+service condor restart</pre>
+
 
 ---++ Proxy Configuration
 By default, the frontend will run as user =frontend= (UID = machine dependent).  In order for the Frontend to use a certificate, it has to exist and be owned by the user =frontend=. This has to be done for both the VO Frontend proxy (used to authenticate with the Factory) and the User proxy (the proxy to delegate to the glideins).
