@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1378213250" format="1.1" reprev="1.38" version="1.38"}%
+%META:TOPICINFO{author="JohnWeigand" date="1378236164" format="1.1" reprev="1.39" version="1.39"}%
 %META:TOPICPARENT{name="NavUserApplications"}%
 <!-- Local variables
    * Set CONDORREL = 7.8.6
@@ -60,47 +60,38 @@ All software requirements are defined in the RPM, and will be pulled in at insta
 
 %STARTSECTION{"Users"}%
 | *User* | *Comment* |
-| =frontend= | This user runs the Glidein VO frontend.  It also owns the certificate forwarded to the factory to use for the glideins.|
+| =frontend= | This user runs the !glideinWMS VO frontend.  It also owns the certificate forwarded to the factory to use for the glideins.|
 | =condor= | Condor user (installed via dependencies). |
 %ENDSECTION{"Users"}%
 
----++ Certificates
+---++ CA Certificates
+The OSG Client will install the CA certificates and CRLs as part of the installation.  These are used for authentication purposes for the various !glideinWMS services.  Refer to the [[InstallCertAuth][Installing Certificate Authorities Certificates and related RPMs]] document for more information on these.
 
-The OSG Client will install the CA certificates and CRL as part of the installation.
 
-The VO Frontend will use two certificates in its interactions with the Glidein WMS Factory:
-   * Glidein Frontend Host cert - The use of a service or host certificate is recommended. Then you create a proxy from the certificate as explained in the [[#Proxy_Configuration][proxy configuration section]]. This can be a plain grid proxy (from =grid-proxy-init=), no VO extensions are required. *You must notify the Factory operation of the DN of this proxy when you initially setup the frontend and each time the DN changes*.
-   * User Submitter proxy (aka Glidein delegated proxy) - This proxy is used to submit the glidein jobs, therefore must be authorized to access to the CEs where jobs are submitted. This proxy is sent to the factory that uses it to submit the glideins to the CEs. There is no need to notify the Factory operation about the DN of this proxy (neither at the initial registration nor for subsequent changes). This second proxy has no special requirement or controls added by the factory but will probably require VO attributes because of the CEs: if you are able to use this proxy to submit jobs to the CEs where the Factory runs glideins for you, then the proxy is OK.
 
-<!--
-It is possible also to use a single certificate/proxy for both functions. It is also possible to use more than one certificate to submit glidein.
-A third certificate, User Pool Collector cert, is used to secure the communication between the User Pool Collector and the User Pool Schedd, two components of the VO Frontend.
--->
-Certificates will be in PEM format, a certificate file and a key file. They must be owned by =frontend=, the user running the service, (check also that it can access the directory where you stored the certificates) and have the right permission (600).
 
-The host certificate and key needs to be located in /etc/grid-security/hostcert.pem and /etc/grid-security/hostkey.pem.
+---++ VO Frontend Certificate/Proxy Requirements
+The VO Frontend will use two certificates in its interactions with the the other !glideinWMS services.  At this time, these will be proxy files.
+   1 the %GREEN%VO Frontend proxy%ENDCOLOR% (used to authenticate with the other !glideinWMS services).
+   1 one or more glideinWMS %BLUE%pilot proxies%ENDCOLOR% (used/delegated to the factory services and submitted on the !glideinWMS pilot jobs).
 
-<!--
-The installer will ask for several DNs for GSI authentication. You have the option of using a service certificate or a proxy. These should be created and put in place before running the installer. The following is a list of DNs the installer will ask for:
+The %GREEN%VO Frontend proxy%ENDCOLOR% and the %BLUE%pilot proxy%ENDCOLOR% can be the same.
+By default, the VO Frontend will run as user =frontend= (UID is machine dependent) so these proxies must be owned by the user =frontend=. 
 
-    * WMS Collector cert/proxy DN
-    * User Pool Collector cert/proxy DN
-    * User Submitter cert/proxy DN
-    * Glidein Frontend Condor cert/proxy DN (cannot use a cert here)
+---+++ VO Frontend proxy
+The use of a service or host certificate is recommended.  Then you create a proxy from the certificate as explained in the [[#Proxy_Configuration][proxy configuration section]]. This can be a plain grid proxy (from =grid-proxy-init=), no VO extensions are required.
 
-%RED%Some questions:
-   * How is that 4 certificates are mentioned while only 2 are used (this is from the VO frontend installation doc)?
-   * What means "Glidein Frontend Condor cert/proxy DN (cannot use a cert here)" cert/proxy and cannot use cert means only proxy or this refers to personal/service certs?
-%ENDCOLOR%
+*You must notify the Factory operation of the DN of this proxy when you initially setup the frontend and each time the DN changes*.
 
-Note: In some places the installer will also ask for nicknames to go with the DNs. For the most part the name given doesn't really matter. There is one case where is does matter. If you are using privilege separation, then, on the WMS Collector, the nickname for each Glidein Frontend must be the username that you created for the frontend.
-Note 2: The installer will ask if these are trusted Condor Daemons. Answer 'y'. 
--->
+
+---+++ Pilot proxies
+This proxy is used by the factory to submit the glideinWMS pilot jobs. Therefore, they  must be authorized to access to the CEs (factory entry points) where jobs are submitted.  There is no need to notify the Factory operation about the DN of this proxy (neither at the initial registration nor for subsequent changes). This second proxy has no special requirement or controls added by the factory but will probably require VO attributes because of the CEs: if you are able to use this proxy to submit jobs to the CEs where the Factory runs glideinWMS pilots for you, then the proxy is OK.
+
+
+
 
 
 ---++ OSG Factory access
-
-
 Before installing the Glidein WMS VO Frontend you need the information about a [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.prd/factory/index.html][Glidein Factory]] that you can access:
    1 (recommended) OSG is managing a factory at UCSD and one at GOC and you can request access to them
    1 You have another Glidein Factory that you can access
@@ -183,9 +174,10 @@ If you have a working installation on glideinwms-frontend you just upgrade the f
 
 
 
+
 ---+ Configuration Procedure 
 
-After installing the RPM you need to configure the components of the Glidein WMS VO Frontend:
+After installing the RPM, you need to configure the components of the glideinWMS VO Frontend:
    1. Edit Frontend configuration options
    1. Edit Condor configuration options
    1. Create a Condor grid map file
@@ -193,19 +185,32 @@ After installing the RPM you need to configure the components of the Glidein WMS
 
 ---++ Configuring the Frontend
 
-The configuration file is =/etc/gwms-frontend/frontend.xml=.  The next steps will describe each line that you will need to edit if you are using the OSG Factory at UCSD.  The portions to edit are highlighted in red font. If you are using a different Factory more changes are necessary, please check [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.prd/frontend/configuration.html][the VO Frontend configuration reference]].
+The VO Frontend configuration file is =/etc/gwms-frontend/frontend.xml=.  The next steps will describe each line that you will need to edit if you are using the OSG Factory at UCSD.  The portions to edit are highlighted in red font. If you are using a different Factory more changes are necessary, please check [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.prd/frontend/configuration.html][the VO Frontend configuration reference]].
 
-   1. The VO you are affiliated with. Sometime the whole =query_expr= is provided to you by the factory (see Factory access above):
+   1. The VO you are affiliated with. This will identify those CEs that the glideinWMS pilot will be authorized to run on using the %BLUE%pilot proxy%ENDCOLOR% described previously in the [[InstallGlideinWMSFrontend#Pilot_proxies][this section]]. Sometime the whole =query_expr= is provided to you by the factory (see Factory access above):
    <pre class="file">
 &lt;factory query_expr='((stringListMember("%RED%VO%ENDCOLOR%", GLIDEIN_Supported_VOs)))'></pre>
-   1.  The username that you are assigned from the factory (also called the identity you will be mapped to on the factory, see above) (scroll right, this is a long line).  Note that if you are using a factory different than the production factory you will have to change also DN, factory_identity, node (refer to the information provided to you by the factory operator):   <pre class="file">
+   1.  Factory collector information.%BR%
+ The =username= that you are assigned by the factory (also called the identity you will be mapped to on the factory, see above) .  Note that if you are using a factory different than the production factory, you will have to change also =DN=, =factory_identity= and =node= attributes. (refer to the information provided to you by the factory operator):   <pre class="file">
 &lt;collector DN="/DC=org/DC=doegrids/OU=Services/CN=gfactory-1.t2.ucsd.edu" 
                    comment="Define factory collector globally for simplicity" 
                    factory_identity="gfactory@gfactory-1.t2.ucsd.edu" 
                    my_identity="%RED%username%ENDCOLOR%@gfactory-1.t2.ucsd.edu" 
                    node="gfactory-1.t2.ucsd.edu"/>
 </pre>
-   1. The Schedd information.  The Cert DN is the DN of the host certificate mentioned above.  It should be located in =/etc/grid-security/hostcert.pem=.  The hostname is the fully qualified domain name of the host where you installed the VO Frontend (run =hostname --fqdn=). A secondary schedd is optional.  You will need to delete the secondary schedd line if you are not using it. Multiple Schedds allow the frontend to service requests from multiple submit hosts.
+   1. Factory security information.%BR%- The =classad_proxy= in the _security_ entry is the location of the %GREEN%VO Frontend proxy%ENDCOLOR%  described previously [[#VO_Frontend_proxy][here]].%BR%- The =proxy_DN= is the DN of the =classad_proxy= above.%BR%- The =security_name= identifies this VO Frontend to the the Factory, It is provided by the factory operator.%BR%- The =absfname= in the _proxy_ entry is the location of the !glideinWMS %BLUE%pilot proxy%ENDCOLOR% described in the requirements section [[#Pilot_proxies][here]]. There can be multiple %BLUE%pilot proxies%ENDCOLOR%.%BR%Both the =classad_proxy= and =absfname= files should be owned by =frontend= user. 
+   <pre class="file">
+&lt;security classad_proxy="%RED%/tmp/vo_proxy%ENDCOLOR%" 
+                   proxy_DN="%RED%DN of vo_proxy%ENDCOLOR%" 
+                   proxy_selection_plugin="ProxyAll" 
+                   security_name="%RED%The security name, this is used by factory%ENDCOLOR%" 
+                   sym_key="aes_256_cbc"> 
+    &lt;proxies>
+        &lt;proxy absfname="%RED%/tmp/vo_proxy%ENDCOLOR%" security_class="frontend"/>
+    &lt;/proxies> 
+&lt;/security>
+</pre>
+   1. The schedd information.%BR%- The =DN= of the %GREEN%VO Frontend Proxy%ENDCOLOR% described previously [[#VO_Frontend_proxy][here]].%BR%- The =fullname= attribute is the fully qualified domain name of the host where you installed the VO Frontend (=hostname --fqdn=).%BR%A secondary schedd is optional.  You will need to delete the secondary schedd line if you are not using it. Multiple schedds allow the frontend to service requests from multiple submit hosts.
    <pre class="file">
 &lt;schedds>
    &lt;schedd DN="%RED%Cert DN used by the schedd at fullname:%ENDCOLOR%" 
@@ -213,19 +218,7 @@ The configuration file is =/etc/gwms-frontend/frontend.xml=.  The next steps wil
    &lt;schedd DN="%RED%Cert DN used by the second Schedd at fullname:%ENDCOLOR%" 
                     fullname="%RED%schedd name%ENDCOLOR%@%RED%Hostname of second schedd%ENDCOLOR%"/>
 &lt;/schedds></pre>
-   1. The DN in the _security_ entry is that of the Glidein Frontend Host cert specified above, the path is the one of a proxy created using that certificate (see below).  The Security name identifies this frontend with the Factory, it is given by the factory operator. The file in the _proxy_ entry is the User submitter proxy specified above (the proxy delegated to the glideins). See below for instructions on how to create the proxies. Both files should be owned by =frontend=. 
-   <pre class="file">
-&lt;security classad_proxy="%RED%/tmp/vofe_proxy%ENDCOLOR%" 
-                   proxy_DN="%RED%DN of proxy identifying VO FE owned by frontend%ENDCOLOR%" 
-                   proxy_selection_plugin="ProxyAll" 
-                   security_name="%RED%The security name, this is used by factory%ENDCOLOR%" 
-                   sym_key="aes_256_cbc"> 
-    &lt;proxies>
-        &lt;proxy absfname="%RED%/tmp/vofe_gi_delegated_proxy%ENDCOLOR%" security_class="frontend"/>
-    &lt;/proxies> 
-&lt;/security>
-</pre>
-   1. The DN of the host cert and the hostname of the collectors (the host were the VO Frontend is being installed, =hostname -fqdn=). The default Condor configuration of the VO Frontend starts multiple Collector processes on the host: the DN and the hostname on the second line are the same as the ones in the first one. The hostname (e.g. hostname.domain.tld) is filled automatically during the installation. Control that it is the desired one.
+   1. The User Collector information.%BR%- The =DN= of the %GREEN%VO Frontend Proxy%ENDCOLOR% described previously [[#VO_Frontend_proxy][here]].%BR%- The =node= attribute is the full hostname of the collectors (=hostname --fqdn=) and port%BR%- The =secondary= attribute indicates whether the element is for the primary or secondary collectors (True/False).%BR%The default Condor configuration of the VO Frontend starts multiple Collector processes on the host (=/etc/condor/config.d/11_gwms_secondary_collectors.config=).. The =DN= and  =hostname=  on the second line are the same as the ones in the first one. The hostname (e.g. hostname.domain.tld) is filled automatically during the installation. The secondary collector ports can be defined as a range, e.g., 9620-9660).  
    <pre class="file">
 &lt;collector DN="%RED%DN of main collector%ENDCOLOR%" 
                    node="hostname.domain.tld:9618" secondary="False"/>
@@ -389,51 +382,61 @@ service condor restart</pre>
 
 
 ---++ Proxy Configuration
-By default, the frontend will run as user =frontend= (UID = machine dependent).  In order for the Frontend to use a certificate, it has to exist and be owned by the user =frontend=. This has to be done for both the VO Frontend proxy (used to authenticate with the Factory) and the User proxy (the proxy to delegate to the glideins).
+There are 2 types of (or purposes for)  proxies required for the VO Frontend:
+   1 the %GREEN%VO Frontend proxy%ENDCOLOR% (used to authenticate with the other !glideinWMS services)
+   1 one or more glideinWMS %BLUE%pilot proxies%ENDCOLOR% (used/delegated to the factory services and submitted on the !glideinWMS pilot jobs)
+The %GREEN%VO Frontend proxy%ENDCOLOR% and the %BLUE%pilot proxy%ENDCOLOR% can be the same.
+By default, the VO Frontend will run as user =frontend= (UID is machine dependent) so these proxies must be owned by the user =frontend=. 
 
----+++ Manual process
-VO Frontend Host proxy:
-   1. Create the proxy using the Glidein Frontend Host (or Service) cert
+---+++ Manual proxy renewal
+%GREEN%VO Frontend proxy%ENDCOLOR%%BR%
+The VO Frontend Proxy is used for communicating with the other !glideinWMS services (Factory, User Collector and Schedd/Submit services).
+Create the proxy using the !glidenWMS VO Frontend Host (or Service) cert and change ownership to the frontend user.
    <pre class="rootscreen">
-%UCL_PROMPT_ROOT% voms-proxy-init -valid &lt;hours_valid> -cert /etc/grid-security/hostcert.pem -key /etc/grid-security/hostkey.pem -out /tmp/vofe_proxy </pre>
-   1. Change ownership of the proxy
-   <pre class="rootscreen">
-%UCL_PROMPT_ROOT% chown frontend: /tmp/vofe_proxy </pre>
+%UCL_PROMPT_ROOT% voms-proxy-init -valid &lt;hours_valid> \
+             -cert /etc/grid-security/hostcert.pem \
+             -key /etc/grid-security/hostkey.pem 
+             -out %GREEN%/tmp/vofe_proxy%ENDCOLOR%
+%UCL_PROMPT_ROOT% chown frontend %GREEN%/tmp/vofe_proxy%ENDCOLOR% </pre>
 
-User Submitter proxy: 
-   1. Create the proxy using the User Submitter cert
+%BLUE%Pilot proxy%ENDCOLOR%%BR%
+The pilot proxy is used on the !glideinWMS pilot jobs submitted to the CEs. 
+Create the proxy using the %BLUE%pilot certificate%ENDCOLOR% and change ownership to the frontend user.
    <pre class="screen">
-%UCL_PROMPT% voms-proxy-init -valid &lt;hours_valid> -voms &lt;vo> </pre>
-   1. Copy the proxy to the correct name
-   <pre class="screen">
-%UCL_PROMPT% cp /tmp/x509up_u`id -u` /tmp/vofe_user_proxy </pre>
-   1. Change ownership of the proxy
-   <pre class="rootscreen">
-%UCL_PROMPT_ROOT% chown frontend: /tmp/vofe_user_proxy </pre>
+%UCL_PROMPT% voms-proxy-init -valid &lt;hours_valid> \
+             -voms &lt;vo>
+             -cert &lt;pilot_cert> \
+             -key &lt;pilot_key>  \
+             -out %BLUE%/tmp/pilot_proxy%ENDCOLOR%
+%UCL_PROMPT_ROOT% chown frontend %BLUE%/tmp/pilot_proxy%ENDCOLOR% </pre>
 
-%WARNING% *Proxies do expire.* You can extend the validity by using a longer time interval, e.g. =-valid 3000:0=. The proxy above will be used for job submission (User Submitter proxy) and communicating with the Factory.  This sequence of commands will need to be renewed when the proxy expires or the machine reboots.  Make sure that this location is specified correctly in the =frontend.xml=.  You may want to automate the procedure above (or part of it) by writing a script and adding it to the crontab.
+%WARNING% *Proxies do expire.* You can extend the validity by using a longer time interval, e.g. =-valid 3000:0=.   This sequence of commands will need to be renewed when the proxy expires or the machine reboots (if /tmp is used only).  
+
+Make sure that this location is specified correctly in the =frontend.xml= described in the [[#Configuring_the_Frontend][Configuring the Frontend]] section.
+
+You may want to automate the procedure above (or part of it) by writing a script and adding it to crontab.
 
 ---+++ Example of automatic proxy renewal
-This example uses the script [[%ATTACHURL%/make-proxy.sh][make-proxy.sh]] attached to this document.
+This example (user provided) uses the script [[%ATTACHURL%/make-proxy.sh][make-proxy.sh]] attached to this document.
 You still need to do some prep-work but this can be done only once a year and the script will warn you with an email.
 
-Preparation for the VO Frontend Host proxy. You'll have to redo this each time the Host (or Service) certificate and key are renewed:
+Preparation for the %GREEN%VO Frontend proxy%ENDCOLOR%. You'll have to redo this each time the Host (or Service) certificate and key are renewed:
    1. Copy the Host (or Service) certificate and key <pre class="rootscreen">
 %UCL_PROMPT_ROOT% cp /etc/grid-security/hostcert.pem -key /etc/grid-security/hostkey.pem /var/lib/gwms-frontend/ </pre>
    1. Change ownership and permission of the certificate and key <pre class="rootscreen">
 %UCL_PROMPT_ROOT% chown frontend: /var/lib/gwms-frontend/host*.pem
 %UCL_PROMPT_ROOT% chmod 0600 /var/lib/gwms-frontend/host*.pem </pre>
 
-Preparation for the User Submitter proxy. You'll have to redo this each time the User gets a new Grid certificate and key pair: 
-   1. Create the proxy using the User Submitter certificate/key (as the user/submitter) <pre class="screen">%UCL_PROMPT% grid-proxy-init -valid 8800:0 -out /tmp/tmp_proxy -old</pre>
+Preparation for the %BLUE% pilot proxy.%ENDCOLOR%.  You'll have to redo this for each new or renewed pilot cert.
+   1. Create the proxy using the pilot certificate/key (as the user/submitter) <pre class="screen">%UCL_PROMPT% grid-proxy-init -valid 8800:0 -out /tmp/tmp_proxy -old</pre>
    1. Copy the proxy to the correct name and change ownership and permissions (as root)   <pre class="rootscreen">
 %UCL_PROMPT_ROOT% cp /tmp/tmp_proxy /var/lib/gwms-frontend/vofe_base_gi_delegated_proxy
 %UCL_PROMPT_ROOT% chown frontend: /var/lib/gwms-frontend/vofe_base_gi_delegated_proxy
 %UCL_PROMPT_ROOT% chmod 0600 /var/lib/gwms-frontend/vofe_base_gi_delegated_proxy
 %UCL_PROMPT_ROOT% rm /tmp/tmp_proxy </pre>
 
-Configure the script for the VO Frontend Host proxy:
-   1. Download the [[%ATTACHURL%/make-proxy.sh][attached script]] and save it as =/var/lib/gwms-frontend/make-proxy.sh=, make sure that it is executable.
+Configure the script for the %GREEN%VO Frontend proxy%ENDCOLOR%:
+   1. Download the [[%ATTACHURL%/make-proxy.sh][attached script]] and save it as =/var/lib/gwms-frontend/make-frontend-proxy.sh=, make sure that it is executable.
    1. Edit the VARIABLES section to look something like (replace your email, host name and the paths that are different in your setup - the comments in the script will help): <pre class="file">SETUP_FILE=""
 CERT_FILE="/var/lib/gwms-frontend/hostcert.pem"
 KEY_FILE="/var/lib/gwms-frontend/hostkey.pem"
@@ -443,8 +446,8 @@ OWNER_EMAIL="%RED%your@email_here%ENDCOLOR%"
 PROXY_DESCRIPTION="VO Fronted on %RED%hostname%ENDCOLOR%"
 VOMS_OPTION=""</pre>
 
-Configure the script for the  User Submitter proxy:
-   1. Download the [[%ATTACHURL%/make-proxy.sh][attached script]] and save it as =/var/lib/gwms-frontend/make-proxy-glidein.sh=, make sure that it is executable.
+Configure the script for the  %BLUE%pilot proxy%ENDCOLOR%:
+   1. Download the [[%ATTACHURL%/make-proxy.sh][attached script]] and save it as =/var/lib/gwms-frontend/make-pilot-proxy.sh=, make sure that it is executable.
    1. Edit the VARIABLES section to look something like  (replace your email, host name and the paths that are different in your setup - the comments in the script will help): <pre class="file">SETUP_FILE=""
 CERT_FILE=""
 KEY_FILE=""
@@ -455,13 +458,13 @@ PROXY_DESCRIPTION="VO Fronted glidein delegated on %RED%hostname%ENDCOLOR%"
 VOMS_OPTION="osg:/osg"</pre>
 
 Before adding the scripts to the crontab I'd recommend to test them manually once to make sure that there are no errors. As user =frontend= run the scripts (you can also use ==sh -x== to debug them): <pre class="screen">
-/var/lib/gwms-frontend/make-proxy.sh  --no-voms-proxy
-/var/lib/gwms-frontend/make-proxy-glidein.sh
+/var/lib/gwms-frontend/make-frontend-proxy.sh  --no-voms-proxy
+/var/lib/gwms-frontend/make-pilot-proxy.sh
 </pre>
 
 Add the scripts to the crontab of the user =frontend= with =crontab -e=:  <pre class="file">
-10 * * * * /var/lib/gwms-frontend/make-proxy.sh  --no-voms-proxy
-10 * * * * /var/lib/gwms-frontend/make-proxy-glidein.sh
+10 * * * * /var/lib/gwms-frontend/make-frontend-proxy.sh  --no-voms-proxy
+10 * * * * /var/lib/gwms-frontend/make-pilot-proxy.sh
 </pre>
 
 An additional script like [[%ATTACHURL%/make-proxy-control.sh][make-proxy-control.sh]] can be used for an independent verification of the proxies. If you like, download it, fix the variables and add it to the crontab like the other two.
@@ -526,12 +529,25 @@ And you can stop also the other services if you are not using them independently
 
 
 ---+ Validation of Service Operation
-The validation of the frontend is the submission of actual jobs
+The complete validation of the frontend is the submission of actual jobs.  However, there are a few things that can be checked prior to submitting user jobs to Condor.
 
-%NOTE% You can check that ll the correct Condor daemons are started.  <pre class="screen"> %UCL_PROMPT% condor_config_val -verbose DAEMON_LIST
-DAEMON_LIST: MASTER,  COLLECTOR, NEGOTIATOR COLLECTOR0 COLLECTOR1 COLLECTOR2 COLLECTOR3 COLLECTOR4 COLLECTOR5 COLLECTOR6 COLLECTOR7 COLLECTOR8 COLLECTOR9 COLLECTOR10 , COLLECTOR11, COLLECTOR12, COLLECTOR13, COLLECTOR14, COLLECTOR15, COLLECTOR16, COLLECTOR17, COLLECTOR18, COLLECTOR19, COLLECTOR20, COLLECTOR21, COLLECTOR22, COLLECTOR23, COLLECTOR24, COLLECTOR25, COLLECTOR26, COLLECTOR27, COLLECTOR28, COLLECTOR29, COLLECTOR30, COLLECTOR31, COLLECTOR32, COLLECTOR33, COLLECTOR34, COLLECTOR35, COLLECTOR36, COLLECTOR37, COLLECTOR38, COLLECTOR39, COLLECTOR40,  SCHEDD, SCHEDDJOBS2
-  Defined in '/etc/condor/config.d/02_gwms_schedds.config', line 77.
-</pre> If you don't see all the collectors and the two schedd, then the configuration must be corrected.
+   1 Verify all Condor daemons are started.  <pre class="screen"> %UCL_PROMPT% condor_config_val -verbose DAEMON_LIST 
+DAEMON_LIST: MASTER,  COLLECTOR, NEGOTIATOR,  SCHEDD, SHARED_PORT, SCHEDDJOBS2 COLLECTOR0 COLLECTOR1 COLLECTOR2 
+COLLECTOR3 COLLECTOR4 COLLECTOR5 COLLECTOR6 COLLECTOR7 COLLECTOR8 COLLECTOR9 COLLECTOR10 , COLLECTOR11, 
+COLLECTOR12, COLLECTOR13, COLLECTOR14, COLLECTOR15, COLLECTOR16, COLLECTOR17, COLLECTOR18, COLLECTOR19, COLLECTOR20, 
+COLLECTOR21, COLLECTOR22, COLLECTOR23, COLLECTOR24, COLLECTOR25, COLLECTOR26, COLLECTOR27, COLLECTOR28, COLLECTOR29, 
+COLLECTOR30, COLLECTOR31, COLLECTOR32, COLLECTOR33, COLLECTOR34, COLLECTOR35, COLLECTOR36, COLLECTOR37, COLLECTOR38, 
+COLLECTOR39, COLLECTOR40
+  Defined in '/etc/condor/config.d/11_gwms_secondary_collectors.config', line 193.
+</pre> If you don't see all the collectors and the two schedd, then the configuration must be corrected. There should be  __no__  =startd= daemons listed
+   1 Verify all VO Frontend Condor services are communicating.<pre class="screen"> %UCL_PROMPT% condor_config_val -any
+MyType               TargetType           Name                          
+Scheduler            None                 fermicloud379.fnal.gov        
+DaemonMaster         None                 fermicloud379.fnal.gov        
+Negotiator           None                 fermicloud379.fnal.gov        
+Collector            None                 frontend_service@fermicloud379
+Scheduler            None                 schedd_jobs2@fermicloud379.fna</pre>
+
 
 ---++ Glidein WMS Job submission
 Condor submit file =glidein-job.sub=. This is a simple job printing the hostname of the host where the job is running:
@@ -544,6 +560,7 @@ error = glidein/test.err
 requirements = IS_GLIDEIN == True
 log = glidein/test.log
 ShouldTransferFiles = YES
+
 when_to_transfer_output = ON_EXIT
 queue
 </pre>
