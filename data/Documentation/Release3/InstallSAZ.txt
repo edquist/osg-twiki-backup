@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="NehaSharma" date="1370027657" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="NehaSharma" date="1379450855" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="NavTechSAZ"}%
 %DOC_STATUS_TABLE%
 
@@ -64,9 +64,10 @@ Note that if UIDs 27 and 91 are taken already but not used for the appropriate u
 
 ---### Install SAZ
 
-   1. Install the SAZ Service <pre class="rootscreen">%UCL_PROMPT_ROOT% yum install osg-saz</pre>
-   1. Install Fetch CRL: %INCLUDE{"InstallCertAuth" section="FetchCRLInstallShort"}% 
+   1. Install the SAZ Service <pre class="rootscreen">%UCL_PROMPT_ROOT% yum install saz-service</pre>
+   1. Install Fetch CRL %INCLUDE{"InstallCertAuth" section="FetchCRLInstallShort"}% 
    1. Configure Tomcat to use GSI <pre class="rootscreen">%UCL_PROMPT_ROOT% /var/lib/trustmanager-tomcat/configure.sh</pre><p><strong>Note:</strong> This step will overwrite your =/etc/tomcat5/server.xml= file (For OSG 3.x (RPM) installs on EL5 systems) and =/etc/tomcat6/server.xml= file (For OSG 3.x (RPM) installs on EL6 systems) ; if you are using Tomcat on this host for non-grid purposes, you may want to save the =server.xml= file first, run the script, then merge your own configuration back into the file.</p>
+   1. Modify ownership of http cert/key<pre class="rootscreen">%UCL_PROMPT_ROOT%chown -R tomcat:tomcat /etc/cloud-security/http </pre>
 
 ---### Configure SAZ database
 
@@ -75,17 +76,83 @@ In this section, you will configure the SAZ !MySQL database by creating a new da
 ---#### New Installation
 
    1. Start !MySQL<pre class="rootscreen">%UCL_PROMPT_ROOT% service mysqld start</pre>
-   1. Create a new SAZ database<pre class="rootscreen">%UCL_PROMPT_ROOT% /usr/bin/saz-setup-mysql-database --user sazdbuser --host localhost:3306 --password <em>PASSWORD</em></pre><p><strong>Note:</strong> This password will be in plaintext in the =/etc/saz/hibernate.cfg.xml= file, so choose one that is not used anywhere else. The =hibernate.cfg.xml= file should be readable only by the =tomcat= user, but this situation provides light security at best.</p>
-   1. Add yourself as a SAZ administrator<pre class="rootscreen">%UCL_PROMPT_ROOT% saz-add-mysql-admin '<em>Admin DN</em>' '<em>Admin Name</em>' </pre>
+   1. Create a new SAZ database<pre class="rootscreen">%UCL_PROMPT_ROOT% /usr/bin/saz-db-conf-setup --user sazdbuser --host localhost:3306 --password <em>PASSWORD</em> --sazserver FQDN-SAZ-SERVER --non-xacml-port 8888 --pool-size 100 --cert /etc/grid-security/http/httpcert.pem --key /etc/grid-security/http/httpkey.pem --certdir /etc/grid-security/certificates --userproxy-lifetime 10000 --crl-refresh-interval 60 --def-user-enabled Y --def-user-trusted N --def-ca-enabled Y --def-ca-trusted N --def-vo-enabled Y --def-vo-trusted N --def-role-enabled Y --def-role-trusted N --ban-usercert-serial-num N --ban-userproxy-lifetime N --req-host-dn N</pre><p><strong>Note:</strong> This password will be in plaintext in the =/etc/saz/hibernate.cfg.xml= file, so choose one that is not used anywhere else. The =hibernate.cfg.xml= file should be readable only by the =tomcat= user, but this situation provides light security at best.</p>
+   1. Add yourself as a SAZ administrator<pre class="rootscreen">%UCL_PROMPT_ROOT% /usr/bin/saz-add-mysql-admin '<em>Admin DN</em>' '<em>Admin Name</em>' </pre>
    1. [Optional but recommended:] Apply reasonable !MySQL security settings<pre class="rootscreen">%UCL_PROMPT_ROOT% /usr/bin/mysql_secure_installation</pre>
 
+---# Services
 
----### Set Initial SAZ Configuration
+The SAZ service is a web application running within the Tomcat web application server. It uses the !MySQL database server for storage and the Fetch CRL service to maintain each %LINK_GLOSSARY_CRL%.
 
-In this section, you will set up an initial SAZ configuration file
+---## Starting and Enabling Services
 
+To start SAZ and associated services:
 
+   1. Start SAZ and associated services
+      * %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlStart"}%
+      * Start other services<pre class="rootscreen">%UCL_PROMPT_ROOT% /sbin/service mysqld start
+%RED% # For RHEL 5, CentOS 5, and SL5 %ENDCOLOR%
+%UCL_PROMPT_ROOT% /sbin/service tomcat5 start
+%RED% # For RHEL 6, CentOS 6, and SL6  %ENDCOLOR%
+%UCL_PROMPT_ROOT% /sbin/service tomcat6 start
+</pre>
+   1. [Optional but recommended:] Enable services so that they start automatically when your system is powered on
+      * %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlEnable"}%
+      * Enable other services <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/chkconfig mysqld on
+%RED%# For RHEL 5, CentOS 5, and SL5 %ENDCOLOR%
+%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 on
+%RED%# For RHEL 6, CentOS 6, and SL6 %ENDCOLOR%
+%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat6 on
+</pre>
+---## Stopping and Disabling Services
 
+To stop SAZ and associated servies, stop it and associated services in the opposite order from which you started them:
+
+   1. Stop the SAZ and associated services:
+      * Stop main services <pre class="rootscreen">
+%RED%# For RHEL 5, CentOS 5, and SL5 %ENDCOLOR%
+%UCL_PROMPT_ROOT% /sbin/service tomcat5 stop
+%RED%# For RHEL 6, CentOS 6, and SL6 %ENDCOLOR%
+%UCL_PROMPT_ROOT% /sbin/service tomcat6 stop
+%RED%# For RHEL 5/6, CentOS 5/6, and SL5/6%ENDCOLOR%
+%UCL_PROMPT_ROOT% /sbin/service mysqld stop
+</pre>
+      * (other grid service running on the machine may still use it) %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlStop"}%
+   1. Stop services from starting when the system is powered on
+      * Disable the main services <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/chkconfig mysqld off
+%RED%# For RHEL 5, CentOS 5, and SL5 %ENDCOLOR%
+%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat5 off
+%RED%# For RHEL 6, CentOS 6, and SL6 %ENDCOLOR%
+%UCL_PROMPT_ROOT% /sbin/chkconfig tomcat6 off
+</pre>
+      * (other grid service running on the machine may still use it) %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlDisable"}%
+
+---# Validating SAZ
+
+This section is optional, but if you would like to verify that your SAZ installation and configuration are good, consider using some or all of the sections below.
+
+---## Connect to the SAZ web page
+
+Connect to =https://<em>HOSTNAME</em>:8443/saz/services/SAZXACMLAuthorizationServicePort= .
+
+If you do not see it load, check a few things:
+
+%RED%#For OSG 3.x (RPM) installs on EL5 systems%ENDCOLOR% 
+   * Look for errors in =/var/log/tomcat5/catalina.out= and =/var/log/tomcat5/catalina.err=.
+   * Look for errors in =/var/log/tomcat5/trustmanager.log=. There are likely to be CRL errors in this file, this can be ignored unless all your CA's get CRL errors in which case you should check to make sure that your CRL updates are running correctly.
+
+%RED%#For OSG 3.x (RPM) installs on EL6 systems%ENDCOLOR%
+   * Look for errors in =/var/log/tomcat6/catalina.out= and =/var/log/tomcat6/catalina.err=.
+   * Look for errors in =/var/log/tomcat6/trustmanager.log=. There are likely to be CRL errors in this file, this can be ignored unless all your CA's get CRL errors in which case you should check to make sure that your CRL updates are running correctly.
+
+%RED%#For both EL5/EL6 systems%ENDCOLOR%
+   * Ensure that you have an http certificate in =/etc/grid-security/http/httpcert.pem= and =/etc/grid-security/http/httpkey.pem=. Make sure it is readable by the =tomcat= user. Permissions should be as follows:<pre class="screen">
+# ls -l /etc/grid-security/http/
+total 8
+-r--r--r-- 1 tomcat tomcat 1671 Jul  2 15:54 httpcert.pem
+-r-------- 1 tomcat tomcat 1675 Jul  2 15:54 httpkey.pem</pre>
 ---# Troubleshooting
 
 ---## Useful Configuration and Log Files
@@ -95,7 +162,9 @@ Configuration Files
 | !MySQL | =/etc/my.cnf= | !MySQL configuration, e.g. server port |
 | tomcat (EL5) | =/etc/tomcat5/= | Tomcat configuration files |
 | tomcat (EL6) | =/etc/tomcat6/= | Tomcat configuration files |
-| SAZ | =/etc/saz/= | SAZ configuration files |
+| SAZ | =/etc/saz/sazserver.conf= | SAZ configuration files |
+| SAZ | =/etc/saz/hibernate.cfg.xml= | |
+| SAZ | =/etc/saz/log4j.properties= | |
 
 Log files
 | *Service or Process* | *Log File* | *Description* |
