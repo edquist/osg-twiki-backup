@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1380221598" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1380230049" format="1.1" reprev="1.2" version="1.2"}%
 <!-- conventions used in this document
    * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="hostname"}%
    * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="user"}%
@@ -22,7 +22,9 @@ In this tutorial I will show:
 I have several pictures like this:
      <img src="%ATTACHURLPATH%/cellimage.png" alt="cellimage.png" width='300' height='300' />    
 
-and I'd like to count the "cells" into the picture. This is done by a clusterization process illustrated in the following image:
+These pictures look a bit like biological samples where cells (clusters of different luminosity) are visible on top of a background.
+And I'd like to count the "cells" into the picture. 
+This is done by a clusterization process illustrated in the following image and [[http://pythonvision.org/basic-tutorial][this tutorial]]:
      <img src="%ATTACHURLPATH%/segmentation_example.png" alt="segmentation_example.png" width='617' height='203' />    
 
 
@@ -39,13 +41,13 @@ and I'd like to count the "cells" into the picture. This is done by a clusteriza
 
 And there is much more: [[https://confluence.grid.iu.edu/display/CON/Home][ConnectBook]] is a collection of guides.
 
---+ Transfer the files
+---+ Transfer the files
 
-The directory {{\~/data/public}} is exported on the Web by stash as ==https://stash.osgconnect.net/+USER_ID== and you can use it to move your data. See [[https://confluence.grid.iu.edu/display/CON/Access+Stash+remotely+from+your+job+using+HTTP][Access Stash remotely from your job using HTTP]] for an example.
+The directory ==~/data/public== is exported on the Web by stash as ==https://stash.osgconnect.net/+USER_NAME/== (where USER_NAME is your user name on OSG Connect)and you can use it to move your data. See [[https://confluence.grid.iu.edu/display/CON/Access+Stash+remotely+from+your+job+using+HTTP][Access Stash remotely from your job using HTTP]] for an example.
 
 I will use this feature and transfer my files there using [[https://confluence.grid.iu.edu/display/CON/Using+Globus+Online+with+Stash][Globus Online]].
 
---+ Install and setup BOSCO
+---+ Install and setup BOSCO
 
 ---++ Download & Install Bosco
 This is a very abbreviated install document for Bosco.  For the full install document, view [[BoscoQuickStart][Bosco Quick Start Installer]].  
@@ -74,11 +76,19 @@ Visit the Bosco [[http://bosco.opensciencegrid.org/download/][download]] page.  
    * condor (queue manager in the cluster)
 
 
---+ Run the code
+---+ Run the code
 
-There are software packages like R and Anaconda (Python, NumPy, ...) available thanks to [PALMS|https://twiki.grid.iu.edu/bin/view/CampusGrids/OsgPalms] and [OASIS|https://indico.cern.ch/contributionDisplay.py?contribId=277&sessionId=4&confId=214784]. See [Software access using OASIS|https://confluence.grid.iu.edu/display/CON/Software+access+using+OASIS].
+You can test the job locally on your laptop/workstation or =login.osgconnect.net= but then all the jobs will run on different resources across OSG, all with different software stacks. So I don't know if the software I'm using will be available.
 
+Anyway there are software packages like R and Anaconda (Python, !NumPy, ...) available across almost all of OSG thanks to [[https://twiki.grid.iu.edu/bin/view/CampusGrids/OsgPalms][PALMS]] and [[https://indico.cern.ch/contributionDisplay.py?contribId=277&sessionId=4&confId=214784][OASIS]]. 
+And I can make sure that my job runs on a node where PALMS and OASIS are available.
+See [[https://confluence.grid.iu.edu/display/CON/Software+access+using+OASIS][Software access using OASIS]] for detailed instructions on how to use PALMS and OASIS and for a list of the available software.
+
+Python 2.7.5 with all the scientific libraries (the ones included in [[http://continuum.io/downloads][Anaconda]]) is all that I will need for my jobs.
+
+Here is the python script counting the "cells" in the image. This is a simplified version. On a real analysys the treshold is more complex than a simple average and some pre-filtering of the image or pattern recognition are used to improve the results:
 <pre>#!/bin/env python
+# count_cells.py - script counting the cells in the image
 
 import numpy as np
 from scipy import ndimage
@@ -98,15 +108,23 @@ label_im, nb_labels = ndimage.label(mask)
 print nb_labels
 </pre>
 
+Here is a wrapper script that downloads the image file, sets up the environment and launches the python script.
+*Replace USER_NAME with your username on login.osgconnect.net*:
 <pre>#!/bin/sh
-
+# job_wrapper.sh - script guiding the job execution
 IMAGE_FILE=cellimage.tiff
+IMAGE_URL=http://stash.osgconnect.net/+%RED%USER_NAME%ENDCOLOR%/images/cellimage$1.tiff
+
 # download the file
-wget -O $IMAGE_FILE  http://stash.osgconnect.net/+marcotest1/images/cellimage$1.tiff >&2
+wget -O $IMAGE_FILE "$IMAGE_URL"  >&2
 if [ ! $? -eq 0 ]; then
-  echo "Wget failed. Exiting." >&2
-  ls -l >&2
-  exit
+  echo "Wget failed. Trying curl." >&2
+  curl -o $IMAGE_FILE  "$IMAGE_URL" >&2
+  if [ ! $? -eq 0 ]; then
+    echo "Also curl failed. Exiting." >&2
+    ls -l >&2
+    exit
+  fi
 fi
 if [ ! -f ./$IMAGE_FILE ]; then
   echo "Missing image file ./$IMAGE_FILE. Exiting." >&2
@@ -121,14 +139,18 @@ palmsdosetup anaconda 1>&2
 python ./count_cells.py
 </pre>
 
-<pre>#file job.sub
-universe = vanilla
+Here is the HTCondor submit file:
+<pre># job.sub - HTCondor submit file
+# If submitting from login.osgconnect.net use: universe = vanilla
+# When submitting via BOSCO use:
+universe = grid
 
+# remember to create the batch1 directory
 Error   = batch1/job.err.$(Cluster)-$(Process)
-#Input   = job.in.$(Cluster)-$(Process)
 Output  = batch1/job.out.$(Cluster)-$(Process)
 Log     = batch1/job.log.$(Cluster)
 
+# Remember to set the job_wrapper.sh es executable (chmod +x):
 Executable     = job_wrapper.sh
 Arguments = $(Process)
 Transfer_input_files = count_cells.py
@@ -138,6 +160,7 @@ When_to_transfer_output = ON_EXIT
 Requirements = (HAS_CVMFS_oasis_opensciencegrid_org =?= TRUE) && (CVMFS_oasis_opensciencegrid_org_REVISION >= 729)
 +ProjectName = "ConnectTrain"
 
+# Submitting 100 jobs to analyze 100 different images
 queue 100
 </pre>
 
