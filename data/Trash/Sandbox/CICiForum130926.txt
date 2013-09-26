@@ -1,0 +1,149 @@
+%META:TOPICINFO{author="MarcoMambelli" date="1380221598" format="1.1" reprev="1.1" version="1.1"}%
+<!-- conventions used in this document
+   * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="hostname"}%
+   * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="user"}%
+   * Local UCL_DOMAIN = %URLPARAM{"INPUT_DOMAIN" encode="quote" default="opensciencegrid.org"}%
+   * Set TWISTY_OPTS_DETAILED = mode="div" showlink="Show Detailed Output" hidelink="Hide" showimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleopen-small.gif" hideimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleclose-small.gif" remember="on" start="hide" 
+   * Set TOC2 =<div style="float:right; margin-right:-1.015em; padding:0.5em; background-color:white;">%TOC%<p class="twikiClear" /></div>
+-->
+
+
+---+!! Connecting to OSG to analyze images
+
+Let's assume I have a lot of scientific data to analyze, e.g. I want to count the cells in many images stored on my computer, and I don't have the computing power to complete in a timely manner.
+Opportunistic resources on Open Science Grid and some tools available to its community can help me get the task done.
+In this tutorial I will show:
+   * how to register on OSG Connect to get access to OSG resources
+   * how to easily move your data so that it can be available on the Web and used by your jobs
+   * how to install and use BOSCO to submit the python jobs and retrieve the results on your laptop or workstation
+
+---+ The task
+
+I have several pictures like this:
+     <img src="%ATTACHURLPATH%/cellimage.png" alt="cellimage.png" width='300' height='300' />    
+
+and I'd like to count the "cells" into the picture. This is done by a clusterization process illustrated in the following image:
+     <img src="%ATTACHURLPATH%/segmentation_example.png" alt="segmentation_example.png" width='617' height='203' />    
+
+
+
+
+
+---+ Register on OSG Connect
+
+1. Go to the [[https://osgconnect.net/][OSG Connect web site]] and register by clicking on "Log In or Register" (upper right corner) and following the instructions. [[https://confluence.grid.iu.edu/display/CON/Registration+and+login+instructions][Here a document explaining the registration]].
+
+2. [[https://portal.osgconnect.net/Groups][Join a project]] or [[https://confluence.grid.iu.edu/display/CON/Start+a+Project+with+OSG+Connect][create a new project]] (e.g.  one describing your research activity Test-CellCounting).
+
+3. Login on =login.osgconnect.net= and start submitting your jobs. [[https://confluence.grid.iu.edu/display/CON/OSG+Connect+Quickstart][Here is a quickstart guide]] but you'll feel right at home if you are fmiliar with HTCondor. Just remember to specify a =ProjectName= in your jobs or to add a =$HOME/.osg_default_project= file with your default project name.
+
+And there is much more: [[https://confluence.grid.iu.edu/display/CON/Home][ConnectBook]] is a collection of guides.
+
+--+ Transfer the files
+
+The directory {{\~/data/public}} is exported on the Web by stash as ==https://stash.osgconnect.net/+USER_ID== and you can use it to move your data. See [[https://confluence.grid.iu.edu/display/CON/Access+Stash+remotely+from+your+job+using+HTTP][Access Stash remotely from your job using HTTP]] for an example.
+
+I will use this feature and transfer my files there using [[https://confluence.grid.iu.edu/display/CON/Using+Globus+Online+with+Stash][Globus Online]].
+
+--+ Install and setup BOSCO
+
+---++ Download & Install Bosco
+This is a very abbreviated install document for Bosco.  For the full install document, view [[BoscoQuickStart][Bosco Quick Start Installer]].  
+
+<literal>
+ <a href="http://bosco.opensciencegrid.org/download/">
+     <img src="https://raw.github.com/osg-bosco/bosco-download-images/master/images/download-orange.png" 
+     alt="Bosco Download"
+     style="border-width: 0;"/>
+ </a>
+</literal>
+
+   
+Visit the Bosco [[http://bosco.opensciencegrid.org/download/][download]] page.  Choose the Quick Start Installer.  After downloading the installer, from the terminal, untar it and run the installer as a regular user:
+<pre class="screen">
+%UCL_PROMPT% tar xvzf ./bosco_quickstart.tar.gz
+%UCL_PROMPT% ./bosco_quickstart
+</pre>
+
+
+---++ Starting Bosco & adding your first cluster using the quick start
+
+==login.osgconnect.net== is an HTCondor resource I can connect to BOSCO answering the questions:
+   * login.osgconnect.net (FQDN of the cluster)
+   * myuser (my user name)
+   * condor (queue manager in the cluster)
+
+
+--+ Run the code
+
+There are software packages like R and Anaconda (Python, NumPy, ...) available thanks to [PALMS|https://twiki.grid.iu.edu/bin/view/CampusGrids/OsgPalms] and [OASIS|https://indico.cern.ch/contributionDisplay.py?contribId=277&sessionId=4&confId=214784]. See [Software access using OASIS|https://confluence.grid.iu.edu/display/CON/Software+access+using+OASIS].
+
+<pre>#!/bin/env python
+
+import numpy as np
+from scipy import ndimage
+import Image
+from scipy.misc import fromimage
+
+# Import image
+pic = Image.open("./cellimage.tiff")
+im = fromimage(pic)
+
+# Evaluate treshold and segment the image
+T = im.mean()
+mask = im > T
+label_im, nb_labels = ndimage.label(mask)
+
+# print result
+print nb_labels
+</pre>
+
+<pre>#!/bin/sh
+
+IMAGE_FILE=cellimage.tiff
+# download the file
+wget -O $IMAGE_FILE  http://stash.osgconnect.net/+marcotest1/images/cellimage$1.tiff >&2
+if [ ! $? -eq 0 ]; then
+  echo "Wget failed. Exiting." >&2
+  ls -l >&2
+  exit
+fi
+if [ ! -f ./$IMAGE_FILE ]; then
+  echo "Missing image file ./$IMAGE_FILE. Exiting." >&2
+  ls -l >&2
+  exit
+fi
+
+# setup the environment
+source /cvmfs/oasis.opensciencegrid.org/osg/palms/setup 1>&2
+palmsdosetup anaconda 1>&2
+
+python ./count_cells.py
+</pre>
+
+<pre>#file job.sub
+universe = vanilla
+
+Error   = batch1/job.err.$(Cluster)-$(Process)
+#Input   = job.in.$(Cluster)-$(Process)
+Output  = batch1/job.out.$(Cluster)-$(Process)
+Log     = batch1/job.log.$(Cluster)
+
+Executable     = job_wrapper.sh
+Arguments = $(Process)
+Transfer_input_files = count_cells.py
+ShouldTransferFiles = YES
+When_to_transfer_output = ON_EXIT
+
+Requirements = (HAS_CVMFS_oasis_opensciencegrid_org =?= TRUE) && (CVMFS_oasis_opensciencegrid_org_REVISION >= 729)
++ProjectName = "ConnectTrain"
+
+queue 100
+</pre>
+
+-- Main.MarcoMambelli - 26 Sep 2013
+
+
+
+%META:FILEATTACHMENT{name="segmentation_example.png" attachment="segmentation_example.png" attr="" comment="" date="1380221443" path="segmentation_example.png" size="71697" stream="segmentation_example.png" tmpFilename="/usr/tmp/CGItemp64605" user="MarcoMambelli" version="1"}%
+%META:FILEATTACHMENT{name="cellimage.png" attachment="cellimage.png" attr="" comment="" date="1380221571" path="cellimage.png" size="40904" stream="cellimage.png" tmpFilename="/usr/tmp/CGItemp64696" user="MarcoMambelli" version="2"}%
