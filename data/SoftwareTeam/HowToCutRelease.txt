@@ -1,15 +1,10 @@
-%META:TOPICINFO{author="BrianLin" date="1382476702" format="1.1" reprev="1.60" version="1.60"}%
+%META:TOPICINFO{author="BrianLin" date="1382480474" format="1.1" reprev="1.61" version="1.61"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 <!--
    * Set VERSION = %URLPARAM{"version" default="VERSION"}%
    * Set SHORTVERSION = %CALC{"$SUBSTITUTE(%VERSION%,.,,,)"}%
    * Set MAJORVERSION = %CALC{"$SUBSTITUTE(%VERSION%,\.[0-9]+$,,,r)"}%
-   * Set MINORVERSION = %CALC{"$SUBSTITUTE(%VERSION%,^[0-9]+\.[0-9]+\.,,,r)"}%
 -->
-
-%MAJORVERSION%
-
-%MINORVERSION%
 
 ---+ How to Cut a Release
 
@@ -29,12 +24,12 @@ Version: <input type="text" name="version" size="10" value="%URLPARAM{"version"}
 <input type="submit"/>
 </form>
 
----++ Step 2: Create four clean VMs per distro version
+---++ Step 2: Create four clean VMs per OSG version
 
-Make four VMs for each distro version, probably in !FermiCloud, so you can do testing.
-Two of them will be used to test fresh installations on a clean machine (Step 5 below) (for both mainline and upcoming), while the other will be used to test an update from the current release (Step 6 below) (again, both mainline and upcoming).
+Make four VMs for each OSG version (upcoming, 3.1, 3.2, etc.), probably in !FermiCloud, so you can do testing.
+Two of them will be used to test fresh installations on a clean machine (one EL5, one EL6), while the others will be used to test an update from the current release (one EL5, one EL6).
 
-Note that this should be done for each distribution, so for sl5/sl6 mainline/upcoming fresh/upgrade, you will have a total of 8 VMs.
+Note that this should be done for each distribution, so for sl5/sl6 3.1/3.2/upcoming fresh/upgrade, you will have a total of 12 VMs.
 
 ---++ Step 3: Update the osg-version RPM
 
@@ -47,7 +42,7 @@ osg-build koji osg-version
 When it is finished building, push it to testing:
 <pre class="screen">
 for x in el5 el6; do
-   osg-koji tag-pkg $x-osg-testing osg-version-%VERSION%-1.osg.$x
+   osg-koji tag-pkg osg-%MAJORVERSION%-$x-testing osg-version-%VERSION%-1.osg.$x
 done
 </pre>
 
@@ -56,7 +51,7 @@ done
 Make sure that the pre-release is empty:
 <pre class="screen">
 for x in el5 el6; do
-   osg-koji list-tagged --quiet $x-osg-{,upcoming-}prerelease
+   osg-koji list-tagged --quiet osg-{%MAJORVERSION%,upcoming}-$x-prerelease
 done
 </pre>
 should print nothing.
@@ -65,7 +60,7 @@ Populate the pre-release. This requires you to understand which packages should 
 
 <pre class="screen">
 for x in el5 el6; do
-   koji-tag-diff $x-osg-{,upcoming-}testing $x-osg-{,upcoming-}release > {,upcoming-}pkgs-to-release-$x
+   koji-tag-diff osg-{%MAJORVERSION%,upcoming}-$x-testing osg-{%MAJORVERSION%,upcoming}-$x-release > {%MAJORVERSION%,upcoming}-pkgs-to-release-$x
 done
 </pre>
 %RED%Edit%ENDCOLOR% pkgs-to-release-* to remove packages not intended for this release.
@@ -73,12 +68,12 @@ done
 %RED%Also verify that if there is a new version of the =osg-tested-internal= RPM, then it is included in the release as well!%ENDCOLOR%
 <pre class="screen">
 for x in el5 el6; do
-   xargs -a {,upcoming-}pkgs-to-release-$x osg-koji tag-pkg $x-osg-{,upcoming-}prerelease
-   osg-koji regen-repo $x-osg-{,upcoming-}prerelease
+   xargs -a {%MAJORVERSION%,upcoming}-pkgs-to-release-$x osg-koji tag-pkg osg-{%MAJORVERSION%,upcoming}-$x-prerelease
+   osg-koji regen-repo osg-{%MAJORVERSION%,upcoming}-$x-prerelease
 done
 </pre>
 
----++ Step 5a: Test fresh installs of mainline in VMs #1 and #2
+---++ Step 5a: Test fresh installs of mainline
 
 You will do a fresh installation.  Note: you should do this for each distribution.
 The =osg-test= command below will enable the =osg-prerelease= repository, and the =osg= repository will already be enabled.
@@ -97,7 +92,7 @@ osg-test -var osg-prerelease -i osg-tested-internal
 
 All tests should pass. If any tests fail, discuss with the OSG Release Coordinator.
 
----++ Step 5b: Test fresh installs of upcoming in VMs #3 and #4
+---++ Step 5b: Test fresh installs of upcoming
 
 Same thing but for the upcoming repos.
 Note the difference in the osg-test command: you will need to explicitly enable the osg-upcoming repository, because it is not enabled by default.
@@ -117,7 +112,7 @@ osg-test -va -r osg-upcoming -r osg-upcoming-prerelease -i osg-tested-internal
 
 All tests should pass. If any tests fail, discuss with the OSG Release Coordinator.
 
----++ Step 6a: Test updates of mainline in VMs #5 and #6
+---++ Step 6a: Test updates of mainline
 
 Now you will do an installation just from the =osg= repository, then update it from the =osg-prerelease= repository.
 Note: you should do this for each distribution.
@@ -136,7 +131,7 @@ osg-test -va -i osg-tested-internal -g osg-prerelease
 
 All tests should pass. If any tests fail, discuss with the OSG Release Coordinator.
 
----++ Step 6b: Test updates of upcoming in VMs #7 and #8
+---++ Step 6b: Test updates of upcoming
 
 Same thing but for the upcoming repos.
 Note the difference in the osg-test command: you will need to explicitly enable the osg-upcoming repository, because it is not enabled by default.
@@ -221,9 +216,9 @@ Wait for clearance. The OSG Release Coordinator (in consultation with the Softwa
 ---++ Step 11: Push from pre-release to release:
 <pre class="screen">
 for x in el5 el6; do
-   osg-koji edit-tag --unlock $x-osg-{,upcoming-}release
-   osg-koji list-tagged --quiet $x-osg-{,upcoming-}prerelease | awk '{print $1}' > move-to-{,upcoming-}release-$x
-   xargs --arg-file move-to-{,upcoming-}release-$x osg-koji move-pkg $x-osg-{,upcoming-}prerelease $x-osg-{,upcoming-}release
+   osg-koji edit-tag --unlock osg-{%MAJORVERSION%,upcoming}-$x-release
+   osg-koji list-tagged --quiet osg-{%MAJORVERSION%,upcoming}-$x-prerelease | awk '{print $1}' > move-to-{%MAJORVERSION%,upcoming}-release-$x
+   xargs --arg-file move-to-{%MAJORVERSION%,upcoming}-release-$x osg-koji move-pkg osg-{%MAJORVERSION%,upcoming}-$x-prerelease osg-{%MAJORVERSION%,upcoming}-$x-release
 done
 </pre>
 
@@ -234,7 +229,7 @@ Expect this step to take ten minutes or so.
 
 <pre class="screen">
 for x in el5 el6; do
-   osg-koji clone-tag $x-osg-{,upcoming-}release $x-osg-{,upcoming-}release-%VERSION%
+   osg-koji clone-tag osg-{%MAJORVERSION%,upcoming}-$x-release osg-{%MAJORVERSION%,upcoming}-$x-release-%VERSION%
 done
 </pre>
 
@@ -243,16 +238,16 @@ done
 Lock repositories so they can't be messed with. We use edit-tag instead of lock-tag because lock-tag doesn't seem to work.
 
 <pre class="screen">
-for x in {el5,el6}-osg-{,upcoming-}release{,-%VERSION%}; do
-   osg-koji edit-tag --lock $x
+for x in el6 el6; do
+   osg-koji edit-tag --lock osg-{%MAJORVERSION%,upcoming}-$x-release{,-%VERSION%}
 done
 </pre>
 
 ---++ Step 14: Regenerate the repositories
 
 <pre class="screen">
-for x in {el5,el6}-osg-{,upcoming-}release{,-%VERSION%}; do
-   osg-koji regen-repo $x --nowait
+for x in el6 el6; do
+   osg-koji regen-repo osg-{%MAJORVERSION%,upcoming}-$x-release{,-%VERSION%} --nowait
 done
 </pre>
 
@@ -263,8 +258,8 @@ Come up with the following lists to copy and paste into the release notes twiki 
    1. An architecture-neutral (i.e. without =i386=, =x86_64=, etc. in the name) list of updated RPMs so that site administrators know the set of RPMs to "yum update" if they want to do a limited update. (=release-note-rpms-*=)
 <pre class="screen">
 for x in el5 el6; do
-   awk '{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=build&terms=" $1 "][" $1 "]]"}'  move-to-{,upcoming-}release-$x > {,upcoming}release-note-packages-$x 
-   xargs --arg-file move-to-{,upcoming-}release-$x osg-koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | perl -p -e "s/\.(noarch|src|i386|x86_64)\.rpm//" | sort -u > {,upcoming-}release-note-rpms-$x
+   awk '{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=build&terms=" $1 "][" $1 "]]"}'  move-to-{%MAJORVERSION%,upcoming-}release-$x > {%MAJORVERSION%,upcoming}-release-note-packages-$x 
+   xargs --arg-file move-to-{%MAJORVERSION%,upcoming}-release-$x osg-koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | perl -p -e "s/\.(noarch|src|i386|x86_64)\.rpm//" | sort -u > {%MAJORVERSION%,upcoming}-release-note-rpms-$x
 done
 </pre>
 <!--
@@ -287,13 +282,13 @@ ruser=%RED%roy%ENDCOLOR%
 rmachine=%RED%library.cs.wisc.edu%ENDCOLOR%
 </pre><pre class="screen">
 for x in el5 el6; do
-   cp move-to-{,upcoming-}release-$x %VERSION%-{,upcoming-}updated-$x.txt
-   osg-koji list-tagged --quiet --latest $x-osg-{,upcoming-}release | awk '{print $1}' > %VERSION%-{,upcoming-}packages-$x.txt
+   cp move-to-{%MAJORVERSION%,upcoming}-release-$x {%VERSION%,upcoming}-updated-$x.txt
+   osg-koji list-tagged --quiet --latest osg-{%MAJORVERSION%,upcoming}-$x-release | awk '{print $1}' > {%VERSION%,,upcoming}-packages-$x.txt
    xargs --arg-file %VERSION%-{,upcoming-}packages-$x.txt osg-koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | sort > %VERSION%-{,upcoming-}rpms-$x.txt
    if [ -d /p/vdt/public/html/release-info/ ]; then
-      cp %VERSION%-{,upcoming-}updated-$x.txt %VERSION%-{,upcoming-}packages-$x.txt %VERSION%-{,upcoming-}rpms-$x.txt /p/vdt/public/html/release-info/
+      cp {%VERSION%,upcoming}-updated-$x.txt {%VERSION%,upcoming}-packages-$x.txt {%VERSION%,upcoming}-rpms-$x.txt /p/vdt/public/html/release-info/
    else
-      scp %VERSION%-{,upcoming-}updated-$x.txt %VERSION%-{,upcoming-}packages-$x.txt %VERSION%-{,upcoming-}rpms-$x.txt $ruser@$rmachine:/p/vdt/public/html/release-info/
+      scp {%VERSION%,upcoming}-updated-$x.txt {%VERSION%,upcoming}-packages-$x.txt {%VERSION%,upcoming}rpms-$x.txt $ruser@$rmachine:/p/vdt/public/html/release-info/
    fi
 done
 </pre>
@@ -304,8 +299,8 @@ scp move-to-release-el5 %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/htm
 scp move-to-release-el6 %RED%roy@library.cs.wisc.edu%ENDCOLOR%:/p/vdt/public/html/release-info/%VERSION%-updated-el6.txt
 </pre><pre class="screen">
 # If on a UW CS machine
-cp move-to-release-el5 /p/vdt/public/html/release-info/%VERSION%-updated-el5.txt
-cp move-to-release-el6 /p/vdt/public/html/release-info/%VERSION%-updated-el6.txt
+cp move-to-{%MAJORVERSION%,upcoming}-release-el5 /p/vdt/public/html/release-info/%VERSION%-updated-el5.txt
+cp move-to-{%MAJORVERSION%,upcoming}-release-el6 /p/vdt/public/html/release-info/%VERSION%-updated-el6.txt
 </pre> 
    1. Find the full list of packages in the new release and copy the list. <pre class="screen">
 koji list-tagged --quiet --latest el5-osg-release | awk '{print $1}' > new-packages-el5
