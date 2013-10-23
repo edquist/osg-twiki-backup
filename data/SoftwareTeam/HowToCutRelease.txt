@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1382557519" format="1.1" reprev="1.63" version="1.63"}%
+%META:TOPICINFO{author="BrianLin" date="1382565449" format="1.1" reprev="1.64" version="1.64"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 <!--
    * Set VERSION = %URLPARAM{"version" default="VERSION"}%
@@ -21,6 +21,9 @@ This page will help you get the various commands exactly right. To do this, ente
 
 <form action="https://www.opensciencegrid.org/bin/view/SoftwareTeam/HowToCutRelease">
 Version: <input type="text" name="version" size="10" value="%URLPARAM{"version"}%"/>
+%IF{"$ 'URLPARAM{upcoming}'='true'"
+then='Upcoming: <input type="checkbox" name="upcoming" value="true" checked="checked"/>'
+else='Upcoming: <input type="checkbox" name="upcoming" value="true"/>'}%
 <input type="submit"/>
 </form>
 
@@ -31,10 +34,9 @@ Two of them will be used to test fresh installations on a clean machine (one EL5
 
 Note that this should be done for each distribution, so for sl5/sl6 3.1/3.2/upcoming fresh/upgrade.
 
-%IF{"$ VERSION!='upcoming'" 
-then='---++ Step 3: Update the osg-version RPM
+---++ Step 3: Update the osg-version RPM
 
-Edit the osg-version RPM\'s spec file to update the version number to %VERSION%. Build it in koji:
+Edit the osg-version RPM's spec file to update the version number to %VERSION%. Build it in koji:
 
 <pre class="screen">
 osg-build koji --repo=%MAJORVERSION% osg-version
@@ -45,17 +47,16 @@ When it is finished building, push it to testing:
 for x in el5 el6; do
    osg-koji tag-pkg osg-%MAJORVERSION%-$x-testing osg-version-%VERSION%-1.osg.$x
 done
-</pre>'
-}%
+</pre>
 
-%IF{"$ VERSION!='upcoming'" 
-then='---++ Step 4: Populate the osg-prerelease repository'
-else='---++ Step 3: Populate the osg-upcoming-prerelease repository'}%
+---++ Step 4: Populate the osg-prerelease repository
 
 Make sure that the pre-release is empty:
 <pre class="screen">
-for x in el5 el6; do
-   osg-koji list-tagged --quiet osg-%MAJORVERSION%-$x-prerelease
+for x in el5 el6; do   
+   %IF{"defined 'upcoming'"
+   then='osg-koji list-tagged --quiet osg-{%MAJORVERSION%,upcoming}-$x-prerelease'
+   else='osg-koji list-tagged --quiet osg-%MAJORVERSION%-$x-prerelease'}%
 done
 </pre>
 should print nothing.
@@ -64,7 +65,9 @@ Populate the pre-release. This requires you to understand which packages should 
 
 <pre class="screen">
 for x in el5 el6; do
-   koji-tag-diff osg-%MAJORVERSION%-$x-testing osg-%MAJORVERSION%-$x-release > %MAJORVERSION%-pkgs-to-release-$x
+   %IF{"defined 'upcoming'"
+   then='koji-tag-diff osg-{%MAJORVERSION%,upcoming}-$x-testing osg-{%MAJORVERSION%,upcoming}-$x-release > %MAJORVERSION%{,-upcoming}-pkgs-to-release-$x'
+   else='koji-tag-diff osg-%MAJORVERSION%-$x-testing osg-%MAJORVERSION%-$x-release > %MAJORVERSION%-pkgs-to-release-$x'}%
 done
 </pre>
 %RED%Edit%ENDCOLOR% pkgs-to-release-* to remove packages not intended for this release.
@@ -72,18 +75,19 @@ done
 %RED%Also verify that if there is a new version of the =osg-tested-internal= RPM, then it is included in the release as well!%ENDCOLOR%
 <pre class="screen">
 for x in el5 el6; do
-   xargs -a %MAJORVERSION%-pkgs-to-release-$x osg-koji tag-pkg osg-%MAJORVERSION%-$x-prerelease
-   osg-koji regen-repo osg-%MAJORVERSION%-$x-prerelease
+   %IF{"defined 'upcoming'"
+   then='xargs -a %MAJORVERSION%-{,upcoming}-pkgs-to-release-$x osg-koji tag-pkg osg-{%MAJORVERSION%,upcoming}-$x-prerelease
+   osg-koji regen-repo osg-{%MAJORVERSION%,upcoming}-$x-prerelease'
+   else='xargs -a %MAJORVERSION%-pkgs-to-release-$x osg-koji tag-pkg osg-%MAJORVERSION%-$x-prerelease
+   osg-koji regen-repo osg-%MAJORVERSION%-$x-prerelease'}%
 done
 </pre>
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 5: Test fresh installs of %VERSION%'
-else='---++ Step 4: Test fresh installs of %VERSION%'}%
+---++ Step 5: Test fresh installs of %VERSION%
 
 You will do a fresh installation.  Note: you should do this for each distribution.
-The =osg-test= command below will enable the %IF{"$ VERSION='upcoming'" then='=osg-upcoming-prerelease= ' else='=osg-prerelease='}% repository, and the =osg= repository will already be enabled.
-So packages will be taken from the =osg= repository unless there is a newer version in the %IF{"$ VERSION='upcoming'" then='=osg-upcoming-prerelease= ' else='=osg-prerelease='}% repository.
+The =osg-test= command below will enable the =osg-prerelease= repository, and the =osg= repository will already be enabled.
+So packages will be taken from the =osg= repository unless there is a newer version in the =osg-prerelease= repository.
 Note, due to some oddities in the tests, you'll need to be in a directory that the vdttest user has access to before running osg-test.
 =/tmp= should suffice for this.
 The bestman tests will break if you do not do this.
@@ -91,20 +95,36 @@ The bestman tests will break if you do not do this.
 <pre class="screen">
 wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
 chmod 0755 bootstrap-osg-test
-./bootstrap-osg-test %IF{"$ VERSION='upcoming'" then='%LATESTMAJORVERSION%' else='%MAJORVERSION%'}% testing
+./bootstrap-osg-test %MAJORVERSION% testing
 cd /tmp
-%IF{"$ VERSION='upcoming'"
-then="osg-test -va -r osg-upcoming -r osg-upcoming-prerelease -i osg-tested-internal"
-else="osg-test -var osg-prerelease -i osg-tested-internal"}%
+osg-test -var osg-prerelease -i osg-tested-internal
 </pre>
 
 All tests should pass. If any tests fail, discuss with the OSG Release Coordinator.
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 6: Test updates of %VERSION%'
-else='---++ Step 5: Test updates of %VERSION%'}%
+%IF{"defined 'upcoming'"
+then='---++ Step 5b: Test fresh installs of upcoming
 
-Now you will do an installation just from the %IF{"$ VERSION='upcoming'" then='=osg-upcoming= ' else='=osg='}% repository, then update it from the %IF{"$ VERSION='upcoming'" then='=osg-upcoming-prerelease= ' else='=osg-prerelease='}% repository.
+You will do a fresh installation.  Note: you should do this for each distribution.
+The =osg-test= command below will enable the =osg-upcoming-prerelease= repository, and the =osg-upcoming= repository will already be enabled.
+So packages will be taken from the =osg-upcoming= repository unless there is a newer version in the =osg-upcoming-prerelease= repository.
+Note, due to some oddities in the tests, you\'ll need to be in a directory that the vdttest user has access to before running osg-test.
+=/tmp= should suffice for this.
+The bestman tests will break if you do not do this.
+
+<pre class="screen">
+wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
+chmod 0755 bootstrap-osg-test
+./bootstrap-osg-test %MAJORVERSION% testing
+cd /tmp
+osg-test -va -r osg-upcoming -r osg-upcoming-prerelease -i osg-tested-internal
+</pre>
+
+All tests should pass. If any tests fail, discuss with the OSG Release Coordinator.'}%
+
+---++ Step 6: Test updates of %VERSION%
+
+Now you will do an installation just from the =osg= repository, then update it from the =osg-prerelease= repository.
 Note: you should do this for each distribution.
 This is an important double-check, because we want to know that updates work smoothly.
 Note, due to some oddities in the tests, you'll need to be in a directory that the vdttest user has access to before running osg-test.
@@ -114,19 +134,36 @@ The bestman tests will break if you do not do this.
 <pre class="screen">
 wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
 chmod 0755 bootstrap-osg-test
-./bootstrap-osg-test %IF{"$ VERSION='upcoming'" then='%LATESTMAJORVERSION%' else='%MAJORVERSION%'}% testing
+./bootstrap-osg-test %MAJORVERSION% testing
 cd /tmp
-%IF{"$ VERSION='upcoming'"
-then="osg-test -va -r osg-upcoming -i osg-tested-internal -g osg-upcoming-prerelease"
-else="osg-test -va -i osg-tested-internal -g osg-prerelease"}%
+osg-test -va -i osg-tested-internal -g osg-prerelease
 </pre>
 
 All tests should pass. If any tests fail, discuss with the OSG Release Coordinator.
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 7: Create the client tarballs
+%IF{"defined 'upcoming'"
+then='---++ Step 6b: Test updates of upcoming
 
-Create the client tarballs using the scripts in software/tarball-client/trunk from our SVN, and then copy them into the UW\'s AFS.
+Now you will do an installation just from the =osg-upcoming= repository, then update it from the =osg-upcoming-prerelease= repository.
+Note: you should do this for each distribution.
+This is an important double-check, because we want to know that updates work smoothly.
+Note, due to some oddities in the tests, you\'ll need to be in a directory that the vdttest user has access to before running osg-test.
+=/tmp= should suffice for this.
+The bestman tests will break if you do not do this.
+
+<pre class="screen">
+wget --quiet http://vdt.cs.wisc.edu/native/bootstrap-osg-test
+chmod 0755 bootstrap-osg-test
+./bootstrap-osg-test %MAJORVERSION% testing
+cd /tmp
+osg-test -va -r osg-upcoming -i osg-tested-internal -g osg-upcoming-prerelease
+</pre>
+
+All tests should pass. If any tests fail, discuss with the OSG Release Coordinator.'}%
+
+---++ Step 7: Create the client tarballs
+
+Create the client tarballs using the scripts in software/tarball-client/trunk from our SVN, and then copy them into the UW's AFS.
 Do this as root on an EL6 fermicloud machine.
 Change the username and machine name as appropriate.
 <pre class="rootscreen">
@@ -145,7 +182,7 @@ They should all have %VERSION% in the name.
 ---++ Step 8: Briefly test the client tarballs
 
 As an *unprivileged user*, extract each tarball into a separate directory.
-Make sure osg-post-install works. Make sure \'osgrun osg-version\' works.
+Make sure osg-post-install works. Make sure 'osgrun osg-version' works.
 
 <pre class="screen">
 for client in osg-client osg-wn-client; do
@@ -169,16 +206,13 @@ If you have time, try some of the binaries, such as grid-proxy-init.
 
 ---++ Step 9: Update the UW AFS installation of the tarball client
 
-The UW keeps an install of the tarball client in =/p/vdt/workspace/tarball-client= on the UW\'s AFS.
+The UW keeps an install of the tarball client in =/p/vdt/workspace/tarball-client= on the UW's AFS.
 There is a script to update it called =afs-install-tarball-client=. Run it as follows:
 <pre class="screen">
 /p/vdt/workspace/tarball-client/afs-install-tarball-client %VERSION%
-</pre>'
-}%
+</pre>
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 10: Wait'
-else='---++ Step 6: Wait'}%
+---++ Step 10: Wait
 
 Wait for clearance. The OSG Release Coordinator (in consultation with the Software Team and any testers) need to sign off on the update before it is released.  If you are releasing things over two days, this is a good place to stop for the day.
 
@@ -188,91 +222,100 @@ Wait for clearance. The OSG Release Coordinator (in consultation with the Softwa
 
 ------
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 11: Push from pre-release to release'
-else='---++ Step 7: Push from pre-release to release'}%
+---++ Step 11: Push from pre-release to release
 
 <pre class="screen">
 for x in el5 el6; do
-   osg-koji edit-tag --unlock osg-%MAJORVERSION%-$x-release
-   osg-koji list-tagged --quiet osg-%MAJORVERSION%-$x-prerelease | awk '{print $1}' > move-to-%MAJORVERSION%-release-$x
-   xargs --arg-file move-to-%MAJORVERSION%-release-$x osg-koji move-pkg osg-%MAJORVERSION%-$x-prerelease osg-%MAJORVERSION%-$x-release
+    %IF{"defined 'upcoming'"
+    then='osg-koji edit-tag --unlock osg-{%MAJORVERSION%,upcoming}-$x-release
+    osg-koji list-tagged --quiet osg-{%MAJORVERSION%,upcoming}-$x-prerelease | awk \'{print $1}\' > move-to-{%MAJORVERSION%,upcoming}-release-$x
+    xargs --arg-file move-to-{%MAJORVERSION%,upcoming}-release-$x osg-koji move-pkg osg-{%MAJORVERSION%,upcoming}-$x-prerelease osg-{%MAJORVERSION%,upcoming}-$x-release'
+   else='osg-koji edit-tag --unlock osg-%MAJORVERSION%-$x-release
+   osg-koji list-tagged --quiet osg-%MAJORVERSION%-$x-prerelease | awk \'{print $1}\' > move-to-%MAJORVERSION%-release-$x
+   xargs --arg-file move-to-%MAJORVERSION%-release-$x osg-koji move-pkg osg-%MAJORVERSION%-$x-prerelease osg-%MAJORVERSION%-$x-release'}%
 done
 </pre>
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 12: Create a new repo for the new release'
-else='---++ Step 8: Create a new repo for the new release'}%
+---++ Step 12: Create a new repo for the new release
 
 Create a new repo just for this release. This will normally not be seen by users, but can be used by them if necessary. It can also be used by us for testing purposes.
 Expect this step to take ten minutes or so.
 
 <pre class="screen">
 for x in el5 el6; do
-   osg-koji clone-tag osg-%MAJORVERSION%-$x-release osg-%MAJORVERSION%-$x-release-%VERSION%
+    %IF{"defined 'upcoming'"
+    then='osg-koji clone-tag osg-{%MAJORVERSION%,upcoming}-$x-release osg-{%MAJORVERSION%,upcoming}-$x-release-%VERSION%'
+    else='osg-koji clone-tag osg-%MAJORVERSION%-$x-release osg-%MAJORVERSION%-$x-release-%VERSION%'}%
 done
 </pre>
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 13: Lock the repositories'
-else='---++ Step 9: Lock the repositories'}%
+---++ Step 13: Lock the repositories
 
 Lock repositories so they can't be messed with. We use edit-tag instead of lock-tag because lock-tag doesn't seem to work.
 
 <pre class="screen">
 for x in el6 el6; do
-   osg-koji edit-tag --lock osg-%MAJORVERSION%-$x-release-%VERSION%
+    %IF{"defined 'upcoming'"
+    then='osg-koji edit-tag --lock osg-{%MAJORVERSION%,upcoming}-$x-release-%VERSION%'
+    else='osg-koji edit-tag --lock osg-%MAJORVERSION%-$x-release-%VERSION%'}%
 done
 </pre>
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 14: Regenerate the repositories'
-else='---++ Step 10: Regenerate the repositories'}%
+---++ Step 14: Regenerate the repositories
 
 <pre class="screen">
 for x in el6 el6; do
-   osg-koji regen-repo osg-%MAJORVERSION%-$x-release-%VERSION% --nowait
+    %IF{"defined 'upcoming'"
+    then='osg-koji regen-repo osg-{%MAJORVERSION%,upcoming}-$x-release-%VERSION% --nowait'
+    else='osg-koji regen-repo osg-%MAJORVERSION%-$x-release-%VERSION% --nowait'}%
 done
 </pre>
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 15: Write release notes'
-else='---++ Step 11: Write release notes'}%
+---++ Step 15: Write release notes
 
 Come up with the following lists to copy and paste into the release notes twiki page:
    1. A list of the updated packages with links to the koji builds that produced them. (=release-note-packages-*=)
    1. An architecture-neutral (i.e. without =i386=, =x86_64=, etc. in the name) list of updated RPMs so that site administrators know the set of RPMs to "yum update" if they want to do a limited update. (=release-note-rpms-*=)
 <pre class="screen">
 for x in el5 el6; do
-   awk '{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=build&terms=" $1 "][" $1 "]]"}'  move-to-%MAJORVERSION%-release-$x > %MAJORVERSION%-release-note-packages-$x 
-   xargs --arg-file move-to-%MAJORVERSION%-release-$x osg-koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | perl -p -e "s/\.(noarch|src|i386|x86_64)\.rpm//" | sort -u > %MAJORVERSION%-release-note-rpms-$x
+    %IF{"defined 'upcoming'"
+    then='awk \'{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=build&terms=" $1 "][" $1 "]]"}\'  move-to-%MAJORVERSION%{,-upcoming}-release-$x > %MAJORVERSION%{,-upcoming}-release-note-packages-$x 
+   xargs --arg-file move-to-%MAJORVERSION%-release-$x osg-koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | perl -p -e "s/\.(noarch|src|i386|x86_64)\.rpm//" | sort -u > %MAJORVERSION%{,-upcoming}-release-note-rpms-$x'
+   else='awk \'{ print "   * [[https://koji-hub.batlab.org/koji/search?match=glob&type=build&terms=" $1 "][" $1 "]]"}\'  move-to-%MAJORVERSION%-release-$x > %MAJORVERSION%-release-note-packages-$x 
+   xargs --arg-file move-to-%MAJORVERSION%-release-$x osg-koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | perl -p -e "s/\.(noarch|src|i386|x86_64)\.rpm//" | sort -u > %MAJORVERSION%-release-note-rpms-$x'}%
 done
 </pre>
 
 Write [[Documentation.Release3.ReleaseNotes][release notes]]. Use the package lists and RPM lists you created in the previous step.
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 16: Update the info we track for the releases'
-else='---++ Step 12: Update the info we track for the releases'}%
+---++ Step 16: Update the info we track for the releases
 
 Using the lists of updated packages, create a full list of packages in the new release and a full list of RPMs in the new release. Copy the lists to an archival directory on the UW's AFS. Change the user name and host name as appropriate. <pre class="screen">
 ruser=%RED%roy%ENDCOLOR%
 rmachine=%RED%library.cs.wisc.edu%ENDCOLOR%
 </pre><pre class="screen">
 for x in el5 el6; do
-   cp move-to-%MAJORVERSION%-release-$x %VERSION%-updated-$x.txt
-   osg-koji list-tagged --quiet --latest osg-%MAJORVERSION%-$x-release | awk '{print $1}' > %VERSION%-packages-$x.txt
-   xargs --arg-file %VERSION%-packages-$x.txt osg-koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | sort > %VERSION%-rpms-$x.txt
-   if [ -d /p/vdt/public/html/release-info/ ]; then
+    %IF{"defined 'upcoming'"
+    then='cp move-to-%MAJORVERSION%{,-upcoming}-release-$x %VERSION%{,-upcoming}-updated-$x.txt
+    osg-koji list-tagged --quiet --latest osg-{%MAJORVERSION%,upcoming}-$x-release | awk \'{print $1}\' > %VERSION%{,-upcoming}-packages-$x.txt
+    xargs --arg-file %VERSION%{,-upcoming}-packages-$x.txt osg-koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | sort > %VERSION%{,-upcoming}-rpms-$x.txt
+    if [ -d /p/vdt/public/html/release-info/ ]; then
+      cp %VERSION%{,-upcoming}-updated-$x.txt %VERSION%{,-upcoming}-packages-$x.txt %VERSION%{,-upcoming}-rpms-$x.txt /p/vdt/public/html/release-info/
+      else
+      scp %VERSION%{,-upcoming}-updated-$x.txt %VERSION%{,-upcoming}-packages-$x.txt %VERSION%{,-upcoming}-rpms-$x.txt $ruser@$rmachine:/p/vdt/public/html/release-info/
+    fi'
+    else='cp move-to-%MAJORVERSION%-release-$x %VERSION%-updated-$x.txt
+    osg-koji list-tagged --quiet --latest osg-%MAJORVERSION%-$x-release | awk \'{print $1}\' > %VERSION%-packages-$x.txt
+    xargs --arg-file %VERSION%-packages-$x.txt osg-koji buildinfo | fgrep "/mnt" | xargs -n 1 basename | sort > %VERSION%-rpms-$x.txt
+    if [ -d /p/vdt/public/html/release-info/ ]; then
       cp %VERSION%-updated-$x.txt %VERSION%-packages-$x.txt %VERSION%-rpms-$x.txt /p/vdt/public/html/release-info/
-   else
+      else
       scp %VERSION%-updated-$x.txt %VERSION%-packages-$x.txt %VERSION%-rpms-$x.txt $ruser@$rmachine:/p/vdt/public/html/release-info/
-   fi
+    fi'}%
 done
 </pre>
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 17: Upload the client tarballs
+---++ Step 17: Upload the client tarballs
 
 Ask Mat or someone with privileges on the grid.iu.edu repo servers to upload the tarballs with the following procedure:
 
@@ -302,7 +345,7 @@ ls -l /usr/local/repo/tarball-install/%MAJORVERSION%/*latest* # verify the symli
 
 ---++ Step 18: Install the tarballs into OASIS
 
-%RED%You must be an OASIS manager of the \'mis\' VO to do these steps.%ENDCOLOR%
+%RED%You must be an OASIS manager of the 'mis' VO to do these steps.%ENDCOLOR%
 Known managers as of 2013-08-13: Mat, Tim C, Tim T.
 Get the uploader script from SVN and run it with osgrun from the UW AFS install of the tarball client you made earlier.
 On a UW CSL machine:
@@ -310,12 +353,9 @@ On a UW CSL machine:
 chmod +x /tmp/upload-tarballs-to-oasis
 /p/vdt/workspace/tarball-client/current/sys/osgrun /tmp/upload-tarballs-to-oasis %VERSION%
 </pre>
-The script will automatically ssh you to oasis-login.opensciencegrid.org and give you instructions to complete the process.'
-}%
+The script will automatically ssh you to oasis-login.opensciencegrid.org and give you instructions to complete the process.
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 19: Announce the release'
-else='---++ Step 13: Announce the release'}%
+---++ Step 19: Announce the release
 
 <ol>
 <li>Write an announcement. Here is a sample you can edit:
@@ -352,9 +392,7 @@ We welcome feedback on this release!</div>
 <li>Ask the GOC to distribute the announcement by [[https://ticket.grid.iu.edu/goc/other][opening a ticket]]</li>
 </ol>
 
-%IF{"$ VERSION!='upcoming'"
-then='---++ Step 20: Mark the release in the pre-release notes page'
-else='---++ Step 14: Mark the release in the pre-release notes page'}%
+---++ Step 20: Mark the release in the pre-release notes page
 
 Go to PreReleaseNotes and add an entry marking the release. The code should look like:
 <pre>
