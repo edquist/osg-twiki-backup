@@ -1,0 +1,81 @@
+%META:TOPICINFO{author="MatyasSelmeci" date="1383963490" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="InternalDocs"}%
+---+ Design Doc for Fixing empty-* Packages
+
+Main ticket: [[https://jira.opensciencegrid.org/browse/SOFTWARE-1237][SOFTWARE-1237]]
+
+---++ Rationale
+
+We have several packages in our repos called empty-*; examples are empty-condor and empty-ca-certs.
+These packages are intended for users that want to install their own versions of components to satisfy certain dependencies.
+(These versions may be from tarballs or other non-RPM-based distribution mechanisms;
+RPM does not know about components installed this way, and so does not believe that the dependencies are satisfied.
+The empty-* packages do nothing but claim to provide these dependencies).
+
+If multiple packages satisfy (or claim to satisfy) a dependency, the YUM dependency solver (depsolver) goes through a set of heuristics to pick one.
+These heuristics prefer the empty-* packages over "real" packages.
+(The depsolver's heuristics try to minimize the number of additional dependencies a package brings in,
+and the empty-* packages do not have dependencies of their own).
+
+This is undesired behavior:
+when a typical user installs =osg-ce-condor=, they expect to end up with Condor installed;
+but the empty-condor package gets installed instead, violating their expectations.
+Furthermore, replacing =empty-condor= with =condor= requires the user to either uninstall packages that depend on condor, or use yum magic.
+
+Installing the real Condor should be the default behavior.
+A user shouldn't get =empty-condor= unless they ask for it.
+
+There is no good way to influence the depsolver to pick =condor= over =empty-condor= by default.
+The only way to get this behavior is to hide the empty-* packages from yum,
+and provide a user the ability to explicitly unhide them.
+
+---++ Proposal
+
+To hide a package but let users unhide it if they wish to, we can put the packages in a separate repository.
+However, creating a separate repository for only the four empty-* packages we have is overkill --
+it would involve creating new koji tags, updating mash scripts to mirror them on repo.grid.iu.edu and adjusting mirror scripts (which might have to be propagated to mirror sites as well).
+Therefore, it is better to "fake" the creation of a new repo by using yum includes/excludes.
+
+---+++ Package Changes
+
+We would modify our existing repo definition files (in the osg-release and osg-release-itb packages) to add the following line to each repo definition:
+<pre>exclude=empty-*</pre>
+This keeps the empty-* packages from showing up in those repos.
+We will create a new repo definition file called =osg-empty.repo= that contains three repos called =osg-empty=, =osg-testing-empty=, and =osg-development-empty=.
+They will point to the same URLs as the non-empty repos they correspond to (=osg=, =osg-testing=, and =osg-development=), but with two differences:
+they will be disabled by default, and they will have the following line:
+<pre>includepkg=empty-*</pre>
+That line causes yum to _only_ consider the empty-* packages from those repos.
+
+---+++ Documentation Changes
+
+Our documentation states that to install a CE with Condor, the user must install the =condor= package first and then =osg-ce-condor=.
+We will remove the requirement to install =condor= first.
+Our documentation states that if a user has their own non-RPM condor install and they wish to install a CE with Condor, they must install =empty-condor= first and then =osg-ce-condor=.
+We will change the line from saying "yum install empty-condor" to "yum install --enablerepo=osg-empty empty-condor".
+We will make similar changes for documentation relating to the other empty-* packages.
+
+---+++ Effect on Users
+
+None of these changes will affect empty-* packages that are already installed.
+
+If the user has customized one of their OSG .repo files (to enable or disable them, for example), they will not pick up the new change to that .repo file.
+This means that the repo that file references will still contain the empty-* packages.
+The osg-empty repos will still exist, but will not conflict with the main repos.
+Therefore, the user will not notice any difference.
+
+Any .repo file that the user has not modified will get the changes.
+Likewise, users making fresh installs will get the changes.
+These users will be unable to install or upgrade empty-* packages without explicitly enabling one of the osg-empty repos.
+
+Updates to empty-* packages are rare but not unknown.
+(The latest update to an empty-* package was to empty-condor in August 2013.
+The other empty-* packages have not been updated since May 2012, when they were merely bumped to rebuild with new %dist tags).
+For any release in which we update one of the empty-* packages, we will have to explicitly mention that said update is only available if the user enables an osg-empty repo.
+
+
+
+
+
+
+-- Main.MatyasSelmeci - 09 Nov 2013
