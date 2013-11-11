@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ParagMhashilkar" date="1384187233" format="1.1" reprev="1.46" version="1.46"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1384192482" format="1.1" reprev="1.47" version="1.47"}%
 %META:TOPICPARENT{name="NavUserApplications"}%
 <!-- Local variables
    * Set CONDORREL = 7.8.6
@@ -41,38 +41,31 @@ To request access the OSG Glidein Factory (e.g. the UCSD factory) you have to se
 
 ---+ Requirements
  
----++ Hardware requirements
+---++ Host and OS
+   1 A host to install the !GlideinWMS Frontend (pristine node). 
+   1 OS is %SUPPORTED_OS%.  Currently most of our testing has been done on Scientific Linux 6.
+   1 Root access
 
-The Glidein WMS VO Frontend has the following requirements:
+The Glidein WMS VO Frontend has the following hardware requirements for a production host:
    * *CPU*: Four cores, preferably no more than 2 years old.
    * *RAM*: 3GB plus 2MB per running job.  For example, to sustain 2000 running jobs, a host with 5GB is needed.
    * *Disk*:  30GB will be plenty sufficient for all the binaries, config and log files related to glideinWMS.  As this will be an interactive submit host, plan enough disk space for your users' jobs.  Depending on your workflow, this might require 2MB to 2GB per job in a workflow.
-   * *Network*:  The VO frontend must have reliable network connectivity, be on the public internet (no NAT), and preferably with no firewalls.  Each running pilot requires 5 outgoing TCP ports.  Incoming TCP ports 9618 to 9660 must be open.
-      * For example, 2000 running jobs require about 10,100 TCP connections.  This will overwhelm many firewalls; if you are unfamiliar with your network topology, you may want to warn your network administrator.
-
----++ Operating system
-
-This has been tested on SL6.3, SL5.5 and !CentOS 5.5, x86_64 architecture.  Any RHEL-5.x, RHEL-6.x clone should work .  Other platforms are not supported.
-
----++ Required software
-
-All software requirements are defined in the RPM, and will be pulled in at install time.
 
 ---++ Users
+The Glidein WMS Frontend installation will create the following users unless they are already created.
 
 %STARTSECTION{"Users"}%
-| *User* | *Comment* |
-| =frontend= | This user runs the !glideinWMS VO frontend.  It also owns the certificate forwarded to the factory to use for the glideins.|
-| =condor= | Condor user (installed via dependencies). |
+| *User* | *Default uid* | *Comment* |
+| =apache= | 48 | Runs httpd to provide the monitoring page (installed via dependencies). |
+| =condor= | none | Condor user (installed via dependencies). |
+| =frontend= | none | This user runs the !glideinWMS VO frontend.  It also owns the certificate forwarded to the factory to use for the glideins.|
+| =gratia= | none | Runs the Gratia probes to collect accounting data (optional see [[#Adding_Gratia_Accounting_and_a_L][the Gratia section below]]) |
+
+Note that if uid 48 is already taken but not used for the appropriate users, you will experience errors. [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/KnownProblems#Reserved_user_ids_especially_for][Details...]]
 %ENDSECTION{"Users"}%
 
----++ CA Certificates
-The OSG Client will install the CA certificates and CRLs as part of the installation.  These are used for authentication purposes for the various !glideinWMS services.  Refer to the [[InstallCertAuth][Installing Certificate Authorities Certificates and related RPMs]] document for more information on these.
+---++ Certificates and Proxies
 
-
-
-
----++ VO Frontend Certificate/Proxy Requirements
 The VO Frontend will use two certificates in its interactions with the the other !glideinWMS services.  At this time, these will be proxy files.
    1 the %GREEN%VO Frontend proxy%ENDCOLOR% (used to authenticate with the other !glideinWMS services).
    1 one or more glideinWMS %BLUE%pilot proxies%ENDCOLOR% (used/delegated to the factory services and submitted on the !glideinWMS pilot jobs).
@@ -89,9 +82,31 @@ The use of a service or host certificate is recommended.  Then you create a prox
 ---+++ Pilot proxies
 This proxy is used by the factory to submit the glideinWMS pilot jobs. Therefore, they  must be authorized to access to the CEs (factory entry points) where jobs are submitted.  There is no need to notify the Factory operation about the DN of this proxy (neither at the initial registration nor for subsequent changes). This second proxy has no special requirement or controls added by the factory but will probably require VO attributes because of the CEs: if you are able to use this proxy to submit jobs to the CEs where the Factory runs glideinWMS pilots for you, then the proxy is OK.
 
-To check the important information about a pem certificate you can use: =openssl x509 -in /etc/grid-security/hostcert.pem -subject -issuer -dates -noout=
+To check the important information about a pem certificate you can use: =openssl x509 -in /etc/grid-security/hostcert.pem -subject -issuer -dates -noout=. You will need that to find out information for the configuration files and the request to the !GlideinWMS factory.
+
+---+++ Certificates/Proxies configuration example
+This document has a [[#Proxy_Configuration][proxy configuration section]] that uses the host certificate/key and a user certificate to generate the required proxies.
+
+| *Certificate* | *User that owns certificate* | *Path to certificate* |
+| Host certificate | =root= | =/etc/grid-security/hostcert.pem= <br> =/etc/grid-security/hostkey.pem= |
+
+[[GetHostServiceCertificates][Here]] are instructions to request a host certificate.
+
+[[Documentation.CertificateUserGet][Here]] are instructions to request a grid user certificate like the ones normally used to generate pilot proxies.
+
+---++ Networking
+%STARTSECTION{"Firewalls"}%
+%INCLUDE{"FirewallInformation" section="FirewallTable" lines="gwmsfrontend,condor"}%
+
+The VO frontend must have reliable network connectivity, be on the public internet (no NAT), and preferably with no firewalls.  Each running pilot requires 5 outgoing TCP ports.  Incoming TCP ports 9618 to 9660 must be open.
+      * For example, 2000 running jobs require about 10,100 TCP connections.  This will overwhelm many firewalls; if you are unfamiliar with your network topology, you may want to warn your network administrator.
 
 
+%ENDSECTION{"Firewalls"}%
+
+
+
+---+ Before the installation
 
 ---++ OSG Factory access
 Before installing the Glidein WMS VO Frontend you need the information about a [[http://www.uscms.org/SoftwareComputing/Grid/WMS/glideinWMS/doc.prd/factory/index.html][Glidein Factory]] that you can access:
@@ -102,7 +117,7 @@ Before installing the Glidein WMS VO Frontend you need the information about a [
 To request access to the OSG Glidein Factory at UCSD you have to send an email to osg-gfactory-support@physics.ucsd.edu providing:
    1 Your Name
    1 The VO that is utilizing the VO Frontend
-   1 The DN of the proxy you will use to communicate with the Factory (VO Frontend DN)
+   1 The DN of the proxy you will use to communicate with the Factory (VO Frontend DN, e.g. the host certificate subject if you follow the [[#Proxy_Configuration][proxy configuration section]])
    1 You can propose a security name that will have to be confirmed/changed by the Factory managers (see below)
    1 A list of sites where you want to run:
       * Your VO must be supported on those sites
