@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1384380181" format="1.1" version="1.54"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1384804826" format="1.1" version="1.55"}%
 %META:TOPICPARENT{name="NavUserApplications"}%
 <!-- Local variables
    * Set CONDORREL = 7.8.6
@@ -60,15 +60,15 @@ The Glidein WMS Frontend installation will create the following users unless the
 | *User* | *Default uid* | *Comment* |
 | =apache= | 48 | Runs httpd to provide the monitoring page (installed via dependencies). |
 | =condor= | none | Condor user (installed via dependencies). |
-| =frontend= | none | This user runs the !glideinWMS VO frontend.  It also owns the certificate forwarded to the factory to use for the glideins.|
+| =frontend= | none | This user runs the !glideinWMS VO frontend.  It also owns the credentials forwarded to the factory to use for the glideins.|
 | =gratia= | none | Runs the Gratia probes to collect accounting data (optional see [[#Adding_Gratia_Accounting_and_a_L][the Gratia section below]]) |
 
 Note that if uid 48 is already taken but not used for the appropriate users, you will experience errors. [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/KnownProblems#Reserved_user_ids_especially_for][Details...]]
 %ENDSECTION{"Users"}%
 
----++ Certificates and Proxies
+---++ Credentials and Proxies
 
-The VO Frontend will use two certificates in its interactions with the the other !glideinWMS services.  At this time, these will be proxy files.
+The VO Frontend will use two credentials in its interactions with the the other !glideinWMS services.  At this time, these will be proxy files.
    1 the %GREEN%VO Frontend proxy%ENDCOLOR% (used to authenticate with the other !glideinWMS services).
    1 one or more glideinWMS %BLUE%pilot proxies%ENDCOLOR% (used/delegated to the factory services and submitted on the !glideinWMS pilot jobs).
 
@@ -76,7 +76,7 @@ The %GREEN%VO Frontend proxy%ENDCOLOR% and the %BLUE%pilot proxy%ENDCOLOR% can b
 By default, the VO Frontend will run as user =frontend= (UID is machine dependent) so these proxies must be owned by the user =frontend=. 
 
 ---+++ VO Frontend proxy
-The use of a service or host certificate is recommended.  Then you create a proxy from the certificate as explained in the [[#Proxy_Configuration][proxy configuration section]]. This can be a plain grid proxy (from =grid-proxy-init=), no VO extensions are required.
+The use of a service certificate is recommended.  Then you create a proxy from the certificate as explained in the [[#Proxy_Configuration][proxy configuration section]]. This can be a plain grid proxy (from =grid-proxy-init=), no VO extensions are required.
 
 *You must notify the Factory operation of the DN of this proxy when you initially setup the frontend and each time the DN changes*.
 
@@ -135,10 +135,10 @@ In the reply from the OSG Factory managers you will receive some information nee
    1 A string to add in the main factory query_expr in the frontend configuration, e.g. =stringListMember("%RED%VO%ENDCOLOR%",GLIDEIN_Supported_VOs)=. From there you get the correct name of the VO (above in this list).
 
 ---++ Install HTCondor
-Most required software is installed form the Frontend RPM installation. HTCondor is the only exception since there are [[CondorInformation][many different ways to install it]], using the RPM system or not. 
+Most required software is installed from the Frontend RPM installation. HTCondor is the only exception since there are [[CondorInformation][many different ways to install it]], using the RPM system or not. 
 You need to have HTCondor installed before installing the Glidein WMS Frontend. If yum cannot find a HTCondor RPM, it will install the dummy =empty-condor= RPM, assuming that you installed HTCondor using a tarball distribution.
 
-If you don't have HTCondor already installed, you can install the HTCondor RPM in the OSG repository:
+If you don't have HTCondor already installed, you can install the HTCondor RPM from the OSG repository:
 <pre class="rootscreen">%UCL_PROMPT_ROOT% yum install condor.x86_46
 # If you have a 32 bit host use instead:
 %UCL_PROMPT_ROOT% yum install condor.i386</pre>
@@ -259,10 +259,20 @@ The VO Frontend configuration file is =/etc/gwms-frontend/frontend.xml=.  The ne
                    my_identity="%RED%username%ENDCOLOR%@gfactory-1.t2.ucsd.edu" 
                    node="gfactory-1.t2.ucsd.edu"/>
 </pre>
-   1. Factory security information.%BR%- The =classad_proxy= in the _security_ entry is the location of the %GREEN%VO Frontend proxy%ENDCOLOR%  described previously [[#VO_Frontend_proxy][here]].%BR%- The =proxy_DN= is the DN of the =classad_proxy= above.%BR%- The =security_name= identifies this VO Frontend to the the Factory, It is provided by the factory operator.%BR%- The =absfname= in the _proxy_ entry is the location of the !glideinWMS %BLUE%pilot proxy%ENDCOLOR% described in the requirements section [[#Pilot_proxies][here]]. There can be multiple %BLUE%pilot proxies%ENDCOLOR%.%BR%Both the =classad_proxy= and =absfname= files should be owned by =frontend= user. 
-   <pre class="file">
-&lt;security classad_proxy="%RED%/tmp/vo_proxy%ENDCOLOR%" 
-                   proxy_DN="%RED%DN of vo_proxy%ENDCOLOR%" 
+   1. Frontend security information.%BR%- The =classad_proxy= in the _security_ entry is the location of the %GREEN%VO Frontend proxy%ENDCOLOR%  described previously [[#VO_Frontend_proxy][here]].%BR%- The =proxy_DN= is the DN of the =classad_proxy= above.%BR%- The =security_name= identifies this VO Frontend to the the Factory, It is provided by the factory operator.%BR%- The =absfname= in the _credential_ (or _proxy_ in v 2.x) entry is the location of the !glideinWMS %BLUE%pilot proxy%ENDCOLOR% described in the requirements section [[#Pilot_proxies][here]]. There can be multiple %BLUE%pilot proxies%ENDCOLOR%.%BR%Both the =classad_proxy= and =absfname= files should be owned by =frontend= user. 
+<pre class="file">
+# These lines are form the configuration of v 3.x
+&lt;security classad_proxy="%RED%/tmp/vo_proxy%ENDCOLOR%" proxy_DN="%RED%DN of vo_proxy%ENDCOLOR%" 
+                  proxy_selection_plugin="ProxyAll" 
+                  security_name="%RED%The security name, this is used by factory%ENDCOLOR%" 
+                  sym_key="aes_256_cbc">
+      &lt;credentials>
+         &lt;credential absfname="%RED%/tmp/pilot_proxy%ENDCOLOR%" security_class="frontend" 
+         trust_domain="OSG" type="grid_proxy"/>
+      &lt;/credentials>
+   &lt;/security>
+# These lines are the same section form the configuration of v 2.x
+&lt;security classad_proxy="%RED%/tmp/vo_proxy%ENDCOLOR%" proxy_DN="%RED%DN of vo_proxy%ENDCOLOR%" 
                    proxy_selection_plugin="ProxyAll" 
                    security_name="%RED%The security name, this is used by factory%ENDCOLOR%" 
                    sym_key="aes_256_cbc"> 
@@ -296,14 +306,17 @@ If you are using a different Factory, then you have to:
 ---++ Configuring Condor
 The condor configuration for the frontend is placed in =/etc/condor/config.d=.
    * 00_gwms_general.config
-   * 00personal_condor.config  (this is added by Condor if not already installed)
+   * <strike>00personal_condor.config</strike>  (remove this if there)
    * 01_gwms_collectors.config
    * 02_gwms_schedds.config
    * 03_gwms_local.config
    * 11_gwms_secondary_collectors.config
    * 90_gwms_dns.config
  
-The =00personal_condor.config= may or may not exist if you already have a Condor installed.  This config file should be removed.
+Get rid of the pre-loaded condor default to avoid conflicts in the configuration. 
+<pre class="rootscreen">
+  rm /etc/condor/config.d/00personal_condor.config
+</pre>
 
 <!--
 In versions of Condor 7.4.4 and above, this configuration is read automatically.
@@ -345,7 +358,7 @@ CERTIFICATE_MAPFILE= /etc/condor/certs/condor_mapfile
 %ENDTWISTY% %BR%
 
 The lines you will have to edit are:
-   1. Credentials of the machine.%BR%You can either run using a proxy, or a service certificate.  It is recommended to use a host certificate and specify it's location in the variables =GSI_DAEMON_CERT= and =GSI_DAEMON_KEY=.  The host certificate and key should be owned by =root= and have the correct permissions, 600.%BR%*NOTE* that this configuration is for HTCondor, not for the frontend that requires a proxy as specified in other parts of this document.
+   1. Credentials of the machine.%BR%You can either run using a proxy, or a service certificate.  It is recommended to use a host certificate and specify it's location in the variables =GSI_DAEMON_CERT= and =GSI_DAEMON_KEY=.  The host certificate and key should be owned by =root= and have the correct permissions (600 and 622 respectively).%BR%*NOTE* that this configuration is for HTCondor, not for the frontend that requires a proxy as specified in other parts of this document.
    2. Verify the =GSI_DAEMON_TRUSTED_CA_DIR= is correct and that your CRLs are up-to-date.
    3. Verify the =CERTIFICATE_MAPFILE= is correct.
    4. Uncomment and update the =CONDOR_IDS= and =CONDOR_ADMIN= attributes
@@ -385,7 +398,6 @@ In general if you are using a non OSG RPM or if you added custom configuration f
 Configuration source:
 	/etc/condor/condor_config
 Local configuration sources:
-        /etc/condor/config.d/00_00personal_condor.config
         /etc/condor/config.d/00_gwms_general.config
         /etc/condor/config.d/01_gwms_collectors.config
         /etc/condor/config.d/02_gwms_schedds.config
@@ -607,14 +619,81 @@ COLLECTOR30, COLLECTOR31, COLLECTOR32, COLLECTOR33, COLLECTOR34, COLLECTOR35, CO
 COLLECTOR39, COLLECTOR40
   Defined in '/etc/condor/config.d/11_gwms_secondary_collectors.config', line 193.
 </pre> If you don't see all the collectors and the two schedd, then the configuration must be corrected. There should be  __no__  =startd= daemons listed
-   1 Verify all VO Frontend Condor services are communicating.<pre class="screen"> %UCL_PROMPT% condor_config_val -any
+   1 Verify all VO Frontend Condor services are communicating.<pre class="screen"> %UCL_PROMPT% condor_status -any
 MyType               TargetType           Name                          
-Scheduler            None                 fermicloud379.fnal.gov        
-DaemonMaster         None                 fermicloud379.fnal.gov        
-Negotiator           None                 fermicloud379.fnal.gov        
-Collector            None                 frontend_service@fermicloud379
-Scheduler            None                 schedd_jobs2@fermicloud379.fna</pre>
+glideresource        None                 MM_fermicloud026@gfactory_inst
+Scheduler            None                 fermicloud020.fnal.gov
+DaemonMaster         None                 fermicloud020.fnal.gov
+Negotiator           None                 fermicloud020.fnal.gov
+Collector            None                 frontend_service@fermicloud020
+Scheduler            None                 schedd_jobs2@fermicloud020.fna
+</pre>
 
+   1 To see the details of the glidein resource use =condor_status -subsystem glideresource -l=, including the !GlideFactoryName.  %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Click to see an output example..."}%
+<pre class="screen"> %UCL_PROMPT% 
+condor_status -subsystem glideresource -l
+GlideClientMonitorGlideinsTotal = 0
+GLIDEIN_GlobusRSL = "(queue=default)(jobtype=single)"
+GLEXEC_BIN = "NONE"
+GlideClientMatchingInternalPythonExpr = "(((stringListMember(\"OSG\", GLIDEIN_Supported_VOs)))) && (True)"
+UpdatesLost = 0
+CurrentTime = time()
+GlideinWMSVersion = "glideinWMS UNKNOWN"
+UpdatesHistory = "0x00000000000000000000000000000000"
+UpdatesSequenced = 0
+GlideFactoryName = "MM_fermicloud026@gfactory_instance@gfactory_service"
+GlideClientMonitorGlideinsRequestIdle = 0
+UpdateSequenceNumber = 4171
+GlideFactoryMonitorStatusPending = 0
+GlideClientConstraintFactoryCondorExpr = "True"
+GlideFactoryMonitorStatusStageOut = 0
+GLIDEIN_GridType = "gt2"
+UpdatesTotal = 4173
+GlideClientMonitorGlideinsRunning = 0
+GLEXEC_JOB = "True"
+GlideFactoryMonitorStatusHeld = 0
+GLIDEIN_In_Downtime = "False"
+GlideFactoryMonitorStatusIdle = 0
+GlideClientMonitorGlideinsRequestMaxRun = 0
+Name = "MM_fermicloud026@gfactory_instance@gfactory_service@fermicloud020-fnal-gov_OSG_gWMSFrontend.main"
+GlideClientMonitorJobsIdleOld = 0
+GLIDEIN_REQUIRE_GLEXEC_USE = "False"
+GlideClientName = "fermicloud020-fnal-gov_OSG_gWMSFrontend.main"
+GlideClientConstraintJobCondorExpr = "((JobUniverse==5)&&(GLIDEIN_Is_Monitor =!= TRUE)&&(JOB_Is_Monitor =!= TRUE)) && (True)"
+GlideClientMatchingGlideinCondorExpr = "(True) and (True)"
+GLIDEIN_SlotsLayout = "fixed"
+GlideClientMonitorGlideinsIdle = 0
+GLIDEIN_Site = "MMTEST-FC1-CE"
+GlideFactoryMonitorRequestedIdle = 0
+GlideClientMonitorJobsIdleUnique = 0
+GlideFactoryMonitorStatusStageIn = 0
+GlideClientMonitorJobsIdleEffective = 0
+GlideFactoryMonitorStatusWait = 0
+AuthenticatedIdentity = "schedd@fermicloud020.fnal.gov"
+GlideinMyType = "glideresource"
+MyAddress = "<131.225.154.153:0>"
+GlideClientMonitorJobsIdle = 0
+GlideinRequireGlideinProxy = "False"
+GLIDEIN_TrustDomain = "OSG"
+GLIDEIN_Supported_VOs = "OSG"
+GlideinAllowx509_Proxy = "True"
+MyType = "glideresource"
+LastHeardFrom = 1384802844
+GlideFactoryMonitorRequestedMaxGlideins = 0
+GlideFactoryMonitorStatusRunning = 0
+GLIDEIN_SupportedAuthenticationMethod = "grid_proxy"
+GLIDEIN_Gatekeeper = "fermicloud026.fnal.gov/jobmanager-condor"
+GLIDEIN_REQUIRE_VOMS = "False"
+GlideFactoryMonitorStatusIdleOther = 0
+GlideClientMonitorJobsRunningHere = 0
+GlideClientMonitorJobsRunning = 0
+GLIDEIN_Downtime_Comment = ""
+GlideinRequirex509_Proxy = "True"
+GlideClientMonitorJobsIdleMatching = 0
+GlideClientMonitorJobsRunningMax = 10000
+</pre>
+%ENDTWISTY%
+   
 
 ---++ Glidein WMS Job submission
 Condor submit file =glidein-job.sub=. This is a simple job printing the hostname of the host where the job is running:
