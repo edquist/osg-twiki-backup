@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TimCartwright" date="1375474430" format="1.1" version="1.16"}%
+%META:TOPICINFO{author="BrianLin" date="1386188225" format="1.1" reprev="1.17" version="1.17"}%
 %META:TOPICPARENT{name="TestingHome"}%
 ---+ Running Tests as VM Jobs
 
@@ -175,3 +175,72 @@ Dependency Installed:
 ---++++ Getting Files from the Image Automatically
 
 <pre class="screen">guestfish --ro --add vm-io-disk.raw --mount /dev/vda:/ download /osg-test-20130802.log osg-test-20130802.log</pre>
+
+---++ Interactively connecting to a VM
+
+Unfortunately, VM Universe jobs don't have the ssh_to_job capacity that's available to other Condor jobs so if we need to investigate test failures in VMU, we'll have to spin up our own VM's. We can do this by taking the images that Neil automatically generates and create new ones from them that don't automatically run osg-test (Right now, Neil has to manually copy over the updated images. Eventually, we should have an automated way to get the most updated VMU images). Here are the steps you need to follow to set up your own VM:
+
+   1. Grab the make-interactive-image from SVN:<pre class="screen">svn co https://vdt.cs.wisc.edu/svn/new-test/trunk/vm-test-runs/</pre>
+   1. Run =make-interactive-image= using the flavor and version of Linux you need, VMU images are in =/kvm= (NOTE: the output image needs to be in a directory that's readable by the =qemu= user): <pre class="screen">vm-test-runs/make-interactive-image /kvm/%RED%&lt;input image&gt;%ENDCOLOR% %RED%&lt;output image&gt;%ENDCOLOR%</pre>
+   1. Make a copy of =/kvm/libvirt-template.xml= and edit the @DOMAIN@ and @IMAGEPATH@ to a name that will be used by virsh and the path to the output file you created in the previous step. %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Click to show libvirt-template.xml..."}% <verbatim>
+<domain type='kvm'>
+  <name>@DOMAIN@</name>
+  <uuid>f737df49-5323-088f-922b-9e4aef5a100d</uuid>
+  <memory unit='KiB'>4145152</memory>
+  <currentMemory unit='KiB'>4145152</currentMemory>
+  <vcpu placement='static'>8</vcpu>
+  <os>
+    <type arch='x86_64' machine='rhel6.4.0'>hvm</type>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+    <pae/>
+  </features>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>restart</on_crash>
+  <devices>
+    <emulator>/usr/libexec/qemu-kvm</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw' cache='none'/>
+      <source file='@IMAGEPATH@'/>
+      <target dev='hda' bus='ide'/>
+      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
+    </disk>
+    <controller type='usb' index='0'>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x01' function='0x2'/>
+    </controller>
+    <controller type='ide' index='0'>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x01' function='0x1'/>
+    </controller>
+    <interface type='bridge'>
+      <mac address='00:16:3e:45:66:99'/>
+      <source bridge='br0'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x0'/>
+    </interface>
+    <serial type='pty'>
+      <target port='0'/>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+    </console>
+    <input type='mouse' bus='ps2'/>
+    <graphics type='vnc' port='-1' autoport='yes' listen='128.105.244.224'>
+      <listen type='address' address='128.105.244.224'/>
+    </graphics>
+    <video>
+      <model type='cirrus' vram='9216' heads='1'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x0'/>
+    </video>
+    <memballoon model='virtio'>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x04' function='0x0'/>
+    </memballoon>
+  </devices>
+</domain>
+</verbatim> %ENDTWISTY%
+   1. Define and start the VM with your copy of the xml file: <pre class="screen">virsh create %RED%&lt;xml file&gt;%ENDCOLOR%</pre>
+   1. Connect to the VM (consult BrianL, Mat or Carl for the password):<pre class="screen">virsh console %RED%&lt;DOMAIN&gt;%ENDCOLOR%</pre>
+   1. Cleanup the VM:<pre class="screen">virsh destroy %RED%&lt;DOMAIN&gt;%ENDCOLOR%</pre>
