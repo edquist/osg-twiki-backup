@@ -1,0 +1,199 @@
+%META:TOPICINFO{author="MatyasSelmeci" date="1391733958" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
+---+ How to Restore Koji
+
+Backups of _koji-hub.batlab.org_ and _db-01.batlab.org_ are on _host-3.chtc.wisc.edu_ in <code>/export/backup/<em>$DATE</em></code>.
+That machine is in WID. (Same room as _koji-hub_ -- this means we need to get offsite backups going).
+It's a homebrew rsync-based backup system. (Not our home -- Nate told me it was written for Midwest Tier 2).
+They go back up to a week but I have created a ticket about creating a monthly snapshot for a year -- =[htcondor-inf #32956]=.
+
+*NOTE* None of this has been tested yet.
+
+For all of these steps, you will need a root shell on _host-3.chtc.wisc.edu_
+and have the following environment variables defined:<pre class="rootscreen">
+NEWDB=<em>FQDN of new database server</em>
+NEWHUB=<em>FQDN of new koji-hub</em>
+DATE=<em>YYYY-MM-DD date of most recent good backup</em>
+DBBACKUP=/extract/backup/$DATE/db-01.batlab.org
+HUBBACKUP=/extract/backup/$DATE/koji-hub.batlab.org
+RSYNC="rsync --archive --hard-links --verbose"
+</pre>
+
+---++ Restoring the database
+
+The entire filesystem of _db-01_ is backed up -- this includes all of =/var/lib/pgsql=, including the database as-is.
+In theory, this means that we could just rsync all the files to a blank hard drive, boot up, and we'd have a _db-01_ again.
+However, the Postgres manual warns against restoring the database from a filesystem backup that was made while the database was live,
+and we do not shut down the database before backups.
+We might be able to restore every other part of the filesystem besides the database,
+which would speed up the overall restoration process.
+
+The new database server is called _newdb_ in these instructions.
+
+---+++ Performing a brand new install (UNTESTED)
+
+On _newdb_:
+   1. Install RHEL 6 and boot from the local drive
+   1. <code>root@newdb# yum install -y postgresql-server</code>
+   1. Continue to [[#RestoringFromDumps][Restoring from dumps]]
+
+---+++ Restoring from rsync (UNTESTED)
+
+   1. Boot _newdb_ from a !LiveCD
+   1. Partition its hard drive and mount it as =/mnt/rootfs=
+   1. Start =sshd=
+   1. On _host-3_:<pre class="rootscreen">
+root@host-3# $RSYNC $DBBACKUP/rootfs $NEWDB:/mnt/rootfs
+</pre>
+   1. On _newdb_ (still booting from a !LiveCD):<pre class="rootscreen">
+root@livecd# rm -rf /mnt/rootfs/var/lib/pgsql
+</pre>
+   1. Boot _newdb_ from the local drive and reinstall postgres so files in =/var/lib/pgsql= get recreated:<pre class="rootscreen">
+root@newdb# yum erase -y postgresql-server
+root@newdb# yum install -y postgresql-server
+</pre>
+   1. Continue to [[#RestoringFromDumps][Restoring from dumps]]
+
+#RestoringFromDumps
+---+++ Restoring from dumps (UNTESTED)
+
+   1. Restore postgres config files. On _host-3_:<pre class="rootscreen">
+root@host-3# scp $DBBACKUP/rootfs/var/lib/pgsql/data/ \
+   $NEWDB:/var/lib/pgsql/data/
+root@host-3# scp $DBBACKUP/rootfs/var/lib/pgsql-backup/postgres-db-01.sql.gz \
+   $NEWDB:/root/</pre>
+   1. Restore the database. On _newdb_:<pre class="rootscreen">
+root@newdb# service postgresql start
+root@newdb# gunzip -c /root/postgres-db-01.sql.gz | psql postgres</pre>
+   1. Go to [[#RestoringKojiHub][Restoring koji-hub]] if needed; otherwise go to [[#PostRestore][Post-restore steps]]
+
+#RestoringKojiHub
+---++ Restoring koji-hub
+
+Both the root filesystem of _koji-hub_ and =/mnt/koji= are backed up.
+The root filesystem backups are in the =rootfs= subdirectory of =/export/backup/$DATE/koji-hub.batlab.org=
+and the backups of =/mnt/koji= are in the =kojifs= subdirectory.
+
+We might be able to get away with a full rsync restore of the filesystem;
+if not, then we can reinstall and either do a wholesale restore of =/etc=
+or cherry-pick the important configuration files.
+Either way, since =/mnt/koji= is on a separate filesystem, it will be restored separately.
+
+In the instructions, the new host will be named _newhub_.
+
+---+++ Restoring from rsync (UNTESTED)
+
+   1. Boot _newhub_ from a !LiveCD
+   1. Partition the hard drive; create seperate partitions for =/= and =/mnt/koji=
+   1. Mount the root partition as =/mnt/rootfs= and mount the koji partition as =/mnt/kojifs=
+   1. Start =sshd=
+   1. On _host-3_:<pre class="rootscreen">
+root@host-3# $RSYNC $HUBBACKUP/rootfs $NEWHUB:/mnt/rootfs
+root@host-3# $RSYNC $HUBBACKUP/kojifs $NEWHUB:/mnt/kojifs
+</pre>
+   1. Reboot _newhub_ and boot from the local drive
+   1. Go to [[#PostRestore][Post-restore steps]]
+
+---+++ Performing a brand new install (UNTESTED)
+
+   1. Install RHEL5 onto _newhub_ and boot from local hard drive
+   1. Install EPEL and OSG repos:<pre class="rootscreen">
+root@newhub# rpm -Uvh \
+   http://dl.fedoraproject.org/pub/epel/5/i386/epel-release-5-4.noarch.rpm \
+   http://repo.grid.iu.edu/osg/3.2/osg-3.2-el5-release-latest.rpm
+root@newhub# yum install -y yum-priorities
+</pre>
+   1. Edit =/etc/yum.repos.d/osg-*development.repo=:
+      * Enable the development repo
+      * Add <code>includepkg=koji*</code> to the definition for the development repo
+   1. Install the koji packages:<pre class="rootscreen">
+root@newhub# yum install -y koji koji-builder koji-hub koji-plugin-sign \
+   koji-theme-fedora koji-utils koji-web
+</pre>
+   1. Mount =/mnt/koji= if necessary
+   1. Restore the contents of the koji filesystem. On _host-3_:<pre class="rootscreen">
+root@host-3# $RSYNC $HUBBACKUP/kojifs $NEWHUB:/mnt/kojifs
+</pre>
+   1. Continue to either [[#RestoringEtc][Restoring all of /etc using rsync]] or [[#RestoringConfig][Restoring config files manually]]
+
+#RestoringEtc
+---++++ Restoring all of /etc using rsync (UNTESTED)
+
+   1. Boot _newhub_ from a !LiveCD and mount the root partition as =/mnt/rootfs=
+   1. On _host-3_:<pre class="rootscreen">
+root@host-3# $RSYNC $HUBBACKUP/rootfs/etc $NEWHUB:/mnt/rootfs/etc
+</pre>
+   1. Reboot _newhub_ and boot from the local drive
+   1. Continue to [[#RestoringHome][Restoring home directories]]
+
+#RestoringConfig
+---++++ Restoring config files manually (UNTESTED)
+
+   1. On _newhub_:<code>mkdir -p /etc/pki/tls</code>
+   1. On _host-3_:<pre class="rootscreen">
+root@host-3# while read subtree; do
+   $RSYNC $HUBBACKUP/rootfs/etc/$subtree $NEWHUB/etc/$subtree
+done &lt;&lt;__END__
+httpd
+kojid
+koji-hub
+kojira
+koji-sign-plugin
+kojiweb
+mock
+pki/tls/certs
+pki/tls/private
+yum.repos.d
+__END__
+
+root@host-3# while read file; do
+   scp $HUBBACKUP/etc/$file $NEWHUB/etc/$file
+done &lt;&lt;__END__
+koji.conf
+sysconfig/httpd
+sysconfig/kojid
+sysconfig/kojira
+__END__
+</pre>
+   1. Continue to [[#RestoringHome][Restoring home directories]]
+
+#RestoringHome
+---+++ Restoring home directories (UNTESTED)
+
+   1. On _host-3_:<pre class="rootscreen">
+root@host-3# for dir in root home; do
+   $RSYNC $HUBBACKUP/$dir $NEWHUB/$dir
+done
+</pre>
+   1. Continue to [[#PostRestore][Post-restore steps]]
+
+#PostRestore
+---++ Post-restore steps (UNTESTED)
+
+All of these steps are on _newhub_.
+
+   1. If the hostname is not _koji-hub.batlab.org_:
+      1. Do a search/replace of the hostnames in the config files in =/etc/koji*= and =/etc/httpd=
+      1. Get and install new certificates -- the SoftwareTeam.KojiHubSetup page should have instructions
+      1. If we cannot get a DNS Canonical Name record such that _koji-hub.batlab.org_ will resolve to _newhub_, then also do:
+         1. Update the repo definitions in the _osg-release_ package
+         1. Update the mash script(s) at the GOC
+         1. Mail the software team and users that anyone using the _minefield_ repos will need to update _osg-release_
+         1. Fix all the build machines to point to the new name
+         1. Fix the template config file that _osg-build_ makes to point to the new name;\
+            mail people that they will need to update and rerun =osg-koji setup=
+   1. Fix the database hostname/username/password in =/etc/koji-hub/hub.conf= if necessary
+   1. Start =httpd= and make sure it comes up
+   1. Try to do some queries using the =koji= command-line tool
+   1. Connect to the web interface and do some queries there
+   1. If all of that worked, start =kojid= and =kojira=
+   1. Check =ps= to make sure they came up
+   1. Do a test scratch build
+   1. If the test scratch build succeeds, do a real build (bump a package if you need to)
+   1. Make sure kojira regenerates the repos
+
+-- Main.MatyasSelmeci - 07 Feb 2014
+
+   *  Set HTTP_EQUIV_ON_VIEW = <meta name="robots" content="noindex,nofollow">
+<!-- vim:ft=twiki
+-
