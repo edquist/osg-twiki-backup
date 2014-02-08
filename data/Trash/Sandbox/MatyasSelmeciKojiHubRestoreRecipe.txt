@@ -1,6 +1,15 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1391733958" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1391819732" format="1.1" version="1.2"}%
 %META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
 ---+ How to Restore Koji
+
+This document contains recipes on how to restore the Koji services and the database they require.
+It is divided into two sections:
+one for the database (to be done if something happens to _db-01_),
+and one for the server hosting the koji services (to be done if something happens to _koji-hub_).
+
+In case both the database and the hub need to be restored, the database should be restored first.
+
+---++ Background information
 
 Backups of _koji-hub.batlab.org_ and _db-01.batlab.org_ are on _host-3.chtc.wisc.edu_ in <code>/export/backup/<em>$DATE</em></code>.
 That machine is in WID. (Same room as _koji-hub_ -- this means we need to get offsite backups going).
@@ -8,6 +17,8 @@ It's a homebrew rsync-based backup system. (Not our home -- Nate told me it was 
 They go back up to a week but I have created a ticket about creating a monthly snapshot for a year -- =[htcondor-inf #32956]=.
 
 *NOTE* None of this has been tested yet.
+
+---++ Setting up your environment
 
 For all of these steps, you will need a root shell on _host-3.chtc.wisc.edu_
 and have the following environment variables defined:<pre class="rootscreen">
@@ -19,7 +30,7 @@ HUBBACKUP=/extract/backup/$DATE/koji-hub.batlab.org
 RSYNC="rsync --archive --hard-links --verbose"
 </pre>
 
----++ Restoring the database
+---++ I. Restoring the database
 
 The entire filesystem of _db-01_ is backed up -- this includes all of =/var/lib/pgsql=, including the database as-is.
 In theory, this means that we could just rsync all the files to a blank hard drive, boot up, and we'd have a _db-01_ again.
@@ -30,14 +41,19 @@ which would speed up the overall restoration process.
 
 The new database server is called _newdb_ in these instructions.
 
----+++ Performing a brand new install (UNTESTED)
+---+++ I.1. Restore the OS
 
-On _newdb_:
-   1. Install RHEL 6 and boot from the local drive
-   1. <code>root@newdb# yum install -y postgresql-server</code>
-   1. Continue to [[#RestoringFromDumps][Restoring from dumps]]
+There are two alternatives to restoring the OS.
 
----+++ Restoring from rsync (UNTESTED)
+The first (restoring from rsync) is more risky but we would get firewall
+rules, puppet configs, anything we customized and should give us a machine
+in the same state the original was in.
+
+The second (performing a brand new install) is more likely to work,
+but will require additional configuration to get the machine to the state
+that the original was in.
+
+---++++ I.1.A. Restoring all from rsync (UNTESTED)
 
    1. Boot _newdb_ from a !LiveCD
    1. Partition its hard drive and mount it as =/mnt/rootfs=
@@ -54,8 +70,24 @@ root@newdb# yum install -y postgresql-server
 </pre>
    1. Continue to [[#RestoringFromDumps][Restoring from dumps]]
 
+---++++ I.1.B. Performing a brand new install (UNTESTED)
+
+On _newdb_:
+   1. Install RHEL 6 and boot from the local drive
+   1. <code>root@newdb# yum install -y postgresql-server</code>
+   1. <code>root@newdb# yum install -y openssh-server</code>
+   1. <code>root@newdb# service sshd start</code>
+   1. <code>logout</code>
+On _host-3_:
+<pre class="rootscreen">
+root@host-3# for dir in root home; do
+   $RSYNC $DBBACKUP/$dir $NEWDB/$dir
+done
+</pre>
+   1. Continue to [[#RestoringFromDumps][Restoring from dumps]]
+
 #RestoringFromDumps
----+++ Restoring from dumps (UNTESTED)
+---+++ I.2. Restoring from dumps (UNTESTED)
 
    1. Restore postgres config files. On _host-3_:<pre class="rootscreen">
 root@host-3# scp $DBBACKUP/rootfs/var/lib/pgsql/data/ \
@@ -68,20 +100,19 @@ root@newdb# gunzip -c /root/postgres-db-01.sql.gz | psql postgres</pre>
    1. Go to [[#RestoringKojiHub][Restoring koji-hub]] if needed; otherwise go to [[#PostRestore][Post-restore steps]]
 
 #RestoringKojiHub
----++ Restoring koji-hub
+---++ II. Restoring koji-hub
 
 Both the root filesystem of _koji-hub_ and =/mnt/koji= are backed up.
 The root filesystem backups are in the =rootfs= subdirectory of =/export/backup/$DATE/koji-hub.batlab.org=
 and the backups of =/mnt/koji= are in the =kojifs= subdirectory.
 
-We might be able to get away with a full rsync restore of the filesystem;
-if not, then we can reinstall and either do a wholesale restore of =/etc=
-or cherry-pick the important configuration files.
+We might be able to get away with a full rsync restore of the filesystem (option A);
+if not, then we can reinstall (option B).
 Either way, since =/mnt/koji= is on a separate filesystem, it will be restored separately.
 
 In the instructions, the new host will be named _newhub_.
 
----+++ Restoring from rsync (UNTESTED)
+---+++ II.A. Restoring all from rsync (UNTESTED)
 
    1. Boot _newhub_ from a !LiveCD
    1. Partition the hard drive; create seperate partitions for =/= and =/mnt/koji=
@@ -94,7 +125,9 @@ root@host-3# $RSYNC $HUBBACKUP/kojifs $NEWHUB:/mnt/kojifs
    1. Reboot _newhub_ and boot from the local drive
    1. Go to [[#PostRestore][Post-restore steps]]
 
----+++ Performing a brand new install (UNTESTED)
+---+++ II.B. Performing a brand new install (UNTESTED)
+
+---++++ II.B.1. Installing the OS
 
    1. Install RHEL5 onto _newhub_ and boot from local hard drive
    1. Install EPEL and OSG repos:<pre class="rootscreen">
@@ -114,10 +147,14 @@ root@newhub# yum install -y koji koji-builder koji-hub koji-plugin-sign \
    1. Restore the contents of the koji filesystem. On _host-3_:<pre class="rootscreen">
 root@host-3# $RSYNC $HUBBACKUP/kojifs $NEWHUB:/mnt/kojifs
 </pre>
-   1. Continue to either [[#RestoringEtc][Restoring all of /etc using rsync]] or [[#RestoringConfig][Restoring config files manually]]
+   1. Continue to [[#RestoringConfig][Restoring config files]]
 
-#RestoringEtc
----++++ Restoring all of /etc using rsync (UNTESTED)
+#RestoringConfig
+---++++ II.B.2. Restoring configuration
+
+We can either restore all of /etc or cherry-pick the configuration files and directories we care about.
+
+---+++++ II.B.2.a. Restoring all of /etc using rsync (UNTESTED)
 
    1. Boot _newhub_ from a !LiveCD and mount the root partition as =/mnt/rootfs=
    1. On _host-3_:<pre class="rootscreen">
@@ -126,8 +163,7 @@ root@host-3# $RSYNC $HUBBACKUP/rootfs/etc $NEWHUB:/mnt/rootfs/etc
    1. Reboot _newhub_ and boot from the local drive
    1. Continue to [[#RestoringHome][Restoring home directories]]
 
-#RestoringConfig
----++++ Restoring config files manually (UNTESTED)
+---+++++ II.B.2.b. Restoring config files manually (UNTESTED)
 
    1. On _newhub_:<code>mkdir -p /etc/pki/tls</code>
    1. On _host-3_:<pre class="rootscreen">
@@ -158,7 +194,7 @@ __END__
    1. Continue to [[#RestoringHome][Restoring home directories]]
 
 #RestoringHome
----+++ Restoring home directories (UNTESTED)
+---++++ II.B.3. Restoring home directories (UNTESTED)
 
    1. On _host-3_:<pre class="rootscreen">
 root@host-3# for dir in root home; do
@@ -168,7 +204,7 @@ done
    1. Continue to [[#PostRestore][Post-restore steps]]
 
 #PostRestore
----++ Post-restore steps (UNTESTED)
+---++ III. Post-restore steps (UNTESTED)
 
 All of these steps are on _newhub_.
 
@@ -196,4 +232,4 @@ All of these steps are on _newhub_.
 
    *  Set HTTP_EQUIV_ON_VIEW = <meta name="robots" content="noindex,nofollow">
 <!-- vim:ft=twiki
--
+->
