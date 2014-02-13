@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnandPadmanabhan" date="1390859398" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="AnandPadmanabhan" date="1392332338" format="1.1" reprev="1.3" version="1.3"}%
 ---++ Submitting jobs from CHTC/Glow VO without having end user credentials
 
 This effort aims to understand the setup of glidein framework at Condor High Throughput Computing (CHTC) group and Glow VO with on goal of considering if jobs may be submitted from CHTC to OSG sites (including FNAL) without X.509 credentials. Specifically we hope to learn the architecture of the CHTC and what kind of security controls/policies/logging are in place before a user a granted access or have access revoked following an incident.
@@ -31,8 +31,9 @@ Based on this it was decided that only jobs submitted to node that have formal u
       * Set up an new FE that accepts jobs only from CHTC or approved submit nodes. This approach is more expensive in terms of administration and we decided against pursuing it at this stage.
       * Set up a technical control on the frontend where by only jobs submitted on CHTC managed submitted nodes (or other specifically approved nodes) get matched to glidein running at FNAL or other sites which need traceability to individual level. This is the option we have chosen to pursue and we will be investigating how such a configuration may be implemented on the frontend.
  
----+++++ Status Update
-   1. (1/20/14) CHTC have been working on a new glidein server to replace their old aging one and run with fermi. They don't currently have a way to lock jobs based on submit nodes where they originated. 
+---++++ Status Update
+---+++++ 1/20/14
+   1. CHTC have been working on a new glidein server to replace their old aging one and run with fermi. They don't currently have a way to lock jobs based on submit nodes where they originated. 
    1. The new plan hence is to migrate users to the new glidein who met the tracability requirement requirements. This means that new frontend will only accept jobs from "trusted" servers 
    1. For tracing user jobs, CHTC proposed using condor audit logs for traceability between frontend and submit node. The log shows the ip and user name of commands made to edit the queue on the submit node (anonymized example below).
 <verbatim>
@@ -52,4 +53,59 @@ Example entry:
 </verbatim>
       * Follow up question on audit logs:  From the log snippet it is unclear how one would associate a jobid across frontend and submit nodes using one of these entries. For example if factory gives you a time range and a glidein ID would it be possible to associate a job on remote site with an entry in this log. 
       * How reliable is the information in this log. In other words how easy or difficult would it be for the attacker to fake this information in 2 cases (1) submit node has been compromised  but the front end is not; (2) neither node is compromised but attacker tries a man-in-middle kind of attack, is this possible. Condors security mechanism likely addresses (2), but we need to understand for sire. It is a;so likely that if there is a root compromise on either the submit or the frontend nodes we will be unable to use the information reliably. If so we need to clearly understand what is the level of traceability that might be possible case of such compromises. 
+---+++++ 1/28/14
+   * Completed very basic setup and testing of the new glidein2 frontend today.   The new frontend only accepts jobs from submit nodes that are controlled by CHTC and/or meet the security requirements.  
+---+++++ 2/6/14
+   *  Had meeting with Nate and team at CHTC, CHTC has set up a new glidein frontend that is accepting jobs only from trusted submit nodes.
+   * Received log files (glidein job's stdout and stderr) from factory of jobs that originated from the new frontend. The .err logs has the startd and started logs encoded which can be decoded using glideinwms/factory/tools/cat_StartdLog.py and glideinwms/factory/tools/cat_StarterLog.py respectively/ CHTC team will look into these logs to see if they can trace it back to a particular user on a submit node
+   * Below is the email (from Becky) that outlines the process of tracing the job
+<verbatim> 
+I have successfully completed a job trace using information in the logs you provided.
+
+
+This snippet from job.1573306.out is what I used:
+
+=== Stats of main ===
+01/29/14 12:49:13 Starting job 192648.0 from 128.104.55.9:9618?sock=12207_af89_116174
+01/29/14 12:59:13 Terminated job 192648.0 from 128.104.55.9:9618?sock=12207_af89_116174 status 0 duration 600
+
+Using the IP (128.104.55.9), I determined this job was submitted from submit-2.chtc.wisc.edu
+
+on submit-2.chtc.wisc.edu I looked through the AuditLogs to find the job:
+
+$> grep 192648 AuditLog.*
+AuditLog.20140128T180000:01/29/14 14:47:50 (pid:12207) (cid:12971393) Submitting new job 192648.0
+
+
+There is additional information in the AuditLog.20140128T180000 that correlates the job id with a pid, then the pid maps to the AuthId and CondorId.  I found my username bgietzel as the submitter.
+
+01/29/14 14:47:50 (pid:12207) (cid:12971393) Submitting new job 192648.0
+01/29/14 15:00:38 (pid:12207) (cid:12973682) Command=QMGMT_WRITE_CMD, peer=<128.104.55.9:42762>
+01/29/14 15:00:38 (pid:12207) (cid:12973682) AuthMethod=FS, AuthId=bgietzel, CondorId=bgietzel@submit.chtc.wisc.edu
+
+</verbatim> 
+
+---+++++ 2/11/14
+Following is a list of questions from Anand and response from Becky regarding the setup at CHTC
+
+   * Were the AuditLogs on the frontend or the submit nodes?
+      * Auditlogs are on the submit nodes.
+   * Are these audit logs maintained atleast for a week?
+      * Yes, they are kept for a week.
+   * Is there any setup in place (e.g. syslog-ng) to store the logs at a central place?
+      * We are working on setup of a syslog-ng server.
+   * Have you started using the new frontend in production for OSG sites other than FNAL? 
+      * The new frontend is still in the testing phase.   We have run test jobs on some OSG sites using the new frontend as part of this process.  Once we get this audit resolved and perform further validation we'll move it into production.
+   * Currently, which submit nodes are allowed to access this frontend?
+      * The nodes I have enabled for glidein2 are submit-2 and another test submit node under CHTC control. (Nate: chtc submit nodes submit-1 2 and and 3. )
+   * I understand only CHTC controlled submit nodes are allowed to submit jobs to the new frontend. Is this correct? 
+      * No, the submit nodes will be a mix of those under CHTC management and other research groups.
+   * If other submit nodes are allowed on the frontend what are the controls in place that will ensure that only trusted nodes submit jobs to FNAL.
+      * I am setting up a separate frontend queue for schedds that are managed by CHTC, so only jobs from these schedds will use FNAL resources. 
+   * A simple policy/procedure page (could be an existing URL) outlining 
+      * Registration procedure in place for how a user can get access to submit nodes that are enabled on the frontend
+         * http://chtc.cs.wisc.edu/get-started.shtml
+         * http://aci.wisc.edu/large-scale-request/
+      * how a submit node may gain access to submit to this new frontend.
+         * Any submit nodes added to the frontend are added by CHTC staff.  If the submit node is not managed by CHTC, we will add it to the queue that does not have access to FNAL resources.  If the submit node is set up and managed by CHTC, we will add it to the queue that  has access to FNAL resources.
 -- Main.AnandPadmanabhan - 13 Jan 2014
