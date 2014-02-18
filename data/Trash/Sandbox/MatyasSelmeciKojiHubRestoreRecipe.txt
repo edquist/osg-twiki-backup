@@ -1,5 +1,8 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1392728917" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1392745511" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
+
+%TOC{depth="2"}%
+
 ---+ How to Restore Koji
 
 This document contains recipes on how to restore the Koji services and the database they require.
@@ -20,10 +23,15 @@ They go back up to a week but I have created a ticket about creating a monthly s
 
    * /var: 1.6G (without logfiles)
    * /mnt/koji/packages: 79G (currently growing at 35G / year)
+   * /mnt/koji/repos: 15G to 55G (periodically grows and shrinks)
    * /etc: 2M to 95M (depending on how much we take)
-Total for a backup once a month for a year: 1.1T
+Total for a backup once a month for a year (skipping /mnt/koji/repos): 1.1T
 
 This is assuming we do no deduplication (hardlinking). Since the reason /mnt/koji/packages is so huge is because _everything_ is kept, so if we were to do deduplication (which Nate currently does for the nightlies), we'd cut that down to under 120G.
+
+/mnt/koji/repos is a special case: content there is constantly regenerated and cleaned up.
+We would not be able to do much deduplication.
+Its contents are not necessary for a restore, but do speed up the restore time by about 5 hours since we would not have to regenerate the repos.
 
 ---++ Setting up your environment
 
@@ -54,7 +62,7 @@ fresh install was tested.
 The new database server is called _newdb_ in these instructions.
 
 <!--
----+++ I.1. Restore the OS
+ ---+++ I.1. Restore the OS
 
 There are two alternatives to restoring the OS.
 
@@ -68,7 +76,7 @@ that the original was in.
 
 -->
 <!--
----++++ I.1.A. Restoring all from rsync (UNTESTED)
+ ---++++ I.1.A. Restoring all from rsync (UNTESTED)
 
    1. Boot _newdb_ from a !LiveCD
    1. Partition its hard drive and mount it as =/mnt/rootfs=
@@ -86,7 +94,7 @@ root@newdb# yum install -y postgresql-server
    1. Continue to [[#RestoringFromDumps][Restoring from dumps]]
 
 
----++++ I.1.B. Performing a brand new install
+ ---++++ I.1.B. Performing a brand new install
 
 -->
 
@@ -166,7 +174,7 @@ Either way, since =/mnt/koji= is on a separate filesystem, it will be restored s
 -->
 
 <!--
----+++ II.A. Restoring all from rsync (UNTESTED)
+ ---+++ II.A. Restoring all from rsync (UNTESTED)
 
    1. Boot _newhub_ from a !LiveCD
    1. Partition the hard drive; create seperate partitions for =/= and =/mnt/koji=
@@ -234,7 +242,7 @@ dirclone () {
 }
 </pre>
 <!--
----+++++ II.B.2.a. Restoring all of /etc using rsync (UNTESTED)
+ ---+++++ II.B.2.a. Restoring all of /etc using rsync (UNTESTED)
 
    1. Boot _newhub_ from a !LiveCD and mount the root partition as =/mnt/rootfs=
    1. On _host-3_:<pre class="rootscreen">
@@ -258,7 +266,7 @@ done &lt;&lt;__END__
 kojid
 koji-hub
 kojira
-koji-sign
+koji-plugin-sign
 kojiweb
 mock
 pki/tls/certs
@@ -280,7 +288,7 @@ root@newhub# cp -a /root/hubrestore/etc/{passwd,shadow,group,gshadow} /etc
 ## Skip home directories for the special users
 root@newhub# for dir in /root/hubrestore/home/*; do
    bndir=$(basename "$dir")
-   if &91;&91; $bndir != koji &amp;&amp; $bndir != postgres &93;&93; ; then
+   if &#91;&#91; $bndir != koji &amp;&amp; $bndir != postgres &#93;&#93; ; then
       dirclone "$dir" /home/"$bndir"
    fi
 done
@@ -322,10 +330,10 @@ makepem () {
    set -e
    keymodulus=$(openssl rsa -noout -modulus -in "$keyfile")
    certmodulus=$(openssl x509 -noout -modulus -in "$certfile")
-   if &91;&91; $(echo "$keymodulus" | md5sum) != $(echo "$certmodulus" | md5sum) &93;&93; ; then
+   if &#91;&#91; $(echo "$keymodulus" | md5sum) != $(echo "$certmodulus" | md5sum) &#93;&#93; ; then
       echo 'keyfile and certfile do not match!'; return 1
    fi
-   if &91;&91; -f $outputfile &93;&93; ; then
+   if &#91;&#91; -f $outputfile &#93;&#93; ; then
       mv -f "$outputfile"{,.bak}
    fi
    (dos2unix &lt; "$certfile"; echo; dos2unix &lt; "$keyfile") &gt; "$outputfile"
@@ -420,8 +428,59 @@ root@newhub# service kojira start</pre>
 If you have updated _osg-release_ and/or _osg-build_, rebuild those packages
 now.
 
+
+
+
+
+
+---+ Future Work
+
+This recipe currently requires a lot of manual work.
+Many parts of this can be automated, especially if we were to use
+Puppet to help.
+Tasks needed to minimize the amount of manual work:
+
+---+++++ Create patches for config files
+
+Currently, several steps for setting up _newhub_ and _newdb_
+require changes to configuration files. Some of these changes
+are manual, especially if going from RHEL 5 to RHEL 6. We might
+be able to express these as patches to the standard config files
+that come with distro packages.
+
+Effort required: 4 to 8 hours.
+
+---+++++ Puppetize database server
+
+For the most part, setting up the database server is just a question
+of installing postgres, tweaking some database configs, creating a
+user, and importing the backup dump. Except for the last step,
+all of that can be easily done with Puppet. Care will have to be
+taken so that the config works whether the database is on the same
+host as the koji hub or not.
+
+Effort required: 1 to 2 days.
+
+---+++++ Puppetize the koji-hub services
+
+Puppetizing all of the services that run on koji-hub is a more
+complicated task, but still something that Puppet should be able to
+do. Care will have to be taken with sensitive information (keys,
+passwords, etc). The config must also work wherther the hub shares a
+host with the database or not.
+
+Effort required: 1 week. Most of this will come from testing.
+
+---+++++ Script rsyncs and copies
+
+Copying over the backup data is a manual process, but large chunks can
+probably be scripted. Write a set of scripts that will automate that
+part of the restore process.
+
+Effort required: 1 to 2 days. Again, most of this will come from testing.
+
 -- Main.MatyasSelmeci - 07 Feb 2014
 
    *  Set HTTP_EQUIV_ON_VIEW = <meta name="robots" content="noindex,nofollow">
 <!-- vim:ft=twiki
-->
+-->
