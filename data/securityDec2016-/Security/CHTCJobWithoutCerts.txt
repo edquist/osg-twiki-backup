@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="AnandPadmanabhan" date="1392332338" format="1.1" reprev="1.3" version="1.3"}%
+%META:TOPICINFO{author="AnandPadmanabhan" date="1393540680" format="1.1" reprev="1.4" version="1.4"}%
 ---++ Submitting jobs from CHTC/Glow VO without having end user credentials
 
 This effort aims to understand the setup of glidein framework at Condor High Throughput Computing (CHTC) group and Glow VO with on goal of considering if jobs may be submitted from CHTC to OSG sites (including FNAL) without X.509 credentials. Specifically we hope to learn the architecture of the CHTC and what kind of security controls/policies/logging are in place before a user a granted access or have access revoked following an incident.
@@ -15,22 +15,7 @@ Overall, the architecture at CHTC has a frontend (FE) node that accepts flocked 
 
 Based on this it was decided that only jobs submitted to node that have formal user registration requirement (e.g. CHTC managed nodes) might submit to FNAL or other OSG sites that wish be able to track individuals.
 
----++++ Concerns Raised and Potential Solutions
 
-   * HTCondor logs on the Frontend get deleted too quickly after being rotate. This is esspecially true if the front end is fairly busy as well as they are independently managed. Addressing this issue, is fairly easy to resolve since newer versions of htcondor will allow admins to specify number of days to keep the logs (See Challenge 3 in [[https://osg-docdb.opensciencegrid.org:440/cgi-bin/RetrieveFile?docid=1149;filename=JobTraceability_Glidein_v7-2.pdf;version=2][tractability document]]). We want to ensure on every submit  host logs are atleast maintained for one week. CHTC has agreed to get a weeks audit config added to the external nodes, using the following config:
-
-<verbatim>
-       user@host ~ $ cat /etc/condor/config.d/99-chtc-log.conf
-       SCHEDD_AUDIT_LOG = $(LOG)/AuditLog
-       MAX_SCHEDD_AUDIT_LOG = 1d
-       MAX_NUM_SCHEDD_AUDIT_LOG = 7 
-</verbatim>
-
-   * The use of flocking to submit jobs that might have originated on non CHTC machines. This is a bit more challenging, specifically the traceability study we conducted specifically did not address flocking. We need to understand how an individual user who submitted the jobs can be traced using htcondor logs when jobs are flocked to the submit site. A main concern is the possibility that jobs get flocked to the frondend from non CHTC submit nodes (that might not have formal registration process) and get submitted to OSG sites that require high degree of traceability (e.g. FNAL). We discussed 3 ways
-      * Require a more formal registration process from non CHTC nodes that are flocking into frontend, this was however deemed infeasible since CHTC does not control the individual PI submit node and did not want to raise the bar of joining their collaboration.
-      * Set up an new FE that accepts jobs only from CHTC or approved submit nodes. This approach is more expensive in terms of administration and we decided against pursuing it at this stage.
-      * Set up a technical control on the frontend where by only jobs submitted on CHTC managed submitted nodes (or other specifically approved nodes) get matched to glidein running at FNAL or other sites which need traceability to individual level. This is the option we have chosen to pursue and we will be investigating how such a configuration may be implemented on the frontend.
- 
 ---++++ Status Update
 ---+++++ 1/20/14
    1. CHTC have been working on a new glidein server to replace their old aging one and run with fermi. They don't currently have a way to lock jobs based on submit nodes where they originated. 
@@ -52,7 +37,26 @@ Example entry:
 01/19/14 18:00:08 (pid:yyy) (cid:xxx) Set Attribute for job nnn.0, DAG_InRecovery = 0
 </verbatim>
       * Follow up question on audit logs:  From the log snippet it is unclear how one would associate a jobid across frontend and submit nodes using one of these entries. For example if factory gives you a time range and a glidein ID would it be possible to associate a job on remote site with an entry in this log. 
+         * This has been addressed later to show how Factory and audit logs can be used to trace individuals. 
       * How reliable is the information in this log. In other words how easy or difficult would it be for the attacker to fake this information in 2 cases (1) submit node has been compromised  but the front end is not; (2) neither node is compromised but attacker tries a man-in-middle kind of attack, is this possible. Condors security mechanism likely addresses (2), but we need to understand for sire. It is a;so likely that if there is a root compromise on either the submit or the frontend nodes we will be unable to use the information reliably. If so we need to clearly understand what is the level of traceability that might be possible case of such compromises. 
+         * In the glidein environment, the communication is between the condor sub systems. So logs coming form any nodes where root (or condor user account) has been compromised cannot be trusted.
+
+---++++++ Concerns Raised and Potential Solutions
+
+   * HTCondor logs on the Frontend get deleted too quickly after being rotate. This is esspecially true if the front end is fairly busy as well as they are independently managed. Addressing this issue, is fairly easy to resolve since newer versions of htcondor will allow admins to specify number of days to keep the logs (See Challenge 3 in [[https://osg-docdb.opensciencegrid.org:440/cgi-bin/RetrieveFile?docid=1149;filename=JobTraceability_Glidein_v7-2.pdf;version=2][tractability document]]). We want to ensure on every submit  host logs are atleast maintained for one week. CHTC has agreed to get a weeks audit config added to the external nodes, using the following config:
+
+<verbatim>
+       user@host ~ $ cat /etc/condor/config.d/99-chtc-log.conf
+       SCHEDD_AUDIT_LOG = $(LOG)/AuditLog
+       MAX_SCHEDD_AUDIT_LOG = 1d
+       MAX_NUM_SCHEDD_AUDIT_LOG = 7 
+</verbatim>
+
+   * The use of flocking to submit jobs that might have originated on non CHTC machines. This is a bit more challenging, specifically the traceability study we conducted specifically did not address flocking. We need to understand how an individual user who submitted the jobs can be traced using htcondor logs when jobs are flocked to the submit site. A main concern is the possibility that jobs get flocked to the frondend from non CHTC submit nodes (that might not have formal registration process) and get submitted to OSG sites that require high degree of traceability (e.g. FNAL). We discussed 3 ways
+      * Require a more formal registration process from non CHTC nodes that are flocking into frontend, this was however deemed infeasible since CHTC does not control the individual PI submit node and did not want to raise the bar of joining their collaboration.
+      * Set up an new FE that accepts jobs only from CHTC or approved submit nodes. This approach is more expensive in terms of administration and we decided against pursuing it at this stage.
+      * Set up a technical control on the frontend where by only jobs submitted on CHTC managed submitted nodes (or other specifically approved nodes) get matched to glidein running at FNAL or other sites which need traceability to individual level. This is the option we have chosen to pursue and we will be investigating how such a configuration may be implemented on the frontend.
+ 
 ---+++++ 1/28/14
    * Completed very basic setup and testing of the new glidein2 frontend today.   The new frontend only accepts jobs from submit nodes that are controlled by CHTC and/or meet the security requirements.  
 ---+++++ 2/6/14
@@ -108,4 +112,25 @@ Following is a list of questions from Anand and response from Becky regarding th
          * http://aci.wisc.edu/large-scale-request/
       * how a submit node may gain access to submit to this new frontend.
          * Any submit nodes added to the frontend are added by CHTC staff.  If the submit node is not managed by CHTC, we will add it to the queue that does not have access to FNAL resources.  If the submit node is set up and managed by CHTC, we will add it to the queue that  has access to FNAL resources.
+
+---+++ 2/21/2014
+Following is a list of questions from Anand and response from Becky regarding the CHTC environment.
+
+   * When do you estimate the syslog-ng server will be operational and used by submit nodes.
+      * We're working out some rate-limiting problems with our syslog-ng server.
+   * You said you are submitting queues for schedds so only CHTC managed resource will go to fermilab. Could you provide me little bit more technical detail of how this is done in condor and may be provide pointers to relevant condor documentation.
+      * I'm using the frontend.xml to set up queues, using a regexp to match the submit node name and filter out machines that are maintained by CHTC.  The CHTC submitters are named as submit-{1,2,3,x}.chtc.wisc.edu. 
+   * Would it be feasible for GLOW to provide the traceability information (tracing a specific job to a VO member) within 24 hours during security incidents?
+      * We can provide a response within 1 business day.
+   * Can you easily generate the list of users who below to the VO and who have access to FNAL and other OSG resources.
+      * Yes, we can easily generate this list of users.
+   * Do you have a list of CHTC staff members who have privileged access to the job submission and frontend services. If there is any granularity in the privileges granted, please outline them or provide links to VO policy documentation.
+      * Yes, we also have a list of CHTC staff with access.  Privilege includes sudo for each staff member.
+   * What is the policy of revoking user access to job submission services? Specifically does GLOW VO policy and procedure to determine a) when a user should be banned or suspended from the VO due to security concerns; b) the length of time for the VO to perform the removal process from the time it receives a request for banning; c) how to re-instantiate a previously banned user; and d) the process to announce such actions (banning, unbanning) to the grid resource owners. If there is any VO policy on user removal a link to that would be useful.
+      * Fortunately we have not had the need to ban any users from our systems due to security concerns. We could remove a user within one business day.
+   * Are login account authentication on submit nodes local or so they inherit from University wide services. (e.g. LDAP, Kerberos)?
+      * Traditionally this was not the case.  We are migrating towards using UW-Madison-issued netids for access to CHTC, and auditing existing users who are not using UW-Madison netids yet.
+   * Would it  at all be feasible to additionally keep the audit logs on CHTC managed submit nodes for 3 months?
+      * We can look into storage of audit logs for 3 months.  
+
 -- Main.AnandPadmanabhan - 13 Jan 2014
