@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DaveDykstra" date="1394061492" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="DaveDykstra" date="1394147436" format="1.1" reprev="1.5" version="1.5"}%
 %DOC_STATUS_TABLE%
 
 ---+!! Procedures for handling OASIS externally-hosted Repositories
@@ -24,12 +24,12 @@ This document doesn't cover requirements for the GOC computers since those are a
 
 This is the procedure for installing it on a Redhat EL5 system:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% rpm -i http://repo.grid.iu.edu/osg/3.2/osg-3.2-el5-release-latest.rpm
-%UCL_PROMPT_ROOT% yum install aufs cvmfs-server.x86_64 cvmfs.x86_64</pre>
+%UCL_PROMPT_ROOT% yum install aufs cvmfs-server.x86_64 oasis-config</pre>
 
 This is the procedure for installing it on a Redhat EL6 system:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% rpm -i http://cvmrepo.web.cern.ch/cvmrepo/yum/cvmfs/EL/6/x86_64/cvmfs-release-2-4.el6.noarch.rpm
 %UCL_PROMPT_ROOT% rpm -i http://repo.grid.iu.edu/osg/3.2/osg-3.2-el6-release-latest.rpm
-%UCL_PROMPT_ROOT% yum install --enablerepo=cernvm-kernel --disablerepo=cernvm kernel aufs2-util cvmfs-server.x86_64 cvmfs.x86_64
+%UCL_PROMPT_ROOT% yum install --enablerepo=cernvm-kernel --disablerepo=cernvm kernel aufs2-util cvmfs-server.x86_64 oasis-config
 %UCL_PROMPT_ROOT% reboot</pre>
 
 In addition, apache needs to listen on port 8000 and be started.  Use these commands:<pre class="rootscreen">
@@ -44,15 +44,29 @@ Make sure that port 8000 is available to the internet through any firewalls.
    1. The VO representative chooses a name for the repository.  This should normally be either the name of the VO or be derived from it.  The name used as an example in this document is *reponame*.
    1. Using whatever mechanism is appropriate at their institution, the VO representative requests the local CVMFS repository administrator to create this repository called =reponame.opensciencegrid.org=.
    1. The repository administrator creates the repository with these commands where ownerid is the user id that will have write access:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% echo "*	 - nofile 16384" >>/etc/security/limits.conf
+%UCL_PROMPT_ROOT% ulimit -n 16384
 %UCL_PROMPT_ROOT% cvmfs_server mkfs -o ownerid reponame.opensciencegrid.org
-%UCL_PROMPT_ROOT% (echo Order deny,allow;echo Deny from all;echo Allow from 129.79.53.0/24) >/srv/cvmfs/reponame.opensciencegrid.org/.htaccess</pre>
+%UCL_PROMPT_ROOT% (echo Order deny,allow;echo Deny from all;echo Allow from 127.0.0.1;echo Allow from 129.79.53.0/24) >/srv/cvmfs/reponame.opensciencegrid.org/.htaccess</pre>
       If you might be hosting any hardlinks that span directories (e.g. the git package), also do the following:<pre class="rootscreen">
-%UCL_PROMPT_ROOT% echo "CVMFS_IGNORE_XDIR_HARDLINKS=true" >>/etc/cvmfs/repositories.d/reponame.opensciencegrid.org</pre>
+%UCL_PROMPT_ROOT% echo "CVMFS_IGNORE_XDIR_HARDLINKS=true" >>/etc/cvmfs/repositories.d/reponame.opensciencegrid.org/server.conf</pre>
       Verify that the repository is readable over http with the following command:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% wget -qO- http://localhost:8000/cvmfs/reponame.opensciencegrid.org/.cvmfswhitelist|cat -v</pre>
       That should print several lines including some gibberish at the end.
-   1. The repository administrator next should create a [[https://ticket.grid.iu.edu/goc/submit][GOC ticket]] asking that a repository be added to OASIS.  Give the name of the VO and the full URL of the repository (e.g. http://fully.qualified.domain:8000/cvmfs/reponame.opensciencegrid.org)
+   1. The repository administrator next creates a [[https://ticket.grid.iu.edu/goc/submit][GOC ticket]] asking that a repository be added to OASIS.  Give the name of the VO and the full URL of the repository (e.g. =http://fully.qualified.domain:8000/cvmfs/reponame.opensciencegrid.org=).
+   1. The GOC representative next ensures that the repository administrator is a valid representative of a host site for the VO, and that the reponame in the URL is derived from the VO and ends in opensciencegrid.org.  If those are all fine, on the oasis machine the GOC representative runs =add_osg_repository=, giving it as a parameter the given URL.  This will download the =.cvmfswhitelist= file from the repository, sign it, publish it back on the oasis http server, and set it to be re-signed every night at midnight.  In addition, the GOC representative manually edits =/srv/cvmfs/.htaccess= and ensures that the host machine in the URL (e.g. =fully.qualified.domain=) is covered in an "Allow from" statement.  This can be the DNS name, an IP address, or a range of IP addresses for repository servers at that site.  Then the GOC representative notifies the repository administrator that the signed white list is available.  The ticket should remain open because there's another step to do after the repository administrator's next step.
+   1. The repository administrator next executes the following commands:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% wget -O /srv/cvmfs/reponame.opensciencegrid.org/.cvmfswhitelist http://oasis.opensciencegrid.org/cvmfs/reponame.opensciencegrid.org/.cvmfswhitelist
+%UCL_PROMPT_ROOT% ln -sf opensciencegrid.org.pub /etc/cvmfs/keys/reponame.opensciencegrid.org.pub</pre>
+      Next the administrator verifies that a publish operation using the owner's privileges succeeds by making sure there's no errors from the following commands replacing "ownerid" with the owner's username (Note: with cvmfs-server 2.1.15 on fermicloud machines, if it prompts for a password, change "localhost" to "ALL" on all of the cvmfs lines in /etc/sudoers):<pre class="rootscreen">
+%UCL_PROMPT_ROOT% su ownerid -c "cvmfs_server transaction reponame.opensciencegrid.org"
+%UCL_PROMPT_ROOT% su ownerid -c "cvmfs_server publish reponame.opensciencegrid.org"</pre>
+      If that works then add the wget command to a daily cron:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% echo "5 4 * * * wget -qO /srv/cvmfs/reponame.opensciencegrid.org/.cvmfswhitelist http://oasis.opensciencegrid.org/cvmfs/reponame.opensciencegrid.org/.cvmfswhitelist" >>/etc/cron.d/fetch-cvmfs-whitelist</pre>
+      Then the repository administrator goes back to the open GOC ticket and asks that the repository be replicated onto OSG stratum 1s.
    1. TO BE COMPLETED
+
+<-- When doing add_osg_repository on oasis-replica, suggest using nohup -->
 
 </noautolink>
 
