@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1394122670" format="1.1" version="1.22"}%
+%META:TOPICINFO{author="JohnWeigand" date="1395757740" format="1.1" reprev="1.23" version="1.23"}%
 %META:TOPICPARENT{name="GratiaInterfacesApelLcg"}%
 <!--
    * Set LCG_CONF        = [[#lcg_conf][lcg.conf]]
@@ -645,13 +645,37 @@ Identifies access information for the Gratia and APEL databases.
 | !GratiaUser | Should be a read-only user. |
 | !GratiaPswd | Password for a read-only user. |
 
+---++ SSM Configuration files
+There are 2 configuration files in %CONFIG_LOCATION% that require some modifications:
+   * ssm/ssm.cfg
+   * ssm/ssm.log.cfg
+
+These sections define the specific changes made for this interface.%BR%
+More detail regarding other options can be found in the [[https://wiki.egi.eu/wiki/APEL/SSMConfiguration][APEL/SSM Configuration twiki]]
+
+<!-- ---------------------------------------------------------------------------- -->
+---+++ ssm.cfg
+The table below indicates the changes necessary for test and production:
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
+| Test            | [broker]        | broker-network: TEST-NWOB%BR% use-ssl: false |
+|                   | [certificates]  | certificate: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostcert.pem%BR%key: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostkey.pem |
+|                   | [producer]     | consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=raptest.esc.rl.ac.uk |
+| Production | [broker]         | broker-network: PROD%BR% use-ssl: true |
+|                   | [certificates]  | certificate: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostcert.pem%BR%key: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostkey.pem |
+|                   | [producer]     | consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=rap.esc.rl.ac.uk |
+
+<!-- ---------------------------------------------------------------------------- -->
+---+++ ssm.log.cfg
+The only change required in the interface logging configuration is to hard code the directory path to the log directory and file:
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
+| [handler]        | args=('/var/log/gratia-apel/ssm.log', 'a') |
 
 <!-- ---------------------------------------------------------------------------- -->
 <a name="crontab"/>
 ---+ Crontab
 The crontab file can be found in %CRONTAB_LOCATION%.
 
-As mentioned somewhere way back in this document, the general practice has been run this interface from the 1st of the current month thru the 8th of the next month (e.g. for November, it will run nightly from 11/1 thru 12/8) to accommodate sites/resources that may have had reporting problems and are in "catch-up" mode.  So 2 cron entries are required:
+As mentioned somewhere way back in this document, the general practice has been run this interface from the 1st of the current month thru the 5th of the next month (e.g. for November, it will run nightly from 11/1 thru 12/5) to accommodate sites/resources that may have had reporting problems and are in "catch-up" mode.  So 2 cron entries are required:
 
 %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show an example /etc/cron.d/gratia-apel.cron"}%
 <blockquote><pre>
@@ -669,7 +693,7 @@ As mentioned somewhere way back in this document, the general practice has been 
 #   service   gratia-apel-cron start
 #   chkconfig gratia-apel-cron on
 #-------------------------------------------------------------------------
-15 0 1-8 * *  root   [ ! -f /var/lock/subsys/gratia-apel-cron ] || (/usr/share/gratia-apel/LCG.py --config=/etc/gratia-apel/lcg.conf --date=previous --update)
+15 0 1-5 * *  root   [ ! -f /var/lock/subsys/gratia-apel-cron ] || (/usr/share/gratia-apel/LCG.py --config=/etc/gratia-apel/lcg.conf --date=previous --update)
 #
 #-------------------------------------------------------------------------
 # Current month's transfers - Always daily.
@@ -679,6 +703,28 @@ As mentioned somewhere way back in this document, the general practice has been 
 #-------------------------------------------------------------------------
 </pre></blockquote>
 %ENDTWISTY%
+
+<!-- ---------------------------------------------------------------------------- -->
+---+ Troubleshooting
+---++ Certificate issues (test vs production)
+APEL has a test and production broker network for authenticating access using certificates.  
+The following explanation of the differences between the 2 environments was provided by APEL support on March 21 2014.
+<blockquote>
+<b><u>Test broker environment</b></u>%BR%
+The data that you send to our test host (raptest) is sent via EGI's test broker network (the TEST-NWOB in your configuration). 
+This allows connections not using SSL (hence 'use_ssl: false' in your configuration and the different port number). 
+The rules for authorising with the test message brokers are more liberal as it is used by sites that are not certified by the EGI for testing. 
+Your messages got through to us and, once we had your DN in our list of accepted senders, was loaded on the test host.
+
+<b><u>Production broker environment</b></u>%BR%
+The data that you send to our production host (rap) is sent via EGI's production message brokers (PROD), using SSL. 
+The rules for authorizing are more strict. 
+The error messages that you are receiving (the Java ones) are from the message brokers and are sent when they fail to authorize your certificate. 
+Sites are usually listed in GOCDB (goc.egi.eu) with a gLIte-apel endpoint - but I realize that this is probably not appropriate in your case. 
+Do you remember if there was a special case made for your previous certificate?
+ I should think that the message broker team will need either the DN or a copy of your new certificate to authenticate you. 
+I am happy to follow this up with the message broker team on your behalf.
+</blockquote>
 
 
 <!-- ---------------------------------------------------------------------------- -->
@@ -731,68 +777,37 @@ In addition, there are several python libraries required:
 &gt; yum  -y  install python-ldap
 </pre></blockquote>
 
----+++ Install SSM
-The installation from RPM is:
-<blockquote><pre>
-&gt; rpm -iv /cloud/login/weigand/osg-rpm-install/SSM/etc/ssm-0.11-1.noarch.rpm
-</pre></blockquote>
-
-The RPM carries out a number of steps to run the SSM in a specific way.
-   * It installs the core files in __/opt/apel/ssm__
-   * It creates the messages directory __/var/opt/apel/messages__
-   * It creates the log directory __/var/log/apel__
-   * It creates the pidfile directory __/var/run/apel__
-
+---+++ Installing SSM
+SSM can be installed via RPM.  However, as mentioned earlier, SSM has been packaged in the Gratia-APEL 
+rpm in order to insure compatibility.
 
 <!-- ---------------------------------------------------------------------------- -->
----++ SSM Configuration files
-There are 2 configuration files in __/opt/apel/ssm/conf__ that require some modifications:
-   * ssm.cfg
-   * ssm.log.cfg
-
-These sections define the specific changes made for this interface.%BR%
-More detail regarding other options can be found in the [[https://wiki.egi.eu/wiki/APEL/SSMConfiguration][APEL/SSM Configuration twiki]]
-
-<!-- ---------------------------------------------------------------------------- -->
----+++ ssm.cfg
-The table below indicates the changes necessary for test and production:
-%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
-| Test            | [broker]        | broker-network: TEST-NWOB%BR%username: gratia |
-|                   | [certificates]  | certificate: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostcert.pem%BR%key: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostkey.pem |
-|                   | [producer]     |  /C=UK/O=eScience/OU=CLRC/L=RAL/CN=raptest.esc.rl.ac.uk/emailAddress=sct-certificates@stfc.ac.uk |
-| Production | [broker]         | broker-network: PROD%BR%username: gratia |
-|                   | [certificates]  | certificate: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostcert.pem%BR%key: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostkey.pem |
-|                   | [producer]     | consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=rap.esc.rl.ac.uk |
-
-<!-- ---------------------------------------------------------------------------- -->
----+++ ssm.log.cfg
-The only change required in the interface logging configuration is to hard code the directory path to the log directory and file:
-%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
-| [handler]        | args=('/var/log/apel/ssm.log', 'a') |
-
-
+---++ Configuration files
+Refer back to this section [[#SSM_Configuration_files][SSM Configuration Files]] for details.
+ 
 <!-- ---------------------------------------------------------------------------- -->
 ---++ Running the SSM
-The SSM needs to be run once without sending any messages in order to create the necessary
-directory structure in __/var/opt/apel/messages__:
+One unique thing about SSM is that it needs to be run once without sending any messages in order to create the necessary
+directory structure in __/var/lib/gratia-apel/messages__:
 <blockquote><pre>
 drwxr-xr-x 2 gratia gratia 4096 Jul 23 13:36 accept
 drwxr-xr-x 2 gratia gratia 4096 Jul 23 13:36 ack
 drwxr-xr-x 2 gratia gratia 4096 Jul 23 13:36 incoming
-drwxr-xr-x 2 gratia gratia 4096 Jul 23 13:37 outgoing
+%BLUE%drwxr-xr-x 2 gratia gratia 4096 Jul 23 13:37 outgoing  <b># interface files</b>%ENDCOLOR%
 drwxr-xr-x 2 gratia gratia 4096 Jul 23 13:36 reject
 </pre></blockquote>
 
 To run the SSM the first time (but don't do this until you've completed the configuration for test or production):
 <blockquote><pre>
-&gt; export SSM_HOME=/opt/apel/ssm
-&gt; $SSM_HOME/bin/run-ssm
+&gt; /usr/share/gratia-apel/ssm/ssm_master.py /etc/gratia-apel/ssm/ssm.cfg
 </pre></blockquote>
 
 Then, to send your messages:
-   * Write all the messages to the /opt/apel/ssm/messages/outgoing directory
-   * export SSM_HOME=/opt/apel/ssm
-   * $SSM_HOME/bin/run-ssm
+   * Write all the messages to the _/var/lib/gratia-apel/messages/outgoing_: directory
+   * /usr/share/gratia-apel/ssm/ssm_master.py /etc/gratia-apel/ssm/ssm.cfg
+
+__NOTE:__ The [[#SSMInterface_py][SSMInterface.py]] module can be used for this purpose when it is 
+necessary to manually send files.
 
 <!-- ---------------------------------------------------------------------------- -->
 ---++ Log file (/var/log/apel/ssm.log)
@@ -828,12 +843,12 @@ The APEL/SSM log file for a successful run will look like this:
 2012-07-23 13:37:05,474 - SSM - DEBUG - Signing
 2012-07-23 13:37:05,487 - SSM - DEBUG - Encrypting signed message of length 60170
 2012-07-23 13:37:05,499 - SSM - DEBUG - Encrypted length: 82357
-2012-07-23 13:37:05,499 - SSM - DEBUG - Sending 2012-07.ssm-updates.txt
+%BLUE%2012-07-23 13:37:05,499 - SSM - DEBUG - Sending 2012-07.ssm-updates.txt
 2012-07-23 13:37:06,587 - SSM - DEBUG - Broker received 2012-07.ssm-updates.txt
 2012-07-23 13:37:07,237 - SSM - DEBUG - Receiving message from: /topic/global.accounting.cpu.client.fermicloud140.fnal.gov.7541
 2012-07-23 13:37:07,237 - SSM - DEBUG - Received ack for f0223f08fc939d83beeaa410eebbe42e
 2012-07-23 13:37:07,260 - SSM - DEBUG - Message 2012-07.ssm-updates.txt acknowledged by consumer
-2012-07-23 13:37:07,260 - SSM - INFO - All outgoing messages have been processed.
+2012-07-23 13:37:07,260 - SSM - INFO - All outgoing messages have been processed.%ENDCOLOR%
 2012-07-23 13:37:07,439 - SSM - INFO - SSM connection ended.
 2012-07-23 13:37:07,440 - SSM - INFO - The SSM has shut down.
 2012-07-23 13:37:07,440 - SSM - INFO - =======================================================
