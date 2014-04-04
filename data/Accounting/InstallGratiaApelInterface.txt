@@ -1,6 +1,6 @@
-%META:TOPICINFO{author="JohnWeigand" date="1365454542" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="JohnWeigand" date="1396626355" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="GratiaInterfacesApelLcg"}%
-
+%DOC_STATUS_TABLE%
 
 
 
@@ -8,7 +8,20 @@
 %TOC%
 
 <!-- conventions used in this document
-   * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="gratia"}%
+   * Set APEL_FAQ=[[https://twiki.cern.ch/twiki/bin/view/EMI/APELFAQ][APEL FAQ and Troubleshooting]]
+   * Set APEL_SERVER=[[https://wiki.egi.eu/wiki/APEL/Server][APEL Server]]
+   * Set APEL_SUMMARY_RECS=[[https://wiki.egi.eu/wiki/APEL/MessageFormat#Summary_Job_Records][APEL Job Summary Records]]
+   * Set EGI_PORTAL                        = [[http://accounting.egi.eu/osg.php][EGI Accounting Portal]]
+   * Set EGI_PORTAL_OSG_VIEW   = [[http://accounting.egi.eu/osg.php][EGI Accounting Portal - OSG view]]
+   * Set EGI_PORTAL_TIER1_VIEW = [[http://accounting.egi.eu/tier1.php][EGI Accounting Portal - Tier 1 view]]
+   * Set EGI_PORTAL_TIER2_VIEW = [[http://accounting.egi.eu/tier2.php][EGI Accounting Portal - Tier 2 view]]
+   * Set EGI_PORTAL_USER_VIEW = [[http://www3.egee.cesga.es/gridsite/accounting/CESGA/user/user_view.html][EGI Accounting Portal - User view]]
+   * Set EGI_PORTAL_VOMEMBER_VIEW = [[https://accounting.egi.eu/user/vomem.php][EGI Accounting Portal - VO Member view]]
+   * Set OIM_HOME= [[http://oim.grid.iu.edu/][OIM (OSG Information Management System)]]
+   * Set MYOSG_HOME= [[http://myosg.grid.iu.edu/about][MyOSG]]
+   * Set WLCG_REPORTING = [[http://gratiaweb.grid.iu.edu/gratia/wlcg_reporting][OSG WLCG Reporting]]
+
+   * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="root"}%
    * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="user"}%
    * Local UCL_DOMAIN = %URLPARAM{"INPUT_DOMAIN" encode="quote" default="opensciencegrid.org"}%
    * Set TWISTY_OPTS_DETAILED = mode="div" showlink="Show Detailed Output" hidelink="Hide" showimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleopen-small.gif" hideimgleft="/twiki/pub/TWiki/TWikiDocGraphics/toggleclose-small.gif" remember="on" start="hide" 
@@ -21,28 +34,41 @@
 ---+ About this Document
 This document is for the individual or group responsible for running the interface between Gratia and the APEL/WLCG/EGI accounting systems.
 Here we describe how to install and configure the Gratia-APEL interface on a Linux machine.
-When you install this service, as described here, You get all parts: !MySQL client, httpd, APEL SSM and the Gratia-APEL interface service.
+When you install this service, as described here, you get the following main components:
+| *Software* | *Description* |
+| !MySQL client | Used to access the OSG Gratia database |
+| httpd | Provides access to the interface results |
+| APEL SSM | Sends updates to APEL/EGI |
+| Gratia-APEL | Main software |
 
-This is currently only supported on an EL5 (Red Hat Enterprise Linux 5-based OS, including Red Hat Enterprise Linux 5-based OS).
 
 ---+ Introduction
+Accounting records collected by Gratia are forwarded to the EGI accounting system, APEL. This is important for US-LHC Tier1 and Tier2 facilities which have to demonstrate to the LHC project delivered computing resources on behalf of ATLAS, CMS and ALICE collaborations, in accordance with signed Memorandum of Understanding agreements. The software parses and analyzes Gratia accounting records for an OSG __resource_group__ , scales wall time and cpu usage into <nop>HepSpec2006 for the processor type, and then forwards this data to the %APEL_SERVER% at the EGI GOC
 
+The APEL Accounting Portal at RAL has been storing CPU accounting results for WLCG.  On behalf on the ATLAS, CMS and ALICE Tier 1 and Tier 2 that are part of OSG, OSG uploads usage information from Gratia to the APEL accounting system.  This OSG data can be viewed in the 
+%EGI_PORTAL_OSG_VIEW%.  APEL is using OSG __resource groups__  registered in %OIM_HOME% and viewable in %MYOSG_HOME%
 
 ---+ Requirements
 
 ---++ Host and OS
    * A host to install the Gratia Service (Pristine node desired)
-   * OS is %SUPPORTED_OS%. The APEL/SSM interface software is currently only supported on EL5
+   * OS is %SUPPORTED_OS%. 
    * Root access
 
 ---++ Users
 At this time, _root_ user is the only one configured to run this interface.
+| *User* | *Default uid* | *Comment* |
+| =root= | 0 | Runs the interface (cron) and owns the service certificate and configuration files |
 
 ---++ Certificates
 You will need one service certificate.  This is a requirement of the APEL/SSM protocol.  
 This certificate must be registered with the EGI broker network.
 You can use a host certificate but the advantage of using a service certificate allows you to port the interface to another node without
 re-registering it with APEL. Instructions for requesting a certificate can be found [[GetHostServiceCertificates][Here]].
+
+| *Certificate* | *User that owns certificate* | *Path to certificate* |
+| Service certificate | =root= | =/etc/grid-security/gratia-apelcert.pem= <br> =/etc/grid-security/gratia-apelkey.pem= |
+
 
 Before you can send your messages to the APEL server, you must send your certificate DN to the APEL-SUPPORT@JISCMAIL.AC.UK 
 mailing list, e.g. output from running:
@@ -51,6 +77,14 @@ openssl x509 -subject -noout -in your_cert_pem_file
 </pre>
 
 ---+ Installation Procedure
+---++ Installing the Yum Repositories required by OSG
+Certificates are required for the APEL-SSM interface to function as it uses SSL authentication for acceptance of data via SSM.
+You will need to install the EPEL and OSG yum repositories  as described in the 
+[[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/YumRepositories][OSG Release 3 Yum Repositories documentation]].
+
+---++ Installing CA Certificates (a quick guide)
+You will now need to install OSG CA certificates.  The 
+[[https://twiki.opensciencegrid.org/bin/view/Documentation/Release3/InstallCertAuth#Install_the_CA_Certificates_A_qu][OSG Release 3 documentation for installing the CA certificates]] will guide you through it.
 
 
 ---++ Install the Gratia-APEL interface
@@ -185,13 +219,210 @@ Complete!
 
 ---+ Configure
 
+---++ Configure SSM using test broker
+When the SSM software is initially installed, the default configuration is set to talk to the SSM
+test broker/services and SSM needs to be run once to create some directories.
+
+You will need the service certificate you previously installed and will need to modify the SSM config files
+for that service certificate:
+
+__/etc/gratia-apel/ssm/ssm.cfg__
+<pre class="file">
+   :
+################################################################################
+# Required: Certificate configuration
+[certificates]
+#certificate: /etc/grid-security/hostcert-ssm.pem
+#key: /etc/grid-security/hostkey-ssm.pem
+certificate: %RED%your_service_cert_file%ENDCOLOR%
+key: /etc/grid-security/%RED%your_service_cert_file%ENDCOLOR%
+cadir: /etc/grid-security/certificates
+check-crls: false
+   :
+</pre>
+
+SSM needs to be run once before attempting to send anything. 
+This invocation will create the __/var/lib/gratia-apel/messages__ sub-directories for SSM.
+It is basically just a "ping" to the broker to verify basic communication.  Nothing is sent.
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /usr/share/gratia-apel/ssm/ssm_master.py /etc/gratia-apel/ssm/ssm.cfg
+</pre>
+__/var/log/gratia-apel/ssm.log__ output on success:%BR%
+%TWISTY{%TWISTY_OPTS_DETAILED%}%   <pre class="file">
+2013-04-09 10:15:34,696 - SSM - INFO - Starting the SSM...
+2013-04-09 10:15:34,713 - SSM - INFO - Running the SSM once only.
+2013-04-09 10:15:34,714 - SSM - INFO - BDII URL: ldap://lcg-bdii.cern.ch:2170
+2013-04-09 10:15:34,714 - SSM - INFO - BDII broker network: TEST-NWOB
+2013-04-09 10:15:35,960 - SSM - DEBUG - Found broker in BDII: test-msg02.afroditi.hellasgrid.gr:6163
+2013-04-09 10:15:36,124 - stomp.py - INFO - Established connection to host test-msg02.afroditi.hellasgrid.gr, port 6163
+2013-04-09 10:15:36,124 - SSM - INFO - Connecting: ('test-msg02.afroditi.hellasgrid.gr', 6163)
+2013-04-09 10:15:36,126 - SSM - INFO - The SSM will not run as a consumer.
+2013-04-09 10:15:36,126 - SSM - INFO - The SSM will run as a producer.
+2013-04-09 10:15:36,126 - SSM - DEBUG - I will be a producer, my ack queue is: /topic/global.accounting.cpu.client.fermicloud139.fnal.gov.2315
+2013-04-09 10:15:36,296 - SSM - INFO - Connected
+2013-04-09 10:15:36,325 - SSM - INFO - The SSM started successfully.
+2013-04-09 10:15:36,326 - SSM - DEBUG - Pinging
+2013-04-09 10:15:36,326 - SSM - DEBUG - Sending ping
+2013-04-09 10:15:36,326 - SSM - INFO - All outgoing messages have been processed.
+2013-04-09 10:15:36,326 - SSM - INFO - SSM connection ended.
+2013-04-09 10:15:36,326 - SSM - INFO - The SSM has shut down.
+</pre> %ENDTWISTY%
+
+The necessary SSM directories will have now been created in __/var/lib/gratia-apel/messages__:
+<pre class="rootscreen">
+drwxr-xr-x 2 root root 4096 Mar  6 10:35 accept
+drwxr-xr-x 2 root root 4096 Mar  6 10:35 ack
+drwxr-xr-x 2 root root 4096 Mar  6 10:35 incoming
+%BLUE%drwxr-xr-x 2 root root 4096 Mar  6 10:35 outgoing%ENDCOLOR%
+drwxr-xr-x 2 root root 4096 Mar  6 10:35 reject
+</pre>
+The __./outgoing__ directory is the only one used by this interface.
+
+---++ Configure httpd
+The interface software creates a set of __.html__ and __.dat__ available via the __httpd__ service on your node.
+This allow you to view the data collected and sent to APEL/EGI more easily.  
+The %WLCG_REPORTING% view of the interfaced accounting data uses these __.dat__ files for it's display.
+The default port for httpd is 80.  If this port is not accessible from outside your node, it will have to be changed.
+
+__/etc/httpd/conf/httpd.conf__
+<pre class="file">
+Listen = %RED%80%ENDCOLOR%
+</pre>
+
+During the RPM installation, the files used for the %WLCG_REPORTING% view were installed in __/var/lib/gratia-apel/webapps__.
+This is basically the history of the data sent to APEL/EGI by this interface.  Each time the interface is run, it creates a file of the latest
+updates in this directory.  There is a script that runs in the cron entry called __create_apel_index.sh__ that creates the __index.html__ file
+for the most recent entries.  This must be run:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT%  /usr/share/gratia-apel/create_apel_index.sh
+</pre>
+
+---++ Configure Gratia-APEL for Gratia access
+The only configuration for the gratia-apel configuration is for read access to the OSG Gratia database.
+This should be __read-only__ access.
+
+__/etc/gratia-apel/lcg-db.conf__
+<pre class="file">
+GratiaUser     %RED%gratia_user_id%ENDCOLOR%
+GratiaPswd    %RED%gratia_user_password%ENDCOLOR%
+</pre>
+__Note:__  The Gratia database accessed is generally always production even when doing any testing.
+The load is not that significant as is is read only and uses a very simple query on a small subset of the
+data (the summary tables).  
+
+---++ Test against the APEL-SSM test brokers
+As mentioned earlier, the initial installation of the SSM interface defaults to a test
+broker.  So, it is best to make an initial run against that environment.
+Cut/paste the cron entry in __/etc/cron.d/gratia-apel-cron__ for the current month
+to the command line and executed it:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT%  [ ! -f /var/lock/subsys/gratia-apel-cron ] || (cd /usr/share/gratia-apel ; \
+                    ./lcg.sh --config=/etc/gratia-apel/lcg.conf --date=current --update \
+                     && ./create-apel-index.sh /etc/gratia-apel/lcg.conf) 
+</pre>
+
+---+ Configuring for access to production APEL
+When you are satisfied, with the installation in the test environment, you will need to modify the APEL SSM __ssm.cfg__
+file to connect to the production APEL brokers.
+
+__Test APEL__
+<pre class="rootscreen">
+[broker]
+broker-network: TEST-NWOB
+[producer]
+consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=raptest.esc.rl.ac.uk 
+</pre>
+__Production APEL__
+<pre class="rootscreen">
+[broker]
+broker-network: PROD
+[producer]
+consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=rap.esc.rl.ac.uk
+</pre>
 
 ---+ Services
+The following sections describe how to start/stop the required services and how to 
+enable/disable them when your system is powered on.
+---++ Starting and Enabling Services
+%STARTSECTION{"StartGratiaApelServices"}%
+To start/enable the Gratia-APEL interface:
+   1. %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlStart"}%
+   1. __httpd__  service:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service httpd start
+%UCL_PROMPT_ROOT% /sbin/chkconfig httpd on
+</pre>
+   1. __gratia_apel_cron__ service<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service gratia-apel-cron start 
+%UCL_PROMPT_ROOT% /sbin/chkconfig gratia-apel-cron on
+</pre>
+%ENDSECTION{"StartGratiaApelServices"}%
 
----+ Test
+---++ Stopping and Disabling Services
+%STARTSECTION{"StopGratiaApelServices"}%
+To stop/disable the Gratia-APEL interface:
+   1. %INCLUDE{"InstallCertAuth" section="OSGBriefFetchCrlStop"}%
+   1. __httpd__  service:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service httpd stop
+%UCL_PROMPT_ROOT% /sbin/chkconfig httpd off
+</pre>
+   1. __gratia_apel_cron__ service<pre class="rootscreen">
+%UCL_PROMPT_ROOT% /sbin/service gratia-apel-cron stop
+%UCL_PROMPT_ROOT% /sbin/chkconfig gratia-apel-cron off
+</pre>
+%ENDSECTION{"StopGratiaServices"}%
+
+
+
+
 
 
 ---+ Troubleshooting
+---++ Configuration Files
+
+<pre class="rootscreen">
+%BLUE%<u><b>/etc/gratia-apel</u></b>%ENDCOLOR%
+-rw-rw-r-- 1 root root  588 Mar  6 10:35 lcg-db.conf
+-rw-rw-r-- 1 root root 5205 Mar  6 10:27 lcg-reportableSites
+drwxr-xr-x 2 root root 4096 Mar  6 10:35 lcg-reportableSites.history
+-rw-rw-r-- 1 root root   30 Mar  6 10:27 lcg-reportableVOs
+-rw-rw-r-- 1 root root 3033 Mar 19 08:43 lcg.conf
+drwxr-xr-x 2 root root 4096 Apr  4 09:17 ssm
+ 
+%BLUE%<u><b>/etc/gratia-apel/lcg-reportableSites.history</u></b>%ENDCOLOR%
+-rw-rw-r-- 1 root root 12315 Mar  6 10:27 lcg-reportableSites.200901
+     : (one for each month)
+-rw-rw-r-- 1 root root  5205 Mar  6 10:27 lcg-reportableSites.201402
+-rw-rw-r-- 1 root root  5205 Mar  6 10:27 lcg-reportableSites.201403
+
+%BLUE%<b><u>/etc/gratia-apel/ssm</u></b>%ENDCOLOR%
+-rw-r--r-- 1 root root 4211 Jun 28  2012 README
+-rw-r--r-- 1 root root 3804 Mar 25 11:53 ssm.cfg
+-rw-r--r-- 1 root root  648 Mar  6 10:27 ssm.log.cfg
+-rw-r--r-- 1 root root  256 May  2  2012 ssm.logrotate
+</pre>
+
+<pre class="rootscreen">
+%BLUE%<u><b>/etc/httpd/conf</u></b>%ENDCOLOR%
+-rw-r--r-- 1 root root 33740 Mar  6 10:35 httpd.conf
+</pre>
+
+---++Log Files
+<pre class="rootscreen">
+%BLUE%<u><b>/var/log/gratia-apel</u></b>%ENDCOLOR%
+-rw-rw-r-- 1 root root  58123 Feb 07 08:53 2013-01.log
+  : (one per month)
+-rw-rw-r-- 1 root root  58123 Mar 07 08:53 2014-02.log
+-rw-rw-r-- 1 root root 170289 Mar 26 12:07 2014-03.log
+-rw-r--r-- 1 root root  82936 Mar 26 12:01 ssm.log
+</pre>
+
+The httpd logs are useful if the %WLCG_REPORTING% system has access issues.
+<pre class="rootscreen">
+%BLUE%<u><b>/var/log/httpd</u></b>%ENDCOLOR%
+-rw-r--r-- 1 root root    0 Mar 30 04:02 access_log
+-rw-r--r-- 1 root root  250 Mar 30 04:02 error_log
+</pre>
+
 
 ---+ How to get Help?
 To get assistance, please use [[HelpProcedure][Help Procedure]].
@@ -218,5 +449,6 @@ For significant updates to the topic, consider adding your 'signature' (beneath 
 ---++!! Major updates
 <!--Future editors should add their signatures beneath yours!-->
 -- Main.JohnWeigand - 08 Apr 2013
+
 
 %META:TOPICMOVED{by="JohnWeigand" date="1365448625" from="Accounting.GratiaApelInterfaceInstallation" to="Accounting.InstallGratiaApelInterface"}%
