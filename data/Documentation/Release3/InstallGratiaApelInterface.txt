@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1381342516" format="1.1" version="1.3"}%
+%META:TOPICINFO{author="JohnWeigand" date="1396624136" format="1.1" reprev="1.4" version="1.4"}%
 %DOC_STATUS_TABLE%
 
 
@@ -41,8 +41,6 @@ When you install this service, as described here, you get the following main com
 | Gratia-APEL | Main software |
 
 
-This is currently only supported on an EL5 (Red Hat Enterprise Linux 5-based OS, including Red Hat Enterprise Linux 5-based OS).
-
 ---+ Introduction
 Accounting records collected by Gratia are forwarded to the EGI accounting system, APEL. This is important for US-LHC Tier1 and Tier2 facilities which have to demonstrate to the LHC project delivered computing resources on behalf of ATLAS, CMS and ALICE collaborations, in accordance with signed Memorandum of Understanding agreements. The software parses and analyzes Gratia accounting records for an OSG __resource_group__ , scales wall time and cpu usage into <nop>HepSpec2006 for the processor type, and then forwards this data to the %APEL_SERVER% at the EGI GOC
 
@@ -53,7 +51,7 @@ The APEL Accounting Portal at RAL has been storing CPU accounting results for WL
 
 ---++ Host and OS
    * A host to install the Gratia Service (Pristine node desired)
-   * OS is %SUPPORTED_OS%. The APEL/SSM interface software is currently only supported on EL5
+   * OS is %SUPPORTED_OS%. 
    * Root access
 
 ---++ Users
@@ -264,6 +262,16 @@ __/var/log/gratia-apel/ssm.log__ output on success:%BR%
 2013-04-09 10:15:36,326 - SSM - INFO - The SSM has shut down.
 </pre> %ENDTWISTY%
 
+The necessary SSM directories will have now been created in __/var/lib/gratia-apel/messages__:
+<pre class="rootscreen">
+drwxr-xr-x 2 root root 4096 Mar  6 10:35 accept
+drwxr-xr-x 2 root root 4096 Mar  6 10:35 ack
+drwxr-xr-x 2 root root 4096 Mar  6 10:35 incoming
+%BLUE%drwxr-xr-x 2 root root 4096 Mar  6 10:35 outgoing%ENDCOLOR%
+drwxr-xr-x 2 root root 4096 Mar  6 10:35 reject
+</pre>
+The __./outgoing__ directory is the only one used by this interface.
+
 ---++ Configure httpd
 The interface software creates a set of __.html__ and __.dat__ available via the __httpd__ service on your node.
 This allow you to view the data collected and sent to APEL/EGI more easily.  
@@ -275,6 +283,14 @@ __/etc/httpd/conf/httpd.conf__
 Listen = %RED%80%ENDCOLOR%
 </pre>
 
+During the RPM installation, the files used for the %WLCG_REPORTING% view were installed in __/var/lib/gratia-apel/webapps__.
+This is basically the history of the data sent to APEL/EGI by this interface.  Each time the interface is run, it creates a file of the latest
+updates in this directory.  There is a script that runs in the cron entry called __create_apel_index.sh__ that creates the __index.html__ file
+for the most recent entries.  This must be run:
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT%  /usr/share/gratia-apel/create_apel_index.sh
+</pre>
+
 ---++ Configure Gratia-APEL for Gratia access
 The only configuration for the gratia-apel configuration is for read access to the OSG Gratia database.
 This should be __read-only__ access.
@@ -284,6 +300,9 @@ __/etc/gratia-apel/lcg-db.conf__
 GratiaUser     %RED%gratia_user_id%ENDCOLOR%
 GratiaPswd    %RED%gratia_user_password%ENDCOLOR%
 </pre>
+__Note:__  The Gratia database accessed is generally always production even when doing any testing.
+The load is not that significant as is is read only and uses a very simple query on a small subset of the
+data (the summary tables).  
 
 ---++ Test against the APEL-SSM test brokers
 As mentioned earlier, the initial installation of the SSM interface defaults to a test
@@ -296,6 +315,24 @@ to the command line and executed it:
                      && ./create-apel-index.sh /etc/gratia-apel/lcg.conf) 
 </pre>
 
+---+ Configuring for access to production APEL
+When you are satisfied, with the installation in the test environment, you will need to modify the APEL SSM __ssm.cfg__
+file to connect to the production APEL brokers.
+
+__Test APEL__
+<pre class="rootscreen">
+[broker]
+broker-network: TEST-NWOB
+[producer]
+consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=raptest.esc.rl.ac.uk 
+</pre>
+__Production APEL__
+<pre class="rootscreen">
+[broker]
+broker-network: PROD
+[producer]
+consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=rap.esc.rl.ac.uk
+</pre>
 
 ---+ Services
 The following sections describe how to start/stop the required services and how to 
@@ -334,6 +371,52 @@ To stop/disable the Gratia-APEL interface:
 
 
 ---+ Troubleshooting
+---++ Configuration Files
+
+<pre class="rootscreen">
+%BLUE%<u><b>/etc/gratia-apel</u></b>%ENDCOLOR%
+-rw-rw-r-- 1 root root  588 Mar  6 10:35 lcg-db.conf
+-rw-rw-r-- 1 root root 5205 Mar  6 10:27 lcg-reportableSites
+drwxr-xr-x 2 root root 4096 Mar  6 10:35 lcg-reportableSites.history
+-rw-rw-r-- 1 root root   30 Mar  6 10:27 lcg-reportableVOs
+-rw-rw-r-- 1 root root 3033 Mar 19 08:43 lcg.conf
+drwxr-xr-x 2 root root 4096 Apr  4 09:17 ssm
+ 
+%BLUE%<u><b>/etc/gratia-apel/lcg-reportableSites.history</u></b>%ENDCOLOR%
+-rw-rw-r-- 1 root root 12315 Mar  6 10:27 lcg-reportableSites.200901
+     : (one for each month)
+-rw-rw-r-- 1 root root  5205 Mar  6 10:27 lcg-reportableSites.201402
+-rw-rw-r-- 1 root root  5205 Mar  6 10:27 lcg-reportableSites.201403
+
+%BLUE%<b><u>/etc/gratia-apel/ssm</u></b>%ENDCOLOR%
+-rw-r--r-- 1 root root 4211 Jun 28  2012 README
+-rw-r--r-- 1 root root 3804 Mar 25 11:53 ssm.cfg
+-rw-r--r-- 1 root root  648 Mar  6 10:27 ssm.log.cfg
+-rw-r--r-- 1 root root  256 May  2  2012 ssm.logrotate
+</pre>
+
+<pre class="rootscreen">
+%BLUE%<u><b>/etc/httpd/conf</u></b>%ENDCOLOR%
+-rw-r--r-- 1 root root 33740 Mar  6 10:35 httpd.conf
+</pre>
+
+---++Log Files
+<pre class="rootscreen">
+%BLUE%<u><b>/var/log/gratia-apel</u></b>%ENDCOLOR%
+-rw-rw-r-- 1 root root  58123 Feb 07 08:53 2013-01.log
+  : (one per month)
+-rw-rw-r-- 1 root root  58123 Mar 07 08:53 2014-02.log
+-rw-rw-r-- 1 root root 170289 Mar 26 12:07 2014-03.log
+-rw-r--r-- 1 root root  82936 Mar 26 12:01 ssm.log
+</pre>
+
+The httpd logs are useful if the %WLCG_REPORTING% system has access issues.
+<pre class="rootscreen">
+%BLUE%<u><b>/var/log/httpd</u></b>%ENDCOLOR%
+-rw-r--r-- 1 root root    0 Mar 30 04:02 access_log
+-rw-r--r-- 1 root root  250 Mar 30 04:02 error_log
+</pre>
+
 
 ---+ How to get Help?
 To get assistance, please use [[HelpProcedure][Help Procedure]].
