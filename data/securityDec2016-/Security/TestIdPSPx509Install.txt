@@ -1,0 +1,99 @@
+%META:TOPICINFO{author="KevinHill" date="1400876907" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="SecurityTeamWorkingArea"}%
+---+ Test !IdP/SP Install
+This is my attempt to follow the test !IdP/SP install from the shibboleth web site, and modify it to use x509 authentication with user info stored in a mysql db.
+   * https://wiki.shibboleth.net/confluence/display/SHIB2/IdPSPLocalTestInstall
+
+*SP*: 131.225.155.146 (fermicloud145.fnal.gov)
+ 
+*IdP*: 131.225.155.147 (fermicloud146.fnal.gov)
+
+---+++ !IdP Install:
+
+   * =yum update=; reboot if necessary.
+   * Set up mysql db with a user table containing username and dn, if not already available elsewhere.
+   * =yum install mysql-server=
+   * =service mysqld start=
+   * =mysql_secure_installation=. Set root password. take defaults for others.
+   * =chkconfig mysqld on=
+   * =mysql -p=
+      * =create database x509users;=
+      * =use x509users;=
+      * =create table User (id int primary key auto_increment, dn varchar(255) unique, uname char(32), active boolean default TRUE);=
+      * =grant select on x509users.* to "idpweb"@"localhost" identified by "letmein4idp";=
+      * =insert into User set uname="kevinh", dn="/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=People/CN=Kevin Hill 816";=
+      * =select * from User;=
+   * Now set up test x509 auth cgi area on idp, to test x509/mysql authentication.
+      * =rpm -Uvh http://download.fedoraproject.org/pub/epel/6/i386/epel-release-6-8.noarch.rpm=
+      * =yum install yum-priorities=
+      * =yum install http://repo.grid.iu.edu/osg/3.1/osg-3.1-el6-release-latest.rpm=
+      * =yum install osg-ca-certs=
+      * =yum install fetch-crl=
+      * =fetch-crl=
+      * =chkconfig fetch-crl-cron on=
+      * =service fetch-crl-cron start=
+      * mkdir /var/www/cgi-bin/secure=
+      * =vim /var/www/cgi-bin/secure/test.cgi= <Verbatim>
+#!/bin/bash
+
+echo "Content-type: text/plain"
+echo ""
+export
+</Verbatim>
+
+      * =chmod 755 /var/www/cgi-bin/secure/test.cgi=
+      * uncomment lines to load mod_dbd and mod_authn_dbd from /etc/httpd/conf/httpd.conf
+      * =yum install apr-util-mysql=
+      * =yum install mod_ssl=
+      * Make sure SSL cert parameters are correct in /etc/httpd.conf.d/ssl.conf
+         * !SSLCertificateFIle /etc/grid-security/hostcert.pem
+         * !SSLCertificateKeyFile /etc/grid-security/hostkey.pem
+         * !SSLCACertificatePath /etc/grid-security/certificates
+     * add to end of VirtualHost section in /etc/httpd/conf.d/ssl.conf: <Verbatim>
+  DBDriver mysql
+  DBDParams "dbname=testidp user=idp pass=letmein2idp"
+
+  <Directory /var/www/cgi-bin/secure>
+       SSLVerifyClient require
+       SSLVerifyDepth  5
+       SSLOptions      +FakeBasicAuth
+       SSLRequireSSL
+       AuthType        Basic
+       AuthName        "Mysql test"
+       AuthBasicProvider dbd
+       AuthDBDUserPWQuery "SELECT 'xxj31ZMTZzkVA' FROM User WHERE dn = %s AND active = TRUE"
+       Require         valid-user
+   </Directory>
+</Verbatim>
+
+      * =service httpd restart=
+      * verify web browser with certificate in mysql database can load https://<idp hostname>/cgi-bin/secure/test.cgi
+      * verify web browser without authorized cert cannot access url
+   * follow https://wiki.shibboleth.net/confluence/display/SHIB2/IdPSPLocalTestInstall
+      * substitute mysql apache setup above for file based username/passwords on idp.
+      * Install tomcat6/java via yum
+      * add /etc/profile.d/java.sh:
+      =export JAVA_HOME=$(dirname $(dirname $(ls -l /etc/alternatives/java | awk '{print $11}')))=
+      * after installing idp software:
+      * =chown tomcat /opt/shibboleth-idp/{metadata,logs}=
+      * edit /etc/sysconfig/tomcat6. Add at the end:
+        =JAVA_ENDORSED_DIRS=/usr/share/tomcat6/endorsed=
+
+---+++ *SP Install*:
+
+   * follow https://wiki.shibboleth.net/confluence/display/SHIB2/IdPSPLocalTestInstall
+   * create test web page at /var/www/html/secure/index.html
+   * attempt to view http://<sp hostname>/secure/index.html
+   * Should work with registered cert. Should not work without.
+
+
+
+<!--
+   * Set ALLOWTOPICVIEW = Main.GridGroup    
+   * Set ALLOWTOPICCHANGE = Main.SecurityTeamGroup    
+   * Set DENYTOPICVIEW = Main.TwikiGuest
+-->
+
+
+
+-- Main.KevinHill - 23 May 2014
