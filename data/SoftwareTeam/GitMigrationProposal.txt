@@ -1,8 +1,6 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1392222954" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1401395840" format="1.1" version="1.5"}%
 %META:TOPICPARENT{name="InternalDocs"}%
----+ Switching to Git (WIP)
-
----++ Background (TODO)
+---+ Switching Software Area (/software) to Git
 
 ---++ Objectives
 
@@ -12,80 +10,83 @@
    * Only authorized people (team members) can commit to the authoritative repos
    * Anyone should be able to submit a contribution
    * Team members must be able to quickly and easily add a contribution to the repo
-   * Trusted contributors (people with Koji accounts) should be able to make scratch builds from non-authoritative repos
-   * Only team members should be able to make non-scratch builds
-   * Non-scratch builds should only be made from authoritative repos
-   * Existing repo branch / tag safeguards (e.g. builds from =hcc= repo only accepted into the =hcc*= tags) must continue to function
    * The workflows for both contributors and team members must be clearly documented and robust
    * History must not be lost
 
-
 ---++ Architecture
 
----+++ Location of the Authoritative Repos
+---+++ Location of/Access to the Authoritative Repos (Options)
 
-The authoritative repos will be kept in a volume on the UW’s AFS. We will have
-daily backup copies of the repos on the same volume made by a script (similar
-to our existing SVN backup script (note: backup script should disable pushes
-before running backup and reenable them afterward)). The AFS volume itself will
-be backed up by the UW CSL. We may consider creating offsite backups as well.
+---++++ AFS (Matyas's preference)
+Keep the repos on the UW's AFS. We'll use the UW CSL's kerberos authentication. External collaborators will ssh to e.g. =library.cs.wisc.edu= to push.
+---+++++ Advantages
+   * Existing team members already have access
+   * No daemons to set up (except for a web interface)
+   * Volumes will be backed up as-is
+   * Precedent: HTCondor team does this
+   * Not dependent on a single machine (any machine with AFS access is good)
+---+++++ Disadvantages
+   * Decent access control will require creation of new AFS groups, which are a pain to manage
+   * Or we could make everything owned by =condor:vdt= like we do for the SVN repos. Then we won't have any fine-grained access control though
+   * Need to ensure backup/mirroring cronjobs have AFS tokens
+   * Might be slow
+   * Some management (e.g. setting up the web interface) needs to go through the CSL
 
-<span style="color: #F60; font-weight: bold;">TC:</span> Why AFS? Should we prefer non-AFS for speed and safety, and just implement careful backups like we do for Subversion today?
+---++++ Local Drive on CSL Server
+Same access method as with AFS, but the actual files will be kept in /scratch (and backed up to AFS, of course).
+---+++++ Advantages
+   * No daemons to set up (except for a web interface)
+---+++++ Disadvantages
+   * Existing team members will need access to the specific machine the repo is on
+   * No fine-grained access control; we don't control Unix groups so we can't make any of those
+   * Dependent on a single machine
+   * Better hope our backups are good because the CSL won't be making any
+   * Some management (e.g. setting up the web interface) needs to go through the CSL
+
+---++++ CHTC-controlled Git server (git.chtc.wisc.edu)
+Access via Gitolite. Users will need to use public keys and SSH.
+---+++++ Advantages
+   * Already set up, just need to add new repositories and public keys
+   * Fine-grained access control
+   * Precedent: CHTC infrastructure team does this
+   * Web interface also already set up
+---+++++ Disadvantages
+   * OSG team has no login access to that machine
+   * Dependent on CHTC infrastructure for all management (including setting up backups, cronjobs, etc.)
+   * Dependent on a single machine
+   * Shared resource with other CHTC members
+
+---++++ OSG-controlled Git server (perhaps on osghost.chtc.wisc.edu?)
+Access via Gitolite. Users will need to use public keys and SSH.
+---+++++ Advantages
+   * Full control over software, users, cronjobs, daemons, backups, everything
+   * Fine-grained access control
+---+++++ Disadvantages
+   * Full responsibility for software, users, cronjobs, daemons, backups, everything
+   * Dependent on a single machine
+   * Nothing set up
 
 ---+++ Public (!GitHub) Mirror
 
 We will create one !GitHub repo for each authoritative repo. The !GitHub repos
-will be owned by the "opensciencegrid" organization. It is encouraged (but not
-required) that existing team members get !GitHub accounts and join the
-opensciencegrid organization.
+will be owned by the "opensciencegrid" organization. Team members will
+need to have !GitHub accounts and be members of the organization.
 
----++++ Synchronizing via Cron Job
+We will have a dedicated !GitHub account for doing automated pushes to !GitHub.
+We'll have a cron job that mirrors periodically, as well as a "post-receive"
+hook for each repo that does a push to !GitHub after every push it receives.
 
-*TODO* Investigate if we can make a !GitHub account just for doing automated
-pushes. We may have to pay money for that. I think bbockelm just runs the
-cronjob as himself?
+---+++ Backups
 
-How does the HTCondor team do it? (People I've asked tell me it's a cron job
-owned by one of the devs (willb maybe?) but I haven't been able to confirm).
+Regardless of the other parts of the architecture, a rolling backup system like what we do for the SVN repos would be a good idea.
+Here's a simple outline. For each repository:
+   1. Lock the repo (probably via an "update" hook that does exit 1)
+   1. Wait for git-receive-pack processes to exit
+   1. Rsync to copy the repo (preferably to AFS)
+   1. Unlock the repo (remove the hook)
+   1. Delete the oldest backups until we have &lt;=10
 
----++++ Synchronizing via Post-Push Hook
-
-**TODO** Investigate if this is a thing. I think that would require all team
-members to get !GitHub accounts.
-
----+++ Authorization Options
-
----++++ CSL-based
-
-Team members will use ssh to a CSL machine (e.g., =library.cs.wisc.edu=)
-to push to the real repos.
-
-*Advantages:* We all know how to use this. We already have the access set up.
-
-*Disadvantages:*
-
-   * No read access without CSL accounts. New team members will need CSL accounts. (On the other hand, they already need accounts to upload to our =upstream/= area)
-   * Difficult to set up fine-grained access control (i.e., make it so specific people can contribute only to specific areas) — it would probably use AFS ACLs
-
----++++ Gitolite
-
-Software that runs as its own user, accepts ssh connections and does
-authorization based on people's ssh keys.
-
-*Advantages:*
-   * Still uses ssh
-   * Has fine-grained access control: can restrict access to certain repos, branches, tags, refs, etc.
-   * No need to create a new login for each user, just add their public key to a directory
-   * Used by our infrastructure team
-
-*Disadvantages:*
-   * Might be tricky to set up
-   * Requires public/private key auth, which means no AFS token — so the repo people commit to would have to live outside of AFS, and then we'd have to worry about syncing the repo to AFS automatically (or doing something different for backups)
-
-
----++ Usage
-
----+++ Contributions
+---++ Contributions
 
 People can fork or clone our !GitHub mirror and send pull requests. A team
 member can examine the pull request, download it as a patch, then apply it to
@@ -94,6 +95,77 @@ their own repo, and push the commit(s) to the real repos.
 Shouldn't take too long -- !GitHub provides copy-and-paste instructions, though
 they will have to be slightly modified since they are providing instructions on
 how to apply the change to the !GitHub repo, not your own.
+
+---++ Migration
+
+---+++ One-time Setup
+
+   1. Set up a git server
+   1. Create an authors file to map SVN user names to email addresses for Git (there is one at "/p/condor/workspaces/vdt/svn-access/authors.txt")
+   1. Create a backup cronjob that reads a list of repositories to back up; should be run by cndrutil user if we care about AFS
+   1. Create a !GitHub user that will be used for auto uploads; create a passwordless ssh key for it and store it somewhere safe; also store the !GitHub password for the user somewhere safe
+   1. Create a mirror cronjob that reads a list of repositories and mirrors them all to github using the user from the previous step
+
+---+++ Per-project Migration
+
+   1. Schedule a switchover date with the owner
+   1. Use subgit import to convert the repository (it's a lot nicer than git-svn)
+   1. Add info about the repo to the gitolite config file (if using gitolite)
+   1. Set up git hooks (copy them from another converted repository, or we may have a template)
+   1. Update the backup cronjob
+   1. Test the repo
+      1. Test viewing via web interface
+      1. Test making changes (you should test this, and then the owner should as well)
+         1. Clone the repo
+         1. Make a branch
+         1. Make a change, commit it to the branch
+         1. Push the branch
+   1. Make a file in the trunk of the SVN dir called =MOVED-TO-GIT= that contains the following text:<pre>
+The source code for this project is now contained in a Git repository located at:
+<b>repo url</b>
+Changes committed to SVN will be ignored.</pre>
+   1. svn lock the project in SVN
+
+---+++ Per-Project Mirroring to GitHub
+
+   1. Create an opensciencegrid/<em>PROJECT</em> github repo
+   1. In the local (authoritative) git repo, do <code>git remote add --mirror github git@github.com:opensciencegrid/<em>PROJECT</em>.git</code>
+   1. Add the repo to the list of repositories managed by the mirror cronjob
+   1. Add a "post-receive" hook to the local repo to push to github -- might be as simple as <pre>
+exec git push --quiet github &
+</pre>
+
+---+++ Notes
+
+We will need to rewrite any hooks we have (the post-commit email for example).
+
+We will not have information on full project renames (since each project dir will become a separate repo).
+
+We need to keep the old SVN repo around to get the full history.
+
+We may wish to omit dead projects or old names of renamed projects (vdt-build for example).
+
+
+
+
+---+ Switching RPM area (/native/redhat) to Git (on hold)
+
+---++ Additional Objectives
+In addition to objectives listed in the software area migration topic,
+these are also necessary:
+
+   * Trusted contributors (people with Koji accounts) should be able to make scratch builds from non-authoritative repos
+   * Only team members should be able to make non-scratch builds
+   * Non-scratch builds should only be made from authoritative repos
+   * Existing repo branch / tag safeguards (e.g. builds from =hcc= repo only accepted into the =hcc*= tags) must continue to function
+
+---++ Architecture
+Same architecture as the software area.
+
+---++ Usage
+
+---+++ Contributions
+Same method as the software area.
 
 ---+++ Scratch Builds by Anyone From Anywhere
 
