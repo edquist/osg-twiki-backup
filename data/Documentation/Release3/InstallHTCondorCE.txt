@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1401976893" format="1.1" version="1.48"}%
+%META:TOPICINFO{author="MarianZvada" date="1402003703" format="1.1" reprev="1.49" version="1.49"}%
 %META:TOPICPARENT{name="Blueprint.WebHome"}%
 ---+!! Installing the HTCondor CE
 
@@ -266,7 +266,7 @@ condor_ce_run -r %RED%condorce.example.com:9619%ENDCOLOR% env
 
 Replacing the %RED%red%ENDCOLOR% text with the hostname of the CE. HTCondor will submit directly to the remote schedd with the =-r= flag;  Without the flag, it will submit to the local schedd using the grid universe.
 
-If =condor_ce_run= fails, then the =condor_ce_trace= tool will assist in verifying the install:
+If =condor_ce_run= fails (see example after the next test tool), then the =condor_ce_trace= tool will assist in verifying the install:
 
 <pre class="screen">
 condor_ce_trace %RED%condorce.example.com%ENDCOLOR%
@@ -368,6 +368,25 @@ Job transitioned from Running to Completed
 - Job was successful
 </pre>
 %ENDTWISTY%
+
+One of known failure modes of the =condor_ce_run= command:
+
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show an example =condor_ce_run= with an error related to wrong ownership of SPOOL subdirectories"}%
+<pre class="screen">
+%UCL_PROMPT% condor_ce_run -r grid39.racf.bnl.gov:9619 /bin/hostname
+ERROR: Failed to connect to queue manager grid39.racf.bnl.gov
+SECMAN:2007:could not receive post_auth_info.
+Traceback (most recent call last):
+  File "/usr/bin/condor_ce_run", line 373, in <module>
+    sys.exit(main())
+  File "/usr/bin/condor_ce_run", line 363, in main
+    submit_job(job_info)
+  File "/usr/bin/condor_ce_run", line 149, in submit_job
+    raise CondorRunException("Could not parse job cluster from " \
+__main__.CondorRunException: Could not parse job cluster from condor_submit output
+</pre>
+%ENDTWISTY%
+In such case, please see the section [[Documentation/Release3.InstallHTCondorCE#9_Known_Issues]["Known Issues"]].
 
 ---## Included debug utilities
 
@@ -490,7 +509,31 @@ Contrary, while using external and internal hostname, we've found $(FULL_HOSTNAM
 04/22/14 10:55:57 Failed to start non-blocking update to <128.227.253.206:9619>. 
 </pre>
 %ENDTWISTY%
-  
+ 
+
+---++!! Wrong ownership of SPOOL subdirectories
+When deploying HTCondor-CE at BNL, it has been noticed that many directories were being created with the wrong ownership (root instead of user condor). Job gets submitted through the Schedd but fails passing submission chain through JobRouter. Here is typical symptom what's being reported in the =/var/log/condor-ce/JobRouter=:
+<pre class="screen">
+06/05/14 15:03:28 Attempting to chown '/var/lib/condor-ce/spool/1/0/cluster1.proc0.subproc0' from 104 to 500.500, but the path was unexpectedly owned by 0
+06/05/14 15:03:28 Error: Unable to chown '/var/lib/condor-ce/spool/1/0/cluster1.proc0.subproc0' from 104 to 500.500
+06/05/14 15:03:28 (1.0) Failed to chown /var/lib/condor-ce/spool/1/0/cluster1.proc0.subproc0 from 104 to 500.500.
+06/05/14 15:03:28 SharedPortClient: sent connection request to schedd at <130.199.185.147:9620> for shared port id 1949_d991_4
+06/05/14 15:03:28 Attempting to chown '/var/lib/condor-ce/spool/1/0/cluster1.proc0.subproc0' from 500 to 104.161, but the path was unexpectedly owned by 0
+06/05/14 15:03:28 Error: Unable to chown '/var/lib/condor-ce/spool/1/0/cluster1.proc0.subproc0' from 500 to 104.161
+06/05/14 15:03:28 (1.0) Failed to chown /var/lib/condor-ce/spool/1/0/cluster1.proc0.subproc0 from 500 to 104.161.  User may run into permissions problems when fetching sandbox.
+06/05/14 15:03:28 JobRouter failure (src=1.0,route=Local_Condor): candidate job could not be claimed by JobRouter: Failed to create/chown source job spool directory to the user.
+</pre>
+%NOTE% The files in HTCondor-CE SPOOL directory should be owned by =condor:condor=.
+
+At the same time checking =/var/log/messages= we noticed that LCMAPS was failing with the following error:
+<pre class="screen">
+Jun  5 14:35:11 grid39 htondor-ce-llgt[1024]: lcmaps: setup_client_ctx: Error loading certificate chain from file: '/etc/grid-security/hostcert.pem'. OpenSSL reason: no start line.
+Jun  5 14:35:11 grid39 htondor-ce-llgt[1024]: lcmaps: SSL_client_connect: Error: can't create SSL handle out of CTX structure
+Jun  5 14:35:11 grid39 htondor-ce-llgt[1024]: lcmaps: ssl_io_connect(): Failure in SSL layer setup and connection!
+Jun  5 14:35:11 grid39 htondor-ce-llgt[1024]: lcmaps: xacmlqueryscas(): XACML: Interaction failed: TCP
+</pre>
+
+Details are tracked down under [[https://jira.opensciencegrid.org/browse/SOFTWARE-1506][JIRA-1506]].
 
 %META:FILEATTACHMENT{name="condor-ce-condor-schematics.png" attachment="condor-ce-condor-schematics.png" attr="" comment="HTCondor-CE with HTCondor pool" date="1399668761" path="condor-ce-condor-schematics.png" size="204812" stream="condor-ce-condor-schematics.png" tmpFilename="/usr/tmp/CGItemp64474" user="MarianZvada" version="4"}%
 %META:TOPICMOVED{by="TimCartwright" date="1394124083" from="Documentation.InstallHTCondorCE" to="Documentation/Release3.InstallHTCondorCE"}%
