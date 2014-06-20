@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JohnWeigand" date="1396280343" format="1.1" reprev="1.25" version="1.25"}%
+%META:TOPICINFO{author="JohnWeigand" date="1403276548" format="1.1" reprev="1.26" version="1.26"}%
 %META:TOPICPARENT{name="GratiaInterfacesApelLcg"}%
 <!--
    * Set LCG_CONF        = [[#lcg_conf][lcg.conf]]
@@ -24,6 +24,8 @@
    * Set EGI_PORTAL                =  [[http://accounting.egi.eu/tier2.php][EGI Accounting Portal]]
    * Set GRATIA_APEL_URL      =  [[http://gr13x6.fnal.gov:8319/gratia-apel/][Gratia-APEL WLCG Interface web]] (this can change depending on where the interface is being run)
    * Set GRATIAWEB_WLCG     =  [[http://gratiaweb.grid.iu.edu/gratia/wlcg_reporting][Gratiaweb WLCG reporting page]]
+   * Set APEL_TEST_SUMMARY_URL   =  [[http://goc-accounting.grid-support.ac.uk/apeltest/summaries.html][Test APEL:Sites with data in the raptest Summaries table page]]
+   * Set APEL_PROD_SUMMARY_URL   =  [[http://goc-accounting.grid-support.ac.uk/apel/summaries.html][Production APEL: Sites with data in the rap Summaries table page]]
 -->
 
 
@@ -655,14 +657,24 @@ More detail regarding other options can be found in the [[https://wiki.egi.eu/wi
 
 <!-- ---------------------------------------------------------------------------- -->
 ---+++ ssm.cfg
+Effective in May 2014, the broker network for production and test are the same.  The test broker network has been deprecated.
+The table below for _test/production_ reflect this change.
+
+The SSM brokers require a certificate for authentication if the _use-ssl_ attribute is set to _true_.  
+The default is the host certificate .
+The subject of the certificate must be registered with the brokers.  To do this send an email to apel-support@jiscmail.ac.uk requesting registration.
+It is suggested you obtain a service certificate thus allowing you flexibility in relocating to other nodes. 
+The same certificate can be used for test and production.
+%TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
+| [broker]         | broker-network: PROD%BR% use-ssl: true |
+| [certificates]  | certificate: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostcert.pem%BR%key: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostkey.pem |
+
 The table below indicates the changes necessary for test and production:
 %TABLE{ tableborder="1" cellpadding="0" cellspacing="1" headerbg="#99CCCC" databg="#FFFFCC, #FFFFFF"}% 
-| Test            | [broker]        | broker-network: TEST-NWOB%BR% use-ssl: false |
-|                   | [certificates]  | certificate: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostcert.pem%BR%key: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostkey.pem |
-|                   | [producer]     | consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=raptest.esc.rl.ac.uk |
-| Production | [broker]         | broker-network: PROD%BR% use-ssl: true |
-|                   | [certificates]  | certificate: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostcert.pem%BR%key: /etc/grid-security/gratia-osg-prod-reports.opensciencegrid.org-hostkey.pem |
-|                   | [producer]     | consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=rap.esc.rl.ac.uk |
+| *Test* | [producer]     |topic: /topic/global.accounting.%BLUE%test.cpu%ENDCOLOR%.central %BR%consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=%BLUE%raptest.esc.rl.ac.uk%ENDCOLOR% %BR%ack: /topic/global.accounting.%BLUE%test.cpu%ENDCOLOR%.client.$host.$pid |
+| *Production* | [producer]     |topic: /topic/global.accounting.%BLUE%cpu%ENDCOLOR%.central %BR%consumer-dn: /C=UK/O=eScience/OU=CLRC/L=RAL/CN=%BLUE%rap.esc.rl.ac.uk%ENDCOLOR% %BR%ack: /topic/global.accounting.%BLUE%cpu%ENDCOLOR%.client.$host.$pid |
+
+
 
 <!-- ---------------------------------------------------------------------------- -->
 ---+++ ssm.log.cfg
@@ -862,6 +874,43 @@ __NOTE:__ The [[#SSMInterface_py][SSMInterface.py]] module can be used for this 
 necessary to manually send files.
 
 <!-- ---------------------------------------------------------------------------- -->
+---++ Testing the SSM interface
+A simple (and non-data affecting) means of testing your ssm.cfg and interface, is to create a simple test file such as the one below.
+You would likely want to modify the 4 time attributes to reflect the current period.  
+Using zero cpu and wall, as well as, a single number of jobs allows you to test the SSM interface and update of APEL without really affecting anything.
+
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show an example test file (*ssm-test-file.txt*)"}%
+*ssm-test-file.txt*
+<blockquote><pre>
+APEL-summary-job-message: v0.2
+Site: OSGTestSite
+Group: cms
+EarliestEndTime: 1401598800
+LatestEndTime: 1401858000
+Month: 06
+Year: 2014
+GlobalUserName: /DC=Gratia-APEL-test
+WallDuration: 0
+CpuDuration: 0
+NormalisedWallDuration: 0
+NormalisedCpuDuration: 0
+NumberOfJobs: 1
+%%
+</blockquote></pre>
+%ENDTWISTY%
+
+Then, run the interface independent of the Gratia-Apel interface ( _LCG.py_ ) script that sends Gratia data to APEL
+<blockquote><pre>
+&gt; /usr/share/gratia-apel/SSMInterface.py --config /etc/gratia-apel/ssm/ssm.cfg  
+         --send-file %BLUE%ssm-test-file.txt%ENDCOLOR%
+</blockquote></pre>
+You can verify APEL's receipt of the data by viewing the ssm log file locally and my checking:
+   * %APEL_PROD_SUMMARY_URL%
+   * %APEL_TEST_SUMMARY_URL%
+Note that this pages are updated on a _cron_ schedule basis roughly every 3 hours. So, there may be a bit of lag.
+
+
+<!-- ---------------------------------------------------------------------------- -->
 ---++ Log file (/var/log/apel/ssm.log)
 The APEL/SSM log file for a successful run will look like this:
 
@@ -912,6 +961,14 @@ The APEL/SSM log file for a successful run will look like this:
 
 <!-- MAJOR UPDATES
 For significant updates to the topic, consider adding your 'signature' (beneath this editing box) !-->
----++!! Major updates
+---+ Major updates
 <!--Future editors should add their signatures beneath yours!-->
--- Main.JohnWeigand - 08 Feb 2010: Split this out as a separate twiki
+-- Main.JohnWeigand - Feb 2010: %BR%
+Split this out as a separate twiki%BR%
+-- Main.JohnWeigand - June 2012: %BR%
+Changed for use of the Secure Stomp Messenger (SSM) as the means of updating APEL replacing the direct database update used previously.%BR%
+-- Main.JohnWeigand - Mar 2014:  %BR%
+Added the [[#Certificate_issues_test_vs_produ][Certificate issues (test vs production) section]] an explanation by APEL-SUPPORT regarding the difference between production and test.%BR%
+-- Main.JohnWeigand - Jun 2014:  %BR%
+1. Modified for deprecation of the test broker network affecting the ssm.cfg file attributes distinguishing test vs production. This occurred in May 2014 to the best of my knowledge. See the [[#ssm_cfg][ssm.cfg section]] for latest.%BR%
+2. Added the [[#testing_the_ssm_interface][Testing the SSM Interface section]].
