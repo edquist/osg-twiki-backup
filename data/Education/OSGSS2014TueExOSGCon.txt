@@ -1,0 +1,111 @@
+%META:TOPICINFO{author="LincolnBryant" date="1404590894" format="1.1" reprev="1.1" version="1.1"}%
+---+ OSG Connect Exercise
+
+<div style="margin-left: 1em; margin-right: 1em; border: 1px solid black; padding: 0.5em;">
+---+++ Objective of this exercise
+Learn to submit jobs through OSG Connect and load software from OASIS.
+</div>
+
+For this exercise, we thought it might be interesting to analyze a set of images from the University of Chicago Photographic Archive (http://photoarchive.lib.uchicago.edu/). It's common hearsay that older photographs look much darker than recent ones. With our job, we'll analyze the luminance of photographs in the archive and compare that to the date of the photograph. 
+
+---++ Getting the data and software.
+We've conveniently made the tutorial data and software available to you by simply typing =tutorial userschool2014=. It should create a directory with the necessary files at =~/osg-userschool2014=
+
+The =luminance= python script does most of the heavy lifting for us, but in order to our analysis we must first decompess the JPEG images. To take care of that, we've provided a version of the =djpeg= tool that you can send along with your jobs. 
+
+---++ Determining the job requirements.
+The subset of the archive that we want to analyze is about 5600 files, and the task is pleasingly parallel.
+
+How long should the job run for? If our job runs too long, then we might be preempted and kicked off of opportunistic resources. If our jobs are too short, then we add a lot of unnecessary overhead and load on the scheduler. Let's find out how long a single image takes to analyze:
+
+<pre>./luminance 0 1 < manifest.txt</pre>
+%TWISTY{
+showlink="Show output"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+[lincolnb@login01 osg-userschool2014]$ ./luminance 0 1 < manifest.txt
+/* Running on host: login01.osgconnect.net */
+[1880, 0.525493],
+/* 1 photos analyzed in 1.11s (1.11/s) */
+</pre>
+%ENDTWISTY%
+
+Notice that =luminance= takes two arguments. The first argument is the line in the file where you want to start processing, and the second argument is where you want to end processing (noninclusive).  I choose to do about 200 images per job. This way they're long enough to see them run via =condor_q=, but not so long that we have to wait around forever to move on with the exercise. 
+
+---++ Creating the submit file
+If we have 5600 files, chunked into 200 files per job, we'll need to create about 28 different jobs. Remember that =luminance= takes input as chunks of the file, so our submit file will look something like this:
+<pre>
+Universe = vanilla
+
+Error = log/job.error.$(Cluster)-$(Process)
+Output = log/job.output.$(Cluster)-$(Process)
+Log = job.log.$(Cluster)
+
+Executable = luminance
+Input = manifest.txt
+Transfer_input_files = djpeg
+
+Arguments = 0 200
+Queue
+
+Arguments = 200 400
+Queue
+...
+</pre> 
+
+You're free to copy and paste to create the submit file -- but why not write it via script?
+
+%TWISTY{
+showlink="You may use my solution if you get stuck"
+hidelink="Hide output"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+<pre class="screen">
+#!/bin/sh
+
+cat <<'EOF'
+Universe = vanilla
+
+Error = log/job.error.$(Cluster)-$(Process)
+Output = log/job.output.$(Cluster)-$(Process)
+Log = job.log.$(Cluster)
+
+Executable = luminance
+Input = manifest.txt
+Transfer_input_files = djpeg
+EOF
+
+# We have about 5600 photos to analyze. Block them off by 200s and
+# submit enough jobs to handle.
+chunk=${1-200}
+max=${2-5600}
+
+i=0
+while [ $i -lt $max ]; do
+	echo Arguments = $i $chunk
+	echo Queue 1
+	echo
+	i=$(($i + $chunk))
+done
+</pre>
+%ENDTWISTY%
+
+
+---++ Process the data
+
+---++ Transfer the results back via Globus
+
+---++ (Extra credit) Rewrite job to use djpeg from OASIS
+What if our program had required more than just a statically compiled "djpeg" and a python script? If you have time, try rewriting the exercise such that your HTCondor job loads the =djpeg= program from OASIS. Some hints:
+   1. Write a wrapper script that loads the 'module' tool as in the lecture.
+   1. Load the tool via =module load djpeg=
+   1. Remove =transfer_input_files = djpeg= from your HTCondor submit file 
+
+
+-- Main.LincolnBryant - 05 Jul 2014
