@@ -1,0 +1,204 @@
+%META:TOPICINFO{author="IgorSfiligoi" date="1404792383" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="UserSchool14Materials"}%
+---+ 2014 OSG User School Exercise - Running jobs with glideinWMS
+
+See [[OSGSS2014TueGlideinSetup][the glideinWMS setup page]] for details on how to log in.
+
+---++ Resources spread over many sites
+
+The major difference between the dedicated HTCondor pool you used yesterday and the glideinWMS pool we are using today
+is the fact that the compute resources will be coming from many different geographical locations today.
+
+To see the list of sites that are willing to provide us resources run:
+<pre class="screen">
+condor_status -any -const 'MyType=="glideresource"' -af GLIDEIN_Site | sort |uniq
+</pre>
+
+As a side effect, resources at different sites will be configured slightly differently.
+
+By default, jobs will run on any available resource. Which means, that you may have to compensate for the local differences in your jobs.
+
+To limit where your jobs can run, add
+<pre class="screen">
++DESIRED_Sites = "&lt;list of sites&gt;"
+</pre>
+in your job submission file. Please note that no spaces are allowed in the list string.
+
+E.g. here are two possible options that will work in our system:
+<pre class="screen">
++DESIRED_Sites = "Wisconsin"
++DESIRED_Sites = "Nebraska,Wisconsin,UCSD"
+</pre>
+
+Try to run a simple set of jobs that print out the environment (an example script can be found in the attachments). 
+Submit a few to each of the available sites.
+Then compare the outputs from the different sites.
+
+---++ A dynamic resource pool
+
+The other significant difference between a dedicated HTCondor pool and a glideinWMS pool 
+is the fact that the later does not have a fixed number of resources attached to it.
+
+Try periodically running:
+<pre class="screen">
+condor_status -total -state
+</pre>
+
+You will see that the number of resources changes almost from minute to minute.
+
+Check also what happens site-by-site, using either:
+<pre class="screen">
+condor_status -af GLIDEIN_Site -af State -af Name | sort
+</pre>
+
+or the helper tool
+<pre class="screen">
+glidein_status -total -site
+</pre>
+
+Also have a look at the [[http://10g-4.t2.ucsd.edu/vofrontend/monitor/frontendStatus.html?group=main][web monitoring page]] and see how the number of glideins changed over time.
+Try to pick different  _Factories_. Unfortunately, there is no way to group by site.
+
+You will probably notice that not all sites provide the same number of resources. 
+If you have to customize your jobs for the different resources, you better pick the biggest sites first.
+
+---++ No shared file system
+
+The glideinWMS pool has no shared file system. So you will have to [[UserSchool14Mon23Files][use HTCondor file transfer]].
+
+Try to submit a few jobs that require input files and produce some output files.
+
+---++ Interpreting the history of your job
+
+The glideinWMS instances usually add a few attributes in the job ClassAd that can help you trace where your job ran.
+This is especially useful if something goes wrong.
+
+An easy way to get this information is by running
+<pre class="screen">
+condor_history &lt;job id&gt; -l |grep MATCH
+</pre>
+
+You can also find this information in the job log. 
+Here is an example:
+<pre class="screen">
+$ tail -48 a.log 
+005 (018.099.000) 07/07 19:58:47 Job terminated.
+	(1) Normal termination (return value 0)
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Run Remote Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Total Remote Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+	5542  -  Run Bytes Sent By Job
+	78  -  Run Bytes Received By Job
+	5542  -  Total Bytes Sent By Job
+	78  -  Total Bytes Received By Job
+	Partitionable Resources :    Usage  Request Allocated
+	   Cpus                 :                 1         1
+	   Disk (KB)            :       17        1 190042528
+	   Memory (MB)          :        2        1      2500
+...
+028 (018.099.000) 07/07 19:58:47 Job ad information event triggered.
+SentBytes = 5542.000000
+JOB_GLIDEIN_Name = "v3_0"
+TerminatedNormally = true
+ReturnValue = 0
+JOB_GLIDEIN_ClusterId = "2210285"
+JOB_GLIDEIN_SiteWMS = "HTCondor"
+EventTypeNumber = 28
+Subproc = 0
+ReceivedBytes = 78.000000
+JOB_GLIDEIN_SiteWMS_Slot = "slot1@uct2-c057.mwt2.org"
+MyType = "JobTerminatedEvent"
+TriggerEventTypeName = "ULOG_JOB_TERMINATED"
+TotalRemoteUsage = "Usr 0 00:00:00, Sys 0 00:00:00"
+JOB_Site = "UChicago"
+JOB_GLIDEIN_Site = "UChicago"
+Proc = 99
+EventTime = "2014-07-07T19:58:47"
+TotalSentBytes = 5542.000000
+TriggerEventTypeNumber = 5
+CurrentTime = time()
+TotalLocalUsage = "Usr 0 00:00:00, Sys 0 00:00:00"
+JOB_GLIDEIN_Schedd = "schedd_glideins5@gfactory-1.t2.ucsd.edu"
+Cluster = 18
+RunLocalUsage = "Usr 0 00:00:00, Sys 0 00:00:00"
+JOB_GLIDEIN_Entry_Name = "Engage_US_MWT2_osg"
+JOB_GLIDEIN_Factory = "SDSC"
+JOB_GLIDEIN_ProcId = "7"
+JOB_GLIDEIN_SiteWMS_Queue = "osg-gk.mwt2.org"
+RunRemoteUsage = "Usr 0 00:00:00, Sys 0 00:00:00"
+JOB_GLIDEIN_SiteWMS_JobId = "2372759.0"
+TotalReceivedBytes = 78.000000
+...
+</pre>
+
+
+---++ An ideal glideinWMS job - A parameter sweep using Python
+
+A glideinWMS pool can be used for solving many computational problems,
+but the ideal candidate is a problem that has no dependencies and basically zero input and output.
+
+Here is one such example; a parameter sweep written in simple Python.
+
+This exercise will try to find the best way to shot a billiard ball in a [[http://en.wikipedia.org/wiki/Dynamical_billiards][Dynamical Billiard]] system.
+This problem is particularly interesting since it is by definition a chaotic system;
+i.e. a very small change in the ball's initial condition will result in a completely different result.
+
+We will be working with a billiard table that has 16 round obstacles on it. The system is idealized, with the ball being point-like.
+We will start from a fixed starting point (25,200) and will try to find the best angle that results in the ball ending in the upper right corner.<br />
+     <img src="%ATTACHURLPATH%/billiard.gif" alt="billiard.gif" width='1001' height='401' />
+
+We will approach the problem as a parameter sweep; i.e. we will try out all the possible angles and see how the ball behaves. 
+In order to finish in a reasonable amount of time, we will discretize the sweep.
+
+Attached to the page are the Python programs that will do the work for us;
+[[%ATTACHURLPATH%/sim.py.txt][sim.py]] is the library that does the actual billard simulation,
+while
+[[%ATTACHURLPATH%/sweepsim.py.txt][sweepsim.py]] does the parameter sweep.
+
+The page also has attached a job wrapper, named
+[[%ATTACHURLPATH%/sim10.sh.txt][sim10.sh]],
+that will allow you to sweep 1/35th of the possible parameter space in a single execution.
+
+Download them with
+<pre class="screen">
+wget https://twiki.opensciencegrid.org%ATTACHURLPATH%/sim.py.txt -O sim.py
+wget https://twiki.opensciencegrid.org%ATTACHURLPATH%/sweepsim.py.txt -O sweepsim.py
+wget https://twiki.opensciencegrid.org%ATTACHURLPATH%/sim10.sh.txt -O sim10.sh
+chmod u+x sim10.sh
+</pre>
+
+
+Then, by using
+<pre class="screen">
+arguments=$(Process)
+queue 35
+</pre>
+in the job submit file you will get all the results in a single run.<br>
+The result will be in the standard output of the job.
+
+Like before, monitor the status of the system, and where your jobs end up running.
+
+*Reminder:* Remember to add all the files to the input file list.
+
+Once you get the optimal angle, graph it with
+[[%ATTACHURLPATH%/runsim.py.txt][runsim.py]].
+The result will be in out.png; put it in the [[OSGSS2014TueGlideinSetup][personal Web area]] and have a look at it.
+
+For fun (or while you wait for the result), try plotting angles 70.254, 70.2545 and 70.255:
+<pre class="screen">
+wget https://twiki.opensciencegrid.org%ATTACHURLPATH%/runsim.py.txt -O runsim.py
+python runsim.py -graph 25 200 70.254 ; cp out.png ~/public_html/bil_70.254.png
+python runsim.py -graph 25 200 70.2545 ; cp out.png ~/public_html/bil_70.2545.png
+python runsim.py -graph 25 200 70.2555 ; cp out.png ~/public_html/bil_70.2555.png
+</pre>
+
+
+-- Main.IgorSfiligoi - 08 Jul 2014
+
+%META:FILEATTACHMENT{name="print_env.sh.txt" attachment="print_env.sh.txt" attr="" comment="A simple environment printing script" date="1404789404" path="print_env.sh.txt" size="45" stream="print_env.sh.txt" tmpFilename="/usr/tmp/CGItemp54610" user="IgorSfiligoi" version="1"}%
+%META:FILEATTACHMENT{name="billiard.gif" attachment="billiard.gif" attr="" comment="Billiard example image - animated" date="1404790698" path="billiard.gif" size="65882" stream="billiard.gif" tmpFilename="/usr/tmp/CGItemp54756" user="IgorSfiligoi" version="1"}%
+%META:FILEATTACHMENT{name="sim.py.txt" attachment="sim.py.txt" attr="" comment="Billiard simulating library - sim.py" date="1404790774" path="sim.py.txt" size="4114" stream="sim.py.txt" tmpFilename="/usr/tmp/CGItemp54752" user="IgorSfiligoi" version="1"}%
+%META:FILEATTACHMENT{name="sweepsim.py.txt" attachment="sweepsim.py.txt" attr="" comment="Wrapper to run the simulation sweep - sweepsim.py" date="1404790916" path="sweepsim.py.txt" size="1265" stream="sweepsim.py.txt" tmpFilename="/usr/tmp/CGItemp54706" user="IgorSfiligoi" version="1"}%
+%META:FILEATTACHMENT{name="sim10.sh.txt" attachment="sim10.sh.txt" attr="" comment="Wrapper to do a 1/35th of a sweep - sim10.sh" date="1404791453" path="sim10.sh.txt" size="108" stream="sim10.sh.txt" tmpFilename="/usr/tmp/CGItemp54528" user="IgorSfiligoi" version="1"}%
+%META:FILEATTACHMENT{name="runsim.py.txt" attachment="runsim.py.txt" attr="" comment="Graphing wrapper to check a single angle - runsim.py" date="1404791618" path="runsim.py.txt" size="1149" stream="runsim.py.txt" tmpFilename="/usr/tmp/CGItemp54733" user="IgorSfiligoi" version="1"}%
