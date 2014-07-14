@@ -1,0 +1,307 @@
+Minutes from the OASIs meeting at Indianapolis, November 14th and 15th 2013, and follow-up discussions.
+
+Attendees:
+
+    Brian Bockelman
+    Dave Dykstra
+    Jose Caballero
+    John DeStefano (remote)
+    John Hover
+    Kevin Hill (remote)
+    Rob Quick
+    Scott Teige
+
+
+
+-------------------------------------------------------
+Architecture:
+-------------------------------------------------------
+
+-- Using multi-repo version of Stratum-0 has several advantages:
+
+        -- decouples publication failures from VOs
+        -- allows several VOs to publish in parallel
+
+
+-- Currently, users run the payload by themselves and run the CVMFS publishing task using a wrapper or OASIS CLI tool. 
+   For OASIS 2, the proposal in the CE-based model includes the entire process is done by a wrapper, including pre-installation and post-installation steps. 
+
+-- One advantage of using a wrapper instead of letting the users to run the payload themselves is 
+   that potential pre-installation steps can be performed automatically. 
+   For example, pre-staging if needed the content of the repo before new installation is done.
+
+-- There was an agreement on the idea of running probes prior to final publication. 
+  
+        -- Generic OASIS probes to prevent any VO from damaging severely the service and making it unusable for that VO or even the rest of VOs.
+        -- Dedicated VO-specific probes. 
+           VOs can request their own probes to be implemented by filling a ticket.
+        -- It was discussed how to trigger the probes. One idea is when a .lock file asking for publishing appears in the filesystem.
+        -- It was suggested the idea of allowing running the probes and nothing else, w/o automatic publishing.
+           Maybe providing a dedicated RPM for probes.
+
+-- Can the OSG repo be replicated? According to Scott there is no problem on that, just no one has done it yet.
+   But other repos can be replicated into the OSG one. How? Is the only way by copying whole content into scratch area and re-publish?
+
+   Another option is to not replicate; instead, distribute many Stratum-0s keys and configurations in the client RPM.
+   In this context, configuration means /etc/cvmfs/domain.d/<domainname>.conf files.
+   Would this introduce conflicts with different paths nomenclatures? 
+   It's true that we can't reuse names between cern.ch and opensciencegrid.org, 
+   but all others should be following the new convention of having a fully qualified domain name 
+   in the CVMFS_SERVER_URLs that are used to access stratum 1s.
+
+-- the way remote repositories will work will be that the OSG Stratum-0 
+   will sign the repository keys every 20 days, 
+   and the repositories will then redistribute those keys.  
+   The OSG Stratum-0 will replicate from the repository 
+   (which will need it's own Apache server) 
+   and the Stratum-1s will then re-replicate from there.
+   (In a few cases Stratum-1s might bypass the Stratum-0s to directly read from the repository servers, 
+   mainly if they're located at the same site).
+
+
+-- Monitoring:
+
+        -- Stratum-0:
+                -- one idea is to dump into a web page the content from OASIS log files. 
+                -- currently, the oasis.opensciencegrid.org/stamp shows some useful information.
+
+        -- Stratum-1:
+                -- host telemetry (mrtg)
+                -- web stats (awstats)
+                -- check repository age and compare with Stratum-0 age
+                   oasis-replica.opensciencegrid.org/stamp gives some info, 
+                   but it is only for one repo and does not compare age with Stratum-0 age.
+                   Dave already has an script to compare ages of multiple repos, 
+                   but it is run from CERN.  
+                   It could be adapted to run on the Stratum-1s themselves and create stamp files that are read by RSV.kkk
+                -- Do we need to monitor when too many WNs hit the Stratum-1 affecting the Squid server performance?
+
+-- Consider a mechanism similar to the RAL web API. 
+
+-- Stratum-0 version 2.1 forces WN clients 2.1 
+   One potential issue is the reluctance of some sites to update WN packages.
+   WN client 2.1 is compatible with both Stratum-0 2.0 and 2.1
+
+-- It was discussed the idea of using a separate VM for each repo. 
+   Depends on the CVMFS version. CVMFS 2.0 is not multi-repo, so requires separate VMs. 
+   No conclusion on whether we should do it or not from CVMFS 2.1, even though with 2.1 is not needed.
+
+-- It was discussed the idea of trying to mimic the multi-repo experience with Stratum-0 version 2.0, but it is too complicated.
+
+-- While there are user VOs interested, future versions of OASIS will combine a CE-based model with the gsissh model. 
+
+-------------------------------------------------------
+Security:
+-------------------------------------------------------
+
+-- Keys. 
+
+    -- Each repo has its own keys, signed by the Stratum-0 keys.
+
+    -- On revoked keys, there is no revocation list or similar mechanism. 
+       It was suggested the idea of having osg-software to distribute some kind of CRLs.
+       But CVMFS does not support that because it is deemed to be more trouble than it is worth.
+       A planned X.509-based authentication option will support CRLs. 
+
+    -- Some of the questions related to signing keys for Stratum-0's are:
+
+        -- would OSG include other Stratum-0's keys in the WN RPM? For example, the CERN Stratum-0.
+           That implies that the repositories we sign are trustworthy.  
+           What about licenses and those stuffs allowed on other repos, but not on the US?
+           It also may means distributing keys without the sites noticing it. On that two ideas were suggested:
+
+            -- one option is to distribute keys via RPM, through the OSG repository, and let the sites to decide what to do,
+            -- another option is to let each Stratum-0 to host their own RPM on their own URL.
+
+        -- any issue with VOs hosting their own repository?
+           can OSG sign VOs keys, acting like a CA, or each VO would need to sign their own keys?
+
+    -- it was discussed the idea of users signing each update. It does not seem to be helpful.  
+
+-- In case of misbehaved Stratum-0, it can always be removed from Stratum-1's. 
+   Problem is that the content in the cash will still be there.
+   Do we need something like black lists?
+
+
+-- Auth/auth for the OASIS users. 
+   Current version of OASIS allows users to log on an interactive host via gsissh, after registering themselves in OIM.
+   Proposal for OASIS version 2 is to setup the services behind a CE, so users interact with the system submitting grid jobs, and auth/auth can be done using VOMS roles.
+
+   Kevin seems to be in favor of using VOMS. 
+
+   How to proceed in case of users not associated to any VO or not listed in any VOMS server, i.e. campus grid user? 
+   Would we need a dedicated OASIS VO for these cases?
+
+   Should we setup a dedicated OASIS VOMS? Maybe just reuse the OSG VOMS?
+
+   It was pointed that, in any case, any option is better than current scenario, where VOs submit installation jobs to sites and write new content underneath $OSG_APP/<vo>. 
+   In the current scenario, the $OSG_APP directory is world writeable, and one malicious VO can create the $OSG_APP/<vo> subdirectory for another VO and plant a trojan.
+
+   One idea suggested was to let OIM to generate a condor-map-file instead of using gridmapfiles.
+
+-- can we have an externally-accesible HTCondor interface to OASIS?
+
+
+-- On the content of files being distributed by OASIS:
+    
+    -- What are the OSG policies related files content? That includes licenses, commercial products, non proper content, etc.
+
+    -- What is the procedure when we discover something need to be removed from CVMFS?
+
+    -- the only way to change what is on a client is to send out a newer valid .cvmfspublished file; 
+       that is, taking away anything from the stratum 1s will not remove what is on clients.  
+       So, for externally-hosted repositories, we should have a procedure ready to replace the .cvmfspublished 
+       file with one from a repository that has an empty catalog.  
+       It has to be signed by a repository key, but it doesn't have to be the one that was being used to
+       sign the repository because the cvmfs client will re-read .cvmfswhitelist if the fingerprint of the key in .cvmfspublished changes.  
+       We should keep on hand on the stratum 0 a key 
+       (it can't be the same as the regular signing key because it has to be in X.509 format)
+       that we can use for this purpose, and we can create a .cvmfswhitelist signed by the stratum 0 signing key that approves this key.  
+       We would also have to get this file into the stratum 1s somehow, 
+       because we had been talking about them reading directly from the external repository server.  
+       This may be a good reason to normally send external repos through a machine at the GOC, 
+       a machine that behaves like an intermediate stratum 1 to mirror the published repositories, 
+       so there'd be one place to insert the new .cvmfspublished & .cvmfswhitelist files.
+
+    
+-- What would be the best way to proceed in case of a misbehaving VO?
+   One idea suggested during the meeting is to centrally distribute a blank repo.
+   It was pointed that single purpose VOs are not that problematic. Real problem would be shutting-down a multi-project VO, i.e. the OSG VO. 
+   It was mentioned that best next candidate after NOVA to host their OASIS server would be IceCube -at Wisconsin-.
+
+
+-- Other tools running inside OASIS server, special cron jobs. 
+   One of the potential problems is that cron jobs may still need a X509 proxy to run tasks. 
+
+        -- can we allow long-lived credentials on OASIS?
+        -- should one be allowed to publish w/o a valid proxy?
+
+   Some ideas were suggested:
+
+        -- using only limited proxies.
+        -- using short proxies and renew them with MyProxy. 
+        -- using a dedicated logging hosts inside OASIS only for these cron jobs. 
+        -- VO can run the cron on their own hosts, and submit periodically jobs. 
+
+   Which option is more secure?
+
+
+-- During the architecture design process, some ideas have been suggested. However, these ideas may have security implications, so your input is needed. 
+
+    -- one of the ideas is to allow communication between the different components inside OASIS using a web server, as a RESTfull service.
+       In this way, the several components of the service can use GET/POST/PUT to provide information, and the intelligence of the system is behind the web server.
+       It would also be the part of the system in charge of making decissions. 
+       
+       It has been pointed out that using an Apache server listening actively can be a security hole for the entire service. 
+       Using an IP table would be enough to prevent the potential risks of using a web server in the design?
+       Or OSG would not approve in any way using a web server for a central service just in case someone forgets setting up the IP table (or any other reason)?
+       
+    -- the another idea during design process was to use a binary setuid program that users would call and run the CVMFS commands under a different UNIX ID.
+       What are the OSG security policies about using setuid programs on central services?
+
+-- do we need a dedicated document with security procedures? Or is there an OSG document that can be reused?
+
+
+-------------------------------------------------------
+Management:
+-------------------------------------------------------
+
+The organization chart is as follows:
+
+    -- Project manager: Brian Bockelman
+    -- Project coordinator: Jose Caballero
+    -- Development coordinator: Jose Caballero
+    -- Operations coordinator: Scott Teige
+
+The OASIS team will hold periodical meetings the first Friday of every months, at 2 PM Eastern Time. 
+
+Deadlines are for OASIS 2 deployment:
+
+    -- working prototype at BNL by 15th December
+ 
+    -- First OASIS 2.0 RPM hosted at the OSG ITB repository by 15th February
+
+           -- During the process, get the OSG security team involved and start security reviews.
+
+    -- First OASIS 2.0 RPM running at the OGC ITB host by 15th March
+
+    -- Official release by 15 April, or maybe by the OSG AHM. During the OSG AHM a progress assessment will be conducted. 
+
+Progress assessment rules:
+
+    -- yellow flag: milestone is one month behind schedule.
+    -- red flag: milestone is two months behind schedule.
+
+Deadline for other minor steps:
+
+        -- catalog fixes by Dec 7th earliest, by Jan 7th most likely
+
+        -- MIS repo (CRLs and OSG WN client):
+
+                -- to ITB by late January
+                -- to production by early March
+
+        -- Firedrills:
+
+                -- at Stratum-0 by early February
+                   Includes restoring from backup to spare Stratum-0
+                -- at Stratum-1 by late November
+                   For Stratum-1 an ITB one will be used, to not affect users.
+                 
+        -- CVMFS 2.1 deployment:
+
+                -- inventory by late November
+                -- upgrade campaign starts at early January
+
+
+
+
+-------------------------------------------------------
+ACTION ITEMS:
+-------------------------------------------------------
+
+-- stop OSG cron jobs on OASIS (DONE)
+
+-- create a histogram with publishing time. 
+   Scott has examined the current log for oasis updates. 
+   It covers 184 days 16 hours.  
+   2 days 1:52 were spent doing updates.
+   If we except the full rebuild of nova due to the re-catalog problem that comes to 1 day 12:06
+   That is, during normal operation the system spends 0.81% of its time in updates.
+   This gives a probability of 0.000066 two updates happen simultaneously.
+
+-- migrate Stratum-1's to version 2.1
+   https://jira.opensciencegrid.org/browse/OO-14
+   Already done at FNAL and BNL.
+
+-- make an inventory of sites with 2.0 client
+
+-- backup CVMFS pub files on Stratum-0  (as part of disaster recovery strategy)
+
+-- write an script to re-sign old revisions (as part of disaster recovery strategy)
+
+-- write an administrative CLI tool for rollback on the Stratum-0  (as part of disaster recovery strategy)
+
+-- study the idea, and implement it if so, of using DNS aliases.
+   The problem with this idea is that the OASIS-client RPM re-order at start the list of Stratum-1's, and sticks with that order.
+   Ticket already filled https://jira.opensciencegrid.org/browse/OO-17
+
+   After those are in place, setup the backup stratum-1 in Nebraska and do a firewill to test moving the alias to the Nebraska server.
+   By the end of November.
+
+-- enable ACL on the OASIS Stratum-0: https://jira.opensciencegrid.org/browse/OO-16
+
+-- adapt the monitor on Stratum-1s to watch for out-of-date repository replicas. Dave.
+
+
+-------------------------------------------------------
+Miscelanea:
+-------------------------------------------------------
+
+-- Big VOs could be accepted at the GOC Stratum-0, if they request it. But they will, most probably, be accepted or rejected case by case. 
+
+-- best practices for VOs to install SW
+        -- create docs: best practices for installing SW, and one for CVMFS in particular.
+        -- maybe collecting info from VOs with experience
+
+-- Apparently EGI is looking for a tool like OASIS.
