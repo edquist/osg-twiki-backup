@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarianZvada" date="1406748145" format="1.1" version="1.62"}%
+%META:TOPICINFO{author="BrianLin" date="1406828095" format="1.1" reprev="1.63" version="1.63"}%
 %META:TOPICPARENT{name="Blueprint.WebHome"}%
 ---+!! Installing the HTCondor CE
 
@@ -143,20 +143,25 @@ Place customizations in =/etc/condor-ce/config.d/99-local.conf= (or a similarly 
 
 ---## HTCondor
 
-   * The values of *JOB_ROUTER_SCHEDD2_NAME* and *JOB_ROUTER_SCHEDD2_POOL* may need to be customized.  The pool should be set to the value of the _site HTCondor_ CONDOR_HOST.
+   * The values of *JOB_ROUTER_SCHEDD2_NAME* and *JOB_ROUTER_SCHEDD2_POOL* may need to be customized.  The pool should be set to the value of the _site HTCondor_ CONDOR_HOST (using hostnames rather than IP addresses).
       * If you can successfully run the following command, you have these variables set correctly: <pre> condor_q -pool %RED%JOB_ROUTER_SCHEDD2_POOL%ENDCOLOR% -name %BLUE%JOB_ROUTER_SCHEDD2_NAME%ENDCOLOR%</pre>
 
    * HTCondor-CE with HTCondor pool schematic view: <br />
      <img src="%ATTACHURLPATH%/condor-ce-condor-schematics.png" alt="condor-ce-condor-schematics.png" width='700' height='306' />  
 
 %NOTE% The HTCondor-CE installs a *custom configuration of HTCondor*.  If you are running HTCondor as a batch system, this means you will have two sets of HTCondor daemons running.  This is similar to how RSV works. To configure the CE, you need to look at =/etc/condor-ce=, *NOT* =/etc/condor=. Also, checking config files source might help to understand difference better: =condor_ce_config_val -config= or =condor_config_val -config=. Similarly, to list the jobs in queue, you will need to perform =condor_ce_q=, not =condor_q=. 
----## PBS and SLURM
 
-   * With the latest PBS emulation layer, HTCondor-CE can submit to SLURM using the PBS backends.  However, the separate SLURM Gratia probe still needs to be installed.
+---## Other Batch Systems
 
-   * Like GRAM, HTCondor-CE requires a shared file system between worker nodes and the CE to utilize PBS.  _Unlike GRAM_, it does not write job files into the user's =$HOME= directory.  By default, job files are written into =/var/lib/condor-ce= and hence that directory must appear at that location on all worker nodes.  You can control the exported directory by setting the =SPOOL= configuration variable in =/etc/condor-ce/config.d=.
+---#### Sharing the Spool directory
 
-   * The job queue and the walltime can be set by the =remote_queue= and =RequestMemory= attributes, respectively.  The following job route would set the default queue to 'grid' and memory limit to 2.5GB: <pre>JOB_ROUTER_ENTRIES = \
+Like GRAM, HTCondor-CE requires a shared file system between worker nodes and the CE to transfer files.  Unlike GRAM, it does not write job files into the user's =$HOME= directory.  By default, job files are written into =/var/lib/condor-ce= and hence that directory must appear at that location on all worker nodes.  You can control the exported directory by setting the =SPOOL= configuration variable in =/etc/condor-ce/config.d=. We recommend setting up an NFS server on the CE dedicated to sharing the spool directory with the site's worker nodes instead of using a pre-existing NFS share.
+
+---#### Setting job queue and walltime
+
+The job queue and the walltime can be set by the =remote_queue= and =RequestMemory= attributes, respectively.  The following job route would set the default queue to 'grid' and memory limit to 2.5GB for a PBS batch system: \
+
+<pre class="file">JOB_ROUTER_ENTRIES = \
    [ \
      GridResource = "pbs"; \
      TargetUniverse = 9; \
@@ -166,7 +171,11 @@ Place customizations in =/etc/condor-ce/config.d/99-local.conf= (or a similarly 
      Requirements = true; \
    ]</pre>
 
-   * Additional attributes can be inserted into the job submit script by editing =/usr/libexec/blahp/pbs_local_submit_attributes.sh=.  This file is sourced during submit time and anything printed to stdout is appended to the job submit script.  For example, the following will set a default walltime: <pre>#!/bin/sh
+---#### Adding attributes to the each job
+
+Additional attributes can be inserted into the job submit script by editing =/usr/libexec/blahp/%RED%&lt;batch system&gt;%ENDCOLOR%_local_submit_attributes.sh=.  This file is sourced during submit time and anything printed to stdout is appended to the job submit script.  For example, the following will set a default walltime for PBS: \
+
+<pre class="file">#!/bin/sh
 
 # Set walltime according to request; the batch system
 # may reject this, of course!
@@ -175,20 +184,40 @@ if [ -n "$Walltime" ]; then
 else
   echo "#PBS -l walltime=24:00:00"
 fi
-</pre> The environment variable =$Walltime= is set if the the attribute =remote_cerequirements= is set in the HTCondor-G job.  That attribute should be of the form <pre>remote_cerequirements = foo == X && bar == Y && ...</pre> to set =foo= to value X and =bar= to Y in the environment of =pbs_local_submit_attributes.sh=.  So, to set the Walltime to 1 hour with the above =pbs_local_submit_attributes.sh=, the job would need <pre>remote_cerequirements = Walltime == 3600</pre>
+</pre>
 
-   * The interaction between HTCondor-CE and PBS can be difficult to debug, especially on the initial install.  A reasonable set of debugging information can be produced by adding the following to the HTCondor-CE configuration <pre>MAX_GRIDMANAGER_LOG = 6h
+The environment variable =$Walltime= is set if the the attribute =remote_cerequirements= is set in the HTCondor-G job.  That attribute should follow the form:
+
+<pre class="file">remote_cerequirements = foo == X && bar == Y && ...</pre>
+
+to set =foo= to value X and =bar= to Y in the environment of =%RED%&lt;batch system&gt;%ENDCOLOR%_local_submit_attributes.sh=.  So, to set the Walltime to 1 hour with the above =%RED%&lt;batch system&gt;%ENDCOLOR%_local_submit_attributes.sh=, the job would need:
+
+<pre class="file">remote_cerequirements = Walltime == 3600</pre>
+
+---#### Debugging
+
+The interaction between HTCondor-CE and other batch systems can be difficult to debug, especially on the initial install.  A reasonable set of debugging information can be produced by adding the following to the HTCondor-CE configuration: \
+
+<pre class="file">MAX_GRIDMANAGER_LOG = 6h
 MAX_NUM_GRIDMANAGER_LOG = 8
 GRIDMANAGER_LOG = D_FULLDEBUG
-</pre>  With this, each interaction between HTCondor-CE and blahp/PBS will be logged into =/var/log/condor-ce/GridManagerLog.*=.
+</pre>  
 
----## LSF
+With this, each interaction between HTCondor-CE and blahp/batch system will be logged into =/var/log/condor-ce/GridManagerLog.*=.
 
-No testing has been done yet with LSF.  However, the interaction with HTCondor-CE is similar to PBS and the PBS customization instructions may help.
+---### PBS and SLURM
 
----## SGE
+---#### Submitting jobs to SLURM
 
-No testing has been done yet with LSF.  Work in progres with bu.edu...
+With the latest PBS emulation layer, HTCondor-CE can submit to SLURM using the PBS backends.  However, the separate SLURM Gratia probe still needs to be installed.
+
+---### LSF
+
+No testing has been done yet with LSF. However, the interaction with HTCondor-CE is similar to PBS and the PBS customization instructions may help.
+
+---### SGE
+
+No testing has been done yet with SGE. However, the interaction with HTCondor-CE is similar to PBS and the PBS customization instructions may help.
 
 ---# Testing with RSV
 RSV is an useful testing tool to verify if your CE is running correctly. It is a software installed separately (it can be also on a different host), see InstallRSV.
