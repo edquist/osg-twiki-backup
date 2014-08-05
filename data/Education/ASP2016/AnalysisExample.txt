@@ -1,0 +1,335 @@
+%META:TOPICINFO{author="RobQ" date="1407251549" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="AfricaGridSchool14Materials"}%
+---+!!Analysis Example using the Grid
+%TOC{depth="3"}%
+
+---+ Introduction
+Root may be run in batch mode on the grid to analyze large data samples. This example creates simulated data in root format using tree's and performs analysis on the simulated data by means of processing on the grid. This example is based on a demo developed by OU programmer Chris Walker.
+
+---+ Customize this Document
+
+<!-- OSG Summer School 2011 Defaults
+   * Local VO= %URLPARAM{"INPUT_VO" encode="quote" default="osgedu"}%
+   * Local UCL_HOST = %URLPARAM{"INPUT_HOST" encode="quote" default="osg-ss-glidein"}%
+   * Local UCL_USER = %URLPARAM{"INPUT_USER" encode="quote" default="user"}%
+   * Local UCL_DOMAIN = %URLPARAM{"INPUT_DOMAIN" encode="quote" default="chtc.wisc.edu"}%
+   * Local GATEKEEPER = %URLPARAM{"INPUT_GATEKEEPER" encode="quote" default="red.unl.edu"}%
+   * Local UCL_CWD= %URLPARAM{"INPUT_CWD" encode="quote" default="analysis_example"}%
+   * Local WORKING_DIR= %URLPARAM{"INPUT_WORKING_DIR" encode="quote" default="/share/users/%UCL_USER%/osg_school/touble_part1"}%
+   * Local BATCH_SYSTEM = %URLPARAM{"BATCH_SYSTEM" encode="quote" default="condor"}%
+   * Local REMOTE_ROOT = %URLPARAM{"INPUT_REMOTE_ROOT" encode="quote" default="/mnt/hadoop/user"}%
+   * Local REMOTE_SRM = %URLPARAM{"INPUT_SRM" encode="quote" default="red-srm1.unl.edu:8443"}%
+   * Local REMOTE_GRIDFTP= %URLPARAM{"INPUT_GRIDFTP" encode="quote" default="red-gridftp.unl.edu"}%
+   * Local SURL = srm://%REMOTE_SRM%/srm/v2/server?SFN=%REMOTE_ROOT%
+   * Local TURL= gsiftp://%REMOTE_GRIDFTP%/%REMOTE_ROOT%
+   * Local OSG_DATA=%URLPARAM{"INPUT_OSG_DATA" encode="quote" default="/osg/data"}%
+   * Local BLAST_DB_SUBMIT=%URLPARAM{"INPUT_BLAST_DB_SUBMIT" encode="quote" default="/share/blast"}%
+   * Local VDT_LOCATION=/opt/osg-client
+-->
+
+%ICON{"warning"}% %RED% Please change your user name and click on the Customize button!%ENDCOLOR%
+<form action="%SCRIPTURLPATH{"view"}%/%WEB%/%TOPIC%">
+<table>
+  <tr>
+    <td>
+      %RED%Login Name%ENDCOLOR%
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_USER" value="%UCL_USER%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      VO
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_VO" value="%VO%"/>
+    </td>
+  <tr>
+    <td>
+      Host Name
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_HOST" value="%UCL_HOST%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      Domain Name
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_DOMAIN" value="%UCL_DOMAIN%"/>
+    </td>
+  </tr>
+    <td>
+      Exercise Path
+    </td>
+    <td>
+      <input size=100 type="text" name="INPUT_WORKING_DIR" value="%WORKING_DIR%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+     &nbsp;
+     <input type="submit" class="twikiSubmit" value="Customize" />
+    </td>
+  </tr>
+</table>
+</form>
+
+---+ Exercises 
+---++ Prerequisite 
+
+   * Login on submission node <pre class="screen">
+ssh %UCL_USER%@%UCL_HOST%.%UCL_DOMAIN%
+</pre>
+<!--   * Initialize the OSG client environment <pre class="screen">
+source %VDT_LOCATION%/setup.sh
+</pre>
+-->
+   * Obtain proxy certificate, if you have not done so already <pre class="screen">
+voms-proxy-init -voms %VO%:/%VO%
+</pre>
+   * Make a directory for this exercise<pre class="screen">
+mkdir -p %UCL_CWD%
+cd %UCL_CWD%
+</pre>
+
+---++ Simple Analysis Example
+
+---+++ Step 1: Create simulated data using the grid
+
+Now in your test directory on the submission host we will create the three files: ==run-root.cmd==, ==run-root.sh==, and ==run-root.C== with the contents
+given below. This may require running an editor such as =emacs= on your local desktop and then copying the created files to the submission host. Or the =nano= editor can be run directly on the submission host. A
+typical copy command would be as follows. 
+
+<pre class="screen">
+scp run-root.* %UCL_USER%@%UCL_HOST%.%UCL_DOMAIN%:%UCL_CWD%/
+</pre>
+
+
+First, we will utilize a simple command script to submit the grid jobs. It is ==run-root.cmd==:
+
+<pre class="file">
+universe=grid
+grid_resource=gt2 osgitb1.nhn.ou.edu/jobmanager-fork
+executable=run-root.sh
+transfer_input_files = run-root.C
+transfer_executable=True
+when_to_transfer_output = ON_EXIT
+log=run-root.log
+transfer_output_files = root.out,t00.root,t01.root
+output=run-root.out.$(Cluster).$(Process)
+error=run-root.err.$(Cluster).$(Process)
+notification=Never
+queue 
+</pre>
+
+Note that the executable script is:  ==run-root.sh== which is as follows:
+<pre class="file">
+#!/bin/bash 
+/usr/local/bin/root -b < run-root.C > root.out
+</pre>
+This script runs Root in batch mode and executes input macro ==run-root.C== and produces output that is routed to file ==root.out==
+It has to be made executable, by use of the =chmod= Linux command (protections can be checked with the command =ls -l=):
+
+<pre class="screen">
+chmod +x run-root.sh
+</pre>
+
+The macro  ==run-root.C== consists of the following code:
+
+<pre class="file">
+{ 
+ 
+ // create files containing simulated data
+ 
+ TRandom g; 
+ char c[256]; 
+ for ( int j = 0 ; j < 2 ; j++ ){ 
+    sprintf(c,"t%2.2d.root\000",j); 
+    TFile f(c,"RECREATE","MyFile", 0/*no compression*/); 
+    TTree *t = new TTree("t0","t0"); 
+    Int_t Run; 
+    TBranch * b_Run = t->Branch("Run",&Run); 
+    Int_t Event; 
+    TBranch * b_Event = t->Branch("Event",&Event); 
+    Float_t Energy; 
+    TBranch * b_Energy = t->Branch("Energy",&Energy); 
+    Run = j; 
+ 
+        for( Event = 0 ; Event < 100 ; Event++ ){ 
+          Energy = g.Gaus(500.0 , 200.0);   
+          t->Fill(); 
+        }  
+    f.Write(); 
+    f.Close(); 
+ } 
+} 
+.q 
+</pre>
+
+The grid job can be submitted using:
+
+<pre class="screen">
+condor_submit run-root.cmd
+</pre>
+
+It can be checked with: 
+
+<pre class="screen">
+condor_q
+</pre>
+
+After it runs, you will find a log file that describes the job: ==run-root.log==, and output file: ==root.out==, and the files containing the simulated data: ==t00.root==, ==t01.root== in your test directory. 
+You can now copy the output files to your local desktop machine with the =scp= command we used before. A
+typical copy command would be as follows. 
+
+<pre class="screen">
+scp %UCL_USER%@%UCL_HOST%.%UCL_DOMAIN%:%UCL_CWD%/t*.root .
+</pre>
+
+You can inspect the contents of ==t00.root== and ==t01.root== by running 
+Root (i.e., ==root t00.root==) on your local machine and using the 
+Root command:  ==TBrowser b==
+
+With the ==TBrowser== you can plot the simulated data in branch “Energy” as well as the other branches.
+
+Each data file contains a TTree named “t0”. You can plot the contents of all (in this example both) data file TTree's by using the TChain method as follows:
+
+Before running root, execute the following command:
+<pre class="screen">
+export LD_LIBRARY_PATH=/usr/lib/root
+</pre>
+
+In Root execute the following commands:
+<pre class="file">
+TChain tc("t0");
+tc.Add("t*.root");
+tc.Draw("Energy");
+</pre>
+
+---+++ Step 2: Make TSelector
+
+In Root in your test directory, execute the following commands:
+<pre class="file">
+TFile f("t00.root");
+t0.MakeSelector("s0");
+f.Close();
+</pre>
+
+This will create files ==s0.C== and ==s0.h== in your test directory that contain code corresponding to the definition of the TTree "t0". This code can be used to process files containing data is these TTree's.
+
+Now we will add a histogram to the TSelector code. Several code lines have to be added to the TSelector code files ==s0.C== and ==s0.h==.
+
+To ==s0.h== make the additions:
+after existing include statements add:
+
+<pre class="file">
+#include &lt;TH1F.h&gt;
+</pre>
+
+After class s0 definition:
+      ( class s0 : public TSelector { ) 
+add
+<pre class="file">
+TH1F *e;
+</pre>
+
+To ==s0.C== make the additions:
+
+After entry:
+( void s0::SlaveBegin(TTree * /*tree*/) ) 
+add
+<pre class="file">
+e = new TH1F("e", "e", 1000, -199.0, 1200.0);
+</pre>
+
+After Process entry:
+ ( Bool_t s0::Process(Long64_t entry) )
+add
+<pre class="file">
+GetEntry(entry);
+e->Fill(Energy);
+</pre>
+
+After terminate entry:
+( void s0::Terminate() )
+add
+<pre class="file">
+TFile f("histograms.root","RECREATE");
+f.WriteObject(e,”Energy”);
+f.Close();
+</pre>
+
+Now create the new script files for Step 2:
+
+create:
+==run-root-2.cmd==
+<pre class="file">
+universe=grid 
+grid_resource=gt2 osgitb1.nhn.ou.edu/jobmanager-condor 
+executable=run-root-2.sh 
+transfer_input_files = s0.C,s0.h,run-root-2.C,t00.root,t01.root 
+transfer_executable=True 
+when_to_transfer_output = ON_EXIT 
+log=run-root-2.log 
+transfer_output_files = root-2.out,histograms.root 
+output=run-root.out.$(Cluster).$(Process) 
+error=run-root.err.$(Cluster).$(Process) 
+notification=Never 
+queue 
+</pre>
+
+Create ==run-root-2.sh==
+<pre class="file">
+#!/bin/bash 
+/usr/local/bin/root -b < run-root-2.C > root-2.out 
+</pre>
+
+It has to be made executable, by use of the =chmod= Linux command:
+
+<pre class="screen">
+chmod +x run-root-2.sh
+</pre>
+
+
+Create ==run-root-2.C==
+<pre class="file">
+.L s0.C++ 
+{ 
+ //Load and run TSelector 
+ 
+  s0 *s = new s0(); 
+ 
+  TChain tc("t0"); 
+  tc.Add("t*.root"); 
+  tc.Process(s); 
+ 
+} 
+</pre>
+
+We can test the Root job on your local machine by issuing command:
+
+<pre class="screen">
+root < run-root-2.C
+</pre>
+
+If this works, we can process the data files =t00.root= and =t01.root= on the
+Grid with our new command script ==run-root-2.cmd==.
+
+This can be done with command:
+
+<pre class="screen">
+condor_submit run-root-2.cmd
+</pre>
+
+You can look at the output histogram file: =histograms.root=
+with ==TBrowser b== as before.
+
+
+-- Main.PatrickLouisSkubic - 18 Jul 2012
+
+
+
+-- Main.RobQ - 05 Aug 2014
