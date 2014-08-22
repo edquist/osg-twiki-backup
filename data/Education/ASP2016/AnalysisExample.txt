@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="HorstSeverini" date="1408379926" format="1.1" version="1.6"}%
+%META:TOPICINFO{author="HorstSeverini" date="1408711339" format="1.1" reprev="1.7" version="1.7"}%
 %META:TOPICPARENT{name="AfricaGridSchool14Materials"}%
 ---+!!Analysis Example using the Grid
 %TOC{depth="3"}%
@@ -113,7 +113,7 @@ typical copy command would be as follows.
 scp run-root.* %UCL_USER%@%UCL_HOST%.%UCL_DOMAIN%:%UCL_CWD%/
 </pre>
 
-It is probably easier to create all scripts with =nano= on the submission node, though, and then you won't have to copy anything at all.
+It is probably easier to create all scripts with =nano= on the submission node, though, and then you won't have to copy (==scp==) anything at all.
 
 First, we will utilize a simple command script to submit the grid jobs. It is ==run-root.cmd==:
 
@@ -204,11 +204,15 @@ scp %UCL_USER%@%UCL_HOST%.%UCL_DOMAIN%:%UCL_CWD%/t*.root .
 </pre>
 -->
 
-You can inspect the contents of ==t00.root== and ==t01.root== by running 
-Root (i.e., ==root t00.root==) on your local machine and using the 
-Root command:  ==TBrowser b==
+You can inspect the contents of ==t00.root== and ==t01.root== by running Root in your current directory:
 
-With the ==TBrowser== you can plot the simulated data in branch “Energy” as well as the other branches.
+<pre class="screen">
+root t00.root
+</pre>
+
+And then the Root command:  ==TBrowser b==
+
+With the ==TBrowser== you can plot the simulated data in branch “Energy” as well as the other branches. Double click on the name of the root files, and then on the variables you would like to plot.
 
 Each data file contains a TTree named “t0”. You can plot the contents of all (in this example both) data file TTree's by using the TChain method as follows:
 
@@ -225,9 +229,233 @@ tc.Add("t*.root");
 tc.Draw("Energy");
 </pre>
 
----+++ Step 2: Make TSelector
+---+++ Step 2: Analyze Real Data
 
-In Root in your test directory, execute the following commands:
+Now we want to have a look at a real live ATLAS root file. You will need a new condor submit script called ==run-z.cmd==:
+
+<pre class="file">
+universe=vanilla
+executable=run-z.sh
+transfer_input_files = readEvents.C,/home/greenw/muons.root
+transfer_executable=True
+when_to_transfer_output = ON_EXIT
+log=run-z.log
+transfer_output_files = root-z.out,histograms-z.root
+output=run-z.out.$(Cluster).$(Process)
+error=run-z.err.$(Cluster).$(Process)
+notification=Never
+queue 
+</pre>
+
+The new executable script you need for this job is:  ==run-z.sh== which is as follows:
+<pre class="file">
+#!/bin/bash 
+export PATH=$PATH:/software-dir/ROOT/bin
+export LD_LIBRARY_PATH=/software-dir/ROOT/lib/root
+root -b -q readEvents.C+ > root-z.out
+</pre>
+This script runs Root in batch mode and executes input macro ==readEvents.C== and produces output that is routed to file ==root.out==
+It has to be made executable, by use of the =chmod= Linux command (protections can be checked with the command =ls -l=):
+
+<pre class="screen">
+chmod +x run-z.sh
+</pre>
+
+The macro  ==readEvents.C== consists of the following code:
+
+<pre class="file">
+#include "TFile.h"
+#include "TTree.h"
+#include "TCanvas.h"
+#include "TH1F.h"
+#include &lt;iostream&gt;
+//#include "TLorentzVector.h"
+using namespace std;
+
+void readEvents(){
+
+	// load the ROOT ntuple file
+	TFile * f = new TFile("/home/greenw/muons.root");
+	TTree *tree = (TTree *) f->Get("POOLCollectionTree");
+	int nEntries = tree->GetEntries();
+	cout << "There are " << nEntries << " entries in your ntuple" << endl;
+	
+	// create local variables for the tree's branches
+	UInt_t NLooseMuons;
+	Float_t LooseMuonsEta1;
+	Float_t LooseMuonsPhi1;
+	Float_t LooseMuonsPt1;
+
+	Float_t LooseMuonsEta2;
+	Float_t LooseMuonsPhi2;
+	Float_t LooseMuonsPt2;
+	
+	// set the tree's braches to the local variables
+	tree->SetBranchAddress("NLooseMuon", &NLooseMuons);
+	tree->SetBranchAddress("LooseMuonEta1", &LooseMuonsEta1);
+	tree->SetBranchAddress("LooseMuonPhi1", &LooseMuonsPhi1);
+	tree->SetBranchAddress("LooseMuonPt1", &LooseMuonsPt1);
+	
+	tree->SetBranchAddress("LooseMuonEta2", &LooseMuonsEta2);
+	tree->SetBranchAddress("LooseMuonPhi2", &LooseMuonsPhi2);
+	tree->SetBranchAddress("LooseMuonPt2", &LooseMuonsPt2);
+	
+	// declare some histograms
+  TH1F *muPt1 = new TH1F("muPt1", ";p_{T} [GeV/c];Events", 50, 0, 200);
+  TH1F *muPx1 = new TH1F("muPx1", ";p_{x} [GeV/c];Events", 50, 0, 200); //added px
+  TH1F *muPy1 = new TH1F("muPy1", ";p_{y} [GeV/c];Events", 50, 0, 200); //added py
+  TH1F *muPz1 = new TH1F("muPz1", ";p_{z} [GeV/c];Events", 50, 0, 200); //added pz
+  TH1F *muEta1 = new TH1F("muEta1", ";#eta;Events", 50, -3, 3);
+  TH1F *muPhi1 = new TH1F("muPhi1", ";#phi;Events", 50, -4, 4);
+  TH1F *muE1 = new TH1F("muE1", ";Energy;Events", 50, 0, 200);
+  
+  TH1F *muPt2 = new TH1F("muPt2", ";p_{T} [GeV/c];Events", 50, 0, 200);
+  TH1F *muPx2 = new TH1F("muPx2", ";p_{x} [GeV/c];Events", 50, 0, 200); //added px
+  TH1F *muPy2 = new TH1F("muPy2", ";p_{y} [GeV/c];Events", 50, 0, 200); //added py
+  TH1F *muPz2 = new TH1F("muPz2", ";p_{z} [GeV/c];Events", 50, 0, 200); //added pz
+  TH1F *muEta2 = new TH1F("muEta2", ";#eta;Events", 50, -3, 3);
+  TH1F *muPhi2 = new TH1F("muPhi2", ";#phi;Events", 50, -4, 4);
+  TH1F *muE2 = new TH1F("muE2", ";Energy;Events", 50, 0, 200);
+  
+  TH1F *zPt = new TH1F("zPt", ";p_{T} [GeV/c];Events", 50, 0, 200);
+  TH1F *zPx = new TH1F("zPx", ";p_{x} [GeV/c];Events", 50, 0, 200); //added px
+  TH1F *zPy = new TH1F("zPy", ";p_{y} [GeV/c];Events", 50, 0, 200); //added py
+  TH1F *zPz = new TH1F("zPz", ";p_{z} [GeV/c];Events", 50, 0, 200); //added pz
+  //TH1F *zEta = new TH1F("zEta", ";#eta;Events", 50, -3, 3);
+  //TH1F *zPhi = new TH1F("zPhi", ";#phi;Events", 50, -4, 4);
+  TH1F *zE = new TH1F("zE", ";Energy;Events", 50, 0, 200);	
+  TH1F *zMass = new TH1F("zMass", ";Mass;Events", 50, 0, 200);	
+
+  
+	// loop over each entry (event) in the tree
+  	for( int entry=0; entry&lt;nEntries; entry++ ){
+      if( entry%10000 == 0 ) cout << "Entry:" << entry << endl;
+    
+      // check that the event is read properly
+      int entryCheck = tree->GetEntry( entry );
+      if( entryCheck <= 0 ){  continue; }
+      
+      // only look at events containing at least 2 leptons
+      if(NLooseMuons < 2) continue;
+      
+      // require the leptons to have some transverse momentum
+      if(abs(LooseMuonsPt1) *0.001 < 20 || abs(LooseMuonsPt2) *0.001 < 20 ) continue;
+      
+      // make a LorentzVector from the muon
+      //TLorentzVector Muons1;
+     // Muons1.SetPtEtaPhiM(fabs(LooseMuonsPt1), LooseMuonsEta1, LooseMuonsPhi1, 0);
+  
+      // print out the details of an electron every so often
+      if( entry%10000 == 0 ){ 
+        cout << "Muons pt1: " << LooseMuonsPt1 << " eta: " << LooseMuonsEta1 << " phi " << LooseMuonsPhi1 << endl;
+        cout << "Muons pt2: " << LooseMuonsPt2 << " eta: " << LooseMuonsEta2 << " phi " << LooseMuonsPhi2 << endl;
+      }
+
+      //calculation of muon energy
+        Double_t muonMass = 0.0;  // assume the mass of the muon is negligible
+        Double_t muonPx1 = abs(LooseMuonsPt1)*cos(LooseMuonsPhi1);
+        Double_t muonPy1 = abs(LooseMuonsPt1)*sin(LooseMuonsPhi1);
+        Double_t muonPz1 = abs(LooseMuonsPt1)*sinh(LooseMuonsEta1);
+	Double_t muonEnergy1 = sqrt (muonPx1*muonPx1 + muonPy1*muonPy1 + muonPz1*muonPz1 + muonMass*muonMass);
+
+	Double_t muonPx2 = abs(LooseMuonsPt2)*cos(LooseMuonsPhi2);
+        Double_t muonPy2 = abs(LooseMuonsPt2)*sin(LooseMuonsPhi2);
+        Double_t muonPz2 = abs(LooseMuonsPt2)*sinh(LooseMuonsEta2);
+	Double_t muonEnergy2 = sqrt (muonPx2*muonPx2 + muonPy2*muonPy2 + muonPz2*muonPz2 + muonMass*muonMass);
+
+	Double_t zCompX = muonPx1 + muonPx2;
+        Double_t zCompY = muonPy1 + muonPy2;
+        Double_t zLongi = muonPz1 + muonPz2;
+        Double_t zPerp = sqrt (zCompX*zCompX + zCompY*zCompY);  
+	Double_t zEnergy = muonEnergy1 + muonEnergy2;
+	Double_t zM = sqrt (zEnergy*zEnergy -zCompX*zCompX -zCompY*zCompY -zLongi*zLongi);
+	
+
+      // fill our histograms
+        muPt1->Fill((LooseMuonsPt1)*0.001); // in GeV
+        muEta1->Fill(LooseMuonsEta1);
+        muPhi1->Fill(LooseMuonsPhi1);
+	muPx1->Fill( muonPx1*0.001); // in GeV
+	muPy1->Fill( muonPy1*0.001); // in GeV
+	muPz1->Fill( muonPz1*0.001); // in GeV
+        muE1->Fill(muonEnergy1*0.001); // in GeV
+
+	muPt2->Fill((LooseMuonsPt2)*0.001); // in GeV
+        muEta2->Fill(LooseMuonsEta2);
+        muPhi2->Fill(LooseMuonsPhi2);
+	muPx2->Fill( muonPx2*0.001); // in GeV
+	muPy2->Fill( muonPy2*0.001); // in GeV
+	muPz2->Fill( muonPz2*0.001); // in GeV
+        muE2->Fill(muonEnergy2*0.001); // in GeV
+      
+ 	zPt->Fill( zPerp*0.001); // in GeV
+ 	zPx->Fill( zCompX*0.001); // in GeV
+	zPy->Fill( zCompY*0.001); // in GeV
+	zPz->Fill( zLongi*0.001); // in GeV
+        zE->Fill( zEnergy*0.001); // in GeV
+        zMass->Fill(zM*0.001); // in GeV
+     
+	}
+
+  // draw the eta distribution
+  zMass->Draw();
+  
+  // make a ROOT output file to store your histograms
+  TFile *outFile = new TFile("histograms-z.root", "recreate");
+  muPt1->Write();
+  muEta1->Write();
+  muPhi1->Write();
+  muE1->Write();
+  muPx1->Write();
+  muPy1->Write();
+  muPz1->Write();
+
+  muPt2->Write();
+  muEta2->Write();
+  muPhi2->Write();
+  muE2->Write();
+  muPx2->Write();
+  muPy2->Write();
+  muPz2->Write();
+
+  zPt->Write();
+  zE->Write();
+  zPx->Write();
+  zPy->Write();
+  zPz->Write();
+  zMass->Write();
+  
+  outFile->Close();
+}
+</pre>
+
+The grid job can be submitted using:
+
+<pre class="screen">
+condor_submit run-z.cmd
+</pre>
+
+It can again be checked with: 
+
+<pre class="screen">
+condor_q
+</pre>
+
+After it runs, you will find a log file that describes the job: ==run-z.log==, and output file: ==root-z.out==, and the files containing the simulated data: ==histograms-z.root== in your test directory. 
+
+You can inspect the contents of ==histograms-z.root== by running Root (i.e., ==root historgrams-z.root==) in your current directory:
+
+<pre class="screen">
+root historgrams-z.root
+</pre>
+
+And then using the Root command:  ==TBrowser b==
+
+With the ==TBrowser== you can plot the variables in the root file. Double click on histograms-z.root, and then on the variables to plot them.
+
+---+++ Step 3: Make TSelector
+
+Now let's go back to the files created in step 1. Start ==root== again in your test directory, and then execute the following commands:
 <pre class="file">
 TFile f("t00.root");
 t0.MakeSelector("s0");
