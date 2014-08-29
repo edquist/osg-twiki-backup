@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DaveDykstra" date="1409331038" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="DaveDykstra" date="1409349487" format="1.1" reprev="1.2" version="1.2"}%
 %LINKCSS%
 ---+!! %SPACEOUT{ "Install a CVMFS Stratum 1" }%
 %DOC_STATUS_TABLE%
@@ -82,8 +82,134 @@ Do these commands to install frontier-squid and frontier-awstats:<pre class="roo
 
 ---# Configuring
 
+---## Configuring the system
+
+Increase the default number of open file descriptors:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% echo -e "*\t\t-\tnofile\t\t16384" >>/etc/security/limits.conf
+%UCL_PROMPT_ROOT% ulimit -n 16384</pre>
+
+---## Configuring CVMFS
+
+If you will be hosting OSG repositories, put the following in =/etc/cvmfs/keys/opensciencegrid.org.pub=:<pre class="file">
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqQGYXTp9cRcMbGeDoijB
+gKNTCEpIWB7XcqIHVXJjfxEkycQXMyZkB7O0CvV3UmmY2K7CQqTnd9ddcApn7BqQ
+/7QGP0H1jfXLfqVdwnhyjIHxmV2x8GIHRHFA0wE+DadQwoi1G0k0SNxOVS5qbdeV
+yiyKsoU4JSqy5l2tK3K/RJE4htSruPCrRCK3xcN5nBeZK5gZd+/ufPIG+hd78kjQ
+Dy3YQXwmEPm7kAZwIsEbMa0PNkp85IDkdR1GpvRvDMCRmUaRHrQUPBwPIjs0akL+
+qoTxJs9k6quV0g3Wd8z65s/k5mEZ+AnHHI0+0CL3y80wnuLSBYmw05YBtKyoa1Fb
+FQIDAQAB
+-----END PUBLIC KEY-----</pre>
+
+If you will be hosting EGI repositories, put the following in =/etc/cvmfs/keys/egi.eu.pub=:<pre class="file">
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxKhc7s1HmmPWH4Cq1U3K
+4FNFKcMQgZxUrgQEfvgkF97OZ8I8wzC9MWqmegX6tqlPmAzYWTM+Xi4nEBWYRhd+
+hVN/prHyYGzb/kTyCSHa9EQtIk9SUyoPfQxkGRnx68pD5con8KJySNa8neplsXx+
+2gypwjasBRQLzB3BrrGhrzZ5fL84+dsxNBBW6QfNO1BS5ATeWl3g1J27f0GoGtRO
+YbPhaAd9D+B+qVo9pt3jKXvjTZQG0pE16xaX1elciFT9OhtZGaErDJyURskD7g3/
+NotcpBL5K5v95zA/kh5u+TRrmeTxHyDOpyrGrkqRaT5p+/C1z0HDyKFQbptegCbn
+GwIDAQAB
+-----END PUBLIC KEY-----</pre>
+
+---## Configuring cron
+
+Put the following in =/etc/cron.d/cvmfs=:<pre class="file">
+0,15,30,45 * * * *    root    (test -d /srv/cvmfs || exit;for r in `cd /srv/cvmfs;echo *.*`; do echo; if [ -f /srv/cvmfs/$r/.cvmfspublished ]; then echo "Starting $r at `date`";if ! cvmfs_server snapshot $r;then echo "ERROR from cvmfs_server!"; fi;echo "Finished $r at `date`";fi;done) >>/var/log/cvmfs 2>&1
+0 9 * * * root   find /srv/cvmfs/*.*/data/txn -name "*.*" -mtime +2 2>/dev/null|xargs rm -f</pre>
+
+Also put the following in =/etc/logrotate.d/cvmfs=:<pre class="file">
+/var/log/cvmfs {
+    weekly
+    missingok
+    notifempty
+}</pre>
+
+---## Configuring apache
+
+If you are installing frontier-squid, in =/etc/httpd/conf/httpd.conf= change the line <pre class="file">
+Listen 80</pre>
+to instead have<pre class="file">
+Listen 8080</pre>
+
+If you have not installing frontier-squid, create =/etc/httpd/conf.d/cvmfs.conf= and put the following into it:<pre class="file">
+Listen 8000</pre>
+
+If you will be serving opensciencegrid.org repositories, you have to allow for old client configurations that access repositories without the domain name added.  For that reason, you will need to remove each =/etc/httpd/conf.d/cvmfs.&lt;repositoryname&gt;.conf= that adding a replica creates (this is included in the [[http://svn.usatlas.bnl.gov/svn/oasis/oasis-server/trunk/bin/add_osg_repository][add_osg_repository script]], and add the following to =/etc/httpd/conf.d/cvmfs.conf=:<verbatim class="file">
+RewriteEngine on
+RewriteRule ^/cvmfs/([^./]*)/(.*)$ /cvmfs/$1.opensciencegrid.org/$2
+RewriteRule ^/cvmfs/(.*)$ /srv/cvmfs/$1
+<Directory "/srv/cvmfs"> 
+    Options -MultiViews FollowSymLinks -Indexes
+    AllowOverride All 
+    Order allow,deny 
+    Allow from all
+
+    EnableMMAP Off 
+    EnableSendFile Off
+
+    AddType application/x-cvmfs .cvmfspublished .cvmfswhitelist
+
+    Header unset Last-Modified
+    FileETag None
+
+    ExpiresActive On
+    ExpiresDefault "access plus 3 days" 
+    ExpiresByType text/html "access plus 15 minutes" 
+    ExpiresByType application/x-cvmfs "access plus 2 minutes"
+</Directory></verbatim>
+
+If you will be serving cern.ch repositories, it has the same problem; replace opensciencegrid.org above with cern.ch.  If you need to serve both opensciencegrid.org and cern.ch contact Dave Dykstra to discuss the options.
+
+Then enable apache:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% chkconfig httpd on
+%UCL_PROMPT_ROOT% service httpd start</pre>
+
+---## Configuring frontier-squid
+
+Put the following in =/etc/squid/customize.sh= after the existing comment header:<pre class="file">
+awk --file `dirname $0`/customhelps.awk --source '{
+
+# turn off caching
+insertline("^http_access deny all", "cache deny all")
+
+# port 80 is also supported, through an iptables redirect
+setoption("http_port", "8000 accel defaultsite=localhost:8080")
+insertline("^http_port", "cache_peer localhost parent 8080 0 no-query originserver")
+
+# allow incoming http accesses from anywhere
+# all requests will be forwarded to the originserver
+commentout("http_access allow NET_LOCAL")
+insertline("^http_access deny all", "http_access allow all")
+
+# do not let squid cache DNS entries more than 5 minutes
+setoption("positive_dns_ttl", "5 minutes")
+
+# set shutdown_lifetime to 0 to avoid giving new connections error 
+# codes, which get cached upstream
+setoption("shutdown_lifetime", "0 seconds")
+
+# turn off collapsed_forwarding to prevent slow clients from slowing down faster ones
+setoption("collapsed_forwarding", "off")
+
+print
+}'</pre>
+
+Forward port 80 to port 8000:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% iptables -t nat -A PREROUTING -p tcp -m tcp --dport 80 -j REDIRECT --to-ports 8000
+%UCL_PROMPT_ROOT% service iptables save</pre>
+
+Enable frontier-squid:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% chkconfig frontier-squid on
+%UCL_PROMPT_ROOT% service frontier-squid start</pre>
+
 ---# Verifying
 
+create a repo
+wget short and long names from port 80 and 8000
+look for log entries
+
+---# Setting up monitoring
 
 
 
