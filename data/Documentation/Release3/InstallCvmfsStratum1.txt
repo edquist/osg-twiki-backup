@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DaveDykstra" date="1409540221" format="1.1" version="1.3"}%
+%META:TOPICINFO{author="DaveDykstra" date="1409590794" format="1.1" reprev="1.4" version="1.4"}%
 %LINKCSS%
 ---+!! %SPACEOUT{ "Install a CVMFS Stratum 1" }%
 %DOC_STATUS_TABLE%
@@ -46,7 +46,7 @@ All CVMFS Stratum 1s require cvmfs-server software and apache (httpd).  It is hi
 
 ---## Installing cvmfs-server and httpd
 
-The OSG GOC Stratum 1 has to function as a repository server in addition to repository replications; most other Stratum 1s do only replications.   Serving repositories is done quite differently on Redhat EL5 and EL6 systems.  Instructions are also provided for how to install cvmfs-server on Stratum 1s that do not have to be repository servers, which is the same on both versions of operating systems.  Choose one of the following three sections.
+The OSG GOC Stratum 1 has to function as a repository server in addition to serving repository replications; most Stratum 1s serve only replications.   Serving repositories is done quite differently on Redhat EL5 and EL6 systems.  Instructions are also provided for how to install cvmfs-server on Stratum 1s that do not have to be repository servers, which is the same on both versions of operating systems.  Choose one of the following three sections.
 
 ---### Installing CVMFS repository server on RHEL5
 
@@ -132,10 +132,10 @@ Listen 80</pre>
 to instead have<pre class="file">
 Listen 8080</pre>
 
-If you have not installing frontier-squid, create =/etc/httpd/conf.d/cvmfs.conf= and put the following into it:<pre class="file">
+If you are not installing frontier-squid, create =/etc/httpd/conf.d/cvmfs.conf= and put the following into it:<pre class="file">
 Listen 8000</pre>
 
-If you will be serving opensciencegrid.org repositories, you have to allow for old client configurations that access repositories without the domain name added.  For that reason, you will need to remove each =/etc/httpd/conf.d/cvmfs.&lt;repositoryname&gt;.conf= that adding a replica creates (this is included in the [[http://svn.usatlas.bnl.gov/svn/oasis/oasis-server/trunk/bin/add_osg_repository][add_osg_repository script]], and add the following to =/etc/httpd/conf.d/cvmfs.conf=:<verbatim class="file">
+If you will be serving opensciencegrid.org repositories, you have to allow for old client configurations that access repositories without the domain name added.  For that reason, you will need to remove each =/etc/httpd/conf.d/cvmfs.&lt;repositoryname&gt;.conf= that adding a replica creates (this is included in the [[http://svn.usatlas.bnl.gov/svn/oasis/oasis-server/trunk/bin/add_osg_repository][add_osg_repository script]]), and instead add the following to =/etc/httpd/conf.d/cvmfs.conf=:<verbatim class="file">
 RewriteEngine on
 RewriteRule ^/cvmfs/([^./]*)/(.*)$ /cvmfs/$1.opensciencegrid.org/$2
 RewriteRule ^/cvmfs/(.*)$ /srv/cvmfs/$1
@@ -195,8 +195,9 @@ setoption("collapsed_forwarding", "off")
 print
 }'</pre>
 
-Forward port 80 to port 8000:<pre class="rootscreen">
+Forward port 80 to port 8000 (first command is for external, second command for localhost):<pre class="rootscreen">
 %UCL_PROMPT_ROOT% iptables -t nat -A PREROUTING -p tcp -m tcp --dport 80 -j REDIRECT --to-ports 8000
+%UCL_PROMPT_ROOT% iptables -t nat -A OUTPUT -o lo -p tcp -m tcp --dport 80 -j REDIRECT --to-ports 8000
 %UCL_PROMPT_ROOT% service iptables save</pre>
 
 Enable frontier-squid:<pre class="rootscreen">
@@ -205,12 +206,38 @@ Enable frontier-squid:<pre class="rootscreen">
 
 ---# Verifying
 
-create a repo
-wget short and long names from port 80 and 8000
-look for log entries
+In order to verify that everything is installed correctly, create a repository replica.  The repository chosen for the instructions below is one from egi.eu because it is very small, but you can use another one if you prefer.  This one requires having the egi.eu.pub key from the [[#Configuring_CVMFS][Configuring CVMFS]] section above.
+
+---# Adding an example repository
+
+The OSG GOC Stratum 1 should add a repository replica using the =add_osg_repository= script from the oasis-2 rpm.  Instructions for installing that are elsewhere but you can also [[http://svn.usatlas.bnl.gov/svn/oasis/oasis-server/trunk/bin/add_osg_repository][download add_osg_repository]].  This script assumes that the oasis.opensciencegrid.org replica repository was first created, so this instruction creates it but does not download the first snapshot because that would take a lot of space and time.  Use these commands to create the oasis replica and to create and download the example replica:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% cvmfs_server add-replica -o root  http://oasis.opensciencegrid.org:8000/cvmfs/oasis.opensciencegrid.org /etc/cvmfs/keys/opensciencegrid.org.pub
+%UCL_PROMPT_ROOT% add_osg_repository http://cvmfs-stratum0.gridpp.rl.ac.uk:8000/cvmfs/config-egi.egi.eu</pre>
+
+It's a good idea for other Stratum 1s should make their own scripts for adding repository replicas, because there's always two or three commands to run, and it's easy to forget the commands after the first one.  The first command is this one: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% cvmfs_server add-replica -o root  http://cvmfs-stratum0.gridpp.rl.ac.uk:8000/cvmfs/config-egi.egi.eu /etc/cvmfs/keys/egi.eu.pub</pre>
+
+The second command for Stratum 1s that have the httpd configuration as described above in the [[#Configuring_apache][Configuring apache section]] is this:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% rm -f /etc/httpd/conf.d/cvmfs.config-egi.egi.eu.pub</pre>
+
+Then the next command is this:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% cvmfs_server snapshot config-egi.egi.eu</pre>
+With large repositories that can take a very long time, but with small repositories it should be very quick and not show any errors.
+
+---## Verifying that  the replica is being served
+
+Now to verify that the replication is working, do the following commands:<pre class="screen">
+%UCL_PROMPT% wget -qdO- http://localhost:8000/cvmfs/config-egi.egi.eu/.cvmfspublished|cat -v
+%UCL_PROMPT% wget -qdO- http://localhost:80/cvmfs/config-egi.egi.eu/.cvmfspublished|cat -v</pre>
+Both commands should show a short file including gibberish at the end which is the signature.
+
+It is a good idea to familiarize yourself with the log entries at =/var/log/httpd/access_log= and also, if you have installed frontier-squid, at =/var/log/squid/access.log=.  Also, at least 15 minutes after the snapshot is finished, check the log =/var/log/cvmfs= to see that it tried to get an update and got no errors.
 
 ---# Setting up monitoring
 
+If you installed frontier-squid and frontier-awstats, there is a little more to do to configure monitoring.  
+
+First, make sure that your firewall accepts UDP queries from the monitoring server at CERN.  Details are on [[https://twiki.cern.ch/twiki/bin/view/Frontier/InstallSquid#Enabling_monitoring][the frontier-squid instructions]].  Next, choose any random password and put it in =/etc/awstats/password-file=.  Then tell Dave Dykstra the fully qualified domain name of your machine and the password you chose, and he'll set up the monitoring servers.
 
 
 <!-- CONTENT MANAGEMENT PROJECT
