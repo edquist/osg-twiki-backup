@@ -1,0 +1,238 @@
+%META:TOPICINFO{author="MarcoMambelli" date="1410473933" format="1.1" version="1.1"}%
+%META:TOPICPARENT{name="NavTechGratia"}%
+%DOC_STATUS_TABLE%
+
+---+!! Understanding how Gratia records are attributed to a VO
+
+%TOC%
+
+---# About this document
+This document contains some developer level details and will help you help you understand how Gratia records are attributed to a user and virtual organization.
+This mapping is done for all job usage records and can affect also wether a record is reported, quarantined (=parked in a temporary directory) or discarded. More general explanations about Gratia and its troubleshooting are in TroubleshootingGratia.
+See also other documents recommended in the Reference section below.
+
+This document follows the general OSG documentation conventions: %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Click to expand document conventions..."}%
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="Header"}%
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="CommandLine"}%
+%ENDTWISTY%
+
+---# How to get Help?
+To get assistance please use our [[HelpProcedure][Help Procedure]]. 
+
+---# Identity Information
+Job usage records collect the following information:
+   * Local user - local (e.g. UNIX) user name
+   * Local Group - local (e.g. UNIX) group name
+   * Global user name 
+   * VO name - Name of the virtual organization, as retrieved, e.g. FQDN string or "voi" string from =users-vo-mapfile=
+   * Reportable VO name - Extracted name of the VO, e.g. the first name in the FQDN or "VOc" string from =users-vo-mapfile=
+   * Common name (or Distinguished namee, DN) - FQDN as present in the user certificate used for the job or as reconstructed form the VO
+
+This information is retrieved via a series of function sometime specific to a probe (e.g. the HTCondor probe), sometime common to all probes (in =gratia-common=).
+The mapping is affected by some configuration variables, namely:
+   * SuppressNoDNRecords
+   * SuppressGridLocalRecords
+   * SuppressUnknownVORecords
+   * QuarantineUnknownVORecords
+   * MapUnknownToGroup
+   * MapGroupToRole
+   * VOOverride
+
+add definition and defaults for the variables
+
+---# Functions
+
+*** functions from Gratia (record)
+    def GlobalUsername(self, value):
+        self.UserId = self.AddToList(self.UserId, 'GlobalUsername', r'', value)
+
+    def LocalUserId(self, value):
+        self.UserId = self.AddToList(self.UserId, 'LocalUserId', r'', value)
+        if Config.get_MapGroupToRole() and Config.get_VOOverride():
+            self.DN("/OU=LocalUser/CN=%s" % value)
+
+    def UserKeyInfo(self, value):  # NB This is deprecated in favor of DN, below.
+        ''' Example:
+            <ds:KeyInfo xmlns:ds=http://www.w3.org/2000/09/xmldsig#>
+                <ds:X509Data>
+                <ds:X509SubjectName>CN=john ainsworth, L=MC, OU=Manchester, O=eScience, C=UK</ds:X509SubjectName>
+                </ds:X509Data>
+            </ds:KeyInfo>
+        '''
+
+        complete = '''
+\t\t<ds:X509Data>
+\t\t<ds:X509SubjectName>''' + escapeXML(value) \
+            + '''</ds:X509SubjectName>
+\t\t</ds:X509Data>
+\t'''
+        self.UserId = self.VerbatimAddToList(self.UserId, 'ds:KeyInfo',
+                                             'xmlns:ds="http://www.w3.org/2000/09/xmldsig#" ', complete)
+
+    def DN(self, value):
+        self.UserId = self.AddToList(self.UserId, 'DN', r'', value)
+
+    def VOName(self, value):
+        override = Config.get_VOOverride()
+        if override:
+            self.UserId = self.AddToList(self.UserId, 'VOName', r'', override)
+        else:
+            self.UserId = self.AddToList(self.UserId, 'VOName', r'', value)
+
+    def ReportableVOName(self, value):
+        ''' Set reportable VOName'''
+
+        override = Config.get_VOOverride()
+
+        if override:
+            self.UserId = self.AddToList(self.UserId, 'ReportableVOName', r'', override)
+        else:
+            self.UserId = self.AddToList(self.UserId, 'ReportableVOName', r'', value)
+
+
+
+
+
+
+*** config
+
+   SuppressUnknownVORecords="0"
+   SuppressNoDNRecords="0"
+   SuppressGridLocalRecords="0"
+   QuarantineUnknownVORecords="1"
+
+*** xml_utils - suppression
+        reason = None
+	isQuarantined=False
+        grid = GetElement(xmlDoc, usageRecord, namespace, prefix, 'Grid')
+        if Config.get_SuppressgridLocalRecords() and grid and string.lower(grid) == 'local':
+
+            # 1
+
+            reason = 'Grid == Local'
+        elif Config.get_SuppressNoDNRecords() and not usageRecord.getElementsByTagNameNS(namespace, 'DN'):
+
+            # 2
+
+            reason = 'missing DN'
+        elif Config.get_SuppressUnknownVORecords() and (not VOName or VOName == 'Unknown'):
+
+            # 3
+
+            reason = 'unknown or null VOName'
+	elif Config.get_QuarantineUnknownVORecords() and (not VOName or VOName == 'Unknown'):
+	    reason ='unknown or null VOName, will be quarantined in %s' % (os.path.join(os.path.join(Config.get_DataFolder(),"quarantine")))
+	    isQuarantined=True
+
+        if reason:
+
+*** 
+
+2.
+            VOName = vo_info['VOName']
+            if vo_info['ReportableVOName'] == None:
+                if VOName[0] == r'/':
+                    vo_info['ReportableVOName'] = string.split(VOName,r'/')[1]
+                else:
+                    vo_info['ReportableVOName'] = VOName
+3.
+                job_certinfo = condor_ce.queryJob(localJobId)
+                if job_certinfo:
+                    vo_info = certinfo.populateFromCertInfo(job_certinfo, xmlDoc, userIdentityNode, namespace)
+4.
+        vo_info = vo.VOfromUser(LocalUserId)
+        if Config.get_MapUnknownToGroup() and not vo_info:
+            fromuserid = LocalUserId
+            groupid = "unknown"
+            try:
+                gid = pwd.getpwnam(LocalUserId)[3]
+                fromuserid = grp.getgrgid(gid)[0]
+                groupid = fromuserid
+            except:
+                pass
+
+            # Check the differen VO mapping methods
+            if Config.get_MapGroupToRole() and Config.get_VOOverride():
+                vo_info = {'VOName': "/%s/LocalGroup=%s" % (Config.get_VOOverride(), groupid), 'ReportableVOName': Config.get_VOOverride()}
+            elif Config.get_VOOverride():
+                vo_info = {'VOName': Config.get_VOOverride(), 'ReportableVOName': Config.get_VOOverride()}
+            else:
+                vo_info = {'VOName': fromuserid, 'ReportableVOName': fromuserid}
+
+
+
+
+
+
+
+
+
+
+
+---# References
+
+   * [[http://gratia-osg-prod-reports.opensciencegrid.org/gratia-reporting/][Gratia Job Accounting Data]] (Production)
+   * [[http://gratia-osg-itb-reports.opensciencegrid.org/gratia-reporting/][Gratia Job Accounting Data]] (ITB)
+   * [[http://gratia-osg-transfer-reports.opensciencegrid.org/gratia-reporting/][Gratia Transfer Accounting Data]]
+   * You can get daily emails with OSG accounting reports in them. Join the [[Accounting.ContactUs][osg-accounting-info]] mailing list. 
+   * [[Accounting.WebHome][The Gratia group's web page]]
+   * [[Documentation/Release3.NavTechGratia][Gratia's technical documentation index]]
+   * [[TroubleshootingGratia][Gratia troubleshooting]]
+
+---# Comments
+%COMMENT{type="tableappend"}%
+
+
+<!-- CONTENT MANAGEMENT PROJECT
+############################################################################################################
+ DEAR DOCUMENT OWNER
+ ===================
+
+ Thank you for claiming ownership for this document! Please fill in your FirstLast name here:
+   * Local OWNER = MarcoMambelli
+
+ Please define the document area, choose one of the defined areas from the next line
+ DOC_AREA = (ComputeElement|Storage|VO|Security|User|Monitoring|General|Integration|Operations|Tier3)
+   * Local DOC_AREA       = User
+
+ define the primary role the document serves, choose one of the defined roles from the next line
+ DOC_ROLE = (EndUser|Student|Developer|SysAdmin|VOManager)
+   * Local DOC_ROLE       = SysAdmin
+
+ Please define the document type, choose one of the defined types from the next line
+ DOC_TYPE = (Troubleshooting|Training|Installation|HowTo|Planning|Navigation|Knowledge)
+   * Local DOC_TYPE       = Installation
+  Please define if this document in general needs to be reviewed before release ( %YES% | %NO% )
+   * Local INCLUDE_REVIEW = %YES%
+
+ Please define if this document in general needs to be tested before release ( %YES% | %NO% )
+   * Local INCLUDE_TEST   = %NO%
+
+ change to %YES% once the document is ready to be reviewed and back to %NO% if that is not the case
+   * Local REVIEW_READY   = %YES%
+
+ change to %YES% once the document is ready to be tested and back to %NO% if that is not the case
+   * Local TEST_READY     = %YES%
+
+ change to %YES% only if the document has passed the review and the test (if applicable) and is ready for release
+   * Local RELEASE_READY  = %YES%
+
+
+ DEAR DOCUMENT REVIEWER
+ ======================
+
+ Thank for reviewing this document! Please fill in your FirstLast name here:
+   * Local REVIEWER       = TanyaLevshina 	
+ Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local REVIEW_PASSED  = %YES%
+
+
+ DEAR DOCUMENT TESTER
+ ====================
+
+ Thank for testing this document! Please fill in your FirstLast name here:
+   * Local TESTER         = TanyaLevshina 	
+ Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
+   * Local TEST_PASSED    = %YES%
+############################################################################################################
+-->
