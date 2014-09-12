@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1410554081" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1410562105" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="NavTechGratia"}%
 %DOC_STATUS_TABLE%
 
@@ -41,9 +41,103 @@ The mapping is affected by some configuration variables, namely (0, 1 correspond
 
 ---# How the identity information is determined
 
+The main information used to attribute resources used or provided is the VO, available in 2 record entries: VOName (can be a complex string indicating the VO affiliation, Similar to the VO extension of a FQDN), !ReportableVOName (contains only the VO name, as one of the names in OIM).
+The keyword "Unknown" (case insensitive) is not a valid VO name.
+
+If !VOOverride in the probe configuration file is set to some value, then both !VOName and !ReportableVOName will be set to that value.
+
+Some probes can extract this information from the job record. E.g. the HTCondor probe (condor_meter) uses the classads !x509UserProxyFirstFQAN and !x509UserProxyVOName respectively for the !VOName and !ReportableVOName.
+
+A Gratia extension of the job managers generates files mapping the jobs (job IDs) to the user credentials. These files are called certinfo files, are saved in the Gratia data direcotry (=/var/log/gratia/data=) and contain a vo_info record where the DN of the x509 certificate used to submit the job is mapped to a VO. This information is used if the initial !VOName is not available or not a valid VO name.
+
+If the also the certinfo file is not providing a valid VOName then the JobIdentity record from from the HTCondor_CE is attempted. 
+
+If also that one is not available (e.g. you are not on a HTCondor_CE), then is used the =user-vo-mapfile=.
+This file contains lines mapping local (UNIX) users to VO names (VOName) and lines defining valid VO names (voi) and the corresponding !ReportableVOName (VOC).
+
+If everything else fails and !MapUnknownToGroup is set in the configuration file, then the local user group name is used as VO name and !ReportableVOName. 
+
+If !MapGroupToRole is set and there is not already a valid FQDN associated with the job record, then the VOName is modified assigning a Local group part line =="%s/LocalGroup=%s" % (vo_name, local_group_name)==
+
+
+---# Some useful procedures and examples
+If you have an OSG Compute Element all the pieces should combine and you should report correctly to Gratia. But sometime you may require special configurations: some of the jobs have no VO association and risk not to be reported to the OSG accounting (Gratia)
+
+%NOTE% Before modifying your local configuration check if those are jobs you should count or of someone else should count them. Avoid double counting and choose the most appropriate place to report the jobs. E.g. If you are receiving jobs form a Compute Element that is forwarding them to you (e.g. via HTCondor flocking), the CE first accepting them should report those jobs. The same applies if you have a gateway accepting jobs and resubmitting them via BOSCO.
+
+---## All your jobs belong to a VO 
+If you have no CE or have a mix of Grid submitted and local jobs running on your cluster and you want to report them all as running for a specific VO, then set !VOOverride in the probe configuration
+Further, if you want to keep track also of the original local group, add also !MapGroupToRole.  In the below example, replace the %RED%osg%ENDCOLOR% with a registered VO that you would like to report as.  If you don't have a VO that you are affiliated with, you may use "osg".
+
+<pre class="file">
+...
+    %RED%MapGroupToRole="1"%ENDCOLOR%
+    %RED%VOOverride="OSG"%ENDCOLOR%
+...
+</pre>
+
+---## You are running a Campus Grid and have no Compute Element 
+If you have a HTCondor cluster connected to a [[https://twiki.grid.iu.edu/bin/view/Accounting/ProbeConfigGlideinWMS#Users_without_Certificates][campus grid]] you can use 3 differnt ways to associate your jobs to a VO. The last 2 reported below, specially the 3rd allow you to map only some of the jobs, e.g. if you do not want to report some jobs to OSG accounting:
+   * If all your users belong to one VO you can use the example above.
+   * Otherwise you can use the local Group Names as VO names (you'd have to have control on the unix groups) <pre class="file">
+    ...
+    SuppressGridLocalRecords="0"
+    %RED%MapUnknownToGroup="1"%ENDCOLOR%
+    ...
+</pre>
+   * As 3rd alternative you can use =user-vo-map= as explained below
+
+---## You some local users that you want to report to OSG accounting
+If some users are already associated to a VO, e.g. via one of the mechanisms described in the previous chapter, and some users are not part of any VO and you don't want to report them at all, a flexible mechanism is the use of the [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/Edg-mkgridmap#3_0_Configuration][user-vo-map file]]. 
+
+=/var/lib/osg/user-vo-map= is a file generated automatically on a CE via [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/Edg-mkgridmap][edg-mkgridmap]] or GUMS. In it there is a list ov valid VO names and all users are mapped to a VO. See [[http://vdt.cs.wisc.edu/extras/edg-mkgridmap.conf.html][user-vo-map file]] for more information. Here is an example
+<pre class="file">
+#User-VO map
+# #comment line, format of each regular line line: account VO
+# Next 2 lines with VO names, same order, all lowercase, with case (lines starting with #voi, #VOc)
+#voi cdf fermilab accelerator argoneut cdms minerva miniboone minos mipp mu2e nova numi patriot theory fermilab-test microboone microboone microboone microboone map gm2 coupp fermilab accelerator argoneut cdms minerva miniboone minos mipp nova numi patriot theory map gm2 argoneut minerva minos nova map gm2 fermilab argoneut minerva minos nova map gm2 fermilab darkside darkside darkside darkside darkside darkside mis star cms cms cms cms cms cms cms cms cms cms cms dzero dzero dzero dosar des glow nanohub geant4 geant4 i2u2 osg atlas atlas atlas atlas atlas atlas osgedu ops des engage engage engage engage ilc nysgrid sbgrid cigi icecube alice gluex gridunesp dayabay hcc belle belle csiu suragrid nees superbvo.org superbvo.org superbvo.org dream lbne lbne lbne lbne lsst uc3 mcdrd lqcd auger glast.org enmr
+#VOc CDF FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB FERMILAB MIS STAR CMS CMS CMS CMS CMS CMS CMS CMS CMS CMS CMS DZERO DZERO DZERO DOSAR DES GLOW NANOHUB GEANT4 GEANT4 I2U2 OSG ATLAS ATLAS ATLAS ATLAS ATLAS ATLAS OSGEDU OPS DES Engage Engage Engage Engage ILC NYSGRID SBGrid CIGI IceCube ALICE Gluex GridUNESP DayaBay HCC belle belle CSIU SURAGrid NEES SuperB SuperB SuperB DREAM LBNE LBNE LBNE LBNE LSST UC3 MCDRD LQCD Auger glast.org ENMR
+#---- accounts for vo: cdf-fnal ----#
+#---- accounts for vo: fermilab ----#
+fnalgrid fermilab
+#---- accounts for vo: accelerator ----#
+#---- accounts for vo: argoneut ----#
+...
+#---- accounts for vo: osg ----#
+osg osg
+#---- accounts for vo: newAtlasProd ----#
+usatlas1 atlas
+#---- accounts for vo: newUsatlasProd ----#
+#---- accounts for vo: newUsatlasSoft ----#
+usatlas2 atlas
+#---- accounts for vo: newAtlasSoftware ----#
+#---- accounts for vo: newusatlas ----#
+usatlas3 atlas
+#---- accounts for vo: newatlas ----#
+usatlas4 atlas
+...
+</pre>
+
+If you want to add some local user and map it to an existing VO, then edit =/etc/osg/local-user-vo-map= mapping the users, e.g.:
+<pre class="file">
+# file /etc/osg/local-user-vo-map
+newuser1 voname
+newuser2 voname
+newuser3 voname2
+</pre>
+
+If you want to add some local user and map it to a new VO, then edit =/etc/osg/local-user-vo-map= mapping the users as before, and also add the VO lines to =/etc/edg-mkgridmap.conf=, e.g. if =voname2= used above is new:
+<pre class="file">
+# file /etc/edg-mkgridmap.conf
+# USER-VO-MAP voname2 REPORTABLE_VONAME2 -- 13 -- This is my local VO (admin@mydomain.edu)
+</pre>
+After USER-VO-MAP there are the VOName and !ReportableVOName for the accounting record and then some arbitrary comments.
+
+%NOTE% All the files above are part of the OSG Compute Element installation but you can still edit by hand a =/var/lib/osg/user-vo-map= with the mappings you are interested in and the Gratia probes will use it even if you have no OSG CE installed.
+
 
 ---# The code
-Here some code from the gratia probes
+Here is some code from the gratia probes and some other files. Ignore this section if you are not a developer or interested in Gratia internams.
 
 =Gratia.py= contains the =Gratia(record)= class with functions to build the XML record. Here some fragments. You can see how VOOverride and MapGroupToRole work:
 <pre>
@@ -94,7 +188,7 @@ Here some code from the gratia probes
             self.UserId = self.AddToList(self.UserId, 'ReportableVOName', r'', value)
 </pre>
 
-=xml_utils.py= 
+=xml_utils.py= decides much of the building of a job record. Here are few segments.
    * suppress or quarantine a record if it is a local job (1), has no DN (2) or cannot be mapped to a VO (3): <pre>
         reason = None
 	isQuarantined=False
@@ -148,7 +242,18 @@ Here some code from the gratia probes
                 vo_info = {'VOName': fromuserid, 'ReportableVOName': fromuserid}
 </pre>
 
-
+A certinfo file:
+<pre class="file">
+<?xml version="1.0" encoding="UTF-8"?>
+<GratiaCertInfo>
+  <BatchManager>condor</BatchManager>
+  <UniqID>16434094885681144951.1657325763765262978</UniqID>
+  <LocalJobId>2510311</LocalJobId>
+  <DN>/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=People/CN=Jose Caballero 649</DN>
+  <VO>atlas</VO>
+  <FQAN>/atlas/usatlas/Role=production/Capability=NULL</FQAN>
+</GratiaCertInfo>
+</pre>
 
 
 
