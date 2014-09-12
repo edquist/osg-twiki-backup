@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1410473933" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1410554081" format="1.1" version="1.2"}%
 %META:TOPICPARENT{name="NavTechGratia"}%
 %DOC_STATUS_TABLE%
 
@@ -29,20 +29,24 @@ Job usage records collect the following information:
    * Common name (or Distinguished namee, DN) - FQDN as present in the user certificate used for the job or as reconstructed form the VO
 
 This information is retrieved via a series of function sometime specific to a probe (e.g. the HTCondor probe), sometime common to all probes (in =gratia-common=).
-The mapping is affected by some configuration variables, namely:
-   * SuppressNoDNRecords
-   * SuppressGridLocalRecords
-   * SuppressUnknownVORecords
-   * QuarantineUnknownVORecords
-   * MapUnknownToGroup
-   * MapGroupToRole
-   * VOOverride
+The mapping is affected by some configuration variables, namely (0, 1 correspond to false, true):
+   * !SuppressNoDNRecords - do not report records without a DN (in the final record - DNs in certinfo file are OK) [default: 0]
+   * !SuppressGridLocalRecords - do not report records from local users (users not coming via a Grid submission, e.g. GRAM or HTCondor-CE) [defaults: 0, was 1 for rel.<1.13.30]
+   * !SuppressUnknownVORecords - do not report record that have no VO [default: 0]
+   * !QuarantineUnknownVORecords - quarantine records that have no VO [default: 0]
+   * !MapUnknownToGroup - use the local user group (UNIX group name) as VO for records that have no VO otherwise established [default: 0]
+   * !MapGroupToRole - add to the record DN "/LocalGroup=GROUP_NAME" using the local user group [default: 0]
+   * !VOOverride - map all records to the specified VO (ignoring all other mappings) [default: NULL, no override]
 
-add definition and defaults for the variables
 
----# Functions
+---# How the identity information is determined
 
-*** functions from Gratia (record)
+
+---# The code
+Here some code from the gratia probes
+
+=Gratia.py= contains the =Gratia(record)= class with functions to build the XML record. Here some fragments. You can see how VOOverride and MapGroupToRole work:
+<pre>
     def GlobalUsername(self, value):
         self.UserId = self.AddToList(self.UserId, 'GlobalUsername', r'', value)
 
@@ -88,58 +92,42 @@ add definition and defaults for the variables
             self.UserId = self.AddToList(self.UserId, 'ReportableVOName', r'', override)
         else:
             self.UserId = self.AddToList(self.UserId, 'ReportableVOName', r'', value)
+</pre>
 
-
-
-
-
-
-*** config
-
-   SuppressUnknownVORecords="0"
-   SuppressNoDNRecords="0"
-   SuppressGridLocalRecords="0"
-   QuarantineUnknownVORecords="1"
-
-*** xml_utils - suppression
+=xml_utils.py= 
+   * suppress or quarantine a record if it is a local job (1), has no DN (2) or cannot be mapped to a VO (3): <pre>
         reason = None
 	isQuarantined=False
         grid = GetElement(xmlDoc, usageRecord, namespace, prefix, 'Grid')
         if Config.get_SuppressgridLocalRecords() and grid and string.lower(grid) == 'local':
-
             # 1
-
             reason = 'Grid == Local'
         elif Config.get_SuppressNoDNRecords() and not usageRecord.getElementsByTagNameNS(namespace, 'DN'):
-
             # 2
-
             reason = 'missing DN'
         elif Config.get_SuppressUnknownVORecords() and (not VOName or VOName == 'Unknown'):
-
             # 3
-
             reason = 'unknown or null VOName'
 	elif Config.get_QuarantineUnknownVORecords() and (not VOName or VOName == 'Unknown'):
 	    reason ='unknown or null VOName, will be quarantined in %s' % (os.path.join(os.path.join(Config.get_DataFolder(),"quarantine")))
 	    isQuarantined=True
 
         if reason:
-
-*** 
-
-2.
+           # quarantine or suppress the record...
+</pre>
+   * given the initial VO value, change it looking at the vo_info record in the certinfo file (2), at the vo_info record from the HTCondor_CE (3), the information form =user-vo-mapfile= (4), the local user group (5):<pre>
+            #2.
             VOName = vo_info['VOName']
             if vo_info['ReportableVOName'] == None:
                 if VOName[0] == r'/':
                     vo_info['ReportableVOName'] = string.split(VOName,r'/')[1]
                 else:
                     vo_info['ReportableVOName'] = VOName
-3.
+                #3.
                 job_certinfo = condor_ce.queryJob(localJobId)
                 if job_certinfo:
                     vo_info = certinfo.populateFromCertInfo(job_certinfo, xmlDoc, userIdentityNode, namespace)
-4.
+        #4.
         vo_info = vo.VOfromUser(LocalUserId)
         if Config.get_MapUnknownToGroup() and not vo_info:
             fromuserid = LocalUserId
@@ -150,14 +138,15 @@ add definition and defaults for the variables
                 groupid = fromuserid
             except:
                 pass
-
-            # Check the differen VO mapping methods
+            #5.
+            # Check the different VO mapping methods
             if Config.get_MapGroupToRole() and Config.get_VOOverride():
                 vo_info = {'VOName': "/%s/LocalGroup=%s" % (Config.get_VOOverride(), groupid), 'ReportableVOName': Config.get_VOOverride()}
             elif Config.get_VOOverride():
                 vo_info = {'VOName': Config.get_VOOverride(), 'ReportableVOName': Config.get_VOOverride()}
             else:
                 vo_info = {'VOName': fromuserid, 'ReportableVOName': fromuserid}
+</pre>
 
 
 
