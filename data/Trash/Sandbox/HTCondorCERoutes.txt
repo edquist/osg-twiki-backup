@@ -1,27 +1,145 @@
-%META:TOPICINFO{author="BrianLin" date="1410561414" format="1.1" version="1.3"}%
+%META:TOPICINFO{author="BrianLin" date="1410810896" format="1.1" version="1.4"}%
 %META:TOPICPARENT{name="WebHome"}%
----+ Writing Routes for HTCondor CE
+---+!! Writing Routes for HTCondor CE
 
----++ HTCondor batch systems
+%TOC{depth="4"}%
 
----+++ Accounting Groups
+---# Generic routes
 
-Accounting groups are an HTCondor construct that allows for sharing compute time amongst groups of users rather splitting time based on Unix user name ([[http://research.cs.wisc.edu/htcondor/manual/v8.0/3_4User_Priorities.html#SECTION00447000000000000000][documented here]]). These groupings are HTCondor-specific and are not related to Unix user groups. In the past, admins used UID and extattr table files with their GRAM CE's to assign jobs to certain accounting groups based on username or proxy info ([[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/InstallComputeElement#7_2_Configuring_your_CE_to_use_C][documented here]]). This option still works but can be overriden in your own routes if you so choose.
+---## Sending jobs to a...
 
----++++ Using HTCondor !ClassAds
+---### HTCondor backend
+
+If your pool's collector resides on a separate machine, change the value of =JOB_ROUTER_SCHEDD2_POOL= to the hostname of said machine.
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     %RED%GridResource = "condor localhost localhost"; \
+     eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", "$(JOB_ROUTER_SCHEDD2_POOL)"); \
+     TargetUniverse = 5; \ %ENDCOLOR%
+     name = "Local_Condor"; \
+] 
+
+JOB_ROUTER_SCHEDD2_POOL = $(FULL_HOSTNAME)
+</pre>
+
+---### PBS/SLURM batch system
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     %RED%GridResource = "batch pbs"; \
+     TargetUniverse = 9; \ %ENDCOLOR%
+     name = "Local_PBS"; \
+]
+</pre> 
+
+---### LSF batch system
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     %RED%GridResource = "batch lsf"; \
+     TargetUniverse = 9; \ %ENDCOLOR%
+     name = "Local_LSF"; \
+]
+</pre> 
+
+---### SGE batch system
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     %RED%GridResource = "batch SGE"; \
+     TargetUniverse = 9; \ %ENDCOLOR%
+     name = "Local_SGE"; \
+]
+</pre> 
+
+---## Setting a default max memory
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     GridResource = "batch pbs"; \
+     TargetUniverse = 9; \
+     name = "Request memory"; \
+     %RED%set_default_maxMemory = 1000; \ %ENDCOLOR%
+] 
+</pre>
+
+---## Setting a default number of cores to request
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     GridResource = "batch pbs"; \
+     TargetUniverse = 9; \
+     name = "Request CPU"; \
+     %RED%eval_set_default_xcount = 8; \ %ENDCOLOR%
+] 
+</pre>
+
+---## Setting maximum Walltime
+
+Set a maximum Walltime of an hour:
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     GridResource = "batch pbs"; \
+     TargetUniverse = 9; \
+     name = "Setting WallTime"; \
+     %RED%eval_set_remote_cerequirements = strcat("Walltime ==", "3600", "&& CondorCE == 1"); \ %ENDCOLOR%
+] 
+</pre>
+
+---## Setting a default queue for jobs to be sent to
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     GridResource = "batch pbs"; \
+     TargetUniverse = 9; \
+     name = "Setting queues"; \
+     %RED%eval_set_default_queue = "osg_queue"; \ %ENDCOLOR%
+] 
+</pre>
+
+---# HTCondor batch system specific routes
+
+---## Accounting Groups
+
+Accounting groups are an HTCondor construct that allows for sharing compute time amongst groups of users rather than splitting time based on Unix user name ([[http://research.cs.wisc.edu/htcondor/manual/v8.0/3_4User_Priorities.html#SECTION00447000000000000000][documented here]]). These groupings are HTCondor-specific and are not related to Unix user groups. In the past, admins used UID and extattr table files with their GRAM CE's to assign jobs to certain accounting groups based on username or proxy info ([[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/InstallComputeElement#7_2_Configuring_your_CE_to_use_C][documented here]]). This option still works but can be overriden in your own routes if you so choose.
+
+---### Setting an accounting group based on username
 
 Assigning an accounting group to a job is very flexible when using the !ClassAd language. The most basic use case takes the job's owner and appends it to a group e.g. a job with =Owner = bob= will result in =AccountingGroup = osg_group.bob=:
 
 <pre class="file">
-eval_set_AccountingGroup = strcat("osg_group.", Owner);\
+JOB_ROUTER_ENTRIES = [ \
+     GridResource = "condor localhost localhost"; \
+     eval_set_GridResource = strcat("condor ", $(FULL_HOSTNAME), $(FULL_HOSTNAME)); \
+     TargetUniverse = 5; \
+     name = "User accounting groups"; \
+     %RED%eval_set_AccountingGroup = strcat("osg_group.", Owner); \ %ENDCOLOR%
+] 
 </pre>
 
----++ Other batch systems
+---### Setting an accounting group based on proxy attributes
 
----++ Quirks and Pitfalls
+Equivalent to extattr table
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     GridResource = "condor localhost localhost"; \
+     eval_set_GridResource = strcat("condor ", $(FULL_HOSTNAME), $(FULL_HOSTNAME)); \
+     TargetUniverse = 5; \
+     name = "Proxy accounting groups"; \
+     %RED%eval_set_AccountingGroup = strcat(ifThenElse(regexp("\/cms\/Role\=pilot", x509UserProxyFirstFQAN), "cms.wlcgpledge.pilot", \
+                                       ifThenElse(regexp("\/cms\/Role\=production", x509UserProxyFirstFQAN), "cms.prod", \
+                                       ifThenElse(regexp("\/cms\/uscms", x509UserProxyFirstFQAN), "cms.other.us", "other" \
+                                      ))), ".", Owner); \ %ENDCOLOR%
+] 
+</pre>
+
+---# Quirks and Pitfalls
 
    * If a value is set in JOB_ROUTER_DEFAULTS with =eval_set_&lt;variable&gt;= and you want to override it, you will need to use =eval_set_&lt;variable&gt;= in the JOB_ROUTER_ENTRIES.
    * Make sure to run =condor_ce_reconfig= after changing your routes, otherwise they will not take effect.
-   * Before the last square bracket (]), make sure all lines end in a line continuation character (backslash (\)).
+   * Before the last square bracket, make sure all lines end in a line continuation character (backslash).
 
 -- Main.BrianLin - 11 Sep 2014
