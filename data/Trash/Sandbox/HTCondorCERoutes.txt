@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1410904093" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="BrianLin" date="1410984070" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! Writing Routes for HTCondor CE
 
@@ -10,17 +10,16 @@
 
 ---### HTCondor backend
 
-If your pool's collector resides on a separate machine, change the value of =JOB_ROUTER_SCHEDD2_POOL= to the hostname of said machine.
+If your pool's collector/schedd resides on a separate machine(s), change the value(s) of =JOB_ROUTER_SCHEDD2_POOL= and =JOB_ROUTER_SCHEDD2_NAME= to the hostname of said machine(s).
 
 <pre class="file">
 JOB_ROUTER_ENTRIES = [ \
-     %RED%GridResource = "condor localhost localhost"; \
-     eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", "$(JOB_ROUTER_SCHEDD2_POOL)"); \
-     TargetUniverse = 5; \ %ENDCOLOR%
+     %RED%TargetUniverse = 5; \ %ENDCOLOR%
      name = "Local_Condor"; \
 ] 
 
-JOB_ROUTER_SCHEDD2_POOL = $(FULL_HOSTNAME)
+%RED%JOB_ROUTER_SCHEDD2_NAME = $(FULL_HOSTNAME)
+JOB_ROUTER_SCHEDD2_POOL = $(FULL_HOSTNAME)%ENDCOLOR%
 </pre>
 
 ---### PBS/SLURM batch system
@@ -142,7 +141,61 @@ JOB_ROUTER_ENTRIES = [ \
 ] 
 </pre>
 
+---## Copying or deleting attributes in the routed job
+
+If you want to copy the environment of an incoming job to the attribute 'Original_Environment', you could do the following:
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     GridResource = "batch pbs"; \
+     TargetUniverse = 9; \
+     name = "Copying attributes"; \
+     %RED%copy_environment = "Original_Environment"; \ %ENDCOLOR%
+] 
+</pre>
+
+If you wanted to remove an attribute for the job that gets routed:
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     GridResource = "batch pbs"; \
+     TargetUniverse = 9; \
+     name = "Copying attributes"; \
+     %RED%delete_environment = True; \ %ENDCOLOR%
+] 
+</pre>
+
 ---# HTCondor batch system specific routes
+
+---## Setting custom attributes
+
+If you're using a site-specific attribute on your HTCondor backend, say =Experiment=. You can do that with =set_= or =eval_set=:
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     TargetUniverse = 5; \
+     name = "Setting custom attribute"; \
+     %RED%/* Set the experiment to a string */ \
+     set_Experiment = "atlas"; \
+     /* The following evaluates to Experiment = 'atlasSetting custom attribute' */ \ 
+     eval_set_Experiment = strcat("atlas", Name); \%ENDCOLOR%
+] 
+</pre>
+
+---## Setting periodic hold, release or remove
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     TargetUniverse = 5; \
+     name = "Setting periodic statements"; \
+     %RED%/* Puts the routed job on hold if the job's been idle and has been started at least once or if the job has tried to start more than once */ \
+     set_Periodic_Hold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
+     /* Remove routed jobs if their walltime is longer than 3 days and 5 minutes */ \ 
+     set_Periodic_Remove = ( RemoteWallClockTime > (3*24*60*60 + 5*60); \
+     /* Release routed jobs if the condor_starter couldn't start the executable and 'VMGAHP_ERR_INTERNAL' is in the HoldReason */ \        
+     set_Periodic_Release = HoldReasonCode == 6 && regexp("VMGAHP_ERR_INTERNAL", HoldReason); \ %ENDCOLOR%
+] 
+</pre>
 
 ---## Setting an accounting group based on...
 
