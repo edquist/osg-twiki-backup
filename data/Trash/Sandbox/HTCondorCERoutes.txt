@@ -1,14 +1,26 @@
-%META:TOPICINFO{author="BrianLin" date="1410990524" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="BrianLin" date="1411078220" format="1.1" version="1.8"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! Writing Routes for HTCondor CE
 
 %TOC{depth="4"}%
 
+---# Quirks and Pitfalls
+
+   * If a value is set in JOB_ROUTER_DEFAULTS with =eval_set_&lt;variable&gt;= and you want to override it, you will need to use =eval_set_&lt;variable&gt;= in the JOB_ROUTER_ENTRIES.
+   * Make sure to run =condor_ce_reconfig= after changing your routes, otherwise they will not take effect.
+   * Before the last square bracket, make sure all lines end in a line continuation character (backslash). You can inspect the syntax of your routes with =condor_ce_config_val JOB_ROUTER_ENTRIES= to see if HTCondor CE has ingested them properly.
+   * Use C-style comments (/* */).
+   * Do *not* set the =JOB_ROUTER_DEFAULTS= configuration variable, this will cause the CE to stop functioning.
+   * Do *not* set the job environment through the !JobRouter. Instead, add any changes to the config.ini [Local Settings] section, as documented [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/ConfigurationFileLocalSettings][here]].
+   * HTCondor batch system only: Local universe jobs are excluded from any routing.
+
 ---# Generic routes
 
 ---## Filtering jobs based on...
 
-Filtering of jobs can be done via the =Requirements= attribute and will match if the !ClassAd expression that follows evaluates to =TRUE=. More information on the syntax of !ClassAd's can be found [[http://research.cs.wisc.edu/htcondor/manual/v8.0/4_1HTCondor_s_ClassAd.html][here]].
+Filtering of jobs can be done via the =Requirements= attribute and will match if the !ClassAd expression that follows evaluates to =TRUE=. More information on the syntax of !ClassAd's can be found [[http://research.cs.wisc.edu/htcondor/manual/v8.0/4_1HTCondor_s_ClassAd.html][here]]. 
+
+%NOTE% The JobRouter matches jobs to routes in a round-robin fashion. This means that if a job can match to multiple routes, it can be routed by any of them! So when writing job routes, make sure that they are exclusive and that your jobs can only match to a single route.
 
 ---### Glidein queue
 
@@ -106,7 +118,18 @@ JOB_ROUTER_ENTRIES = [ \
 ] 
 </pre>
 
----## Copying or deleting attributes in the routed job
+---## Editing attributes...
+
+The following functions are operations that all work on job attributes and are evaluated in a specific order:
+
+   1. copy_*
+   1. delete_*
+   1. set_*
+   1. eval_set_*
+
+So if an attribute is set using =eval_set_= in the =JOB_ROUTER_DEFAULTS=, you'll be unable to delete it in your routes. To get around this, you should set the attribute to an empty string, =eval_set_ = ""=.
+
+---### Copying attributes
 
 If you want to copy the environment of an incoming job to the attribute 'Original_Environment', you could do the following:
 
@@ -119,6 +142,8 @@ JOB_ROUTER_ENTRIES = [ \
 ] 
 </pre>
 
+---### Removing attributes
+
 If you wanted to remove an attribute for the job that gets routed:
 
 <pre class="file">
@@ -127,6 +152,50 @@ JOB_ROUTER_ENTRIES = [ \
      TargetUniverse = 9; \
      name = "Copying attributes"; \
      %RED%delete_environment = True; \ %ENDCOLOR%
+] 
+</pre>
+
+---### Setting attributes
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     GridResource = "batch pbs"; \
+     TargetUniverse = 9; \
+     name = "Setting an attribute"; \
+     %RED%/* Set the rank to a string */ \
+     set_Rank = "atlas"; \%ENDCOLOR%
+] 
+</pre>
+
+---### Setting attributes with !ClassAd expressions
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     GridResource = "batch pbs"; \
+     TargetUniverse = 9; \
+     name = "Setting an attribute with a !ClassAd expression"; \
+     %RED%/* The following evaluates to Experiment = 'atlasSetting custom attribute' */ \ 
+     eval_set_Experiment = strcat("atlas", Name); \%ENDCOLOR%
+] 
+</pre>
+
+---## Debugging routes
+
+First, set the debug mode for the !JobRouter by editing a file in =/etc/condor-ce/config.d/= to read
+
+<pre class="file">
+JOB_ROUTER_DEBUG = D_FULLDEBUG
+</pre>
+
+Then wrap the problematic attribute in =debug()=:
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     GridResource = "batch pbs"; \
+     TargetUniverse = 9; \
+     name = "Debugging a difficult !ClassAd expression"; \
+     %RED%/* The following evaluates to Experiment = 'atlasSetting custom attribute' */ \ 
+     eval_set_Experiment = strcat("atlas", Name); \%ENDCOLOR%
 ] 
 </pre>
 
@@ -143,7 +212,7 @@ JOB_ROUTER_ENTRIES = [ \
      %RED%/* Set the experiment to a string */ \
      set_Experiment = "atlas"; \
      /* The following evaluates to Experiment = 'atlasSetting custom attribute' */ \ 
-     eval_set_Experiment = strcat("atlas", Name); \%ENDCOLOR%
+     eval_set_Experiment = debug(strcat("atlas", Name)); \%ENDCOLOR%
 ] 
 </pre>
 
@@ -162,14 +231,252 @@ JOB_ROUTER_ENTRIES = [ \
 ] 
 </pre>
 
----## Setting an accounting group based on...
+---# Example configurations
 
-Accounting groups are an HTCondor construct that allows for sharing compute time amongst groups of users rather than splitting time based on Unix user name ([[http://research.cs.wisc.edu/htcondor/manual/v8.0/3_4User_Priorities.html#SECTION00447000000000000000][documented here]]). These groupings are HTCondor-specific and are not related to Unix user groups. In the past, admins used UID and extattr table files with their GRAM CE's to assign jobs to certain accounting groups based on username or proxy info ([[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/InstallComputeElement#7_2_Configuring_your_CE_to_use_C][documented here]]). This option still works but can be overriden in your own routes if you so choose.
+<pre class="file">
+JOB_ROUTER_ENTRIES = \
+/* Still to do on all routes, get job requirements and add them here */ \
+/* ***** Route no 1 ***** */ \
+/* ***** Analysis queue ***** */ \
+  [ \
+    GridResource = "condor localhost localhost"; \
+    eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", " $(JOB_ROUTER_SCHEDD2_POOL)"); \
+    Requirements = target.queue=="analy"; \
+    Name = "Analysis Queue"; \
+    TargetUniverse = 5; \
+    eval_set_IdleMP8Pressure = $(IdleMP8Pressure); \
+    eval_set_LastAndFrac = $(LastAndFrac); \
+    set_requirements = ( ( TARGET.TotalDisk =?= undefined ) || ( TARGET.TotalDisk >= 21000000 ) ) && ( TARGET.Arch == "X86_64" ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ) && (IfThenElse((Owner == "atlasconnect" || Owner == "muoncal"),IfThenElse(IdleMP8Pressure,(TARGET.PARTITIONED =!= TRUE),True),IfThenElse(LastAndFrac,(TARGET.PARTITIONED =!= TRUE),True))); \
+    eval_set_AccountingGroup = strcat("group_gatekpr.prod.analy.",Owner); \
+    set_localQue = "Analysis"; \
+    set_IsAnalyJob = True; \
+    set_JobPrio = 5; \
+    set_Rank = (SlotID + (64-TARGET.DETECTED_CORES))*1.0; \
+    set_JobMemoryLimit = 4194000; \
+    set_Periodic_Remove = ( ( RemoteWallClockTime > (3*24*60*60 + 5*60) ) || (ImageSize > JobMemoryLimit) ); \
+  ] \
+/* ***** Route no 2 ***** */ \
+/* ***** splitterNT queue ***** */ \
+  [ \
+    GridResource = "condor localhost localhost"; \
+    eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", " $(JOB_ROUTER_SCHEDD2_POOL)"); \
+    Requirements = target.queue == "splitterNT"; \
+    Name = "Splitter ntuple queue"; \
+    TargetUniverse = 5; \
+    set_requirements = ( ( TARGET.TotalDisk =?= undefined ) || ( TARGET.TotalDisk >= 21000000 ) ) && ( TARGET.Arch == "X86_64" ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
+    eval_set_AccountingGroup = "group_calibrate.muoncal"; \
+    set_localQue = "Splitter"; \
+    set_IsAnalyJob = False; \
+    set_JobPrio = 10; \
+    set_Rank = (SlotID + (64-TARGET.DETECTED_CORES))*1.0; \
+    set_JobMemoryLimit = 4194000; \
+    set_Periodic_Remove = ( ( RemoteWallClockTime > (3*24*60*60 + 5*60) ) || (ImageSize > JobMemoryLimit) ); \
+  ] \
+/* ***** Route no 3 ***** */ \
+/* ***** splitter queue ***** */ \
+  [ \
+    GridResource = "condor localhost localhost"; \
+    eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", " $(JOB_ROUTER_SCHEDD2_POOL)"); \
+    Requirements = target.queue == "splitter"; \
+    Name = "Splitter queue"; \
+    TargetUniverse = 5; \
+    set_requirements = ( ( TARGET.TotalDisk =?= undefined ) || ( TARGET.TotalDisk >= 21000000 ) ) && ( TARGET.Arch == "X86_64" ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
+    eval_set_AccountingGroup = "group_calibrate.muoncal"; \
+    set_localQue = "Splitter"; \
+    set_IsAnalyJob = False; \
+    set_JobPrio = 15; \
+    set_Rank = (SlotID + (64-TARGET.DETECTED_CORES))*1.0; \
+    set_JobMemoryLimit = 4194000; \
+    set_Periodic_Remove = ( ( RemoteWallClockTime > (3*24*60*60 + 5*60) ) || (ImageSize > JobMemoryLimit) ); \
+  ] \
+/* ***** Route no 4 ***** */ \
+/* ***** xrootd queue ***** */ \
+  [ \
+    GridResource = "condor localhost localhost"; \
+    eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", " $(JOB_ROUTER_SCHEDD2_POOL)"); \
+    Requirements = target.queue == "xrootd"; \
+    Name = "Xrootd queue"; \
+    TargetUniverse = 5; \
+    set_requirements = ( ( TARGET.TotalDisk =?= undefined ) || ( TARGET.TotalDisk >= 21000000 ) ) && ( TARGET.Arch == "X86_64" ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
+    eval_set_AccountingGroup = strcat("group_gatekpr.prod.analy.",Owner); \
+    set_localQue = "Analysis"; \
+    set_IsAnalyJob = True; \
+    set_JobPrio = 35; \
+    set_Rank = (SlotID + (64-TARGET.DETECTED_CORES))*1.0; \
+    set_JobMemoryLimit = 4194000; \
+    set_Periodic_Remove = ( ( RemoteWallClockTime > (3*24*60*60 + 5*60) ) || (ImageSize > JobMemoryLimit) ); \
+  ] \
+/* ***** Route no 5 ***** */ \
+/* ***** Tier3Test queue ***** */ \
+  [ \
+    GridResource = "condor localhost localhost"; \
+    eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", " $(JOB_ROUTER_SCHEDD2_POOL)"); \
+    Requirements = target.queue == "Tier3Test"; \
+    Name = "Tier3 Test Queue"; \
+    TargetUniverse = 5; \
+    set_requirements = ( ( TARGET.TotalDisk =?= undefined ) || ( TARGET.TotalDisk >= 21000000 ) ) && ( TARGET.Arch == "X86_64" ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ) && ( IS_TIER3_TEST_QUEUE =?= True ); \
+    eval_set_AccountingGroup = strcat("group_gatekpr.prod.analy.",Owner); \
+    set_localQue = "Tier3Test"; \
+    set_IsTier3TestJob = True; \
+    set_IsAnalyJob = True; \
+    set_JobPrio = 20; \
+    set_Rank = (SlotID + (64-TARGET.DETECTED_CORES))*1.0; \
+    set_JobMemoryLimit = 4194000; \
+    set_Periodic_Remove = ( ( RemoteWallClockTime > (3*24*60*60 + 5*60) ) || (ImageSize > JobMemoryLimit) ); \
+  ] \
+/* ***** Route no 6 ***** */ \
+/* ***** mp8 queue ***** */ \
+  [ \
+    GridResource = "condor localhost localhost"; \
+    eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", " $(JOB_ROUTER_SCHEDD2_POOL)"); \
+    Requirements = target.queue=="mp8"; \
+    Name = "MCORE Queue"; \
+    TargetUniverse = 5; \
+    set_requirements = ( ( TARGET.TotalDisk =?= undefined ) || ( TARGET.TotalDisk >= 21000000 ) ) && ( TARGET.Arch == "X86_64" ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ) && (( TARGET.Cpus == 8 && TARGET.CPU_TYPE =?= "mp8" ) || TARGET.PARTITIONED =?= True ); \
+    eval_set_AccountingGroup = strcat("group_gatekpr.prod.mcore.",Owner); \
+    set_localQue = "MP8"; \
+    set_IsAnalyJob = False; \
+    set_JobPrio = 25; \
+    set_Rank = 0.0; \
+    eval_set_RequestCpus = 8; \
+    set_JobMemoryLimit = 33552000; \
+    set_Slot_Type = "mp8"; \
+    set_Periodic_Remove = ( ( RemoteWallClockTime > (3*24*60*60 + 5*60) ) || (ImageSize > JobMemoryLimit) ); \
+  ] \
+/* ***** Route no 7 ***** */ \
+/* ***** Installation queue, triggered by usatlas2 user ***** */ \
+  [ \
+    GridResource = "condor localhost localhost"; \
+    eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", " $(JOB_ROUTER_SCHEDD2_POOL)"); \
+    Requirements = target.queue is undefined && target.Owner == "usatlas2"; \
+    Name = "Install Queue"; \
+    TargetUniverse = 5; \
+    set_requirements = ( ( TARGET.TotalDisk =?= undefined ) || ( TARGET.TotalDisk >= 21000000 ) ) && ( TARGET.Arch == "X86_64" ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ) && ( TARGET.IS_INSTALL_QUE =?= True ) && (TARGET.AGLT2_SITE == "UM" ); \
+    eval_set_AccountingGroup = strcat("group_gatekpr.other.",Owner); \
+    set_localQue = "Default"; \
+    set_IsAnalyJob = False; \
+    set_IsInstallJob = True; \
+    set_JobPrio = 15; \
+    set_Rank = (SlotID + (64-TARGET.DETECTED_CORES))*1.0; \
+    set_JobMemoryLimit = 4194000; \
+    set_Periodic_Remove = ( ( RemoteWallClockTime > (3*24*60*60 + 5*60) ) || (ImageSize > JobMemoryLimit) ); \
+  ] \
+/* ***** Route no 8 ***** */ \
+/* ***** Default queue for usatlas1 user ***** */ \
+  [ \
+    GridResource = "condor localhost localhost"; \
+    eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", " $(JOB_ROUTER_SCHEDD2_POOL)"); \
+    Requirements = target.queue is undefined && regexp("usatlas1",target.Owner); \
+    Name = "ATLAS Production Queue"; \
+    TargetUniverse = 5; \
+    set_requirements = ( ( TARGET.TotalDisk =?= undefined ) || ( TARGET.TotalDisk >= 21000000 ) ) && ( TARGET.Arch == "X86_64" ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
+    eval_set_AccountingGroup = strcat("group_gatekpr.prod.prod.",Owner); \
+    set_localQue = "Default"; \
+    set_IsAnalyJob = False; \
+    set_Rank = (SlotID + (64-TARGET.DETECTED_CORES))*1.0; \
+    set_JobMemoryLimit = 4194000; \
+    set_Periodic_Remove = ( ( RemoteWallClockTime > (3*24*60*60 + 5*60) ) || (ImageSize > JobMemoryLimit) ); \
+  ] \
+/* ***** Route no 9 ***** */ \
+/* ***** Default queue for any other usatlas account ***** */ \
+  [ \
+    GridResource = "condor localhost localhost"; \
+    eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", " $(JOB_ROUTER_SCHEDD2_POOL)"); \
+    Requirements = target.queue is undefined && (regexp("usatlas2",target.Owner) || regexp("usatlas3",target.Owner)); \
+    Name = "Other ATLAS Production"; \
+    TargetUniverse = 5; \
+    set_requirements = ( ( TARGET.TotalDisk =?= undefined ) || ( TARGET.TotalDisk >= 21000000 ) ) && ( TARGET.Arch == "X86_64" ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
+    eval_set_AccountingGroup = strcat("group_gatekpr.other.",Owner); \
+    set_localQue = "Default"; \
+    set_IsAnalyJob = False; \
+    set_Rank = (SlotID + (64-TARGET.DETECTED_CORES))*1.0; \
+    set_JobMemoryLimit = 4194000; \
+    set_Periodic_Remove = ( ( RemoteWallClockTime > (3*24*60*60 + 5*60) ) || (ImageSize > JobMemoryLimit) ); \
+  ] \
+/* ***** Route no 10 ***** */ \
+/* ***** Anything else. Set queue as Default and assign to other VOs  ***** */ \
+  [ \
+    GridResource = "condor localhost localhost"; \
+    eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", " $(JOB_ROUTER_SCHEDD2_POOL)"); \
+    Requirements = target.queue is undefined && ifThenElse(regexp("usatlas",target.Owner),false,true); \
+    Name = "Other Jobs"; \
+    TargetUniverse = 5; \
+    set_requirements = ( ( TARGET.TotalDisk =?= undefined ) || ( TARGET.TotalDisk >= 21000000 ) ) && ( TARGET.Arch == "X86_64" ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
+    eval_set_AccountingGroup = strcat("group_VOgener.",Owner); \
+    set_localQue = "Default"; \
+    set_IsAnalyJob = False; \
+    set_Rank = (SlotID + (64-TARGET.DETECTED_CORES))*1.0; \
+    set_JobMemoryLimit = 4194000; \
+    set_Periodic_Remove = ( ( RemoteWallClockTime > (3*24*60*60 + 5*60) ) || (ImageSize > JobMemoryLimit) ); \
+  ]
+</pre>
 
----# Quirks and Pitfalls
+<pre class="file">
+###############################################################################
+#
+# HTCondor-CE HTCondor batch system configuration file.
+#
+###############################################################################
 
-   * If a value is set in JOB_ROUTER_DEFAULTS with =eval_set_&lt;variable&gt;= and you want to override it, you will need to use =eval_set_&lt;variable&gt;= in the JOB_ROUTER_ENTRIES.
-   * Make sure to run =condor_ce_reconfig= after changing your routes, otherwise they will not take effect.
-   * Before the last square bracket, make sure all lines end in a line continuation character (backslash).
+# Submit the job to the site Condor
+
+JOB_ROUTER_ENTRIES = \
+   [ \
+     GridResource = "condor localhost localhost"; \
+     eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", "$(FULL_HOSTNAME)"); \
+     TargetUniverse = 5; \
+     name = "BNL_Condor_Pool_long"; \
+     Requirements = target.queue=="analysis.long"; \
+     eval_set_RACF_Group = "long"; \
+     set_Experiment = "atlas"; \
+     set_requirements = ( ( Arch == "INTEL" || Arch == "X86_64" ) && ( CPU_Experiment == "atlas" ) ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
+     set_Job_Type = "cas"; \
+     set_JobLeaseDuration = 3600; \
+     set_PeriodicHold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
+     eval_set_VO = x509UserProxyVOName; \
+   ] \
+   [ \
+     GridResource = "condor localhost localhost"; \
+     eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", "$(FULL_HOSTNAME)"); \
+     TargetUniverse = 5; \
+     name = "BNL_Condor_Pool_short"; \
+     Requirements = target.queue=="analysis.short"; \
+     eval_set_RACF_Group = "short"; \
+     set_Experiment = "atlas"; \
+     set_requirements = ( ( Arch == "INTEL" || Arch == "X86_64" ) && ( CPU_Experiment == "atlas" ) ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
+     set_Job_Type = "cas"; \
+     set_JobLeaseDuration = 3600; \
+     set_PeriodicHold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
+     eval_set_VO = x509UserProxyVOName; \
+   ] \
+   [ \
+     GridResource = "condor localhost localhost"; \
+     eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", "$(FULL_HOSTNAME)"); \
+     TargetUniverse = 5; \
+     name = "BNL_Condor_Pool_grid"; \
+     Requirements = target.queue=="grid"; \
+     eval_set_RACF_Group = "grid"; \
+     set_Experiment = "atlas"; \
+     set_requirements = ( ( Arch == "INTEL" || Arch == "X86_64" ) && ( CPU_Experiment == "atlas" ) ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
+     set_Job_Type = "cas"; \
+     set_JobLeaseDuration = 3600; \
+     set_PeriodicHold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
+     eval_set_VO = x509UserProxyVOName; \
+   ] \
+   [ \
+     GridResource = "condor localhost localhost"; \
+     eval_set_GridResource = strcat("condor ", "$(FULL_HOSTNAME)", "$(FULL_HOSTNAME)"); \
+     TargetUniverse = 5; \
+     name = "BNL_Condor_Pool"; \
+     Requirements = target.queue is undefined; \
+     eval_set_RACF_Group = "grid"; \
+     set_requirements = ( ( Arch == "INTEL" || Arch == "X86_64" ) && ( CPU_Experiment == "rcf" ) ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
+     set_Experiment = "atlas"; \
+     set_Job_Type = "cas"; \
+     set_JobLeaseDuration = 3600; \
+     set_PeriodicHold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
+     eval_set_VO = x509UserProxyVOName; \
+   ]
+</pre>
 
 -- Main.BrianLin - 11 Sep 2014
