@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1412116063" format="1.1" version="1.14"}%
+%META:TOPICINFO{author="BrianLin" date="1412182102" format="1.1" reprev="1.15" version="1.15"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+!! Writing Routes for HTCondor CE
 
@@ -10,7 +10,7 @@
    * If a value is set in JOB_ROUTER_DEFAULTS with =eval_set_&lt;variable&gt;= and you want to override it, you will need to use =eval_set_&lt;variable&gt;= in the JOB_ROUTER_ENTRIES.
    * Make sure to run =condor_ce_reconfig= after changing your routes, otherwise they will not take effect.
    * Before the last square bracket, make sure all lines end in a line continuation character (backslash). You can inspect the syntax of your routes with =condor_ce_config_val JOB_ROUTER_ENTRIES= to see if HTCondor CE has ingested them properly.
-   * Do *not* set the =JOB_ROUTER_DEFAULTS= configuration variable, this will cause the CE to stop functioning.
+   * Do *not* set the =JOB_ROUTER_DEFAULTS= configuration variable. This will cause the CE to stop functioning.
    * Do *not* set the job environment through the !JobRouter. Instead, add any changes to the /etc/osg/config.d/ [Local Settings] section and run osg-configure, as documented [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/ConfigurationFileLocalSettings][here]].
    * HTCondor batch system only: Local universe jobs are excluded from any routing.
 %ENDSECTION%
@@ -24,17 +24,17 @@ To make the most out of routes, you'll likely want to write more than one of the
 %NOTE% The !JobRouter matches jobs to routes in a round-robin fashion. This means that if a job can match to multiple routes, it can be routed by any of them! So when writing job routes, make sure that they are exclusive to each other and that your jobs can only match to a single route.
 
 <pre class="file">
-JOB_ROUTER_ENTRIES = [ \
+JOB_ROUTER_ENTRIES = <span style="background-color: #FFCCFF;"><b>[ \</b></span>
      TargetUniverse = 5; \
      name = "Route jobs to HTCondor"; \
      Requirements = (TARGET.queue =?= "analy"); \
-] \
-[ \
+<span style="background-color: #FFCCFF;"><b>] \</b></span>
+<span style="background-color: #FFCCFF;"><b>[ \</b></span>
      GridResource = "batch pbs"; \
      TargetUniverse = 9; \
      name = "Route jobs to PBS"; \
      Requirements = (TARGET.queue =!= "analy"); \
-] 
+<span style="background-color: #FFCCFF;"><b>]</b></span>
 </pre>
 
 ---## Writing Comments
@@ -59,10 +59,44 @@ JOB_ROUTER_ENTRIES = [ \
 ] 
 </pre>
 
+---## Setting Attributes for All Routes
+
+To set an attribute that will be applied to all routes, you will need to =set_= that attribute for each route. 
+
+%NOTE% Do *not* try to do this by setting the =JOB_ROUTER_DEFAULTS= configuration variable, as this will cause the CE to stop functioning. The following routes set the =Periodic_Hold= attribute for both routes:
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     TargetUniverse = 5; \
+     name = "Route jobs to HTCondor"; \
+     Requirements = (TARGET.queue =?= "analy"); \
+     <span style="background-color: #FFCCFF;"><b>/* Puts the routed job on hold if the job's been idle and has been started at least once or if the job has tried to start more than once */ \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>set_Periodic_Hold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \</b></span>
+] \
+[ \
+     GridResource = "batch pbs"; \
+     TargetUniverse = 9; \
+     name = "Route jobs to PBS"; \
+     Requirements = (TARGET.queue =!= "analy"); \
+     <span style="background-color: #FFCCFF;"><b>/* Puts the routed job on hold if the job's been idle and has been started at least once or if the job has tried to start more than once */ \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>set_Periodic_Hold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \</b></span>
+] 
+</pre>
+
+#AppendDefaults
+In the November release of HTCondor-CE (tentatively 1.7), there will be an easier way to set new defaults by appending to =JOB_ROUTER_DEFAULTS=. You will want to edit =/etc/condor-ce/config.d/01-ce-router.conf= and append attributes to the =JOB_ROUTER_DEFAULTS= line. The following example sets the =Periodic_Hold= attribute for all routes:
+
+<pre class="file">
+JOB_ROUTER_DEFAULTS = $(JOB_ROUTER_DEFAULTS_GENERATED) <span style="background-color: #FFCCFF;"><b>\</b></span>
+                    <span style="background-color: #FFCCFF;"><b>/* Put jobs on hold if they're idle and have tried to start at least once or if jobs have tried to start more than once */ \</b></span>
+                    <span style="background-color: #FFCCFF;"><b>set_PeriodicHold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \</b></span>
+</pre>
+
 ---## Filtering Jobs Based on&hellip;
 
 To filter jobs, use the =Requirements= attribute. Jobs will evaluate against the !ClassAd expression set in the =Requirements= and if the expression evaluates to =TRUE=, the route will match. More information on the syntax of !ClassAd's can be found in the [[http://research.cs.wisc.edu/htcondor/manual/v8.0/4_1HTCondor_s_ClassAd.html][Condor manual]]. 
 
+#GlideIn
 ---### Glidein queue
 
 To filter jobs based on their glidein queue attribute, you will want to look at the incoming job's =queue= attribute. The following entry routes jobs to the PBS queue if the incoming job (specified by =TARGET=) is an =analy= (Analysis) glidein:
@@ -83,7 +117,7 @@ To filter jobs based on who submitted it, you will want to look at the incoming 
 JOB_ROUTER_ENTRIES = [ \
      TargetUniverse = 5; \
      name = "Filtering by job submitter"; \
-     <span style="background-color: #FFCCFF;"><b>Requirements = (TARGET.Owner =?= "usatlas2"); \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>Requirements = (TARGET.Owner =?= "usatlas2"); \</b></span>
 ] 
 </pre>
 
@@ -94,20 +128,20 @@ JOB_ROUTER_ENTRIES = [ \
      GridResource = "batch pbs"; \
      TargetUniverse = 9; \
      name = "Filtering by job submitter (regular expression)"; \
-     <span style="background-color: #FFCCFF;"><b>Requirements = regexp("^usatlas", TARGET.Owner); \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>Requirements = regexp("^usatlas", TARGET.Owner); \</b></span>
 ] 
 </pre>
 
 ---### VOMS attribute
 
-To filter jobs based on the subject of the proxy that the incoming job uses, you will want to look at the incoming job's =x509UserProxyFirstFQAN= attribute. The following entry routes jobs to the PBS batch system if the proxy subject contains =/cms/Role=Pilot=:
+To filter jobs based on the subject of the job's proxy, you will want to look at the incoming job's =x509UserProxyFirstFQAN= attribute. The following entry routes jobs to the PBS batch system if the proxy subject contains =/cms/Role=Pilot=:
 
 <pre class="file">
 JOB_ROUTER_ENTRIES = [ \
      GridResource = "batch pbs"; \
      TargetUniverse = 9; \
      name = "Filtering by VOMS attribute (regex)"; \
-     <span style="background-color: #FFCCFF;"><b>Requirements = regexp("\/cms\/Role\=pilot", x509UserProxyFirstFQAN); \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>Requirements = regexp("\/cms\/Role\=pilot", x509UserProxyFirstFQAN); \</b></span>
 ] 
 </pre>
 
@@ -123,7 +157,7 @@ JOB_ROUTER_ENTRIES = [ \
      TargetUniverse = 9; \
      name = "Request memory"; \
      /* Set the requested memory to 1 GB */ \
-     <span style="background-color: #FFCCFF;"><b>default_maxMemory = 1000; \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>default_maxMemory = 1000; \</b></span>
 ] 
 </pre>
 
@@ -137,7 +171,7 @@ JOB_ROUTER_ENTRIES = [ \
      TargetUniverse = 9; \
      name = "Request CPU"; \
      /* Set the requested cores to 8 */ \
-     <span style="background-color: #FFCCFF;"><b>default_xcount = 8; \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>default_xcount = 8; \</b></span>
 ] 
 </pre>
 
@@ -150,7 +184,7 @@ JOB_ROUTER_ENTRIES = [ \
      GridResource = "batch pbs"; \
      TargetUniverse = 9; \
      name = "Setting batch system queues"; \
-     <span style="background-color: #FFCCFF;"><b>default_queue = "osg_queue"; \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>default_queue = "osg_queue"; \</b></span>
 ] 
 </pre>
 
@@ -164,7 +198,7 @@ JOB_ROUTER_ENTRIES = [ \
      TargetUniverse = 9; \
      name = "Setting WallTime"; \
      /* Set the max walltime to 1 hr */ \
-     <span style="background-color: #FFCCFF;"><b>defeault_maxWallTime = 60; \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>defeault_maxWallTime = 60; \</b></span>
 ] 
 </pre>
 
@@ -177,7 +211,7 @@ The following functions are operations that affect job attributes and are evalua
    1. set_*
    1. eval_set_*
 
-To get the !JobRouter ad, the !JobRouter combines each route from =JOB_ROUTER_ENTRIES= with the =JOB_ROUTER_DEFAULTS= and then performs the aforementioned operations on the the !JobRouter ad of each route. So if an attribute is set using =eval_set_= in the =JOB_ROUTER_DEFAULTS=, you'll be unable to delete it in your routes since =delete_= is evaluated before =eval_set_=. However, operations defined in =JOB_ROUTER_DEFAULTS= get overriden by the same operation in =JOB_ROUTER_ENTRIES=. So if we want to =delete_foo= but =foo= is defined with =eval_set_foo= in the =JOB_ROUTER_DEFAULTS=, we can 'delete' it with =eval_set_foo = ""=.
+To get the !JobRouter ad, the !JobRouter combines each route from =JOB_ROUTER_ENTRIES= with the =JOB_ROUTER_DEFAULTS= and then performs the aforementioned operations on the the !JobRouter ad of each route. So if an attribute is set using =eval_set_= in the =JOB_ROUTER_DEFAULTS=, you'll be unable to delete it in your routes since =delete_= is evaluated before =eval_set_= and the attribute will get set after it gets deleted. To get around this, we can take advantage of the fact that operations defined in =JOB_ROUTER_DEFAULTS= get overriden by the same operation in =JOB_ROUTER_ENTRIES=. So if we want to =delete_foo= but =foo= is defined with =eval_set_foo= in the =JOB_ROUTER_DEFAULTS=, we can 'delete' it with =eval_set_foo = ""=.
 
 More documentation can be found in the [[http://research.cs.wisc.edu/htcondor/manual/v8.0/5_4HTCondor_Job.html][Condor manual]].
 
@@ -190,7 +224,7 @@ JOB_ROUTER_ENTRIES = [ \
      GridResource = "batch pbs"; \
      TargetUniverse = 9; \
      name = "Copying attributes"; \
-     <span style="background-color: #FFCCFF;"><b>copy_environment = "Original_Environment"; \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>copy_environment = "Original_Environment"; \</b></span>
 ] 
 </pre>
 
@@ -203,13 +237,13 @@ JOB_ROUTER_ENTRIES = [ \
      GridResource = "batch pbs"; \
      TargetUniverse = 9; \
      name = "Copying attributes"; \
-     <span style="background-color: #FFCCFF;"><b>delete_environment = True; \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>delete_environment = True; \</b></span>
 ] 
 </pre>
 
 ---### Setting attributes
 
-SET_FOO VS FOO? WHAT THE FOO? FIX THIS. The following route sets the =Rank= attribute to 5:
+To set an attribute on the routed job, use =set_=. The following route sets the Job's =Rank= attribute to 5:
 
 <pre class="file">
 JOB_ROUTER_ENTRIES = [ \
@@ -220,9 +254,13 @@ JOB_ROUTER_ENTRIES = [ \
 ] 
 </pre>
 
+If you omit =set_=, the attribute will be available for !ClassAd evaluation but the routed job will not have the attribute. For example, if you have =foo = "bar"; eval_set_baz = $(foo);= in your route, the routed job will contain =baz = "bar"= but will be missing the =foo= attribute.
+
 ---### Setting attributes with !ClassAd expressions
 
 To set an attribute to a !ClassAd expression that you want evaluated, use =set_eval=. The following route sets the =Experiment= attribute to =atlas.osguser= if the Owner of the incoming job is =osguser=:
+
+%NOTE% If a value is set in JOB_ROUTER_DEFAULTS with =eval_set_&lt;variable&gt;= and you want to override it, you will need to use =eval_set_&lt;variable&gt;= in the JOB_ROUTER_ENTRIES.
 
 <pre class="file">
 JOB_ROUTER_ENTRIES = [ \
@@ -236,7 +274,7 @@ JOB_ROUTER_ENTRIES = [ \
 %STARTSECTION{"DebugRoutes"}%
 ---## Debugging Routes
 
-First, set the debug mode for the !JobRouter by editing a file in =/etc/condor-ce/config.d/= to read
+To help debug expressions in your routes, you can use the =debug()= function. First, set the debug mode for the !JobRouter by editing a file in =/etc/condor-ce/config.d/= to read
 
 <pre class="file">
 JOB_ROUTER_DEBUG = D_FULLDEBUG
@@ -256,39 +294,35 @@ JOB_ROUTER_ENTRIES = [ \
 
 ---# HTCondor Batch System Specific Routes
 
----## Setting Custom Attributes
-
-If you're using a site-specific attribute on your HTCondor backend, say =Experiment=. You can do that with =set_= or =eval_set=:
-
-<pre class="file">
-JOB_ROUTER_ENTRIES = [ \
-     TargetUniverse = 5; \
-     name = "Setting custom attribute"; \
-     <span style="background-color: #FFCCFF;"><b>/* Set the experiment to a string */ \
-     set_Experiment = "atlas"; \
-     /* The following evaluates to Experiment = 'atlasSetting custom attribute' */ \ 
-     eval_set_Experiment = strcat("atlas", Name); \</b></span>
-] 
-</pre>
-
 ---## Setting Periodic Hold, Release or Remove
+
+To release, remove or put a job on hold if it meets certain criteria, you will want to use the =PERIODIC_*= family of attributes. By default, periodic expressions are evaluated once every 300 seconds but this can be changed by setting PERIODIC_EXPR_INTERVAL in your CE's configuration. 
 
 <pre class="file">
 JOB_ROUTER_ENTRIES = [ \
      TargetUniverse = 5; \
      name = "Setting periodic statements"; \
-     <span style="background-color: #FFCCFF;"><b>/* Puts the routed job on hold if the job's been idle and has been started at least once or if the job has tried to start more than once */ \
-     set_Periodic_Hold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
-     /* Remove routed jobs if their walltime is longer than 3 days and 5 minutes */ \ 
-     set_Periodic_Remove = ( RemoteWallClockTime > (3*24*60*60 + 5*60); \
-     /* Release routed jobs if the condor_starter couldn't start the executable and 'VMGAHP_ERR_INTERNAL' is in the HoldReason */ \        
-     set_Periodic_Release = HoldReasonCode == 6 && regexp("VMGAHP_ERR_INTERNAL", HoldReason); \ </b></span>
+     <span style="background-color: #FFCCFF;"><b>/* Puts the routed job on hold if the job's been idle and has been started at least once or if the job has tried to start more than once */ \</b></span>
+     <span style="background-color: #FFCCFF;"><b>set_Periodic_Hold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \</b></span>
+     <span style="background-color: #FFCCFF;"><b>/* Remove routed jobs if their walltime is longer than 3 days and 5 minutes */ \</b></span>
+     <span style="background-color: #FFCCFF;"><b>set_Periodic_Remove = ( RemoteWallClockTime > (3*24*60*60 + 5*60); \</b></span>
+     <span style="background-color: #FFCCFF;"><b>/* Release routed jobs if the condor_starter couldn't start the executable and 'VMGAHP_ERR_INTERNAL' is in the HoldReason */ \</b></span>
+     <span style="background-color: #FFCCFF;"><b>set_Periodic_Release = HoldReasonCode == 6 && regexp("VMGAHP_ERR_INTERNAL", HoldReason); \</b></span>
 ] 
 </pre>
 
 ---# Example Configurations
 
 ---## AGLT2's Job Routes
+
+Atlas AGLT2 is using an HTCondor batch system. Here are some things to note about their routes.
+
+   * Setting various HTCondor-specific attributes like =Rank=, =AccountingGroup=, =JobPrio= and =Periodic_Remove= (see the [[http://research.cs.wisc.edu/htcondor/manual/v8.0/12_Appendix_A.html][Condor manual]] for more). Some of these are site-specific like =LastandFrac=, =IdleMP8Pressure=, =localQue=, =IsAnalyJob= and =JobMemoryLimit=.
+ Some of these are site-specific like =IdleMP8Pressure=, =LastandFrac= and =localQue=.
+   * Many of the attributes are the same and can be [[#AppendDefaults][appended]] to the =JOB_ROUTER_DEFAULTS= with the November release of HTCondor-CE (tentatively 1.7).
+   * There is a difference between =Requirements= and =set_requirements=. The =Requirements= attribute matches jobs to specific routes while the =set_requirements= sets the =Requirements= attribute on the _routed_ job, which confines which machines that the routed job can land on.
+
+Source: https://www.aglt2.org/wiki/bin/view/AGLT2/CondorCE#The_JobRouter_configuration_file_content
 
 %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Click to expand full job route&hellip;"}%
 <pre class="file">
@@ -472,6 +506,15 @@ JOB_ROUTER_ENTRIES = \
 
 ---## BNL's Job Routes
 
+Atlas BNL T1, they are using an HTCondor batch system. Here are some things to note about their routes:
+
+   * Setting various HTCondor-specific attributes like =JobLeaseDuration=, =Requirements= and =Periodic_Hold= (see the [[http://research.cs.wisc.edu/htcondor/manual/v8.0/12_Appendix_A.html][Condor manual]] for more). Some of these are site-specific like =RACF_Group=, =Experiment=, =Job_Type= and =VO=.
+   * Jobs are split into different routes based on the [[#GlideIn][GlideIn]] queue that they're in.
+   * Many of the attributes are the same and can be [[#AppendDefaults][appended]] to the =JOB_ROUTER_DEFAULTS= with the November release of HTCondor-CE (tentatively 1.7).
+   * There is a difference between =Requirements= and =set_requirements=. The =Requirements= attribute matches _incoming_ jobs to specific routes while the =set_requirements= sets the =Requirements= attribute on the _routed_ job, which confines which machines that the routed job can land on.
+
+Source: http://www.usatlas.bnl.gov/twiki/bin/view/Admins/HTCondorCE.html
+
 %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Click to expand full job route&hellip;"}%
 <pre class="file">
 ###############################################################################
@@ -494,7 +537,7 @@ JOB_ROUTER_ENTRIES = \
      set_requirements = ( ( Arch == "INTEL" || Arch == "X86_64" ) && ( CPU_Experiment == "atlas" ) ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
      set_Job_Type = "cas"; \
      set_JobLeaseDuration = 3600; \
-     set_PeriodicHold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
+     set_Periodic_Hold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
      eval_set_VO = x509UserProxyVOName; \
    ] \
    [ \
@@ -508,7 +551,7 @@ JOB_ROUTER_ENTRIES = \
      set_requirements = ( ( Arch == "INTEL" || Arch == "X86_64" ) && ( CPU_Experiment == "atlas" ) ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
      set_Job_Type = "cas"; \
      set_JobLeaseDuration = 3600; \
-     set_PeriodicHold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
+     set_Periodic_Hold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
      eval_set_VO = x509UserProxyVOName; \
    ] \
    [ \
@@ -522,7 +565,7 @@ JOB_ROUTER_ENTRIES = \
      set_requirements = ( ( Arch == "INTEL" || Arch == "X86_64" ) && ( CPU_Experiment == "atlas" ) ) && ( TARGET.OpSys == "LINUX" ) && ( TARGET.Disk >= RequestDisk ) && ( TARGET.Memory >= RequestMemory ) && ( TARGET.HasFileTransfer ); \
      set_Job_Type = "cas"; \
      set_JobLeaseDuration = 3600; \
-     set_PeriodicHold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
+     set_Periodic_Hold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
      eval_set_VO = x509UserProxyVOName; \
    ] \
    [ \
@@ -536,7 +579,7 @@ JOB_ROUTER_ENTRIES = \
      set_Experiment = "atlas"; \
      set_Job_Type = "cas"; \
      set_JobLeaseDuration = 3600; \
-     set_PeriodicHold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
+     set_Periodic_Hold = (NumJobStarts >= 1 && JobStatus == 1) || NumJobStarts > 1; \
      eval_set_VO = x509UserProxyVOName; \
    ]
 </pre>
