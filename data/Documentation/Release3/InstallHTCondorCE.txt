@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1412089412" format="1.1" version="1.73"}%
+%META:TOPICINFO{author="BrianLin" date="1412268493" format="1.1" version="1.74"}%
 %META:TOPICPARENT{name="Blueprint.WebHome"}%
 ---+!! Installing the HTCondor CE
 
@@ -83,6 +83,8 @@ A complete CE installation contains the job gateway itself (the HTCondor CE job 
 
 %NOTE% To smooth the transition between GRAM-based CE's and HTCondor CE's, we are currently shipping both CE's in the =osg-ce-*= packages. The GRAM software will eventually be dropped but for now it remains the default. The instructions below will show you how to disable GRAM and enable HTCondor CE.
 
+%NOTE% With the release of version 1.6-2, HTCondor CE will begin reporting your site's availability and capabilities back to the OSG for reporting.
+
 ---# Configuration Instructions
 
 ---## Setup osg-configure
@@ -97,14 +99,14 @@ htcondor_gateway_enabled = True
 enabled = True
 </pre>
 
----## Setup authorization
+---## Setup Authorization
 
 ---### Using GUMS for Authorization
 %INCLUDE{"Documentation/Release3/InstallComputeElement" section="GumsAuth"}%
 
 %NOTE% Once gsi-authz.conf is in place, your site's HTCondor will attempt to utilize the LCMAPS callouts if enabled in the condor_mapfile.  If this is not the desired behavior, set GSI_AUTHZ_CONF=/dev/null in the HTCondor configuration.
 
----### Using edg-mkgridmap for authorization
+---### Using edg-mkgridmap for Authorization
 %INCLUDE{"Documentation/Release3/InstallComputeElement" section="GridmapAuth"}%
 
 If you are not using GUMS, edit the =authorize_only= policy of =/etc/lcmaps.db=.  Comment out the =gumsclient= line and uncomment the =gridmapfile= line.  The resulting policy should read (comments removed)
@@ -129,7 +131,22 @@ Place customizations in =/etc/condor-ce/config.d/99-local.conf= (or a similarly 
 
 %NOTE% This section covers just the basic customizations; A larger site may want to elaborate on how to better customize configurations and [[Documentation/Release3.HTCondorCERoutes][refer to this document]].
 
----## Configuring local and scheduler universes
+---## Configuring for Multiple Network Interfaces
+If you have public and private network interfaces that return different hostnames, the HTCondor CE daemons need to know which hostname to use when communicating to each other. Generally, this should be the public interface so if the =hostname= command returns the hostname of the private interface, you will have to uncomment and edit the line in  =/etc/sysconfig/condor-ce=:
+
+<pre class="file">
+export CONDORCE_HOSTNAME=%RED%condorce.example.com%ENDCOLOR%
+</pre>
+
+And replace the %RED%RED%ENDCOLOR% text with your hostname. In HTCondor CE v1.6, you can instead set this in your =/etc/condor-ce/config.d/= directory with the line:
+
+<pre class="file">
+NETWORK_HOSTNAME=%RED%condorce.example.com%ENDCOLOR%
+</pre>
+
+Replacing the %RED%RED%ENDCOLOR% text with your hostname as before.
+
+---## Configuring Local and Scheduler Universes
 
 Local and scheduler universes are HTCondor CE's analogue to GRAM's managed fork: they allow jobs to be run on the CE itself. The two universes are effectively the same (scheduler universe launches a starter process for each job), so we will be configuring them in unison.
 
@@ -162,7 +179,15 @@ START_SCHEDULER_UNIVERSE = $(START_LOCAL_UNIVERSE)</pre>
 
 ---## Other Batch Systems
 
----#### Sharing the Spool directory
+---#### Batch system binaries in non-standard locations
+
+If your batch system binaries aren't in the standard location or not in your PATH, you will need to configure =/etc/blah.config= to point to the directory where you keep said binaries. If your SGE binaries live in =/opt/sge/bin=, then you would want to change the =sge_binpath= configuration variable to read:
+
+<pre class="file">
+sge_binpath=%RED%/opt/sge/bin%ENDCOLOR%
+</pre>
+
+---#### Sharing the spool directory
 
 Like GRAM, HTCondor-CE requires a shared file system between worker nodes and the CE to transfer files.  Unlike GRAM, it does not write job files into the user's =$HOME= directory.  By default, job files are written into =/var/lib/condor-ce= and hence that directory must appear at that location on all worker nodes.  You can control the exported directory by setting the =SPOOL= configuration variable in =/etc/condor-ce/config.d=. We recommend setting up an NFS server on the CE dedicated to sharing the spool directory with the site's worker nodes instead of using a pre-existing NFS share. %RED%Root squash must be turned off and the directory must be readable/writeable by the condor user for HTCondor CE to function correctly.%ENDCOLOR%
 
@@ -595,11 +620,20 @@ blah_debug_save_submit_info=DIR_NAME
 where =DIR_NAME= is replaced by the directory to save the submit files that HTCondor-CE will use to submit jobs to the local jobmanager. Blah will then create a directory for each submission to the local jobmanager with the submit file, and proxy used.   %RED%Note, whitespace is important so do not put any spaces around the = sign.  In addition, the directory must be created and HTCondor-CE should have sufficient permissions to create directories within =DIR_NAME=. %ENDCOLOR%
 ---# Known Issues
 
----++!! Unable to handle RSL in HTCondor 8.0.x 
+---++!! Missing HTCondor tools
 
-In HTCondor 8.0.x, [[https://htcondor-wiki.cs.wisc.edu/index.cgi/tktview?tn=3772][a bug]] prevents the =globus_rsl= attribute on the submit side from working correctly.  This will hopefully be fixed in the next point-release of the series.
+Most of the HTCondor CE tools are just wrappers around existing HTCondor tools that load the CE-specific config. If you are trying to use HTCondor CE tools and you see the following error:
 
-Until then, we recommend setting the !RequestMemory, !RequestCPUs, and wall time directly in the HTCondor-G submission file or within the job routes.
+<pre class="screen">
+%UCL_PROMPT% condor_ce_job_router_tool
+%RED%/usr/bin/condor_ce_job_router_tool: line 6: exec: condor_job_router_tool: not found%ENDCOLOR%
+</pre>
+
+This means that the =condor_job_router_tool= (note this is not the CE version), is not in your =PATH=. This could mean a few things:
+
+   1. Either the condor RPM is missing or there are some other issues with it (try =rpm --verify condor=).
+   1. You have installed HTCondor in a non-standard location that is not in your =PATH=.
+   1. The condor_job_router_tool itself wasn't available until OSG's release of 8.0.7-5 (available in OSG 3.2's testing repo) or 8.2.3-1.1 (available in upcoming-testing).
 
 ---++!! Time skews
 
