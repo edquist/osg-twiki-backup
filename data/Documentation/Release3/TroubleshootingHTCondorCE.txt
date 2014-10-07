@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1412633239" format="1.1" version="1.6"}%
+%META:TOPICINFO{author="BrianLin" date="1412721164" format="1.1" version="1.7"}%
 %TOC{depth="3"}%
 
 ---+ Troubleshooting HTCondor CE
@@ -19,8 +19,26 @@ The HTCondor CE master log tracks status of all of the other HTCondor daemons. I
 <pre>/var/log/condor-ce/MasterLog</pre>
 
 *Key Contents*
+   * Startup and communication with other HTCondor daemons
 
 *What to look for:*
+
+   * Successful daemon startup:\
+   <pre class="file">10/07/14 14:20:27 <span style="background-color: yellow;">Started DaemonCore process</span> "/usr/sbin/condor_collector -f -port 9619", pid and pgroup = 7318</pre>
+
+---+++ Messages Log
+
+The messages file can include output of lcmaps, which handles mapping of X.509 proxies to unix usernames. If there are issues with the [[InstallHTCondorCE#5_2_Setup_Authorization][authorization setup]], the errors will appear here.
+
+*Location:*
+<pre>/var/log/messages</pre>
+
+*Key Contents*
+   * User authorization (lcmaps)
+
+*What to look for:*
+
+Specific error messages and methods to troubleshoot them can be found in #TroubleshootingGlexecLcmaps.
 
 #SchedLog
 ---+++ Schedd Log
@@ -31,8 +49,17 @@ The HTCondor CE schedd log contains information on all jobs that get submitted t
 <pre>/var/log/condor-ce/SchedLog</pre>
 
 *Key Contents*
+   * Every job submission to the CE
+   * User authorization
 
 *What to look for:*
+
+   * Job owner is authorized:\
+   <pre class="file">10/07/14 16:52:17 <span style="background-color: yellow;">Command=QMGMT_WRITE_CMD</span>, peer=<131.225.154.68:42262>
+10/07/14 16:52:17 <span style="background-color: yellow;">AuthMethod=GSI, AuthId=/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=People/CN=Brian Lin 1047,/GLOW/Role=NULL/Capability=NULL, CondorId=glow@users.opensciencegrid.org</span>
+   </pre>
+   * Job is submitted:\
+   <pre class="file">10/07/14 16:52:17 <span style="background-color: yellow;">Submitting new job 234.0</span></pre>
 
 #JobRouterLog
 ---+++ Job Router Log
@@ -65,6 +92,8 @@ The HTCondor CE grid manager log handles the submission and tracking of jobs to 
 <pre>/var/log/condor-ce/GridmanagerLog.*</pre>
 
 *Key Contents*
+   * Every attempt to submit a job to a batch system or other grid resource
+   * Status updates of submitted jobs 
 
 *What to look for:*
 
@@ -84,20 +113,24 @@ Replacing the %RED%red%ENDCOLOR% text with the hostname of the CE.
 
 ---++++ Troubleshooting
 
+   1. *If you don't see any results*, =condor_ce_run= will not return anything until the job completes on the CE, which can be an inordinate amount of time if the CE is busy. In the meantime, you can use [[#CondorQ][condor_ce_q]] to track the job on the CE. If you never see any results, you can pinpoint errors with [[#CondorTrace][condor_ce_trace]]
+   1. <b>If you get an error message that begins with =Failed to&hellip;= </b>, check connectivity to the CE with [[#CondorPing][condor_ce_ping]].
+
+#CondorQ
 ---+++ condor_ce_q
 
 ---++++ Usage
 
-To inspect jobs on a particular CE (%RED%condorce.example.com%ENDCOLOR%), use =condor_ce_q=: it can tell you the status of jobs in the queue or even specific attributes of a specific job ID. To get a list of jobs at the site, use the following:
+To inspect jobs on a particular CE (%RED%condorce.example.com%ENDCOLOR% in the following examples), =condor_ce_q= can tell you the status of jobs in the queue or even specific attributes of a specific job ID. To get a list of jobs at the site, use the following:
 
 <pre class="screen">
 %UCL_PROMPT% condor_ce_q -name %RED%condorce.example.com%ENDCOLOR% -pool %RED%condorce.example.com%ENDCOLOR%:9619
 </pre>
 
-If you need to inspect a specific job, you need to specify the =-long= flag and the job ID to see its !JobAd:
+If you need to inspect a specific job, you need to specify the =-l= flag and the job ID to see its !JobAd:
 
 <pre class="screen">
-%UCL_PROMPT% condor_ce_q -name %RED%condorce.example.com%ENDCOLOR% -pool %RED%condorce.example.com%ENDCOLOR%:9619 -l <Job ID>
+%UCL_PROMPT% condor_ce_q -name %RED%condorce.example.com%ENDCOLOR% -pool %RED%condorce.example.com%ENDCOLOR%:9619 -l &lt;Job ID&gt;
 </pre>
 
 If you're running the command on the CE you're interested in, you can omit the =-name= and =-pool= options. More information on the usage can be found in the [[http://research.cs.wisc.edu/htcondor/manual/v8.0/condor_q.html][Condor manual]]. 
@@ -106,25 +139,26 @@ If you're running the command on the CE you're interested in, you can omit the =
 
 For some reason or another, the jobs you're submiting to the CE aren't completing. =condor_ce_q= will tell you the status of your jobs and how to proceed with your troubleshooting:
 
-   * *If the schedd is down*, you will get a lengthy message about being unable to contact the schedd. To track down the issue, turn up the debugging on the CE with: <pre class="file">
+   1. *If the schedd is down*, you will get a lengthy message about being unable to contact the schedd. To track down the issue, turn up the debugging on the CE with: <pre class="file">
 MASTER_DEBUG = D_FULLDEBUG
 SCHEDD_DEBUG = D_FULLDEBUG
 </pre> Then look in [[#MasterLog][Master log]] and [[#SchedLog][Schedd log]] for any errors.
-   * *If your job is held*, then there should be an accompanying =HoldReason= that will give you information on why your job is being held. The =HoldReason= is stored in the !JobAd so you can use the long form of =condor_ce_q= to extract its value: <pre class="screen">
+   1. *If your job is held*, then there should be an accompanying =HoldReason= that will give you information on why your job is being held. The =HoldReason= is stored in the !JobAd so you can use the long form of =condor_ce_q= to extract its value: <pre class="screen">
 %UCL_PROMPT% condor_ce_q -name fermicloud133.fnal.gov -pool fermicloud133.fnal.gov:9619 -l <Job ID> | grep HoldReason</pre>
-   * *If your job is idle*, there can be many reasons but the most common cause is that your job isn't getting routed. To find out whether or not this is the case, use the [[#JobRouterTool][condor_ce_job_router_tool]].
+   1. *If your job is idle*, the most common cause is that it isn't getting routed. To find out whether or not this is the case, use the [[#JobRouterTool][condor_ce_job_router_tool]].
 
+#CondorPing
 ---+++ condor_ce_ping
 
 ---++++ Usage
 
-To test connectivity to the CE or to test the user that your proxy is getting mapped to, use the =condor_ce_ping= tool:
+Use the =condor_ce_ping= tool to test connectivity to the CE or to test the user that your proxy is getting mapped to:
 
-<pre class="file">
-env _condor_SEC_CLIENT_AUTHENTICATION_METHODS=GSI condor_ce_ping -verbose -name %RED%condorce.example.com%ENDCOLOR% -pool %RED%condorce.example.com%ENDCOLOR%:9619 WRITE
+<pre class="screen">
+%UCL_PROMPT% env _condor_SEC_CLIENT_AUTHENTICATION_METHODS=GSI condor_ce_ping -verbose -name %RED%condorce.example.com%ENDCOLOR% -pool %RED%condorce.example.com%ENDCOLOR%:9619 WRITE
 </pre>
 
-%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample output..."}%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample output&hellip;"}%
 Remote Version:              $CondorVersion: 8.0.7 Sep 24 2014 $
 Local  Version:              $CondorVersion: 8.0.7 Sep 24 2014 $
 Session ID:                  fermicloud133:27407:1412286981:3
@@ -142,26 +176,25 @@ If you're running the command on the CE you're interested in, you can omit the =
 
 ---++++ Troubleshooting
 
-   1. *If the HTCondor CE schedd (the condor daemon that schedules jobs) cannot be reached*, you will see the following error in your output: <pre class="screen">
-ERROR: couldn't locate (null)!
-</pre> To track down the issue, turn up the debugging on the CE with: <pre class="file">
+   1. <b>If you see =ERROR: couldn't locate (null)!= </b>, that means the  HTCondor CE schedd (the condor daemon that schedules jobs) cannot be reached. To track down the issue, turn up the debugging on the CE with:\ 
+   <pre class="file">
 MASTER_DEBUG = D_FULLDEBUG
-SCHEDD_DEBUG = D_FULLDEBUG
-</pre> Then look in [[#MasterLog][Master log]] and [[#SchedLog][Schedd log]] for any errors.
-   2. *If your user is being mapped incorrectly*, you will see something along the lines of: <pre class="screen">Remote Mapping:              gsi@unmapped</pre> This means that either your credentials aren't mapped on the CE or that authentication isn't set up at all. To set up authorization, refer to our [[InstallHTCondorCE#5_2_Setup_Authorization][installation document]].
+SCHEDD_DEBUG = D_FULLDEBUG</pre>\
+   Then look in [[#MasterLog][Master log]] and [[#SchedLog][Schedd log]] for any errors.
+   1. *If you see =gsi@unmapped= in the =Remote Mapping= line*, this means that either your credentials aren't mapped on the CE or that authentication isn't set up at all. To set up authorization, refer to our [[InstallHTCondorCE#5_2_Setup_Authorization][installation document]].
 
 #JobRouterTool
 ---+++ condor_ce_job_router_tool
 
 ---++++ Usage
 
-To help troubleshoot your routes and how jobs will match to them. To get a dump of all of your routes (the output will look long because it combines your routes with =JOB_ROUTER_DEFAULTS=), run the following command:
+Use the =condor_ce_job_router_tool= to help troubleshoot your routes and how jobs will match to them. To get a dump of all of your routes (the output will look long because it combines your routes with =JOB_ROUTER_DEFAULTS=), run the following command:
 
 <pre class="screen">
 %UCL_PROMPT_ROOT% condor_ce_job_router_tool -config
 </pre>
 
-%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample output..."}%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample output&hellip;"}%
 <pre class="screen">
 Route 1
 Name         : "Local_PBS"
@@ -230,10 +263,10 @@ ClassAd      :
 To see how the !JobRouter is treating a job that's currently in the CE's queue, you can pipe the output of =condor_ce_q=:
 
 <pre class="screen">
-%UCL_PROMPT_ROOT% condor_ce_q -l %RED%&lt;job id&gt;%ENDCOLOR% | condor_ce_job_router_tool -match-jobs -ignore-prior-routing -jobads -
+%UCL_PROMPT_ROOT% condor_ce_q -l %RED%&lt;Job ID&gt;%ENDCOLOR% | condor_ce_job_router_tool -match-jobs -ignore-prior-routing -jobads -
 </pre>
 
-%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample output..."}%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample output&hellip;"}%
 <pre class="screen">
 Matching jobs against routes to find candidate jobs.
 
@@ -253,13 +286,13 @@ Found candidate job src=162,0,route=Condor Test
 Or for a job that's already left the queue, you'll want to use =condor_ce_history=:
 
 <pre class="screen">
-%UCL_PROMPT_ROOT% condor_ce_history -l %RED%&lt;job id&gt;%ENDCOLOR% | condor_ce_job_router_tool -match-jobs -ignore-prior-routing -jobads -
+%UCL_PROMPT_ROOT% condor_ce_history -l %RED%&lt;Job ID&gt;%ENDCOLOR% | condor_ce_job_router_tool -match-jobs -ignore-prior-routing -jobads -
 </pre>
 
 %NOTE% If the proxy for the job has expired, the job will not match any routes. We can work around this constraint with some quick hacking:
 
 <pre class="screen">
-%UCL_PROMPT_ROOT% condor_ce_history -l %RED%&lt;job id&gt;%ENDCOLOR% | sed "s/^\(x509UserProxyExpiration\) = .*/\1 = `date +%s --date '+1 sec'`/" | condor_ce_job_router_tool -match-jobs -ignore-prior-routing -jobads -
+%UCL_PROMPT_ROOT% condor_ce_history -l %RED%&lt;Job ID&gt;%ENDCOLOR% | sed "s/^\(x509UserProxyExpiration\) = .*/\1 = `date +%s --date '+1 sec'`/" | condor_ce_job_router_tool -match-jobs -ignore-prior-routing -jobads -
 </pre>
 
 Alternatively, you can provide a file containing the !JobAd as the input and edit attributes to your liking within that file:
@@ -270,35 +303,86 @@ Alternatively, you can provide a file containing the !JobAd as the input and edi
 
 ---++++ Troubleshooting
 
-   1. *If your job isn't matching to any route*, you can tell when you see =0 candidate jobs found= in your output. This means that when compared to your !JobAd, the Umbrella constraint doesn't evaluate to =true=. When troubleshooting, you will want to look at all the expressions prior to the =ProcId= expression since it and everything following it is logic tacked on by the !JobRouter so that routed jobs don't get routed again (this logic is dealt with the flag =-ignore-prior-routing=).  %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample output..."}%<pre class="screen">
+   1. *If your job isn't matching to any route*, you can tell when you see =0 candidate jobs found= in your output. This means that when compared to your !JobAd, the Umbrella constraint doesn't evaluate to =true=. When troubleshooting, you will want to look at all the expressions prior to the =ProcId= expression since it and everything following it is logic tacked on by the !JobRouter so that routed jobs don't get routed again (this logic is dealt with the flag =-ignore-prior-routing=).  \
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample output&hellip;"}%<pre class="screen">
 Umbrella constraint: ((target.x509userproxysubject =!= UNDEFINED) && (target.x509UserProxyExpiration =!= UNDEFINED) && (time() < target.x509UserProxyExpiration) && (target.JobUniverse =?= 5 || target.JobUniverse =?= 1)) && ( (target.osgTestPBS is true) || (true) ) && (target.ProcId >= 0 && target.JobStatus == 1 && (target.StageInStart is undefined || target.StageInFinish isnt undefined) && target.Managed isnt "ScheddDone" && target.Managed isnt "External" && target.Owner isnt Undefined && target.RoutedBy isnt "htcondor-ce")
 %RED%0 candidate jobs found%ENDCOLOR%
 </pre> %ENDTWISTY%
-   1. *If your job matches more than one route*, the tool will tell you by showing all the routes below the job ID: <pre class="screen">Checking Job src=162,0 against all routes
-	Route Matches: Local_PBS
-	Route Matches: Condor Test
-</pre> To troubleshoot why this is occuring, you will need to look at the combined Requirements expressions for all routes and compare it to the !JobAd provided. The combined Requirements expression in my case is the part highlighted in %RED%RED%ENDCOLOR%:  <pre class="screen">Umbrella constraint: ((target.x509userproxysubject =!= UNDEFINED) && (target.x509UserProxyExpiration =!= UNDEFINED) && (time() < target.x509UserProxyExpiration) && (target.JobUniverse =?= 5 || target.JobUniverse =?= 1)) && %RED%( (target.osgTestPBS is true) || (true) )%ENDCOLOR% && (target.ProcId >= 0 && target.JobStatus == 1 && (target.StageInStart is undefined || target.StageInFinish isnt undefined) && target.Managed isnt "ScheddDone" && target.Managed isnt "External" && target.Owner isnt Undefined && target.RoutedBy isnt "htcondor-ce")
-</pre>Both routes evaluate to =true= for the !JobAd I provided because it had =osgTestPBS = true=. Make sure your routes are mutually exclusive, otherwise you may have jobs routed to the wrong places!
+   1. *If your job matches more than one route*, the tool will tell you by showing all the routes below the job ID:\ 
+   <pre class="screen">Checking Job src=162,0 against all routes
+Route Matches: Local_PBS
+Route Matches: Condor Test
+      </pre>\
+      To troubleshoot why this is occuring, you will need to look at the combined Requirements expressions for all routes and compare it to the !JobAd provided. The combined Requirements expression in my case is the part highlighted in %RED%RED%ENDCOLOR%:\
+<pre class="screen">Umbrella constraint: ((target.x509userproxysubject =!= UNDEFINED) && (target.x509UserProxyExpiration =!= UNDEFINED) && (time() < target.x509UserProxyExpiration) && (target.JobUniverse =?= 5 || target.JobUniverse =?= 1)) && %RED%( (target.osgTestPBS is true) || (true) )%ENDCOLOR% && (target.ProcId >= 0 && target.JobStatus == 1 && (target.StageInStart is undefined || target.StageInFinish isnt undefined) && target.Managed isnt "ScheddDone" && target.Managed isnt "Extenal" && target.Owner isnt Undefined && target.RoutedBy isnt "htcondor-ce")
+</pre>\
+Both routes evaluate to =true= for the !JobAd I provided because it had =osgTestPBS = true=. Make sure your routes are mutually exclusive, otherwise you may have jobs routed to the wrong places!
 
+#CondorTrace
 ---+++ condor_ce_trace
 
-If =condor_ce_run= fails (see example after the next test tool), then the =condor_ce_trace= tool will assist in verifying the install:
+If =condor_ce_run= fails, then the =condor_ce_trace= tool will assist in verifying the install:
 
 <pre class="screen">
-condor_ce_trace %RED%condorce.example.com%ENDCOLOR%
+condor_ce_trace --debug %RED%condorce.example.com%ENDCOLOR%
 </pre>
 
 %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show an example condor_ce_trace run"}%
 <pre class="screen">
-%UCL_PROMPT% condor_ce_trace red.unl.edu
+%UCL_PROMPT% condor_ce_trace fermicloud133.fnal.gov
 Testing HTCondor-CE collector connectivity.
-- Successful ping of collector on <129.93.239.129:9619>.
+***** condor_ping output *****
+10/07/14 12:54:40 recognized 60011 as command number.
+Remote Version:              $CondorVersion: 8.0.7 Sep 24 2014 $
+Local  Version:              $CondorVersion: 8.0.7 Sep 24 2014 $
+Session ID:                  fermicloud133:22494:1412704480:2403
+Instruction:                 60011
+Command:                     60011
+Encryption:                  none
+Integrity:                   MD5
+Authenticated using:         GSI
+All authentication methods:  GSI
+Remote Mapping:              glow@users.opensciencegrid.org
+Authorized:                  TRUE
+
+********************
+- Successful ping of collector on <131.225.154.68:9619>.
 
 Testing HTCondor-CE schedd connectivity.
-- Successful ping of schedd on <129.93.239.129:9620?sock=8556_0571_4>.
+***** condor_ping output *****
+10/07/14 12:54:40 recognized 60011 as command number.
+Remote Version:              $CondorVersion: 8.0.7 Sep 24 2014 $
+Local  Version:              $CondorVersion: 8.0.7 Sep 24 2014 $
+Session ID:                  fermicloud133:22495:1412704480:336
+Instruction:                 60011
+Command:                     60011
+Encryption:                  none
+Integrity:                   MD5
+Authenticated using:         GSI
+All authentication methods:  GSI
+Remote Mapping:              glow@users.opensciencegrid.org
+Authorized:                  TRUE
 
-Submitting job to schedd <129.93.239.129:9620?sock=8556_0571_4>
-- Successful submission; cluster ID 112170
+********************
+- Successful ping of schedd on <131.225.154.68:9620?sock=22489_8590_4>.
+
+Job ad, pre-submit: 
+    [
+        Log = "/cloud/login/blin/.log_5237_YCPBqo"; 
+        x509UserProxyVOName = "GLOW"; 
+        x509userproxysubject = "/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=People/CN=Brian Lin 1047/CN=proxy"; 
+        Out = "/cloud/login/blin/.stdout_5237_s9KGwd"; 
+        LeaveJobInQueue = ( StageOutFinish > 0 ) isnt true; 
+        x509UserProxyFirstFQAN = "/GLOW/Role=NULL/Capability=NULL"; 
+        x509userproxy = "/tmp/x509up_u47646"; 
+        x509UserProxyFQAN = "/GLOW/Role=NULL/Capability=NULL"; 
+        Args = ""; 
+        Err = "/cloud/login/blin/.stderr_5237_j_FluG"; 
+        Cmd = "/bin/env"; 
+        x509UserProxyExpiration = 1412736896
+    ]
+Submitting job to schedd <131.225.154.68:9620?sock=22489_8590_4>
+- Successful submission; cluster ID 229
 Resulting job ad: 
     [
         BufferSize = 524288; 
@@ -309,8 +393,8 @@ Resulting job ad:
         RequestCpus = 1; 
         Err = "_condor_stderr"; 
         BufferBlockSize = 32768; 
-        x509userproxy = "/tmp/x509up_u1221"; 
-        TransferOutputRemaps = "_condor_stdout=/home/cse496/bbockelm/projects/condor-ce/.stdout_23011_RD17wL;_condor_stderr=/home/cse496/bbockelm/projects/condor-ce/.stderr_23011_XeO5dg"; 
+        x509userproxy = "/tmp/x509up_u47646"; 
+        TransferOutputRemaps = "_condor_stdout=/cloud/login/blin/.stdout_5237_s9KGwd;_condor_stderr=/cloud/login/blin/.stderr_5237_j_FluG"; 
         ImageSize = 100; 
         CurrentTime = time(); 
         WantCheckpoint = false; 
@@ -321,7 +405,7 @@ Resulting job ad:
         JobUniverse = 5; 
         ExitBySignal = false; 
         HoldReasonCode = 16; 
-        Iwd = "/home/cse496/bbockelm/projects/condor-ce"; 
+        Iwd = "/cloud/login/blin"; 
         NumRestarts = 0; 
         CommittedSuspensionTime = 0; 
         Owner = undefined; 
@@ -338,7 +422,7 @@ Resulting job ad:
         JobPrio = 0; 
         RootDir = "/"; 
         CurrentHosts = 0; 
-        x509UserProxyExpiration = 1367717162; 
+        x509UserProxyExpiration = 1412736896; 
         StreamOut = false; 
         WantRemoteIO = true; 
         OnExitRemove = true; 
@@ -349,17 +433,19 @@ Resulting job ad:
         LocalUserCpu = 0.0; 
         LocalSysCpu = 0.0; 
         RemoteSysCpu = 0.0; 
-        ClusterId = 112170; 
-        Log = "/home/cse496/bbockelm/projects/condor-ce/.log_23011_QRcWCU"; 
+        ClusterId = 229; 
+        Log = "/cloud/login/blin/.log_5237_YCPBqo"; 
         CompletionDate = 0; 
         RemoteWallClockTime = 0.0; 
+        x509UserProxyFQAN = "/GLOW/Role=NULL/Capability=NULL"; 
         LeaveJobInQueue = JobStatus == 4 && ( CompletionDate is UNDDEFINED || CompletionDate == 0 || ( ( time() - CompletionDate ) < 864000 ) ); 
-        CondorVersion = "$CondorVersion: 7.9.6 Apr 22 2013 BuildID: RH-7.9.6-0.2.de1f9cc.git.lark.osg.el6 PRE-RELEASE-UWCS $"; 
+        CondorVersion = "$CondorVersion: 8.0.7 Sep 24 2014 $"; 
         MyType = "Job"; 
         StreamErr = false; 
         HoldReason = "Spooling input data files"; 
         PeriodicHold = false; 
         ProcId = 0; 
+        x509UserProxyFirstFQAN = "/GLOW/Role=NULL/Capability=NULL"; 
         Out = "_condor_stdout"; 
         JobStatus = 5; 
         PeriodicRelease = false; 
@@ -368,22 +454,152 @@ Resulting job ad:
         MaxHosts = 1; 
         TotalSuspensions = 0; 
         CommittedSlotTime = 0; 
-        x509userproxysubject = "/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=People/CN=Brian Bockelman/CN=4221328"; 
-        CondorPlatform = "$CondorPlatform: X86_64-ScientificLinux_6.3 $"; 
+        x509userproxysubject = "/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=People/CN=Brian Lin 1047/CN=proxy"; 
+        x509UserProxyVOName = "GLOW"; 
+        CondorPlatform = "$CondorPlatform: X86_64-CentOS_6.5 $"; 
         ShouldTransferFiles = "YES"; 
         ExitStatus = 0; 
-        QDate = 1367674672; 
-        EnteredCurrentStatus = 1367674672
+        QDate = 1412704480; 
+        EnteredCurrentStatus = 1412704480
     ]
-Spooling cluster 112170 files to schedd <129.93.239.129:9620?sock=8556_0571_4>
+Spooling cluster 229 files to schedd <131.225.154.68:9620?sock=22489_8590_4>
 - Successful spooling
+Querying job status (1/600)
 Job status: Held
-Job transitioned from Held to Idle
-Job transitioned from Idle to Running
-Job transitioned from Running to Completed
-- Job was successful
+Querying job status (2/600)
+Job status: Idle
+Querying job status (3/600)
+Job status: Idle
+Querying job status (4/600)
+Job status: Idle
+Querying job status (5/600)
+Job status: Idle
+Querying job status (6/600)
+Job status: Idle
+Querying job status (7/600)
+Job status: Idle
+Querying job status (8/600)
+Job status: Idle
+Querying job status (9/600)
+Job status: Idle
+Querying job status (10/600)
+Job status: Idle
+Querying job status (11/600)
+Job status: Idle
+Querying job status (12/600)
+Job status: Idle
+Querying job status (13/600)
+Job status: Idle
+Querying job status (14/600)
+Job status: Idle
+Querying job status (15/600)
+Job status: Idle
+Querying job status (16/600)
+Job status: Idle
+Querying job status (17/600)
+Job status: Idle
+Querying job status (18/600)
+Job status: Idle
+Querying job status (19/600)
+Job status: Idle
+Querying job status (20/600)
+Job status: Idle
+Querying job status (21/600)
+Job status: Idle
+Querying job status (22/600)
+Job status: Idle
+Querying job status (23/600)
+Job status: Idle
+Querying job status (24/600)
+Job status: Idle
+Querying job status (25/600)
+Job status: Idle
+Querying job status (26/600)
+Job status: Idle
+Querying job status (27/600)
+Job status: Idle
+Querying job status (28/600)
+Job status: Idle
+Querying job status (29/600)
+Job status: Idle
+Querying job status (30/600)
+Job status: Idle
+Querying job status (31/600)
+Job status: Idle
+Querying job status (32/600)
+Job status: Idle
+Querying job status (33/600)
+Job status: Idle
+Querying job status (34/600)
+Job status: Idle
+Querying job status (35/600)
+Job status: Idle
+Querying job status (36/600)
+Job status: Idle
+Querying job status (37/600)
+Job status: Idle
+Querying job status (38/600)
+Job status: Idle
+Querying job status (39/600)
+Job status: Idle
+Querying job status (40/600)
+Job status: Idle
+Querying job status (41/600)
+Job status: Idle
+Querying job status (42/600)
+Job status: Idle
+Querying job status (43/600)
+Job status: Idle
+Querying job status (44/600)
+Job status: Idle
+Querying job status (45/600)
+Job status: Idle
+Querying job status (46/600)
+Job status: Idle
+Querying job status (47/600)
+Job status: Idle
+Querying job status (48/600)
+Job status: Completed
+***** Job output *****
+_CONDOR_ANCESTOR_22435=22441:1412360582:256213668
+_CONDOR_ANCESTOR_22441=5347:1412704518:1792957092
+_CONDOR_ANCESTOR_5347=5356:1412704519:2135643703
+PATH=/bin:/usr/bin:/sbin:/usr/sbin
+OSG_JOB_CONTACT=host.name/jobmanager-condor
+_CONDOR_SLOT=
+OSG_DEFAULT_SE=None
+OSG_GRID=/etc/osg/wn-client/
+TMPDIR=/var/lib/condor/execute/dir_5347
+GLOBUS_LOCATION=/usr
+_CONDOR_SCRATCH_DIR=/var/lib/condor/execute/dir_5347
+_CONDOR_JOB_IWD=/var/lib/condor/execute/dir_5347
+TEMP=/var/lib/condor/execute/dir_5347
+OSG_HOSTNAME=fermicloud136.fnal.gov
+OSG_STORAGE_ELEMENT=False
+OSG_SITE_NAME=local
+_CONDOR_JOB_PIDS=
+OSG_APP=/share/osg/app
+OSG_WN_TMP=None
+X509_USER_PROXY=/var/lib/condor/execute/dir_5347/x509up_u47646
+TMP=/var/lib/condor/execute/dir_5347
+_CONDOR_JOB_AD=/var/lib/condor/execute/dir_5347/.job.ad
+OSG_SITE_WRITE=None
+OSG_GLEXEC_LOCATION=None
+OSG_DATA=UNAVAILABLE
+HOME=/home/glow
+_CONDOR_MACHINE_AD=/var/lib/condor/execute/dir_5347/.machine.ad
+OSG_SITE_READ=None
+********************
 </pre>
 %ENDTWISTY%
+
+The tool pings both the CE's Schedd and Collector daemons to see if you have permission to submit to the CE, provides the submit script that it submits to the CE  and tracks the resultant job.
+
+---++++ Troubleshooting
+
+   1. <b>If the pings fail with  =Failed ping&hellip;= </b>, make sure that the HTCondor CE daemons are running on the CE.
+   1. *If you see =gsi@unmapped= in the =Remote Mapping= line*, this means that either your credentials aren't mapped on the CE or that authentication isn't set up at all. To set up authorization, refer to our [[InstallHTCondorCE#5_2_Setup_Authorization][installation document]].
+   1. *If the job submits but doesn't complete*, you will need to use [[#CondorQ][condor_ce_q]] to investigate why the job isn't completing.
 
 ---+++ condor_ce_status
 
@@ -434,11 +650,9 @@ More information on the usage can be found in the [[http://research.cs.wisc.edu/
 
 HTCondor CE is still changing often, and so it is important to make sure that the relevant RPMs are up-to-date.
 
-   1. Determine packages to check on your system\
-       <p>How?</p>
-   1. Update packages\
-       <pre class="screen">yum update <em>packages</em></pre>\
-       <p>If you just want to see the packages to update, but do not want to perform the update now, answer <code>N</code> at the prompt.</p>
+<pre class="screen">yum update <em>htcondor-ce*</em></pre>\
+
+If you just want to see the packages to update, but do not want to perform the update now, answer <code>N</code> at the prompt.
 
 ---++ HTCondor CE Troubleshooting Items
 
