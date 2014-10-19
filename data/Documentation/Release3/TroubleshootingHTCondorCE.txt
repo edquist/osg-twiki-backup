@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1413580908" format="1.1" version="1.15"}%
+%META:TOPICINFO{author="BrianLin" date="1413742469" format="1.1" reprev="1.16" version="1.16"}%
 %TOC{depth="3"}%
 
 ---+ Troubleshooting HTCondor CE
@@ -15,7 +15,7 @@ Other HTCondor CE pages:
 The following files are located on the CE host.
 
 #MasterLog
----+++ MasterLog
+---+++ !MasterLog
 
 The HTCondor CE master log tracks status of all of the other HTCondor daemons and thus contains valuable information if they fail to start. 
 
@@ -35,7 +35,7 @@ Successful daemon start-up. The following line shows that the Collector daemon s
    <pre class="file">10/07/14 14:20:27 <span style="background-color: #FFCCFF;">Started DaemonCore process "/usr/sbin/condor_collector -f -port 9619"</span>, pid and pgroup = 7318</pre>
 
 #SchedLog
----+++ ScheddLog
+---+++ !ScheddLog
 
 The HTCondor CE schedd log contains information on all jobs that are submitted to the CE. It contains valuable information when trying to troubleshoot authentication issues. 
 
@@ -59,9 +59,13 @@ To increase the debug level in this log, set the following value in =/etc/condor
    * Job is submitted to the CE queue: \
    <pre class="file">10/07/14 16:52:17 <span style="background-color: #FFCCFF;">Submitting new job 234.0</span></pre>\
    In this example, the ID of the submitted job is =234.0=.
+   * Missing negotiator: \
+   <pre class="file">10/18/14 17:32:21 <span style="background-color: #FFCCFF;">Can't find address for negotiator</span>
+10/18/14 17:32:21 <span style="background-color: #FFCCFF;">Failed to send RESCHEDULE to unknown daemon:</span></pre>\
+   Since HTCondor CE doesn't manage any resources, it doesn't run a negotiator daemon by default and this error message is expected.
 
 #JobRouterLog
----+++ JobRouterLog
+---+++ !JobRouterLog
 
 The HTCondor CE job router log produced by the job router itself and thus contains valuable information when trying to troubleshoot issues with job routing.
 
@@ -76,6 +80,7 @@ To increase the debug level in this log, set the following value in =/etc/condor
    * Every attempt to route a job
    * Routing success messages
    * Job attribute changes, based on chosen route
+   * Job submission errors to an HTCondor batch system
 
 *What to look for:*
 
@@ -87,7 +92,7 @@ To increase the debug level in this log, set the following value in =/etc/condor
    * If your job is not routed, there will not be any evidence of it within the log itself. To investigate why your jobs are not being routed, use the [[#CondorJobRouterTool][condor_ce_job_router_tool]]
 
 #GridmanagerLog
----+++ GridmanagerLog
+---+++ !GridmanagerLog
 
 The HTCondor CE grid manager log  tracks the submission and status of jobs on the batch system. It contains valuable information when trying to troubleshoot jobs that have been routed but failed to complete. Details on how to read the Gridmanager log can be found on the [[https://htcondor-wiki.cs.wisc.edu/index.cgi/wiki?p=GridmanagerLog][HTCondor Wiki]]. 
 
@@ -653,6 +658,7 @@ target.Owner isnt Undefined &&
 target.RoutedBy isnt "htcondor-ce")
 </pre>\
       <p>Both routes evaluate to =true= for the !JobAd because it had =osgTestPBS = true=. Make sure your routes are mutually exclusive, otherwise you may have jobs routed incorrectly! See the [[JobRouterRecipes][job route configuration page]] for more details.</p>
+   1. *If it is unclear why jobs are matching a route:* wrap the route's requirements expression in [[JobRouterRecipes#2_7_Debugging_Routes][debug()]] and check the [[#JobRouterLog][JobRouterLog]] for more information.
 
 ---+++ condor_ce_status
 
@@ -726,7 +732,15 @@ Use [[#CondorJobRouterTool][condor_ce_job_router_tool]] to see why your idle job
 
 ---++++ Idle jobs on CE: Verify correct operation within the BLAHP/GAHP
 
-The BLAHP/GAHP are responsible for submitting and tracking jobs on your batch system and their output is logged in the [[#GridmanagerLog][Gridmanager logs]]. Look for =gm state change&hellip;= lines to figure out where the issures are occuring. 
+The BLAHP/GAHP are responsible for submitting and tracking jobs on your batch system and their output is logged in the [[#JobRouterLog][JobRouterLog]] or the [[#GridmanagerLog][Gridmanager logs]]. Look for =gm state change&hellip;= lines to figure out where the issures are occuring. 
+
+*Sample failure*
+
+The following error is found in the [[#JobRouterLog][JobRouterLog]] when the job router daemon cannot submit the routed job to an HTCondor batch system:
+
+<pre class="file">10/19/14 13:09:15 Can't resolve collector condorce.example.com; skipping
+10/19/14 13:09:15 ERROR (pool condorce.example.com) Can't find address of schedd
+10/19/14 13:09:15 JobRouter failure (src=5.0,route=Local_Condor): failed to submit job</pre>
 
 *Next actions*
 
@@ -752,7 +766,7 @@ If the underlying batch system does not run a simple manual job, it will probabl
 
 ---++++ Idle jobs on CE: Verify ability to change permissions on key files
 
-HTCondor CE needs the ability to write and chown files in its =spool= directory. If it cannot, jobs will not run at all.
+HTCondor CE needs the ability to write and chown files in its =spool= directory and if it cannot, jobs will not run at all. Spool permission errors can appear in the [[#SchedLog][SchedLog]] and the [[#JobRouterLog][JobRouterLog]].
 
 *Sample failure*
 
@@ -766,7 +780,7 @@ HTCondor CE needs the ability to write and chown files in its =spool= directory.
 
 ---+++ Jobs stay idle on a remote host submitting to the CE
 
-If you are submitting your job from a separate submit host to the CE and it stays idle in the queue forever, this means that your job cannot contact the CE for submission or it is not authorized to run there. Note that jobs may take several minutes or longer if the CE is busy.
+If you are submitting your job from a separate submit host to the CE, it stays idle in the queue forever, and you do not see a resultant job in the CE's queue, this means that your job cannot contact the CE for submission or it is not authorized to run there. Note that jobs may take several minutes or longer if the CE is busy.
 
 ---++++ Remote idle jobs: Can you contact the CE?
 
