@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ShawnMcKee" date="1413492861" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="MarianBabik" date="1413902526" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="DeployperfSONAR"}%
 %LINKCSS%
 
@@ -14,21 +14,97 @@
 
 %STARTINCLUDE%
 
-This page documents installing or upgrading *perfSONAR* for WLCG/OSG Sites.   Our goal is to support *all* WLCG/OSG sites in deploying, configuring and registering perfSONAR instances so we can gather network metrics about the network paths to other WLCG sites.   Information on motivations  and requirements  is  available  at  https://twiki.opensciencegrid.org/bin/view/Documentation/IntegrationPS
+This page documents installing or upgrading *perfSONAR* for WLCG/OSG Sites.  In case, this is the first time you're trying to install and integrate your perfSONAR into WLCG or OSG, please consult https://twiki.opensciencegrid.org/bin/view/Documentation/IntegrationPS
 
+For any questions or help with WLCG perfSONAR setup, please contact wlcg-perfsonar-support@cern.ch or open GGUS ticket for WLCG perfSONAR Support Unit (available from 5th November).
+
+The current baseline version for WLCG/OSG is perfSONAR 3.4, we recommend all sites to reinstall. In case you have updated to 3.3 and secured appropriately against !ShellShock and !POODLE, please see the [[#UpgradeGuide][Upgrade Guide]]
+
+<!--
 For OSG/WLCG  installations  that  are  currently running  v3.3.x and were secured appropriately such that =Shellshock=  compromise  wasn't  a risk, please see  the  Upgrade section  below.
 
 For  other  installations that  are running  older versions or  may have  been at risk for  being compromised,  we  are  suggesting  a clean (re)install (see  "Installing  perfSONAR" below).   *NOTE:*  A  clean (re)install will  lose all existing data on the  node.   If you want  to try to preserve the data  (not recommended) please see http://docs.perfsonar.net/manage_update.html#migrating-from-a-3-3-2-livecd-liveusb for information on backing  up  and migrating your  data.   
+-->
 
 ---++ Installing perfSONAR
 
-The  perfSONAR  team has  assembled  very nice  documentation  covering perfSONAR  at  http://docs.perfsonar.net/.    Specific  instructions  for  installing perfSONAR  are  available at  http://docs.perfsonar.net/install_getting.html.    We  are recommending  all  sites  use  the  "CentOS  6  Netinstall" option unless  they have requirements  that  would require  a different install.
+The following is step by step guide to install perfSONAR 3.4 for WLCG and OSG. For general troubleshooting please go [[https://twiki.opensciencegrid.org/bin/view/Documentation/TroubleFAQPS][here]], in case you have any questions please contact wlcg-perfsonar-support@cern.ch or open GGUS ticket for WLCG perfSONAR support unit. For OSG sites that don't participate in WLCG, please contact OSG operations. 
 
+---+++ Installation
+   * For sites using perfSONAR Net Install - please follow http://docs.perfsonar.net/install_centos_netinstall.html#step-by-step-guide
+   * For sites using perfSONAR Full Install - please follow http://docs.perfsonar.net/install_centos_fullinstall.html#step-by-step-guide
+   * For general configuration of perfSONAR - please follow http://docs.perfsonar.net/install_config_first_time.html
 
+---+++ Choosing Configuration Method
 
+For sites participating in WLCG, please follow [[#WlcgConfig][WLCG specific configuration]], for all the others please follow [[#OsgConfig][OSG specific configuration]]. Please avoid following both guides, they're mutually exclusive.
+
+#WlcgConfig
+---+++ WLCG Configuration
+ 
+   * We recommend all sites to stop NDT/NPAD on your instances - please follow http://docs.perfsonar.net/manage_services.html#enabling-disabling-services
+   * Please configure your mesh URL at /opt/perfsonar_ps/mesh_config/etc/agent_configuration.conf - set this according to the following table available (link) - if you're unable to find your perfSONAR hostname in the table please contact WLCG perfSONAR support.
+   <verbatim>
+<mesh>
+    configuration_url             <replace with URL from the table>
+</mesh>
+   </verbatim>
+   * Security configuration. We strongly recommend all sites to customize their iptables rules and block ports 80 and 443. The following rules are recommended:
+      <verbatim>
+# Allow HTTP/HTTPS only from CERN, OSG and your site's subnets 
+#  replace <LOCAL_SUBNET> with your site subnet/netmask, e.g. 193.87.10.0/255.255.255.0
+iptables -I INPUT 5 -p tcp --dport 443 -s OSG_NET) -j ACCEPT
+iptables -I INPUT 5 -p tcp --dport 443 -s CERN_NET  -j ACCEPT
+iptables -I INPUT 5 -p tcp --dport 443 -s <LOCAL_SUBNET> -j ACCEPT
+iptables -I INPUT 5 -p tcp --dport 443 -j REJECT
+
+iptables -I INPUT 5 -p tcp --dport 80 -s OSG_NET  -j ACCEPT
+iptables -I INPUT 5 -p tcp --dport 80 -s CERN_NET  -j ACCEPT
+iptables -I INPUT 5 -p tcp --dport 80 -s <LOCAL_SUBNET> -j ACCEPT
+iptables -I INPUT 5 -p tcp --dport 80 -j REJECT
+
+# Disable old ports
+iptables -I INPUT 5 -p tcp -m multiport --dports 10101:10300 -j REJECT
+iptables -I INPUT 5 -p udp -m multiport --dports 10101:10300 -j REJECT
+iptables -I INPUT 5 -p tcp --dport 7 -j REJECT
+iptables -I INPUT 5 -p udp --dport 7 -j REJECT
+
+/sbin/service iptables save
+   </verbatim>
+   * In case you have central/campus firewall, please ensure the following ports are opened on it for all your perfSONAR hosts:
+   <verbatim>
+# General purpose ports needed to do perfSONAR measurements
+ICMP/type 255, 
+NTP UDP port:123, 
+TRACEROUTE/PING UDP ports: 33434-33634
+OWAMP TCP port:861, UDP ports: 8760-9960
+BWCTL TCP ports: 4823, 6001-6200, 5000-5900  UDP ports: 6001-6200, 5000-5900 
+
+# HTTP or HTTPS ports are needed to access your measurement archive and check availability of your instances by the infrastructure monitoring
+HTTP/HTTPS ports 80,443 source subnets OSG_NET and CERN_NET 
+   </verbatim>
+   * We recommend to configure perfSONAR in dual-stack IPv4 and IPv6 
+      * In case your site has IPv6 support, the only necessary step is to get both A and AAAA records for your perfSONAR DNS names (as well as ensuring the reverse is in place).
+   *  Finally, please ensure your perfSONARs are registered either in OIM or in GOCDB (service types to use are net.perfSONAR.Bandwidth, net.perfSONAR.Latency)
+
+For any further questions, please consult [[https://twiki.opensciencegrid.org/bin/view/Documentation/TroubleFAQPS][Troubleshooting]] pages, perfSONAR documentation (http://docs.perfsonar.net) or contact WLCG or OSG supporting units. 
+
+#OsgConfig
+---+++ OSG Configuration
+
+#UpgradeGuide  
 ---++ Upgrading perfSONAR
 
+Please run the following:
+<verbatim>
+# yum clean all
+# yum update
+# reboot
+</verbatim> 
 
+Note, it's very important to reboot otherwise your update is incomplete. 
+
+Please reconfigure your boxes following either [[#WlcgConfig][WLCG Configuration]] or [[#OsgConfig][OSG Configuration]]. If unsure about which method to follow, please check [[#ConfigMethod][Choosing Configuration Method]]. For any further questions, please consult [[https://twiki.opensciencegrid.org/bin/view/Documentation/TroubleFAQPS][Troubleshooting]] pages, perfSONAR documentation (http://docs.perfsonar.net) or contact directly WLCG or OSG perfSONAR support units. 
 
 
 %STOPINCLUDE%
