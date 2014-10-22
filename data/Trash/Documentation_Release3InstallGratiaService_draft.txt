@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1413998509" format="1.1" version="1.3"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1414006357" format="1.1" reprev="1.4" version="1.4"}%
 ---+!! Draft document from InstallGratiaService r18 (10/22/2014)
 
 %DOC_STATUS_TABLE%
@@ -364,7 +364,7 @@ Complete!
 ---+ Configure
 The configuration requires some initial steps.
 %STARTSECTION{"ConfigureMysqlServer"}%
----++ Configure !MySQL Database 
+---++ Configure the !MySQL Database 
 Before you will be able configure Gratia Service you will need to have access to the !MySQL database.  
 
 ---+++ New !MySQL installation
@@ -451,21 +451,14 @@ Here:
 
 
 %STARTSECTION{"ConfigureGratiaService"}%
----++ Configure Gratia Service 
+---++ Configure the Gratia Service 
 Starting with v1.16, the Gratia-Service Package no longer has mysql-server package as a dependency because the database may be installed on another machine.
 Below you can find two possible scenarios, one where Gratia Service and !MySQL are running in one node and the Gratia Service has full access to !MySQL, the other where they are running in separate nodes or at least you and the Gratia Service have limited access to the !MySQL installation.
 
 Officially only the former is supported for Gratia Service v1.15 or earlier.
 
----+++ Gratia and !MySQL running on the same node
-
-Think of good names for the following:
-   *  %RED%DB_ROOT_USERNAME%ENDCOLOR% : for example, root
-   *  %RED%DB_ROOT_PASSWORD%ENDCOLOR% : for example, some_secret_password1
-   *  %RED%DB_USER_USERNAME%ENDCOLOR% : usually, gratia
-   *  %RED%DB_USER_PASSWORD%ENDCOLOR% : for example, some_secret_password2
-And assign those values to the corresponding lines in =/etc/gratia/services/service-authorization.properties= as shown here:
-<pre class="file">
+---+++ Authentication to the !MySQL database
+To authenticate with the database you need to enter the correct values in =/etc/gratia/services/service-authorization.properties=: <pre class="file">
 service.mysql.rootuser=%RED%DB_ROOT_USERNAME%ENDCOLOR%
 service.mysql.rootpassword=%RED%DB_ROOT_PASSWORD%ENDCOLOR%
 service.mysql.user=%RED%DB_USER_USERNAME%ENDCOLOR%
@@ -475,158 +468,47 @@ service.reporting.user=reader
 service.reporting.password=reader
 </pre>
 
-And also edit the following lines in =/etc/gratia/services/service-configuration.properties=
-<pre class="file">
-service.mysql.url=jdbc:mysql://%RED%DBHOSTNAME:DBPORT%ENDCOLOR%/gratia
-....
-service.open.connection=http://%RED%HOSTNAME%ENDCOLOR%:8880
-service.secure.connection=https://%RED%HOSTNAME%ENDCOLOR%:8443
-</pre>
-Here, HOSTNNAME should be the fully qualified host name where the Gratia-Service is installed.
-   * The DBHOSTNAME can be localhost or the same vales as HOSTNAME
-   * The DBPORT should be changed to 3306 (default !MySQL port) or, if changed in the /etc/my.cnf modified earlier, to that value. 
+Pay attention to the words in %RED%RED%ENDCOLOR%:
+   *  %RED%DB_ROOT_USERNAME%ENDCOLOR% : e.g. =root= , user with admin privileges on the Gratia databases. This has to be the same value entered in !MySQL by you or the DBA administrators (see the !MySQL configuration section above). If the value is left empty or the line is commented, Gratia and the install-database will assume =root= (default value).
+   *  %RED%DB_ROOT_PASSWORD%ENDCOLOR% : This is the password necessary to connect to !MySQL as DB_ROOT_USERNAME, e.g. some_secret_password1. This has to be the same value entered in !MySQL by you or the DBA administrators (see the !MySQL configuration section above). If for some reason you did not set this password (*not recommended, please add a password*), you need to comment this line in the configuration file and Gratia will assume that DB_ROOT_USERNAME does not have a password set in !MySQL.
+   *  %RED%DB_USER_USERNAME%ENDCOLOR% : e.g. =gratia= , user with update (read and write) capability on the Gratia database, used by the Gratia Service for its normal operation.  
+   *  %RED%DB_USER_PASSWORD%ENDCOLOR% : This is the password necessary to connect to !MySQL as DB_USER_USERNAME, e.g. some_secret_password2
 
-Later when you run install-database, it will take care of everything:
+*If Gratia Service and !MySQL are on the same host* and you have full access to !MySQL, then DB_USER_USERNAME and DB_ROOT_PASSWORD have to concord with the !MySQL configuration but DB_USER_USERNAME and DB_USER_PASSWORD can be chosen arbitrarily. The =install-database= script will set them correctly in the database.
 
+*If Gratia Service and !MySQL are on different hosts or you are using with limited access a database administrated by a DBA* then the DBA will provide you the correct values for DB_USER_USERNAME and DB_USER_PASSWORD that have to match the ones used in the !MySQL configuration (see section above).
 
+%NOTE% If you are upgrading from a previous version of Gratia-Service which is less than 1.16.0, the upgrade will not replace /etc/gratia/services/service-authorization.properties and your current =/etc/gratia/services/service-authorization.properties= does not have ==service.mysql.rootuser===. If that is the case, install-database will detect the absence of ==service.mysql.rootuser===  in =/etc/gratia/services/service-authorization.properties= and will assume DB_ROOT_USERNAME to be =root=. So, just make sure that the !MySQL DBA sets DB_ROOT_USERNAME to "root" or edit =/etc/gratia/services/service-authorization.properties= to add the missing line.
 
----+++ When Gratia-Service and !MySQL are running in two separate nodes:
+Optionally, the ==gratia-reporting== service uses a user/password for read-only access to the database: ==service.reporting.user== and ==service.reporting.password==. It is recommended to leave these as they are but you may change them if you desire.
 
-It is now the !MySQL DBA's responsibility to come up with the following values and set them in !MySQL accordingly
-   * DB_ROOT_USERNAME : for example, root
-   * DB_ROOT_PASSWORD : for example, some_secret_password1
-
-The !MySQL DBA must execute the following mysql commands in the node where MySQL is running
-<pre class="rootscreen">
-mysql> use mysql;
-mysql> grant all privileges on      *.* to DB_ROOT_USERNAME@GS_NODENAME identified by DB_ROOT_PASSWORD;
-mysql> update user set Grant_priv="Y" where Host=GS_NODENAME and User=ROOT_USERNAME;
-mysql> grant all privileges on gratia.* to DB_ROOT_USERNAME@GS_NODENAME identified by DB_ROOT_PASSWORD;
-</pre>
-Here, GS_NODENAME is where the Gratia-Service is running.
-
-The Gratia-Service administrator should communicate with the !MySQL DBA to learn the following two values
-   * DB_ROOT_USERNAME : from DBA
-   * DB_ROOT_PASSWORD : from DBA
-and edit /etc/gratia/services/service-authorization.properties
-<pre class="file">
- service.mysql.rootuser=DB_ROOT_USERNAME
- service.mysql.rootpassword=DB_ROOT_USERNAME
-</pre>
-
-%NOTE% If DB_ROOT_USERNAME and DB_ROOT_PASSWORD in service-authorization.properties are empty, install-database will assume "root" for DB_ROOT_USERNAME and assume that this DB_ROOT_USERNAME does not have password set in !MySQL, please coordinate with the DBA.
-
-%NOTE% If you are upgrading from a previous version of Gratia-Service which is less than 1.16.0, the upgrade will not replace /etc/gratia/services/service-authorization.properties and your current /etc/gratia/services/service-authorization.properties does not have service.mysql.rootuser=. If that is the case, install-database will detect the absence of service.mysql.rootuser=  in /etc/gratia/services/service-authorization.properties and will assume DB_ROOT_USERNAME to be root. So, just make sure that the !MySQL DBA sets DB_ROOT_USERNAME to "root" 
-
-
-But the following two should be still determined by the Gratia-Service administrator 
-   * DB_USER_USERNAME : usually, gratia
-   * DB_USER_PASSWORD : for example, some_secret_password2
-
-and set in /etc/gratia/services/service-authorization.properties
-<pre class="file"> 
-service.mysql.user=DB_USER_USERNAME
-service.mysql.password=DB_USER_PASSWORD
-</pre>
-
-The Gratia-Service administrator should also edit the following lines in /etc/gratia/services/service-configuration.properties
-<pre class="file"> 
-service.mysql.url=jdbc:mysql://DBHOSTNAME:DBPORT/gratia
-....
-service.open.connection=http://HOSTNAME:8880
-service.secure.connection=https://HOSTNAME:8443
-</pre>
-Here, HOSTNNAME should be the fully qualified host name where the Gratia-Service is installed.
-   * The DBHOSTNAME should be the fully qualified host name where the !MySQL is running
-   * The DBPORT should be changed to 3306 (default !MySQL port) or, if changed in the /etc/my.cnf modified by DBA, to that value. 
-
-Run /usr/share/gratia/install-database  and will detect it if Gratia-Service and !MySQL are in separate nodes by looking at service-configuration.properties.
-
-
-
----+++ Special instructions for those who want to use !MySQL 5.6
-We have tested Gratia-Service against !MySQL 5.6.
-Gratia-Service DB that was running in !MySQL 5.1 is copied using mysqldump and restored in !MySQL 5.6.
-One error was found in association with BacklogStatisticsHouly table and TableStatisticsHouly table.
-Recommended recipe is,
-   * Make sure your !MySQL 5.6 is configued to use latin1 for (Database, Server, System). Connection can use utf-8 (Use of utf-8 causes "Key length too large" error during Gratia-Service initialization process).
-   * drop table {Backlog,Table}Statistics{Houly,Daily,Snapshots} 8 table
-   * restart Gratia-Service: restart of Gratia-Service will recreate these 8 tables
-
-
-
-
-
-
-
-
----++ Configure Gratia Service ( before 1.16.0 )
-The Gratia service uses two configuration files:
-   * ==/etc/gratia/services/service-authorization.properties== %BR%
-     This contains Gratia mysql access authorization properties, i.e., users and passwords.
-   * ==/etc/gratia/services/service-configuration.properties== %BR%
-     This contains the non-database properties specific to Gratia services
-
-In newer versions (1.13.9, and possibly earlier) these files are located under /etc/gratia/services/ instead of /etc/gratia/services/ .
-
-__/etc/gratia/services/service-authorization.properties__
-<pre class="file">
-########################################################################
-# Gratia Service Authorization File.
-########################################################################
-[gratia]
-#
-# ##########  DB access parameters
-#
-service.mysql.rootpassword=%RED%ROOTDBPASSWORD%ENDCOLOR%
-service.mysql.user=%RED%DBUSER%ENDCOLOR%
-service.mysql.password=%RED%DBPASSWORD%ENDCOLOR%
-service.reporting.user=reader
-service.reporting.password=reader
-</pre>
-
-It is wise to set a password for the !MySql ==root== user. To do so:
-   * replace %RED%ROOTDBPASSWORD%ENDCOLOR% with the password desired for the ==root== user of !MySql database. You only need to specify it here in this configuration file.  A configuration script, ==install-database==, that you will run in a subsequent step will set it in the !MySql database for you.  
-   * If for some reason you don't want to set this password (%RED%not recommended%ENDCOLOR%), you need to comment this line in configuration file. 
-
-You will need to also define the !MySql user name and password for Gratia services to access the database.  This user will have update capability for the ==gratia== database that will be created later.
-   * replace %RED%DBUSER%ENDCOLOR% with the user name desired.
-   * replace %RED%DBPASSWORD%ENDCOLOR% with the password for that user.
-
-Optionally, the ==gratia-reporting== service uses a user/password for read-only access to the database: ==service.reporting.user== and ==service.reporting.password==. You may change these if you desire.
-
-
-
-__/etc/gratia/services/service-configuration.properties__ %BR%
-This file contains the Gratia services related properties(only those properties that must be modified are provided in the screen below:
-
-<pre class="file">
-...
+---+++ Connection to the !MySQL database and other properties
+ 
+The file =etc/gratia/services/service-configuration.properties= contains the Gratia services related properties. You can leave most as they are. To connect to !MySQL and to reach the Gratia Service you need to change the ones in %RED%RED%ENDCOLOR% (and maybe the ones in BLUE) in the following snippet: <pre class="file">
 service.mysql.url=jdbc:mysql://%RED%DBHOSTNAME%ENDCOLOR%:%RED%DBPORT%ENDCOLOR%/gratia
 ....
 service.open.connection=http://%RED%HOSTNAME%ENDCOLOR%:%BLUE%8880%ENDCOLOR%
 service.secure.connection=https://%RED%HOSTNAME%ENDCOLOR%:%BLUE%8443%ENDCOLOR%
-....
 </pre>
 
 The ==service.mysql.url== property specifies the access point to the !MySql database for Gratia services.
-   * The %RED%DBHOSTNAME%ENDCOLOR% can be specified as ==localhost== or with the host name of the database is running on if not this node.
-   * The %RED%DBPORT%ENDCOLOR% should be changed to ==3306== (default !MySql port) or, if changed in the ==/etc/my.cnf== modified earlier, to that value.
+   * The %RED%DBHOSTNAME%ENDCOLOR% this is the host name (FQDN) where the database is running. It can be specified also as the short name or as ==localhost== if Gratia Service and !MySQL are on the same node.
+   * The %RED%DBPORT%ENDCOLOR% normally ==3306== (default !MySql port) or the port used by the database, if changed in the ==/etc/my.cnf== modified earlier.
 
-The ==service.open.connection== and ==service.secure.connection== should be modified by replacing  %RED%HOSTNAME%ENDCOLOR% with the fully qualified host name where the service is installed. You can modify open (8880) and secure (8443) ports as well. Keep in mind that if these are changed,  any Gratia probes will have to be configured accordingly so the information that is gathered by probe could be sent  to Gratia service.
+The ==service.open.connection== and ==service.secure.connection== should be modified by replacing  %RED%HOSTNAME%ENDCOLOR% with the fully qualified host name (FQDN) where the Gratia service is installed. These URLs are used by the probes and for data replication. You can modify open (8880) and secure (8443) ports as well. Keep in mind that if these are changed,  any Gratia probe will have to be configured accordingly so the information that is gathered by the probe could be sent  to the Gratia service.
 
-You should also configure the administrative login to Gratia service at this time. 
-Please read the detailed instructions in ==/etc/gratia/services/service-configuration.properties== under 
-==# ##########  Administrative login== section.
+You should also configure the *administrative login to the Gratia Service* at this time. 
+The file to edit is ==/etc/gratia/services/service-configuration.properties== and the instructions are as comment in the file.
+Please read the detailed instructions in ==/etc/gratia/services/service-configuration.properties== under the " ==# ##########  Administrative login== " section.
 
-__Completing the configuration (==install-database==)__ %BR%
+---+++ Completing the configuration (==install-database==)
 To complete the configuration, you will need to run the ==/usr/share/gratia/install-database== script that performs the following steps using the configuration modified above:
-   1. set ==root== user password in the !MySql database
+<!--   1. set ==root== user password in the !MySql database -->
    1. create the ==gratia== database
    1. create the Gratia users (for update and read access) in the !MySql database and grant appropriate privileges for those users users
     
 <pre class="rootscreen">
-%UCL_PROMPT_ROOT%/usr/share/gratia/install-database
+%UCL_PROMPT_ROOT% /usr/share/gratia/install-database
 
 Creating Gratia database based on the properties you updated in these files:
   /etc/gratia/services/service-configuration.properties
@@ -639,114 +521,21 @@ Creating Gratia database based on the properties you updated in these files:
 
 Gratia database installation complete.
 </pre>
-%ENDSECTION{"ConfigureGratiaService"}%
-%STARTSECTION{"ConfigureTomcatService"}%
-
-
----++ Configure Gratia-Service for 1.16.0
-First of all, the Gratia-Service Package no longer has mysql-server package as a dependency because the database may be installed on another machine.
-Below you can find two possible scenarios, one where Gratia Service and !MySQL are running in one node, the other where they are running in separate nodes.
-
----+++ When !MySQL is running in the same node as Gratia is running
-
-Think of good names for the following:
-   *  %RED%DB_ROOT_USERNAME%ENDCOLOR% : for example, root
-   *  %RED%DB_ROOT_PASSWORD%ENDCOLOR% : for example, some_secret_password1
-   *  %RED%DB_USER_USERNAME%ENDCOLOR% : usually, gratia
-   *  %RED%DB_USER_PASSWORD%ENDCOLOR% : for example, some_secret_password2
-And assign those values to the corresponding lines in /etc/gratia/services/service-authorization.properties as shown here:
-<pre class="file">
-service.mysql.rootuser=DB_ROOT_USERNAME
-service.mysql.rootpassword=DB_ROOT_USERNAME
-service.mysql.user=DB_USER_USERNAME
-service.mysql.password=DB_USER_PASSWORD
-# Do not modify the following two lines:
-service.reporting.user=reader
-service.reporting.password=reader
-</pre>
-
-And also edit the following lines /etc/gratia/services/service-configuration.properties
-<pre class="file">
-service.mysql.url=jdbc:mysql://DBHOSTNAME:DBPORT/gratia
-....
-service.open.connection=http://HOSTNAME:8880
-service.secure.connection=https://HOSTNAME:8443
-</pre>
-Here, HOSTNNAME should be the fully qualified host name where the Gratia-Service is installed.
-   * The DBHOSTNAME can be localhost or the same vales as HOSTNAME
-   * The DBPORT should be changed to 3306 (default !MySQL port) or, if changed in the /etc/my.cnf modified earlier, to that value. 
-
-Later when you run install-database, it will take care of everything:
-
-
-
----+++ When Gratia-Service and !MySQL are running in two separate nodes:
-
-It is now the !MySQL DBA's responsibility to come up with the following values and set them in !MySQL accordingly
-   * DB_ROOT_USERNAME : for example, root
-   * DB_ROOT_PASSWORD : for example, some_secret_password1
-
-The !MySQL DBA must execute the following mysql commands in the node where MySQL is running
-<pre class="rootscreen">
-mysql> use mysql;
-mysql> grant all privileges on      *.* to DB_ROOT_USERNAME@GS_NODENAME identified by DB_ROOT_PASSWORD;
-mysql> update user set Grant_priv="Y" where Host=GS_NODENAME and User=ROOT_USERNAME;
-mysql> grant all privileges on gratia.* to DB_ROOT_USERNAME@GS_NODENAME identified by DB_ROOT_PASSWORD;
-</pre>
-Here, GS_NODENAME is where the Gratia-Service is running.
-
-The Gratia-Service administrator should communicate with the !MySQL DBA to learn the following two values
-   * DB_ROOT_USERNAME : from DBA
-   * DB_ROOT_PASSWORD : from DBA
-and edit /etc/gratia/services/service-authorization.properties
-<pre class="file">
- service.mysql.rootuser=DB_ROOT_USERNAME
- service.mysql.rootpassword=DB_ROOT_USERNAME
-</pre>
-
-%NOTE% If DB_ROOT_USERNAME and DB_ROOT_PASSWORD in service-authorization.properties are empty, install-database will assume "root" for DB_ROOT_USERNAME and assume that this DB_ROOT_USERNAME does not have password set in !MySQL, please coordinate with the DBA.
-
-%NOTE% If you are upgrading from a previous version of Gratia-Service which is less than 1.16.0, the upgrade will not replace /etc/gratia/services/service-authorization.properties and your current /etc/gratia/services/service-authorization.properties does not have service.mysql.rootuser=. If that is the case, install-database will detect the absence of service.mysql.rootuser=  in /etc/gratia/services/service-authorization.properties and will assume DB_ROOT_USERNAME to be root. So, just make sure that the !MySQL DBA sets DB_ROOT_USERNAME to "root" 
-
-
-But the following two should be still determined by the Gratia-Service administrator 
-   * DB_USER_USERNAME : usually, gratia
-   * DB_USER_PASSWORD : for example, some_secret_password2
-
-and set in /etc/gratia/services/service-authorization.properties
-<pre class="file"> 
-service.mysql.user=DB_USER_USERNAME
-service.mysql.password=DB_USER_PASSWORD
-</pre>
-
-The Gratia-Service administrator should also edit the following lines in /etc/gratia/services/service-configuration.properties
-<pre class="file"> 
-service.mysql.url=jdbc:mysql://DBHOSTNAME:DBPORT/gratia
-....
-service.open.connection=http://HOSTNAME:8880
-service.secure.connection=https://HOSTNAME:8443
-</pre>
-Here, HOSTNNAME should be the fully qualified host name where the Gratia-Service is installed.
-   * The DBHOSTNAME should be the fully qualified host name where the !MySQL is running
-   * The DBPORT should be changed to 3306 (default !MySQL port) or, if changed in the /etc/my.cnf modified by DBA, to that value. 
-
-Run /usr/share/gratia/install-database  and will detect it if Gratia-Service and !MySQL are in separate nodes by looking at service-configuration.properties.
-
-
 
 ---+++ Special instructions for those who want to use !MySQL 5.6
 We have tested Gratia-Service against !MySQL 5.6.
 Gratia-Service DB that was running in !MySQL 5.1 is copied using mysqldump and restored in !MySQL 5.6.
-One error was found in association with BacklogStatisticsHouly table and TableStatisticsHouly table.
+One error was found in association with !BacklogStatisticsHouly table and !TableStatisticsHouly table.
 Recommended recipe is,
    * Make sure your !MySQL 5.6 is configued to use latin1 for (Database, Server, System). Connection can use utf-8 (Use of utf-8 causes "Key length too large" error during Gratia-Service initialization process).
    * drop table {Backlog,Table}Statistics{Houly,Daily,Snapshots} 8 table
    * restart Gratia-Service: restart of Gratia-Service will recreate these 8 tables
 
+%ENDSECTION{"ConfigureGratiaService"}%
 
 
 
-
+%STARTSECTION{"ConfigureTomcatService"}%
 ---++ Configure Tomcat options
 Make sure that you have the host,  and Tomcat service certificates/keys in the right directories and with the correct owners and permissions (=600= for key and =644= the certificate). [[GetHostServiceCertificates][Host certificate]] is required and must be in =/etc/grid-security/hostcert.pem= and =hostkey.pem=. It is recommended to provide also service certificates for Tomcat. If you don't, here are the instructions to copy the host certificate/key and set the correct owner (permissions are preserved).  Note that if you did not previously have a  tomcat user on your system, they were added during the RPM install:
    1. Tomcat service is running as user ==tomcat== and requires its service certificate and key in ==/etc/grid-security/http==. To copy the host certificate/key for this service, you need to do the following:<pre class="rootscreen">
