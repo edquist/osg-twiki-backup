@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1413989616" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1413994141" format="1.1" version="1.2"}%
 ---+!! Draft document from InstallGratiaService r18 (10/22/2014)
 
 %DOC_STATUS_TABLE%
@@ -48,14 +48,21 @@ The Gratia Service installation has two main parts:
    * A !MySQL database. This can be on the same host of Gratia Service or on a separate host
 
 ---++ Users
-The Gratia service installation will create a new user unless it is already created.
+The Gratia service installation will create a new tomcat user unless it is already created.
 
 %STARTSECTION{"Users"}%
 | *User* | *Default uid* | *Comment* |
 | =tomcat= | 91 | Runs tomcat5 (EL5)/tomcat6 (EL6) and owns gratia configurations files and certificates. |
 
 Note that if uids 91 is already taken but not used for the tomcat user, you will experience errors. [[https://twiki.grid.iu.edu/bin/view/Documentation/Release3/KnownProblems#Reserved_user_ids_especially_for][Details...]]
+
+Note that the following database users (defined in the !MySQL database, not in Unix) are used below:
+   * DB_ROOT_USERNAME: user with admin privileges on the Gratia databases (by default =root=)
+   * DB_USER_USERNAME: user that can read and write to the Gratia databases
+   * reporting user: user with read only access to the Gratia databases (set to =reader= in the configuration suggested)
+
 %ENDSECTION{"Users"}%
+
 
 ---++ Certificates
 You will need one service certificate. [[GetHostServiceCertificates][Here]] are instructions to request a host certificate. Optional, you can use the host certificate instead as explained in the [[#Configure_Tomcat_options][section below]].
@@ -82,7 +89,6 @@ The firewall requirement for the database:
 <!-- ---++!! Additional Requirements 
 -->
 
-
 %ENDSECTION{"GratiaRequirements"}%
 
 
@@ -90,64 +96,9 @@ The firewall requirement for the database:
 ---+ Installation Procedure
 
 %INCLUDE{"YumRepositories" section="OSGRepoBrief" TOC_SHIFT="+"}%
-
 %INCLUDE{"InstallCertAuth" section="OSGBriefCaCerts" TOC_SHIFT="+"}%
- 
-%INCLUDE{"InstallCertAuth_draft" section="FetchCRLInstallShort"}%
 
-%TWISTY{%TWISTY_OPTS_DETAILED%}%   <pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install fetch-crl
-Loaded plugins: kernel-module, priorities
-Excluding Packages from SLF 5 base
-Finished
-Reducing SLF 5 base jdk to included packages only
-Finished
-Excluding Packages from SLF 5 security updates
-Finished
-Reducing SLF 5 security updates jdk only to included packages only
-Finished
-Excluding Packages from SL 5 base
-Finished
-Reducing SL 5 base jdk to included packages only
-Finished
-1068 packages excluded due to repository priority protections
-Setting up Install Process
-Resolving Dependencies
---> Running transaction check
----> Package fetch-crl.noarch 0:2.8.5-1.el5 set to be updated
---> Finished Dependency Resolution
-Beginning Kernel Module Plugin
-Finished Kernel Module Plugin
-
-Dependencies Resolved
-
-========================================================================================================================================================
- Package                              Arch                              Version                                   Repository                       Size
-========================================================================================================================================================
-Installing:
- fetch-crl                            noarch                            2.8.5-1.el5                               epel                             24 k
-
-Transaction Summary
-========================================================================================================================================================
-Install       1 Package(s)
-Upgrade       0 Package(s)
-
-Total download size: 24 k
-Is this ok [y/N]: y
-Downloading Packages:
-fetch-crl-2.8.5-1.el5.noarch.rpm                                                                                                 |  24 kB     00:00     
-Running rpm_check_debug
-Running Transaction Test
-Finished Transaction Test
-Transaction Test Succeeded
-Running Transaction
-  Installing     : fetch-crl                                                                                                                        1/1 
-
-Installed:
-  fetch-crl.noarch 0:2.8.5-1.el5                                                                                                                        
-
-Complete!
-</pre> %ENDTWISTY%
+<!-- fetch-crl should be installed automatically as dependency -->
 
 
 %STARTSECTION{"InstallOSGGratiaServiceRPMs"}%
@@ -302,7 +253,9 @@ Complete!
 *This is not needed for Gratia 1.15 or earlier versions.*
 
 You need to use a !MySQL database. With Gratia 1.16 or later if you want the !MySQL server on the same host you have to install it explicitly. It is no more a dependency of Gratia. 
-To Install the !MySQL database:<pre class="rootscreen">
+You can have your favorite instructions to install !MySQL or use a database running on a different host. 
+
+Here are some simple instructions to Install a !MySQL database:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% yum install mysql
 %UCL_PROMPT_ROOT% yum install mysql-server
 </pre>  %TWISTY{%TWISTY_OPTS_DETAILED%}%   <pre class="rootscreen">
@@ -411,9 +364,15 @@ Complete!
 ---+ Configure
 The configuration requires some initial steps.
 %STARTSECTION{"ConfigureMysqlServer"}%
----++ Configure !MySQL Database
+---++ Configure !MySQL Database 
+Before you will be able configure Gratia Service you will need to have access to the !MySQL database.  
 
-Before you will be able configure Gratia Service you will need to have access to !MySQL database.  The !MySQL software is installed with the =gratia-service= package. By default it will be using port 3306 and will not have password for ==root==. It is recommended to replace  a default configuration file that is installed with mysqld server (==/etc/my.cnf==)  with ==/usr/share/gratia/my-cnf.template==:
+---+++ New !MySQL installation
+If you installed !MySQL or installed Gratia Service v1.15 or earlier (that installed !MySQL for you) then you need some initial configuration. By default it will be using port 3306 and will not have password for ==root==. We recommend to:
+   1. Change the initial configuration
+   1. Set a root password
+
+It is recommended to replace  a default configuration file that is installed with mysqld server (==/etc/my.cnf==)  with ==/usr/share/gratia/my-cnf.template==:
 <pre class="file">
 [mysqld]
 datadir = /var/lib/mysql
@@ -458,21 +417,144 @@ old_passwords=1
 
 If you are planning to collect data from a very large number of probes you can use ==/usr/share/gratia/my-cnf.large-site.template==. This configuration is used at Fermilab for the OSG collector that gathers data from all OSG sites.
 
-In order to replace mysql configuration just copy the template selected to ==/etc/my.cnf==:
-:<pre class="rootscreen">
+In order to replace mysql configuration just copy the template selected to ==/etc/my.cnf==: <pre class="rootscreen">
 %UCL_PROMPT_ROOT% cp /usr/share/gratia/my-cnf.template /etc/my.cnf
 </pre>
-*Note* The default mysqld port (3306) is used in this configuration file. If you prefer to use some other port you have to change it here before proceeding with any other actions.
+*Note* The default mysqld port (3306) is used in this configuration file. If you prefer to use some other port you have to change it here before proceeding with any other actions and remember to use the same database port number in the Gratia Service configuration below.
 
-You will need to start mysqld at this time:
-:<pre class="rootscreen">
+You will need to start mysqld at this time: <pre class="rootscreen">
 %UCL_PROMPT_ROOT%service mysqld start
 </pre>
 %NOTE%  If you use ==my-cnf.large-site.template== , you may experience a false failure on the initial startup of the ==mysqld server== .  This is because it takes a significant amount of time to allocate all the space required for a large database. The ==mysqld== initd service does not know that and will think the startup has failed when it just hasn't finished.
 
+Now you can set the root password: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% mysqladmin -u root password %RED%DB_ROOT_PASSWORD%ENDCOLOR%
+</pre>
+%RED%DB_ROOT_PASSWORD%ENDCOLOR% will be used below in the Gratia Service configuration.
+
+---+++ Grant access to an existing !MySQL installation
+*This is officially supported for Gratia Service 1.16 or newer (it may work also with earlier versions).*
+
+Gratia Service can use an existing !MySQL database, even running on a separate host and administered by some DBA. You don't need root access to the installation as long as you have admin privileges for the Gratia databases (DB_ROOT). The !MySQL DBA must connect as !MySQL root and execute these commands to grant access: <pre class="rootscreen">
+mysql> use mysql;
+mysql> grant all privileges on      *.* to %RED%DB_ROOT_USERNAME%ENDCOLOR%@%RED%GS_NODENAME%ENDCOLOR% identified by %RED%DB_ROOT_PASSWORD%ENDCOLOR%;
+mysql> update user set Grant_priv="Y" where Host=%RED%GS_NODENAME%ENDCOLOR% and User=%RED%DB_ROOT_USERNAME%ENDCOLOR%;
+mysql> grant all privileges on gratia.* to %RED%DB_ROOT_USERNAME%ENDCOLOR%@%RED%GS_NODENAME%ENDCOLOR% identified by %RED%DB_ROOT_PASSWORD%ENDCOLOR%;
+</pre>
+Here:
+   * %RED%GS_NODENAME%ENDCOLOR% is the host where the Gratia Service is running.
+   * %RED%DB_ROOT_USERNAME%ENDCOLOR% is the user with admin privileges on the Gratia databases. Can be and arbitrary name agreed between DBAs and you (the Gratia service administrator).
+   * %RED%DB_ROOT_PASSWORD%ENDCOLOR% : is the password of the user with admin privileges on the Gratia databases. Can be and arbitrary password agreed between DBAs and you.
+%RED%DB_ROOT_USERNAME%ENDCOLOR% and %RED%DB_ROOT_PASSWORD%ENDCOLOR% will be used below in the Gratia Service configuration.
 
 %ENDSECTION{"ConfigureMysqlServer"}%
+
+
 %STARTSECTION{"ConfigureGratiaService"}%
+---++ Configure Gratia Service 
+Starting with v1.16, the Gratia-Service Package no longer has mysql-server package as a dependency because the database may be installed on another machine.
+Below you can find two possible scenarios, one where Gratia Service and !MySQL are running in one node and the Gratia Service has full access to !MySQL, the other where they are running in separate nodes or at least you and the Gratia Service have limited access to .
+
+---+++ When !MySQL is running in the same node as Gratia is running
+
+Think of good names for the following:
+   *  %RED%DB_ROOT_USERNAME%ENDCOLOR% : for example, root
+   *  %RED%DB_ROOT_PASSWORD%ENDCOLOR% : for example, some_secret_password1
+   *  %RED%DB_USER_USERNAME%ENDCOLOR% : usually, gratia
+   *  %RED%DB_USER_PASSWORD%ENDCOLOR% : for example, some_secret_password2
+And assign those values to the corresponding lines in /etc/gratia/services/service-authorization.properties as shown here:
+<pre class="file">
+service.mysql.rootuser=DB_ROOT_USERNAME
+service.mysql.rootpassword=DB_ROOT_USERNAME
+service.mysql.user=DB_USER_USERNAME
+service.mysql.password=DB_USER_PASSWORD
+# Do not modify the following two lines:
+service.reporting.user=reader
+service.reporting.password=reader
+</pre>
+
+And also edit the following lines /etc/gratia/services/service-configuration.properties
+<pre class="file">
+service.mysql.url=jdbc:mysql://DBHOSTNAME:DBPORT/gratia
+....
+service.open.connection=http://HOSTNAME:8880
+service.secure.connection=https://HOSTNAME:8443
+</pre>
+Here, HOSTNNAME should be the fully qualified host name where the Gratia-Service is installed.
+   * The DBHOSTNAME can be localhost or the same vales as HOSTNAME
+   * The DBPORT should be changed to 3306 (default !MySQL port) or, if changed in the /etc/my.cnf modified earlier, to that value. 
+
+Later when you run install-database, it will take care of everything:
+
+
+
+---+++ When Gratia-Service and !MySQL are running in two separate nodes:
+
+It is now the !MySQL DBA's responsibility to come up with the following values and set them in !MySQL accordingly
+   * DB_ROOT_USERNAME : for example, root
+   * DB_ROOT_PASSWORD : for example, some_secret_password1
+
+The !MySQL DBA must execute the following mysql commands in the node where MySQL is running
+<pre class="rootscreen">
+mysql> use mysql;
+mysql> grant all privileges on      *.* to DB_ROOT_USERNAME@GS_NODENAME identified by DB_ROOT_PASSWORD;
+mysql> update user set Grant_priv="Y" where Host=GS_NODENAME and User=ROOT_USERNAME;
+mysql> grant all privileges on gratia.* to DB_ROOT_USERNAME@GS_NODENAME identified by DB_ROOT_PASSWORD;
+</pre>
+Here, GS_NODENAME is where the Gratia-Service is running.
+
+The Gratia-Service administrator should communicate with the !MySQL DBA to learn the following two values
+   * DB_ROOT_USERNAME : from DBA
+   * DB_ROOT_PASSWORD : from DBA
+and edit /etc/gratia/services/service-authorization.properties
+<pre class="file">
+ service.mysql.rootuser=DB_ROOT_USERNAME
+ service.mysql.rootpassword=DB_ROOT_USERNAME
+</pre>
+
+%NOTE% If DB_ROOT_USERNAME and DB_ROOT_PASSWORD in service-authorization.properties are empty, install-database will assume "root" for DB_ROOT_USERNAME and assume that this DB_ROOT_USERNAME does not have password set in !MySQL, please coordinate with the DBA.
+
+%NOTE% If you are upgrading from a previous version of Gratia-Service which is less than 1.16.0, the upgrade will not replace /etc/gratia/services/service-authorization.properties and your current /etc/gratia/services/service-authorization.properties does not have service.mysql.rootuser=. If that is the case, install-database will detect the absence of service.mysql.rootuser=  in /etc/gratia/services/service-authorization.properties and will assume DB_ROOT_USERNAME to be root. So, just make sure that the !MySQL DBA sets DB_ROOT_USERNAME to "root" 
+
+
+But the following two should be still determined by the Gratia-Service administrator 
+   * DB_USER_USERNAME : usually, gratia
+   * DB_USER_PASSWORD : for example, some_secret_password2
+
+and set in /etc/gratia/services/service-authorization.properties
+<pre class="file"> 
+service.mysql.user=DB_USER_USERNAME
+service.mysql.password=DB_USER_PASSWORD
+</pre>
+
+The Gratia-Service administrator should also edit the following lines in /etc/gratia/services/service-configuration.properties
+<pre class="file"> 
+service.mysql.url=jdbc:mysql://DBHOSTNAME:DBPORT/gratia
+....
+service.open.connection=http://HOSTNAME:8880
+service.secure.connection=https://HOSTNAME:8443
+</pre>
+Here, HOSTNNAME should be the fully qualified host name where the Gratia-Service is installed.
+   * The DBHOSTNAME should be the fully qualified host name where the !MySQL is running
+   * The DBPORT should be changed to 3306 (default !MySQL port) or, if changed in the /etc/my.cnf modified by DBA, to that value. 
+
+Run /usr/share/gratia/install-database  and will detect it if Gratia-Service and !MySQL are in separate nodes by looking at service-configuration.properties.
+
+
+
+---+++ Special instructions for those who want to use !MySQL 5.6
+We have tested Gratia-Service against !MySQL 5.6.
+Gratia-Service DB that was running in !MySQL 5.1 is copied using mysqldump and restored in !MySQL 5.6.
+One error was found in association with BacklogStatisticsHouly table and TableStatisticsHouly table.
+Recommended recipe is,
+   * Make sure your !MySQL 5.6 is configued to use latin1 for (Database, Server, System). Connection can use utf-8 (Use of utf-8 causes "Key length too large" error during Gratia-Service initialization process).
+   * drop table {Backlog,Table}Statistics{Houly,Daily,Snapshots} 8 table
+   * restart Gratia-Service: restart of Gratia-Service will recreate these 8 tables
+
+
+
+
+
 
 
 
