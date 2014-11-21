@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MarcoMambelli" date="1416592469" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="MarcoMambelli" date="1416603635" format="1.1" reprev="1.8" version="1.8"}%
 ---+!! Draft document from InstallGratiaService r18 (10/22/2014)
 
 %DOC_STATUS_TABLE%
@@ -341,7 +341,7 @@ If you installed !MySQL (on the same host or on a different one) or installed Gr
    1. Set a root password
 
 It is recommended to replace  a default configuration file that is installed with mysqld server (==/etc/my.cnf==)  with ==/usr/share/gratia/my-cnf.template==:
-<pre class="file">
+%TWISTY{%TWISTY_OPTS_DETAILED% showlink="Show the template file"}%   <pre class="file">
 [mysqld]
 datadir = /var/lib/mysql
 socket =  /var/lib/mysql/mysql.sock
@@ -381,11 +381,11 @@ old_passwords=1
 # Disabling symbolic-links is recommended to prevent assorted security risks;
 # to do so, uncomment this line:
 # symbolic-links=0
-</pre>
+</pre> %ENDTWISTY%
 
 If you are planning to collect data from a very large number of probes you can use ==/usr/share/gratia/my-cnf.large-site.template==. This configuration is used at Fermilab for the OSG collector that gathers data from all OSG sites.
 
-In order to replace mysql configuration just copy the template selected to ==/etc/my.cnf== (do a remote copy if Gratia service and MySQL server are on different hosts): <pre class="rootscreen">
+In order to replace mysql configuration just copy the template selected to ==/etc/my.cnf== (do a remote copy if Gratia service and the !MySQL server are on different hosts): <pre class="rootscreen">
 %UCL_PROMPT_ROOT% cp /usr/share/gratia/my-cnf.template /etc/my.cnf
 </pre>
 *Note* The default mysqld port (3306) is used in this configuration file. If you prefer to use some other port you have to change it here before proceeding with any other actions and remember to use the same database port number in the Gratia Service configuration below.
@@ -403,19 +403,20 @@ Now you can set the root password: <pre class="rootscreen">
 ---+++ Grant access to an existing !MySQL installation
 *This is officially supported for Gratia Service 1.16 or newer (it may work also with earlier versions).*
 
-You can skip this section if DB_ROOT_USERNAME is "root" (the MySQL root user) and the database is local (on the same host as the Gratia service). 
+You can skip this section if DB_ROOT_USERNAME is "root" (the !MySQL root user) and the database is local (on the same host as the Gratia service). 
 
 Gratia Service can use an existing !MySQL database, even running on a separate host and administered by some DBA. You don't need root access to the installation as long as you have admin privileges for the Gratia databases (DB_ROOT). The !MySQL DBA must connect as !MySQL root and execute these commands to grant access: <pre class="rootscreen">
 mysql> use mysql;
 mysql> grant all privileges on      *.* to %RED%DB_ROOT_USERNAME%ENDCOLOR%@%RED%GS_NODENAME%ENDCOLOR% identified by %RED%DB_ROOT_PASSWORD%ENDCOLOR%;
 mysql> update user set Grant_priv="Y" where Host=%RED%GS_NODENAME%ENDCOLOR% and User=%RED%DB_ROOT_USERNAME%ENDCOLOR%;
-mysql> grant all privileges on gratia.* to %RED%DB_ROOT_USERNAME%ENDCOLOR%@%RED%GS_NODENAME%ENDCOLOR% identified by %RED%DB_ROOT_PASSWORD%ENDCOLOR%;
+mysql> flush privileges;
 </pre>
 Here:
    * %RED%GS_NODENAME%ENDCOLOR% is the host where the Gratia Service is running.
-   * %RED%DB_ROOT_USERNAME%ENDCOLOR% is the user with admin privileges on the Gratia databases. Can be and arbitrary name agreed between DBAs and you (the Gratia service administrator).
+   * %RED%DB_ROOT_USERNAME%ENDCOLOR% is the user with admin privileges on the Gratia databases. Can be and arbitrary name agreed between DBAs and you (the Gratia service administrator, normally =root=).
    * %RED%DB_ROOT_PASSWORD%ENDCOLOR% : is the password of the user with admin privileges on the Gratia databases. Can be and arbitrary password agreed between DBAs and you.
-%RED%DB_ROOT_USERNAME%ENDCOLOR% and %RED%DB_ROOT_PASSWORD%ENDCOLOR% will be used below in the Gratia Service configuration.
+%RED%DB_ROOT_USERNAME%ENDCOLOR% and %RED%DB_ROOT_PASSWORD%ENDCOLOR% will be used also below in the Gratia Service configuration, be consistent!
+A final step to complete the !MySQL configuration must be performed after configuring Gratia.
 
 %ENDSECTION{"ConfigureMysqlServer"}%
 
@@ -471,8 +472,11 @@ You should also configure the *administrative login to the Gratia Service* at th
 The file to edit is ==/etc/gratia/services/service-configuration.properties== and the instructions are as comment in the file.
 Please read the detailed instructions in ==/etc/gratia/services/service-configuration.properties== under the " ==# ##########  Administrative login== " section.
 
----+++ Completing the configuration (==install-database==)
-To complete the configuration, you will need to run the ==/usr/share/gratia/install-database== script that performs the following steps using the configuration modified above:
+%ENDSECTION{"ConfigureGratiaService"}%
+
+
+---++ Completing the !MySQL configuration (==install-database==)
+To complete the !MySQL configuration, you will need to run the ==/usr/share/gratia/install-database== script that performs the following steps using the Gratia configuration modified above:
 <!--   1. set ==root== user password in the !MySql database -->
    1. create the ==gratia== database
    1. create the Gratia users (for update and read access) in the !MySql database and grant appropriate privileges for those users users
@@ -492,6 +496,15 @@ Creating Gratia database based on the properties you updated in these files:
 Gratia database installation complete.
 </pre>
 
+If you are using a database where you have no administrative access, run ==/usr/share/gratia/install-database -p== to print the commands to give to the database administrators to
+complete the Gratia database setup: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% /usr/share/gratia/install-database -p
+# Create the database and grant access from the Gratia Server host
+CREATE database gratia CHARACTER SET latin1 COLLATE latin1_swedish_ci;
+GRANT ALL PRIVILEGES ON gratia.* TO 'gratia'@'fermicloud000.fnal.gov'       IDENTIFIED BY '%RED%DB_USER_PASSWORD%ENDCOLOR%';
+GRANT SELECT,EXECUTE ON gratia.* TO 'reader'@'fermicloud000.fnal.gov'     IDENTIFIED BY '%RED%DB_READER_PASSWORD%ENDCOLOR%';
+</pre>
+ 
 ---+++ Special instructions for those who want to use !MySQL 5.6
 We have tested Gratia-Service against !MySQL 5.6.
 Gratia-Service DB that was running in !MySQL 5.1 is copied using mysqldump and restored in !MySQL 5.6.
@@ -501,7 +514,6 @@ Recommended recipe is,
    * drop table {Backlog,Table}Statistics{Houly,Daily,Snapshots} 8 table
    * restart Gratia-Service: restart of Gratia-Service will recreate these 8 tables
 
-%ENDSECTION{"ConfigureGratiaService"}%
 
 
 
@@ -628,7 +640,7 @@ Check the Web UI by accessing ==http://%RED%hostname%ENDCOLOR%:8443/gratia-admin
 To upgrade Gratia services you must:
    1. stop tomcat and possibly also mysqld
    1. run yum update
-   1. compare the configuration files (== and ==) to the =.rpmnew= version added by the RPM update and merge when needed
+   1. compare the configuration files (=/etc/gratia/services/service-authorization.properties= and =/etc/gratia/services/service-configuration.properties=) to the =.rpmnew= version added by the RPM update and merge when needed
    1. restart mysql and tomcat
 
 ---+ Troubleshooting
@@ -709,7 +721,7 @@ Gratia Probes:
  ======================
 
  Thank for reviewing this document! Please fill in your FirstLast name here:
-   * Local REVIEWER       = StevenTimm
+   * Local REVIEWER       = MarcoMambelli
  Please define the review status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local REVIEW_PASSED  = %NO%
 
@@ -718,7 +730,7 @@ DEAR DOCUMENT TESTER
  ====================
 
  Thank for testing this document! Please fill in your FirstLast name here:
-   * Local TESTER         = Hyun Woo Kim
+   * Local TESTER         = HyunwooKim2
  Please define the test status for this document to be in progress ( %IN_PROGRESS% ), failed ( %NO% ) or passed ( %YES% )
    * Local TEST_PASSED    = %NO%
 ############################################################################################################
