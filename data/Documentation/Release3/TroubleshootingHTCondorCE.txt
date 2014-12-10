@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1418077279" format="1.1" version="1.25"}%
+%META:TOPICINFO{author="BrianLin" date="1418169880" format="1.1" reprev="1.26" version="1.26"}%
 %TOC{depth="3"}%
 
 ---+ Troubleshooting HTCondor CE
@@ -488,6 +488,88 @@ The tool contacts both the CE&rsquo;s Schedd and Collector daemons to see if you
    1. <p><strong>If you see &ldquo;gsi@unmapped&rdquo; in the &ldquo;Remote Mapping&rdquo; line:</strong> Either your credentials are not mapped on the CE or authentication is not set up at all. To set up authentication, refer to our [[InstallHTCondorCE#5_2_Setup_Authorization][installation document]].</p>
    1. <p><strong>If the job submits but does not complete:</strong> Look at the status of the job and perform the relevant [[#TroubleshootingItems][troubleshooting steps]].</p>
 
+#CondorSubmit
+---+++ condor_submit
+
+---++++ Usage
+
+Use the =condor_submit= (notice that this is *not* =condor_ce_submit=) command to manually test job submission from a remote host. You may need to try manual submission if you are having difficulty with =condor_ce_run= or =condor_ce_trace=, need to specify attributes for your local batch system, or simply want further tests of remote submission.
+
+<pre class="screen">
+%UCL_PROMPT% condor_submit test.sub
+</pre>
+
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample submit file&hellip;"}%
+<pre class="file">
+universe = grid
+grid_resource = condor condorce.example.com condorce.example.com:9619
+
+executable = test.sh
+output = test.out
+error = test.err
+log = test.log
+
+ShouldTransferFiles = YES
+WhenToTransferOutput = ON_EXIT
+
+use_x509userproxy = true
++Owner=undefined
+queue
+</pre>
+%ENDTWISTY%
+
+=test.sub= is a submit file that describes attributes of the job in HTCondor&rsquo;s job description language. It is outside of the scope of this document to describe the full suite of attributes offered by =condor_submit= but there are a few CE-specific attributes that can be set to override any defaults in the [[Documentation/Release3.JobRouterRecipes#2_5_Setting_a_Default][job routes]]:
+
+<pre class="file">
+# Set the requested memory to 2GB
++maxMemory = 2000
+# Set the requested number of cores to 2
++xcount = 2
+# Set the maximum amount of time that a job should run for to 10 minutes
++maxWallTime = 10
+# Set the job's batch system queue to 'analysis'
++remote_queue = 'analysis'
+</pre>
+
+More information on =condor_submit= and submit files can be found in the [[http://research.cs.wisc.edu/htcondor/manual/v8.2/condor_submit.html][condor_manual]]. 
+
+---++++ Troubleshooting
+
+All interactions between =condor_submit= and the CE will be recorded in the file specified by the =log= attribute in your submit file. This includes acknowledgement of the job in your local queue, connection to the CE, and a record of job completion. %TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample log file&hellip;"}%
+<pre class="screen">
+000 (786.000.000) 12/09 16:49:55 Job submitted from host: <131.225.154.68:53134>
+...
+027 (786.000.000) 12/09 16:50:09 Job submitted to grid resource
+    GridResource: condor condorce.example.com condorce.example.com:9619
+    GridJobId: condor condorce.example.com condorce.example.com:9619 796.0
+...
+005 (786.000.000) 12/09 16:52:19 Job terminated.
+        (1) Normal termination (return value 0)
+                Usr 0 00:00:00, Sys 0 00:00:00  -  Run Remote Usage
+                Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+                Usr 0 00:00:00, Sys 0 00:00:00  -  Total Remote Usage
+                Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+        0  -  Run Bytes Sent By Job
+        0  -  Run Bytes Received By Job
+        0  -  Total Bytes Sent By Job
+        0  -  Total Bytes Received By Job
+
+
+</pre>
+%ENDTWISTY%
+
+If there are issues contacting the CE, you will see error messages about a 'Down Globus Resource':
+
+<pre class="file">
+020 (788.000.000) 12/09 16:56:17 Detected Down Globus Resource
+    RM-Contact: fermicloud133.fnal.gov
+...
+026 (788.000.000) 12/09 16:56:17 Detected Down Grid Resource
+    GridResource: condor condorce.example.com condorce.example.com:9619
+</pre>
+
+This indicates a communication issue with your CE that can be diagnosed with [[#CondorPing][condor_ce_ping]].
+
 #CondorPing
 ---+++ condor_ce_ping
 
@@ -555,6 +637,11 @@ If the jobs that you are submiting to a CE are not completing, =condor_ce_q= can
 MASTER_DEBUG = D_FULLDEBUG
 SCHEDD_DEBUG = D_FULLDEBUG
 </pre> <p>To apply these changes, reconfigure HTCondor CE:</p> <pre class="rootscreen">%UCL_PROMPT_ROOT% condor_ce_reconfig</pre> <p>Then look in the [[#MasterLog][Master log]] and [[#SchedLog][Schedd log]] on the CE for any errors.</p>
+   1. *If there are issues with contacting the collector:* You will see the following message:<pre class="screen">
+condor_ce_q -pool ce1.accre.vanderbilt.edu -name ce1.accre.vanderbilt.edu
+
+-- Failed to fetch ads from: <129.59.197.223:9620?sock=33630_8b33_4> : ce1.accre.vanderbilt.edu</pre><p>This may be due to network issues or bad HTCondor daemon permissions. To fix the latter issue, ensure that the =ALLOW_READ= configuration value is not set by checking =condor_ce_config_val=:</p><pre class="screen">%UCL_PROMPT% condor_ce_config_val -v ALLOW_READ
+Not defined: ALLOW_READ</pre><p>If it is defined, remove it from the file that is returned in the output.</p>
    1. *If a job is held:* There should be an accompanying =HoldReason= that will tell you why it is being held. The =HoldReason= is in the !JobAd, so you can use the long form of =condor_ce_q= to extract its value: <pre class="screen">
 %UCL_PROMPT% condor_ce_q -name <span style="background-color: #D1CAF2;">condorce.example.com</span> -pool <span style="background-color: #D1CAF2;">condorce.example.com</span>:9619 -l <Job ID> | grep HoldReason</pre>
    1. *If a job is idle:* The most common cause is that it is not matching any routes in the CE&rsquo;s job router. To find out whether this is the case, use the [[#CondorJobRouterTool][condor_ce_job_router_tool]].
