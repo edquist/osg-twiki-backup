@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1418169880" format="1.1" reprev="1.26" version="1.26"}%
+%META:TOPICINFO{author="BrianLin" date="1418420719" format="1.1" reprev="1.27" version="1.27"}%
 %TOC{depth="3"}%
 
 ---+ Troubleshooting HTCondor CE
@@ -95,6 +95,14 @@ To apply these changes, reconfigure HTCondor CE:
    * Job submission errors to an HTCondor batch system
    * Corresponding job IDs on an HTCondor batch system
 
+*Sample failure*
+
+_HTCondor batch systems only_: The following error occurs when the job router daemon cannot submit the routed job:
+
+<pre class="file">10/19/14 13:09:15 Can't resolve collector condorce.example.com; skipping
+10/19/14 13:09:15 ERROR (pool condorce.example.com) Can't find address of schedd
+10/19/14 13:09:15 JobRouter failure (src=5.0,route=Local_Condor): failed to submit job</pre>
+
 *What to look for:*
 
    * Job is considered for routing:\
@@ -105,7 +113,7 @@ To apply these changes, reconfigure HTCondor CE:
    * Finding the corresponding job ID on your HTCondor batch system:\
       <pre class="file">09/17/14 15:00:57 JobRouter (<span style="background-color: #FFCCFF;">src=86.0,dest=205.0</span>, route=Local_Condor): claimed job</pre>
       <p>In parentheses are the original HTCondor CE job ID (e.g., =86.0=) and the resultant job ID on the HTCondor batch system (e.g., =205.0=)</p>
-   * If your job is not routed, there will not be any evidence of it within the log itself. To investigate why your jobs are not being routed, use the [[#CondorJobRouterTool][condor_ce_job_router_tool]]
+   * If your job is not routed, there will not be any evidence of it within the log itself. To investigate why your jobs are not being considered for routing, use the [[#CondorJobRouterTool][condor_ce_job_router_tool]]
 
 #GridmanagerLog
 ---+++ !GridmanagerLog
@@ -114,7 +122,9 @@ The HTCondor CE grid manager log  tracks the submission and status of jobs on th
 
 To increase the debug level in this log, set the following value in =/etc/condor-ce/config.d/99-local.conf= on the CE host:
 
-<pre class="file">GRIDMANAGER_DEBUG = D_FULLDEBUG</pre>
+<pre class="file">MAX_GRIDMANAGER_LOG = 6h
+MAX_NUM_GRIDMANAGER_LOG = 8
+GRIDMANAGER_DEBUG = D_FULLDEBUG</pre>
 
 To apply these changes, reconfigure HTCondor CE:
 
@@ -166,7 +176,7 @@ To apply these changes, reconfigure HTCondor CE:
 <pre>/var/log/condor-ce/SharedPortLog</pre>
 
 *Key Contents*
-   * Every attempt to connect to HTCondor CE (except collector queries)
+Every attempt to connect to HTCondor CE (except collector queries)
 
 ---+++ Messages log
 
@@ -183,6 +193,24 @@ The messages file can include output from lcmaps, which handles mapping of X.509
    * A user is mapped:\
    <pre class="file">Oct  6 10:35:32 osgserv06 <span style="background-color: #FFCCFF;">htondor-ce-llgt[12147]: Callout to "LCMAPS" returned local user (service condor): "osgglow01"</span></pre>
    * Specific error messages and methods to troubleshoot them can be found in [[TroubleshootingGlexecLcmaps][this document]]
+
+#BlahpConfig
+---+++ BLAHP Configuration File
+
+HTCondor CE uses the BLAHP to submit jobs to your local non-HTCondor batch system using your batch system's client tools. You can also tell the BLAHP to save the files that are being submitted to the local batch system to =DIR_NAME= by adding the following line:
+<pre class="file">
+blah_debug_save_submit_info=<span style="background-color: #FFCCFF;">DIR_NAME</span>
+</pre>
+The BLAHP will then create a directory for each submission to the local jobmanager with the submit file, and proxy used.   
+
+%NOTE% Whitespace is important so do not put any spaces around the = sign.  In addition, the directory must be created and HTCondor-CE should have sufficient permissions to create directories within =DIR_NAME=. 
+
+*Location:*
+<pre>/etc/blah.config</pre>
+
+*Key Contents*
+   * Locations of the batch system's client binaries and logs
+   * Location to save files that are submitted to the local batch system
 
 ---++ HTCondor CE Troubleshooting Tools
 
@@ -896,6 +924,10 @@ If the verification command returns output, this means that your packages have b
 
 %NOTE% The reinstall command may place original versions of configuration files alongside the versions that you have modified. If this is the case, the reinstall command will notify you that the original versions will have an =.rpmnew= suffix. Further inspection of these files may be required as to whether or not you need to merge them into your current configuration.
 
+---+++ Verify clocks are synchronized
+
+Like all GSI-based authentication, HTCondor-CE is sensitive to time skews.  Make sure the clock on your CE is synchronized using a utility such as =ntpd=. Additionally, HTCondor itself is sensitive to time skews on the NFS server.  If you see empty stdout / err being returned to the submitter, verify there is no NFS server time skew.
+
 #TroubleshootingItems
 ---++ HTCondor CE Troubleshooting Items
 
@@ -915,21 +947,25 @@ Jobs on the CE will be put on hold if they do not match any job routes after 30 
 
 Use [[#CondorJobRouterTool][condor_ce_job_router_tool]] to see why your idle job does not match any routes
 
----++++ Idle jobs on CE: Verify correct operation within the BLAHP/GAHP
+---++++ Idle jobs on CE: Verify correct operation between the CE and your local batch system
 
-The BLAHP/GAHP are responsible for submitting and tracking jobs on your batch system and their output is logged in the [[#JobRouterLog][JobRouterLog]] or the [[#GridmanagerLog][Gridmanager logs]]. Look for =gm state change&hellip;= lines to figure out where the issures are occuring. 
+---+++++ For HTCondor batch systems
 
-*Sample failure*
-
-The following error is found in the [[#JobRouterLog][JobRouterLog]] when the job router daemon cannot submit the routed job to an HTCondor batch system:
-
-<pre class="file">10/19/14 13:09:15 Can't resolve collector condorce.example.com; skipping
-10/19/14 13:09:15 ERROR (pool condorce.example.com) Can't find address of schedd
-10/19/14 13:09:15 JobRouter failure (src=5.0,route=Local_Condor): failed to submit job</pre>
+HTCondor CE submits jobs directly to an HTCondor batch system via the !JobRouter, so any issues with the CE/local batch system interaction will appear in the [[#JobRouterLog][JobRouterLog]].
 
 *Next actions*
 
-   1. <p><b>If you see failures in the Gridmanager log during job submission:</b> Try [[#ManualSubmission][manual submission]] to the batch system. If that succeeds, make sure that the BLAHP knows where your binaries are located by setting the =&lt;batch system&gt;_binpath= in =/etc/blah.config=.</p>
+   1. Check the [[#JobRouterLog][JobRouterLog]] for failures.
+   1. Verify that the local HTCondor is functional.
+   1. Use [[#CondorConfigVal][condor_ce_config_val]] to verify that the =JOB_ROUTER_SCHEDD2_NAME=, =JOB_ROUTER_SCHEDD2_POOL=, and =JOB_ROUTER_SCHEDD2_SPOOL= configuration variables are set to the hostname of your CE and the hostname of your local HTCondor&rsquo;s collector, and the location of your local HTCondor&rsquo;s spool directory, respectively.
+
+---+++++ For non-HTCondor batch systems
+
+HTCondor CE submits jobs to a non-HTCondor batch system via the !Gridmanager, so any issues with the CE/local batch system interaction will appear in the [[#GridmanagerLog][GridmanagerLog]]. Look for =gm state change&hellip;= lines to figure out where the issures are occuring. 
+
+*Next actions*
+
+   1. <p><b>If you see failures in the Gridmanager log during job submission:</b> Save the submit files by adding the appropriate entry to [[#BlahpConfig][blah.config]] and submit it [[#ManualSubmission][manually]] to the batch system. If that succeeds, make sure that the BLAHP knows where your binaries are located by setting the =&lt;batch system&gt;_binpath= in =/etc/blah.config=.</p>
    1. <p><b>If you see failures in the Gridmanager log  during queries for job status:</b> Query the resultant job with your batch system tools from the CE. If you can, the BLAHP uses scripts to query for status in =/usr/libexec/blahp/&lt;batch system&gt;_status.sh= (e.g., =/usr/libexec/blahp/lsf_status.sh=) that take the argument =batch system/YYYMMDD/job ID= (e.g., =lsf/20141008/65053=). Run the appropriate "status" script for your batch system and upon success, you should see the following output:</p>\
    <pre class="screen">[ BatchjobId = "894862"; JobStatus = 4; ExitCode = 0; WorkerNode = "atl-prod08" ]</pre>\
    If the script fails, [[#OsgSupport][request help]] from the OSG.
@@ -1070,6 +1106,23 @@ When HTCondor CE records the corresponding batch system job ID, it is written in
    1. <p>To inspect the CE&rsquo;s job ad, use [[#CondorQ][condor_ce_q]]:</p>\
    <pre class="screen">%UCL_PROMPT% condor_ce_q <span style="background-color: #FFCCFF;">&lt;Job ID&gt; -af GridJobId</span></pre>
    1. Parse the [[#GridmanagerLog][GridmanagerLog]] for the CE&rsquo;s job ID.
+
+---+++ Missing HTCondor tools
+
+Most of the HTCondor CE tools are just wrappers around existing HTCondor tools that load the CE-specific config. If you are trying to use HTCondor CE tools and you see the following error:
+
+<pre class="screen">
+%UCL_PROMPT% condor_ce_job_router_tool
+<span style="background-color: #FFCCFF;">/usr/bin/condor_ce_job_router_tool: line 6: exec: condor_job_router_tool: not found</span>
+</pre>
+
+This means that the =condor_job_router_tool= (note this is not the CE version), is not in your =PATH=. 
+
+*Next Actions*
+
+   1. Either the condor RPM is missing or there are some other issues with it (try =rpm --verify condor=).
+   1. You have installed HTCondor in a non-standard location that is not in your =PATH=.
+   1. The condor_job_router_tool itself wasn't available until OSG's release of Condor-8.0.7-5 (available in osg-release) or Condor-8.2.3-1.1 (available in osg-upcoming).
 
 #OsgSupport
 ---++ Further Help with HTCondor CE
