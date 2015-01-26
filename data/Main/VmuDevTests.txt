@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1422302423" format="1.1" version="1.3"}%
+%META:TOPICINFO{author="BrianLin" date="1422313004" format="1.1" version="1.4"}%
 %META:TOPICPARENT{name="BrianLin"}%
 ---+ Supporting Developer Tests in VMU
 
@@ -38,8 +38,61 @@ The VMU infrastructure then runs osg-test against all the different combinations
 
 ---+++ Limiting repos to specific packages
 
+To allow the user to specify pacakges to be installed out of specific repositories, we propose a new syntax in the =packages= section of the parameters file that would look like ={&lt;repository&gt;: &lt;list of packages&gt;}. To run clean install and upgrade tests against a newly built htcondor-ce package out of development while grabbing the other packages out of release, users would write something like:
 
+<pre class="file">
+sources:
+  - 3.2; osg-development
+  - 3.2; osg > osg-development
+
+packages:
+  - [osg-tested-internal, {osg-development: htcondor-ce}]
+</pre>
+
+This would create a new repo file (henceforth referred to as =osg-development-abridged=) that has the same contents as =osg-development= with =includepkgs=htcondor-ce=. The clean install tests would then perform the following yum commands:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install -y osg-tested-internal --enablerepo=osg-development-abridged
+%UCL_PROMPT_ROOT% yum install -y htcondor-ce --enablerepo=osg-development-abridged
+</pre>
+
+The second yum command actually won't do anything since =osg-tested-internal= contains htcondor-ce already. And the upgrade tests would perform these yum commands:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install -y osg-tested-internal
+%UCL_PROMPT_ROOT% yum update -y --enablerepo=osg-development-abridged
+</pre>
 
 ---+++ Installing source RPM's
+
+Another interesting feature to add would be a special syntax that would tell the VMU tests that the specified package is a source RPM, whose list of binary RPM's can be found using koji with the following shell:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% pkgs=$(koji -c /etc/osg-koji.cfg list-tagged --rpms --latest osg-3.2-el6-development vo-client \
+| grep -v '\.src$' | perl -lpe 's/(-[^-]+){2}$//' | sort -u | xargs | tr ' ' , )
+</pre>
+
+This would require installing the koji client on =osghost.chtc.wisc.edu= as well as including a koji configuration to point towards OSG's koji server. A proposed syntax to designate source RPMs is to prepend the package name with an =@=. 
+
+<pre class="file">
+sources:
+  - 3.2; osg-development
+
+packages:
+  - [@gums, {osg-development: @vo-client}]
+</pre>
+
+Would result in the following yum commands:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install -y gums --enablerepo=osg-development-abridged
+%UCL_PROMPT_ROOT% yum install -y gums-client --enablerepo=osg-development-abridged
+%UCL_PROMPT_ROOT% yum install -y gums-service --enablerepo=osg-development-abridged
+%UCL_PROMPT_ROOT% yum install -y osg-gums-config --enablerepo=osg-development-abridged
+%UCL_PROMPT_ROOT% yum install -y vo-client --enablerepo=osg-development-abridged
+%UCL_PROMPT_ROOT% yum install -y vo-client-edgmkgridmap --enablerepo=osg-development-abridged
+</pre>
+
+If a SRPM generates binary RPMs that conflict with each other, one of the yum commands will fail. Since we don't currently prevent users from trying to install conflicting packages, we shouldn't need to add precautions for conflicting packages coming from an SRPM.
 
 -- Main.BrianLin - 23 Jan 2015
