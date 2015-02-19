@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="JuanFelipeMosqueraMorales" date="1424311012" format="1.1" reprev="1.4" version="1.4"}%
+%META:TOPICINFO{author="JuanFelipeMosqueraMorales" date="1424385868" format="1.1" reprev="1.5" version="1.5"}%
 ---+ Guide to create a new Query in Gratia Web 
 The Gratia Web queries are defined in !XML files. These files are located at in the =OSG-Measurements-Metrics= project in this path =./src/gratia/config=. If you are working in a machine with a working installation these files will be located in the =site-packages= folder of the python installation in the machine. For example in a SL5 machine with python 2.4 the path would be =/usr/lib/python2.4/site-packages/gratia/config=, or in a SL6 machine with python 2.6 it would be =/usr/lib/python2.6/site-packages/gratia/config=.
 
@@ -48,6 +48,8 @@ This queries groups is defined in =text_queries.xml=, and can be examined on a r
 
 ---++ Modifying/adding queries to an existing group
 
+%WARNING% Remember to escape reserved XML characters like ='&gt;'= and ='&lt;'= when modifying XML files.
+
 Most of the queries defined in the different groups extend from queries that are defined in =generic_queries.xml=. To add a new query to a group you must go to the XML where the group is defined, and add a new =&lt;query&gt;= node to the =&lt;class type="SqlQueries" name="GROUP_NAME"&gt;= node.
 <pre class="file">
 
@@ -73,14 +75,98 @@ Query can inherit all of its attributes from another query. To do this you must 
    &lt;query name="user_site_quality" base="%RED%GratiaSecureStorageQuery%ENDCOLOR%.%BLUE%user_summary%ENDCOLOR%"&gt;
 </pre>
 To define the inputs, the SQL, and other query metadata. The =query= node is composed of the following nodes:
-   * *name (REQUIRED):*
-   * *type (OPTIONAL):*
-   * *kind (OPTIONAL):*
-   * *partial (OPTIONAL):*
 
 ---+++ Query =inputs= tag
 This nodes defines all the input variables that will be included by default in the query. The =inputs= node is composed of =input= nodes. An input node can be defined using the following attributes. 
+   * *name (REQUIRED):* The name of the input parameter. Must not contain spaces nor special characters. Must be unique per each query
+   * *type (OPTIONAL):* The type of the input parameter. If not specified will default to string. The accepted values are:
+      * *int*
+      * *float*
+      * *eval:* Will try to evaluate the expression using the python buiultin =eval()= function. Will try to evaluate with the following call =eval(str(%RED%INPUT_PARAMETER%ENDCOLOR%),{'__builtins__':None,'time':time},{})=.
+      * *datetime:* Will try to parse the input parameter to a datetime python object. Will accept a timestamp in seconds, a date-time string with the following format ='%Y-%m-%d %H:%M:%S'= or and expression like =time.time()= or =time.time()-2*86400=.
+      * *timestamp:* Will try to parse the input parameter to a datetime python object, like the =datetime= type, but will get the timestam of the datetime afterwards.
+      * *bool/boolean:* Will accept either =bool= or =boolean= as type, do not use the string ="bool/boolean"=. The only accepted string values are =false= or =true=
+   * *kind (OPTIONAL):* The only accepted value is ="sql"=. If it is not specified, the input parameters will be able to be used in any python callback function, but will not be included in the SQL query parameters for the query. If specified with =kind="sql"= it will be available to usage in the SQL query as =:input_parameter_name=.
+   * *partial (OPTIONAL):* Only for *datetime* parameters. Only works if there is a numeric parameter named =span=. Values accepted are:
+      * *down:* If =span= is exactly =3600= will set the datetime object minutes and seconds to 0:0. If  =span= is bigger than =3600= will set the datetime object hours, minutes and seconds to 0:0:0.
+      * *up:* If =span= is exactly =3600= will set the datetime object minutes and seconds to 59:59. If  =span= is bigger than =3600= will set the datetime object hours, minutes and seconds to 23:59:59.
+---++++ Example:
+<pre class="file">
+&lt;query name="site_summary"&gt;
+      &lt;inputs&gt;
+        &lt;input name="span" type="int" kind="sql"&gt;3600&lt;/input&gt;
+        &lt;input name="starttime" partial="down" type="datetime" kind="sql"&gt;time.time()-13*86400&lt;/input&gt;
+        &lt;input name="endtime" partial="up" type="datetime" kind="sql"&gt;time.time()&lt;/input&gt;
+        &lt;input name="facility" kind="sql"&gt; Unknown &lt;/input&gt;
+        &lt;input name="vo" kind="sql"&gt; .* &lt;/input&gt;
+        &lt;input name="exclude-vo" kind="sql"&gt; other &lt;/input&gt;
+        &lt;input name="user" kind="sql"&gt; .* &lt;/input&gt;
+      &lt;/inputs&gt;
+      &lt;sql&gt;
+       SELECT
+       ....
+ &lt;/query&gt;
+</pre>
+
 ---+++ Query =sql= tag
+If you are creating a new query that does not inherit from other queries you must specify the SQL query here. You can leave slots that can be filled by child queries. To do this you must include a =slot= tag. This tag only requires a name attribute that must not included spaces nor special characters. There can be multiple slots with the same name. 
+To fill this slots from a child query you can use a =filler= tag with the name of the slot that want to be filled. 
+%WARNING% Non filled slots will be replaced on execution with empty strings. This could lead to a syntax error on the SQL query. 
+The SQL query text can include references to the input parameters with  =:input_parameter_name=. The input parameter must specify the =kind="sql"= attribute to be used.
+---++++ Example:
+*Parent Query:*
+<pre class="file">
+ &lt;query name="site_summary"&gt;
+      ...
+      &lt;/inputs&gt;
+      <b>&lt;sql&gt;
+       SELECT
+          %RED%&lt;slot name="group"/&gt;%ENDCOLOR%,
+          truncate( unix_timestamp(StartTime) / %GREEN%:span%ENDCOLOR%, 0 ) * %GREEN%:span%ENDCOLOR% as time,
+          %BLUE%&lt;slot name="column"/&gt;%ENDCOLOR%
+        FROM
+          MasterTransferSummary R FORCE INDEX (index01)
+        JOIN
+          Probe P on R.ProbeName = P.probename
+        JOIN
+          Site S on S.siteid = P.siteid
+        JOIN
+          VONameCorrection VC ON (VC.corrid=R.VOcorrid)
+        JOIN
+          VO on (VC.void = VO.void)
+        &lt;slot name="JOIN"/&gt;
+        WHERE
+          StartTime &gt;= %GREEN%:starttime%ENDCOLOR% AND
+          StartTime &lt; %GREEN%:endtime%ENDCOLOR% AND 
+          S.SiteName=%GREEN%:facility%ENDCOLOR% AND
+          VO.VOName regexp %GREEN%:vo%ENDCOLOR% AND
+          (NOT (VO.VOName regexp %GREEN%:exclude-vo%ENDCOLOR%)) AND
+          CommonName regexp %GREEN%:user%ENDCOLOR%
+          &lt;slot name="where"/&gt;
+        GROUP BY
+          %RED%&lt;slot name="group"/&gt;%ENDCOLOR%,
+          time
+      &lt;/sql&gt;</b>
+      &lt;results module="graphtool.database.query_handler" function="results_parser"&gt;
+      ...
+ &lt;/query&gt;
+</pre>
+
+*Child Query:*
+<pre class="file">
+    &lt;query name="site_user_transfer_quality" base="GratiaStorageQuery.site_summary"&gt;
+      ...
+      <b>&lt;sql&gt;
+            %RED%&lt;filler name="group"&gt; DN &lt;/filler&gt;%ENDCOLOR%
+            %BLUE%&lt;filler name="column"&gt;
+                sum(CASE StatusCode WHEN 0 THEN 1 ELSE 0 END) as Successes,
+                sum(CASE StatusCode WHEN 0 THEN 0 ELSE 1 END) as Failures
+            &lt;/filler&gt;%ENDCOLOR%
+      &lt;/sql&gt;</b>
+      &lt;results&gt;
+      ...
+   &lt;/query&gt;
+</pre>
 ---+++ Query =results= tag
 ---+++ Query =attribute= tag
 
