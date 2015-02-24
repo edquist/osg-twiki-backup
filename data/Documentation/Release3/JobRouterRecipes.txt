@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1423611260" format="1.1" version="1.13"}%
+%META:TOPICINFO{author="BrianLin" date="1424815431" format="1.1" reprev="1.14" version="1.14"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+ Writing Routes For HTCondor CE
 
@@ -12,13 +12,48 @@ If you have needs beyond delegating all incoming jobs to your batch system, this
 %STARTSECTION{"RoutePitfalls"}%
 ---++ Quirks and Pitfalls
 
-   * If a value is set in JOB_ROUTER_DEFAULTS with =eval_set_&lt;variable&gt;= and you want to override it, you will need to use =eval_set_&lt;variable&gt;= in the JOB_ROUTER_ENTRIES.
+   * If a value is set in [[#JobRouterDefaults][JOB_ROUTER_DEFAULTS]] with =eval_set_&lt;variable&gt;= and you want to override it, you will need to use =eval_set_&lt;variable&gt;= in the JOB_ROUTER_ENTRIES.
    * Make sure to run =condor_ce_reconfig= after changing your routes, otherwise they will not take effect.
    * Before the last square bracket, make sure all lines end in a line continuation character (backslash). You can inspect the syntax of your routes with =condor_ce_config_val JOB_ROUTER_ENTRIES= to see if HTCondor CE has ingested them properly.
-   * Do *not* set the =JOB_ROUTER_DEFAULTS= configuration variable. This will cause the CE to stop functioning.
+   * Do *not* set the [[#JobRouterDefaults][JOB_ROUTER_DEFAULTS]] configuration variable. This will cause the CE to stop functioning.
    * Do *not* set the job environment through the !JobRouter. Instead, add any changes to the /etc/osg/config.d/ =[Local Settings]= section and run osg-configure, as documented [[https://twiki.grid.iu.edu/bin/view/ReleaseDocumentation/ConfigurationFileLocalSettings][here]].
    * HTCondor batch system only: Local universe jobs are excluded from any routing.
 %ENDSECTION%
+
+#JobRouterDefaults
+---++ JOB_ROUTER_DEFAULTS
+
+=JOB_ROUTER_DEFAULTS= is a python-generated configuration value that sets default job route values that are required for the HTCondor CE's functionality. To view its contents, run the following command:
+
+<pre class='screen'>%UCL_PROMPT% condor_ce_config_val JOB_ROUTER_DEFAULTS | sed 's/;/;\n/g'</pre>
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Show sample output"}%
+<pre class="screen">
+[ MaxIdleJobs = 2000;
+ MaxJobs = 10000;
+ /* by default, accept all jobs */ Requirements = True;
+ /* now modify routed job attributes */ /* remove routed job if the client disappears for 48 hours or it is idle for 6 */ /*set_PeriodicRemove = (LastClientContact - time() > 48*60*60) || (JobStatus == 1 && (time() - QDate) > 6*60);
+*/ delete_PeriodicRemove = true;
+ delete_CondorCE = true;
+ set_RoutedJob = true;
+ copy_environment = "orig_environment";
+ set_osg_environment = "OSG_GRID='/etc/osg/wn-client/' OSG_SQUID_LOCATION='fermicloud133.fnal.gov:3128' OSG_SITE_READ='None' OSG_APP='/share/osg/app' OSG_GLEXEC_LOCATION='None' OSG_DATA='UNAVAILABLE' OSG_HOSTNAME='fermicloud136.fnal.gov' OSG_STORAGE_ELEMENT='False' OSG_SITE_NAME='herp' GLOBUS_LOCATION='/usr' OSG_WN_TMP='None' OSG_DEFAULT_SE='None' OSG_SITE_WRITE='None'";
+ eval_set_environment = debug(strcat("HOME=", userHome(Owner, "/"), " ", ifThenElse(orig_environment is undefined, osg_environment, strcat(osg_environment, " ", orig_environment) )));
+ /* Set new requirements */ /* set_requirements = LastClientContact - time() < 30*60;
+ */ set_requirements = True;
+ set_InputRSL = ifThenElse(GlobusRSL is null, [], eval_rsl(GlobusRSL));
+ /* Note default memory request of 2GB */ /* Note yet another nested condition allow pass attributes (maxMemory,xcount,jobtype,queue) via gWMS Factory described within ClassAd if undefined via RSL */ eval_set_RequestMemory = ifThenElse(InputRSL.maxMemory isnt null, InputRSL.maxMemory, ifThenElse(maxMemory isnt null, maxMemory, ifThenElse(default_maxMemory isnt null, default_maxMemory, 2000)));
+ eval_set_remote_queue = ifThenElse(InputRSL.queue isnt null, InputRSL.queue, ifThenElse(queue isnt null, queue, ifThenElse(default_queue isnt null, default_queue, "")));
+ /* HTCondor uses RequestCpus;
+ blahp uses SMPGranularity and NodeNumber.  Default is 1 core. */ eval_set_RequestCpus = ifThenElse(InputRSL.xcount isnt null, InputRSL.xcount, ifThenElse(xcount isnt null, xcount, ifThenElse(default_xcount isnt null, default_xcount, 1)));
+ eval_set_remote_SMPGranularity = ifThenElse(InputRSL.xcount isnt null, InputRSL.xcount, ifThenElse(xcount isnt null, xcount, ifThenElse(default_xcount isnt null, default_xcount, 1)));
+ eval_set_remote_NodeNumber = ifThenElse(InputRSL.xcount isnt null, InputRSL.xcount, ifThenElse(xcount isnt null, xcount, ifThenElse(default_xcount isnt null, default_xcount, 1)));
+ /* If remote_cerequirements is a string, BLAH will parse it as an expression before examining it */ eval_set_remote_cerequirements = ifThenElse(InputRSL.maxWallTime isnt null, strcat("Walltime == ", string(60*InputRSL.maxWallTime), " && CondorCE == 1"), ifThenElse(maxWallTime isnt null, strcat("Walltime == ", string(60*maxWallTime), " && CondorCE == 1"), ifThenElse(default_maxWallTime isnt null, strcat("Walltime == ", string(60*default_maxWallTime), " && CondorCE == 1"), "CondorCE == 1")));
+ ]
+</pre>
+%ENDTWISTY%
+
+%NOTE% If a value is set in =JOB_ROUTER_DEFAULTS= with =eval_set_&lt;variable&gt;= and you want to override it, you will need to use =eval_set_&lt;variable&gt;= in the JOB_ROUTER_ENTRIES.
+%NOTE% Do *not* set the =JOB_ROUTER_DEFAULTS= configuration variable. This will cause the CE to stop functioning.
 
 ---++ Generic Routes
 
@@ -105,7 +140,9 @@ JOB_ROUTER_ENTRIES = [ \
 
 To set an attribute that will be applied to all routes, you will need to =set_= that attribute for each route. 
 
-%NOTE% Do *not* try to do this by setting the =JOB_ROUTER_DEFAULTS= configuration variable, as this will cause the CE to stop functioning. The following routes set the =Periodic_Hold= attribute for both routes:
+%NOTE% Do *not* try to do this by setting the [[#JobRouterDefaults][JOB_ROUTER_DEFAULTS]] configuration variable, as this will cause the CE to stop functioning. 
+
+The following routes set the =Periodic_Hold= attribute for both routes:
 
 <pre class="file">
 JOB_ROUTER_ENTRIES = [ \
