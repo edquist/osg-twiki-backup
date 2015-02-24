@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1424708635" format="1.1" version="1.97"}%
+%META:TOPICINFO{author="BrianLin" date="1424813344" format="1.1" version="1.98"}%
 %META:TOPICPARENT{name="Blueprint.WebHome"}%
 <style type="text/css">
 code em, pre em { color: red; font-weight: normal; font-style: normal; }
@@ -94,17 +94,21 @@ Enable your batch system by editing the =enabled= field in the =/etc/osg/config.
 
 ---++++ Batch systems other than HTCondor
 
-If you are using HTCondor as your *local batch system* (i.e., in addition to your HTCondor&nbsp;CE), skip to the [[#ConfiguringAuthorization][configuring authorization]] section. For other batch systems (e.g., SLURM, PBS, LSF, SGE), keep reading.
+If you are using HTCondor as your *local batch system* (i.e., in addition to your HTCondor&nbsp;CE), skip to the [[#ConfiguringAuthorization][configuring authorization]] section. For other batch systems (e.g., PBS, LSF, SGE, SLURM), keep reading.
 
 ---+++++ Sharing the spool directory
 
-To transfer files between the CE and worker nodes, HTCondor&nbsp;CE requires a shared file system. The current recommendation is to run a dedicated NFS server on the CE host, instead of using an existing or shared NFS instance. The dedicated NFS instance should share the spool directory with all worker nodes; by default, the spool directory is =/var/lib/condor-ce= but you can control this by setting the =SPOOL= configuration variable in =/etc/condor-ce/config.d=.
+To transfer files between the CE and the batch system, HTCondor&nbsp;CE requires a shared file system. The current recommendation is to run a dedicated NFS server (whose installation is beyond the scope of this document) on the *CE host*. In this setup, HTCondor CE writes to the local spool directory, the NFS server exports the it, and NFS server shares the it with all of the worker nodes.
 
-%NOTE% Root squash must be turned off and the shared spool directory must be readable and writeable by the =condor= user for HTCondor&nbsp;CE to function correctly.
+By default, the spool directory is =/var/lib/condor-ce= but you can control this by setting =SPOOL= in =/etc/condor-ce/config.d/99-local.conf=. For example, the following sets the =SPOOL= directory to =/home/condor=:
 
----+++++ Disable BLAHP worker node proxy renewal
+<pre class="file">SPOOL=/home/condor</pre>
 
-Turn off BLAHP worker node proxy renewal by editing the =/etc/blah.config= file on the HTCondor&nbsp;CE host. Set the following two values:
+%NOTE% The shared spool directory must be readable and writeable by the =condor= user for HTCondor&nbsp;CE to function correctly.
+
+---+++++ Disable worker node proxy renewal
+
+Worker node proxy renewal is not used by HTCondor CE and leaving it on will cause some jobs to be held. Edit =/etc/blah.config on the HTCondor&nbsp;CE host and set the following two values:
 
 <pre class="file">
 blah_disable_wn_proxy_renewal=yes
@@ -192,8 +196,6 @@ The following configuration steps are optional and will likely not be required f
    * [[#NetworkInterfaces][Configuring for multiple network interfaces]]
    * [[#LocalUni][Limiting or disabling locally running jobs on the CE]]
    * [[#AccountingGroups][HTCondor accounting groups]]
-   * [[#BinPath][Batch system client tools in non-standard locations]]
-   * [[#SubmitAttr][Adding attributes to each job]]
 
 #JobRoutes
 ---++++ Transforming and filtering jobs
@@ -204,7 +206,7 @@ If you need to modify or filter jobs, more information can be found in the [[Doc
 
 #NetworkInterfaces
 ---++++ Configuring for multiple network interfaces
-If you have multiple network interfaces with different hostnames, the HTCondor&nbsp;CE daemons need to know which hostname to use when communicating to each other. Generally, you will want to set =NETWORK_HOSTNAME= to the hostname of your public interface in your =/etc/condor-ce/config.d/= directory with the line:
+If you have multiple network interfaces with different hostnames, the HTCondor&nbsp;CE daemons need to know which hostname to use when communicating to each other. Generally, you will want to set =NETWORK_HOSTNAME= to the hostname of your public interface in =/etc/condor-ce/config.d/99-local.conf= directory with the line:
 
 <pre class="file">
 NETWORK_HOSTNAME=<span style="background-color: #FFCCFF;">condorce.example.com</span>
@@ -260,44 +262,6 @@ cms\/Role=production cms.prod
 .* other
 </pre>
 %ENDTWISTY%
-
-#BinPath
----++++ Batch system client tools in non-standard locations
-
-%NOTE% For non-HTCondor batch systems only 
-
-If your batch system binaries aren&rsquo;t in the standard location or are not in your PATH, you will need to configure =/etc/blah.config= to point to the directory where you keep said binaries. If your SGE binaries live in =/opt/sge/bin=, then you would want to change the =sge_binpath= configuration variable to read:
-
-<pre class="file">
-sge_binpath=<span style="background-color: #FFCCFF;">/opt/sge/bin</span>
-</pre>
-
-#SubmitAttr
----++++ Adding attributes to each job
-
-%NOTE% This method adds attributes to *all* jobs that are submitted to your batch system. It is recommended to instead use [[Documentation/Release3.JobRouterRecipes][job routes]] wherever possible: you can use job routes to specify [[Documentation/Release3.JobRouterRecipes#2_6_Setting_a_Default][defaults]] for requested memory, requested number of cores, batch system queue, and walltime.
-
-Additional attributes can be inserted into the job submit script by editing =/usr/libexec/blahp/<span style="background-color: #FFCCFF;">&lt;batch system&gt;</span>_local_submit_attributes.sh=.  This file is sourced during submit time and anything printed to stdout is appended to the job submit script.  For example, the following will set a default walltime for PBS: \
-
-<pre class="file">#!/bin/sh
-
-# Set walltime according to request; the batch system
-# may reject this, of course!
-if [ -n "$Walltime" ]; then
-  echo "#PBS -l walltime=$Walltime"
-else
-  echo "#PBS -l walltime=24:00:00"
-fi
-</pre>
-
-The environment variable =$Walltime= is set if the the attribute =remote_cerequirements= is set in the HTCondor-G job.  That attribute should follow the form:
-
-<pre class="file">remote_cerequirements = foo == X && bar == Y && ...</pre>
-
-to set =foo= to value X and =bar= to Y in the environment of =<span style="background-color: #FFCCFF;">&lt;batch system&gt;</span>_local_submit_attributes.sh=.  So, to set the Walltime to 1 hour with the above =<span style="background-color: #FFCCFF;">&lt;batch system&gt;</span>_local_submit_attributes.sh=, the job would need:
-
-<pre class="file">remote_cerequirements = Walltime == 3600</pre>
-
 
 #UsingHTCondorCE
 ---++ Using HTCondor CE
@@ -371,6 +335,20 @@ Here are some other HTCondor&nbsp;CE documents that might be helpful:
    * HTCondor&nbsp;CE overview and architecture (coming soon)
    * [[JobRouterRecipes][Configuring HTCondor&nbsp;CE job routes]]
    * [[TroubleshootingHTCondorCE][The HTCondor&nbsp;CE troubleshooting guide]]
+
+---+++ Configuration
+
+The following directories contain the configuration for HTCondor CE. The directories are parsed in the order presented and thus configuration within the final directory will override configuration specified in the previous directories.
+
+| *Location* | *Comment* |
+| =/usr/share/condor-ce/config.d/= | Configuration defaults (overwritten on package updates) |
+| =/etc/condor-ce/config.d/= | Files in this directory are parsed in alphanumeric order (i.e., =99-local.conf= will override values in =01-ce-auth.conf=) |
+
+For a detailed order of the way configuration files are parsed, run the following command:
+
+<pre class="screen">
+%UCL_PROMPT% condor_ce_config_val -config
+</pre>
 
 ---+++ Users
 
