@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1424973060" format="1.1" reprev="1.5" version="1.5"}%
+%META:TOPICINFO{author="BrianLin" date="1424988120" format="1.1" version="1.6"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+ Submitting Jobs to an HTCondor CE
 
@@ -12,23 +12,15 @@ This document outlines methods of manual submission to an HTCondor CE. It is int
 
 ---++ Submitting Jobs...
 
-There are two main methods for submitting files to an HTCondor CE: using the tools bundled with the =htcondor-ce-client= package and using the =condor_submit= command with a submit file. Both methods will test end-to-end job submission but the former method is simpler while the latter will walk you through writing your own submit file. Unless otherwise specified, assume the following commands are run from your CE.
+There are two main methods for submitting files to an HTCondor CE: using the tools bundled with the =htcondor-ce-client= package and using the =condor_submit= command with a submit file. Both methods will test end-to-end job submission but the former method is simpler while the latter will walk you through writing your own submit file. 
 
-Before attempting to submit jobs, you will need to generate a proxy from a user certificate before running any jobs. To generate a proxy, run the following command:
+Before attempting to submit jobs, you will need to generate a proxy from a user certificate before running any jobs. To generate a proxy, run the following command on the host you plan on submitting from:
 
 <pre class="screen">%UCL_PROMPT% voms-proxy-init</pre>
 
 ---+++ Using HTCondor CE tools
 
-There are two HTCondor CE tools that allow users to test the functionality of their HTCondor CE: [[Documentation.Release3/TroubleshootingHTCondorCE#condor_ce_run][condor_ce_run]] and [[Documentation.Release3/TroubleshootingHTCondorCE#condor_ce_trace][condor_ce_trace]]. The former is a tool that performs job submission, providing output on job completion whereas the latter tests other parts of the CE while providing verbose debugging output. 
-
----++++ condor_ce_run
-
-=condor_ce_run= is a Python script that calls =condor_submit= on a generated submit file and tracks its progress with =condor_q=. To submit a job with =condor_ce_run=, run the following command:
-
-<pre class="screen">%UCL_PROMPT% condor_ce_run -r <span style="background-color: #D1CAF2;">condorce.example.com</span>:9619 /bin/env</pre>
-
-Replacing the <span style="background-color: #D1CAF2;">highlighted</span> text with the hostname of the CE. The command will not return any output until it completes and if you do not get the expected output, refer to the [[https://twiki.opensciencegrid.org/bin/view/Documentation/Release3/TroubleshootingHTCondorCE#condor_ce_run][troubleshooting guide]].
+There are two HTCondor CE tools that allow users to test the functionality of their HTCondor CE: [[Documentation.Release3/TroubleshootingHTCondorCE#condor_ce_trace][condor_ce_trace]] and [[Documentation.Release3/TroubleshootingHTCondorCE#condor_ce_run][condor_ce_run]]. The former is the preferred tool as it provides useful feedback if failure occurs while the latter is simply an automated submission tool. These commands may be run from any host that has =htcondor-ce-client= installed, which you may wish to do if you are testing availability of your CE from an external source.
 
 ---++++ condor_ce_trace
 
@@ -36,49 +28,101 @@ Replacing the <span style="background-color: #D1CAF2;">highlighted</span> text w
 
 <pre class="screen">%UCL_PROMPT% condor_ce_trace --debug <span style="background-color: #D1CAF2;">condorce.example.com</span></pre>
 
-Replacing the <span style="background-color: #D1CAF2;">highlighted</span> text with the hostname of the CE. On success, you should see =Job status: Completed= and the environment of the job on the worker node it landed on. If you do not get the expected output, refer to the [[https://twiki.opensciencegrid.org/bin/view/Documentation/Release3/TroubleshootingHTCondorCE#condor_ce_trace][troubleshooting guide]].
+Replacing the <span style="background-color: #D1CAF2;">highlighted</span> text with the hostname of the CE. On success, you will see =Job status: Completed= and the environment of the job on the worker node it landed on. If you do not get the expected output, refer to the [[https://twiki.opensciencegrid.org/bin/view/Documentation/Release3/TroubleshootingHTCondorCE#condor_ce_trace][troubleshooting guide]].
 
----+++ Using a submit file
+---++++ condor_ce_run
 
-For this method, you will need a functional HTCondor submit node. If you do not have one readily available, you can start one on your CE host by starting the =condor= service:
+=condor_ce_run= is a Python script that calls =condor_submit= on a generated submit file and tracks its progress with =condor_q=. To submit a job with =condor_ce_run=, run the following command:
 
-<pre class="rootscreen">%UCL_PROMPT_ROOT% service condor start</pre>
+<pre class="screen">%UCL_PROMPT% condor_ce_run -r <span style="background-color: #D1CAF2;">condorce.example.com</span>:9619 /bin/env</pre>
 
-Once you have a submit node, you can start the manual submission process:
+Replacing the <span style="background-color: #D1CAF2;">highlighted</span> text with the hostname of the CE. The command will not return any output until it completes: When it does you will see the environment of the job on the worker noded it landed on. If you do not get the expected output, refer to the [[https://twiki.opensciencegrid.org/bin/view/Documentation/Release3/TroubleshootingHTCondorCE#condor_ce_run][troubleshooting guide]].
+
+---+++ Using a submit file...
+
+If you are familiar with HTCondor, submitting a job to an HTCondor CE using a submit file follows the same procedure as submitting a job to an HTCondor batch system: Write a submit file and use =condor_submit= (or in one of our cases, =condor_ce_submit=) to submit the job. This is by virtue of the fact that HTCondor CE is just a special configuration of HTCondor. The major differences occur in the specific attributes for the submit files outlined below.
+
+---++++ From the CE host
+
+This method uses =condor_ce_submit= to submit directly to an HTCondor CE. The only reason we use =condor_ce_submit= in this case is to take advantage of the already running daemons on the CE host.
 
    1. Write a submit file, =ce_test.sub=: \
    <pre class="file">
-universe = grid
-grid_resource = condor <span style="background-color: #FFCCFF;">condorce.example.com</span> <span style="background-color: #FFCCFF;">condorce.example.com</span>:9619
+# Required for local HTCondor CE submission
+universe = vanilla
+use_x509userproxy = true
++Owner = undefined
 
-executable = ce_test.sh
+# Files
+executable = <span style="background-color: #FFCCFF;">ce_test.sh</span>
 output = ce_test.out
 error = ce_test.err
 log = ce_test.log
 
+# File transfer behavior
 ShouldTransferFiles = YES
 WhenToTransferOutput = ON_EXIT
-getenv = True
 
-use_x509userproxy = true
-+Owner = undefined
+# Run job once
 queue</pre> \
-   <p>Replacing the <span style="background-color: #FFCCFF;">highlighted</span> text with the hostname of the CE.
-   1. Write a test script, =ce_test.sh=:\
-   <pre class="file">
+   <p>Replacing the <span style="background-color: #FFCCFF;">highlighted</span> text with the path to the executable you wish to run.</p>
+      i. You can use any executable you choose for the =executable= field. If you don't have one in mind, you may use the following example test script:\
+      <pre class="file">
 #!/bin/bash
 
 date
 hostname
 env </pre>
-   1. Mark the test script executable: \
+      i. Mark the test script as executable: \
+   <pre class="screen">%UCL_PROMPT% chmod +x ce_test.sh</pre>
+   1. Submit the job: \
+   <pre class="screen">%UCL_PROMPT% condor_ce_submit ce_test.sub</pre>
+
+---++++ From another host
+
+For this method, you will need a functional HTCondor submit node. If you do not have one readily available, you can install the =condor= package from the OSG repository to get a simple submit node:
+
+   1. Follow [[Documentation.Release3/InstallCondor#5_Installation_Procedure][these instructions]] to install HTCondor
+   1. Start the =condor= service: \
+   <pre class="rootscreen">%UCL_PROMPT_ROOT% service condor start</pre>
+
+   1. Write a submit file, =ce_test.sub=: \
+   <pre class="file">
+# Required for remote HTCondor CE submission
+universe = grid 
+use_x509userproxy = true
+grid_resource = condor %RED condorce.example.com condorce.example.com%ENDCOLOR%:9619
+
+# Files
+executable = <span style="background-color: #FFCCFF;">ce_test.sh</span>
+output = ce_test.out
+error = ce_test.err
+log = ce_test.log
+
+# File transfer behavior
+ShouldTransferFiles = YES
+WhenToTransferOutput = ON_EXIT
+
+# Run job once
+queue</pre> \
+   <p>Replacing the <span style="background-color: #FFCCFF;">highlighted</span> text with the path to the executable you wish to run and the %RED%red%ENDCOLOR% text with the hostname of the CE you wish to test.</p>
+      i. You can use any executable you choose for the =executable= field. If you don't have one in mind, you may use the following example test script:\
+      <pre class="file">
+#!/bin/bash
+
+date
+hostname
+env </pre>
+      i. Mark the test script as executable: \
    <pre class="screen">%UCL_PROMPT% chmod +x ce_test.sh</pre>
    1. Submit the job: \
    <pre class="screen">%UCL_PROMPT% condor_submit ce_test.sub</pre>
 
-When the job completes, stdout will be placed into =ce_test.out=, stderr will be placed into =ce_test.err=, and HTCondor logging information will be placed in =ce_test.log=. You can track job progress by looking at the condor queue:
+---++++ Tracking job progress
 
-<pre class="screen">%UCL_PROMPT% condor_q</pre>
+When the job completes, stdout will be placed into =ce_test.out=, stderr will be placed into =ce_test.err=, and HTCondor logging information will be placed in =ce_test.log=. You can track job progress by looking at the condor queue by running the following command on the CE host:
+
+<pre class="screen">%UCL_PROMPT% condor_ce_q</pre>
 
 Using the following table to determine job status:
 
@@ -86,12 +130,80 @@ Using the following table to determine job status:
 | I | idle |
 | C | complete |
 | X | being removed |
+| H | held |
 | < | transferring input |
 | > | transferring output |
 
----++ Job-Route Interaction
+---+++ With custom attributes
 
+Custom attributes can be added to jobs that can then be parsed by the receiving HTCondor CE. These custom attributes are prefixed by =+= and are added to the !JobAd. For example, the following adds the =foo= attribute to your !JobAd and sets it equal to the string =bar=:
 
+<pre class="file">+foo="bar"</pre>
+
+You can add these to your submit file before the =queue= statement and in =condor_ce_trace= with the =--attribute= option:
+
+<pre class="screen">%UCL_PROMPT% condor_ce_trace --attribute='+foo="bar"'...</pre>
+
+Currently, =condor_ce_run= does not support adding extra attributes.
+
+#JobRoutes
+---++ How Job Routes Affect Your Job
+
+Upon successful submission of your job, the Job Router takes control of your job by matching it to routes and submitting a transformed job to your batch system. 
+
+---+++ Matching
+
+First, the Job Router checks if your job [[Documentation.Release3/JobRouterRecipes#Filtering_jobs_based_on][matches any routes]]. It does this by checking the routes =Requirements= expression against the job and selecting the first match it comes across in a round robin fashion. If your job does not match any routes, the job will be put on hold and eventually removed from the CE queue without completing.
+
+%NOTE% The !JobRouter matches jobs to routes in a round-robin fashion. This means that if a job can match to multiple routes, it can be routed by any of them! So when writing job routes, make sure that they are exclusive to each other and that your jobs can only match to a single route. 
+
+*Examples*
+
+The following three routes only perform filtering and submission of routed jobs to an HTCondor batch system. The only differences are in the types of jobs that they match:
+
+   * *Route 1:* Matches jobs whose attribute =foo= is equal to =bar=.
+   * *Route 2:* Matches jobs whose attribute =foo= is equal to =baz=.
+   * *Route 3:* Matches jobs whose attribute =foo= is neither equal to =bar= nor =baz=.
+
+%NOTE% Setting a custom attribute for submission requires the =+= prefix but it is unnecessary in the job routes.
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     TargetUniverse = 5; \
+     name = "Route 1"; \
+     Requirements = (TARGET.foo =?= "bar"); \
+] \
+[ \
+     TargetUniverse = 5; \
+     name = "Route 2"; \
+     Requirements = (TARGET.foo =?= "baz"); \
+] \
+[ \
+     TargetUniverse = 5; \
+     name = "Route 3"; \
+     Requirements = (TARGET.foo =!= "bar") && (TARGET.foo =!= "baz"); \
+] \
+</pre>
+
+If a user could submitted their job with =+foo=bar=, the job would match =Route 1=.
+
+---+++ Route defaults
+
+[[Documentation.Release3/JobRouterRecipes#Setting_a_default][Route defaults]] can be set for batch system queue, maximum memory, number of cores to request, and maximum walltime. The submitting user can override any of these by setting the corresponding [[#JobAttributes][attribute]] in their job.
+
+*Examples*
+
+The following route takes all incoming jobs and submits them to an HTCondor batch system requesting 1GB of memory.
+
+<pre class="file">
+JOB_ROUTER_ENTRIES = [ \
+     TargetUniverse = 5; \
+     name = "Route 1"; \
+     set_default_maxMemory = 1000; \
+] 
+</pre>
+
+A user could submit their job with the attribute =+maxMemory=2000= and that job would be submitted requesting 2GB memory instead of the default of 1GB.
 
 ---++ Reference
 
@@ -102,9 +214,10 @@ Here are some other HTCondor&nbsp;CE documents that might be helpful:
    * [[JobRouterRecipes][Configuring HTCondor&nbsp;CE job routes]]
    * [[TroubleshootingHTCondorCE][The HTCondor&nbsp;CE troubleshooting guide]]
 
+#JobAttributes
 ---+++ Job attributes
 
-The following table is a reference of job attributes that can be included in HTCondor submit files and their !GlobusRSL equivalents. A more comprehensive list of submit file attributes can be found in the [[http://research.cs.wisc.edu/htcondor/manual/v8.2/condor_submit.html#SECTION0012554000000000000000][HTCondor manual]].
+The following table is a reference of job attributes that can be included in HTCondor submit files and their !GlobusRSL equivalents. A more comprehensive list of submit file attributes specific to HTCondor CE can be found in the [[http://research.cs.wisc.edu/htcondor/manual/v8.2/condor_submit.html#SECTION0012554000000000000000][HTCondor manual]].
 
 | *HTCondor Attribute* | *Globus RSL* | *Summary* | 
 | [[http://research.cs.wisc.edu/htcondor/manual/v8.2/condor_submit.html#82586][arguments]] | arguments | Arguments that will be provided to the executable for the job. |
