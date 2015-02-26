@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1424969393" format="1.1" version="1.34"}%
+%META:TOPICINFO{author="BrianLin" date="1424976608" format="1.1" version="1.35"}%
 ---+ HTCondor CE Troubleshooting Guide
 
 %TOC{depth="3"}%
@@ -92,7 +92,7 @@ To apply these changes, reconfigure HTCondor CE:
    * Job submission errors to an HTCondor batch system
    * Corresponding job IDs on an HTCondor batch system
 
-*Sample failure*
+*Symptoms*
 
 _HTCondor batch systems only_: The following error occurs when the job router daemon cannot submit the routed job:
 
@@ -928,9 +928,51 @@ Like all GSI-based authentication, HTCondor-CE is sensitive to time skews.  Make
 #TroubleshootingItems
 ---++ HTCondor CE Troubleshooting Items
 
-This section contains common issues you may encounter using HTCondor CE and next actions to take when you do. 
+This section contains common issues you may encounter using HTCondor CE and next actions to take when you do. Before troubleshooting, we recommend increasing the log level:
+
+   1. Write the following into =/etc/condor-ce/config.d/99-local.conf= to increase the log level for all daemons: \
+   <pre class="file">ALL_DEBUG = D_FULLDEBUG</pre>
+   1. Ensure that the configuration is in place: \
+   <pre class="rootscreen">%UCL_PROMPT_ROOT% condor_ce_reconfig</pre>
+   1. Reproduce the issue
 
 %NOTE% Before spending any time on troubleshooting, you should ensure that the state of configuration is as expected by running [[#CondorReconfig][condor_ce_reconfig]].
+
+---+++ Daemons fail to start
+
+If there are errors in your configuration of HTCondor CE, this may cause some of its required daemons to fail to startup. Check the following subsections in order:
+
+*Symptoms*
+
+Daemon startup failure may manifest in many ways, the following are few symptoms of the problem.
+
+   * The service fails to start: \
+   <pre class="rootscreen">%UCL_PROMPT_ROOT% service condor-ce start
+Starting Condor-CE daemons:			[ FAIL ]
+</pre>
+   * =condor_ce_q= fails with a lengthy error message: \
+   <pre class="screen">%UCL_PROMPT% condor_ce_q
+Error: 
+
+Extra Info: You probably saw this error because the condor_schedd is not 
+running on the machine you are trying to query. If the condor_schedd is not 
+running, the Condor system will not be able to find an address and port to 
+connect to and satisfy this request. Please make sure the Condor daemons are 
+running and try again.
+ 
+Extra Info: If the condor_schedd is running on the machine you are trying to 
+query and you still see the error, the most likely cause is that you have 
+setup a personal Condor, you have not defined SCHEDD_NAME in your 
+condor_config file, and something is wrong with your SCHEDD_ADDRESS_FILE 
+setting. You must define either or both of those settings in your config 
+file, or you must use the -name option to condor_q. Please see the Condor 
+manual for details on SCHEDD_NAME and SCHEDD_ADDRESS_FILE.
+</pre>
+
+*Next actions*
+
+   1. *If the !MasterLog is filled with =ERROR:SECMAN...TCP connection to collector...failed=:* This is likely due to a misconfiguration for a host with multiple network interfaces. Verify that you have followed the instructions in [[Documentation.Release3/InstallHTCondorCE#NetworkInterfaces][this]] section of the install guide.
+   1. *If the !MasterLog is filled with =DC_AUTHENTICATE= errors:* The HTCondor CE daemons use the host certificate to authenticate with each other. Verify that your host certificate&rsquo;s DN matches one of the regular expressions found in =/etc/condor-ce/condor_mapfile=.
 
 ---+++ Jobs stay idle on the CE
 
@@ -962,8 +1004,8 @@ HTCondor CE submits jobs to a non-HTCondor batch system via the !Gridmanager, so
 
 *Next actions*
 
-   1. <p><b>If you see failures in the Gridmanager log during job submission:</b> Save the submit files by adding the appropriate entry to [[#BlahpConfig][blah.config]] and submit it [[#ManualSubmission][manually]] to the batch system. If that succeeds, make sure that the BLAHP knows where your binaries are located by setting the =&lt;batch system&gt;_binpath= in =/etc/blah.config=.</p>
-   1. <p><b>If you see failures in the Gridmanager log  during queries for job status:</b> Query the resultant job with your batch system tools from the CE. If you can, the BLAHP uses scripts to query for status in =/usr/libexec/blahp/&lt;batch system&gt;_status.sh= (e.g., =/usr/libexec/blahp/lsf_status.sh=) that take the argument =batch system/YYYMMDD/job ID= (e.g., =lsf/20141008/65053=). Run the appropriate "status" script for your batch system and upon success, you should see the following output:</p>\
+   1. <p><b>If you see failures in the !GridmanagerLog during job submission:</b> Save the submit files by adding the appropriate entry to [[#BlahpConfig][blah.config]] and submit it [[#ManualSubmission][manually]] to the batch system. If that succeeds, make sure that the BLAHP knows where your binaries are located by setting the =&lt;batch system&gt;_binpath= in =/etc/blah.config=.</p>
+   1. <p><b>If you see failures in the !GridmanagerLog  during queries for job status:</b> Query the resultant job with your batch system tools from the CE. If you can, the BLAHP uses scripts to query for status in =/usr/libexec/blahp/&lt;batch system&gt;_status.sh= (e.g., =/usr/libexec/blahp/lsf_status.sh=) that take the argument =batch system/YYYMMDD/job ID= (e.g., =lsf/20141008/65053=). Run the appropriate "status" script for your batch system and upon success, you should see the following output:</p>\
    <pre class="screen">[ BatchjobId = "894862"; JobStatus = 4; ExitCode = 0; WorkerNode = "atl-prod08" ]</pre>\
    If the script fails, [[#OsgSupport][request help]] from the OSG.
    
@@ -986,15 +1028,13 @@ If the underlying batch system does not run a simple manual job, it will probabl
 
 HTCondor CE needs the ability to write and chown files in its =spool= directory and if it cannot, jobs will not run at all. Spool permission errors can appear in the [[#SchedLog][SchedLog]] and the [[#JobRouterLog][JobRouterLog]].
 
-*Sample failure*
+*Symptoms*
 
 <pre class="file">09/17/14 14:45:42 Error: Unable to chown '/var/lib/condor-ce/spool/1/0/cluster1.proc0.subproc0/env' from 12345 to 54321</pre>
 
 *Next actions*
 
-   1. <p>As root, try to change ownership of the file or directory in question. If the file does not exist, a parent directory may have improper permissions.</p>
-   1. <p>If using a shared file system, verify that root squash is turned off. For NFS, this is turned off by setting the following in =/etc/exports=:</p>\
-       <pre class="screen">no_root_squash</pre>
+As root, try to change ownership of the file or directory in question. If the file does not exist, a parent directory may have improper permissions.
 
 ---+++ Jobs stay idle on a remote host submitting to the CE
 
@@ -1004,7 +1044,7 @@ If you are submitting your job from a separate submit host to the CE, it stays i
 
 To check basic connectivity to a CE, use [[#CondorPing][condor_ce_ping]]:
 
-*Sample failure*
+*Symptoms*
 
 <pre class="screen">
 %UCL_PROMPT% condor_ping -verbose -name <span style="background-color: #D1CAF2;">condorce.example.com</span> -pool <span style="background-color: #D1CAF2;">condorce.example.com</span>:9619 WRITE 
@@ -1021,7 +1061,7 @@ To check basic connectivity to a CE, use [[#CondorPing][condor_ce_ping]]:
 
 The CE will only accept jobs from users that authenticate via GUMS or a grid mapfile. You can use [[#CondorPing][condor_ce_ping]] to check if you are authorized and what user your proxy is being mapped to.
 
-*Sample failure*
+*Symptoms*
 
 <pre class="screen">
 %UCL_PROMPT% condor_ping -verbose -name <span style="background-color: #D1CAF2;">condorce.example.com</span> -pool <span style="background-color: #D1CAF2;">condorce.example.com</span>:9619 WRITE 
