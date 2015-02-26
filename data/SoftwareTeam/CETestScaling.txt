@@ -1,21 +1,26 @@
-%META:TOPICINFO{author="EdgarFajardo" date="1415386147" format="1.1" reprev="1.2" version="1.2"}%
-%TOC%
----+ Large Scale Testing of a Computing Element
+%META:TOPICINFO{author="TimCartwright" date="1424986289" format="1.1" reprev="1.3" version="1.3"}%
+---+ How to Run Scalability Tests on a CE
+
+%TOC{depth="3"}%
 
 ---++ Introduction
-==TO BE REVIEWED==
-This document is intended as a general overview of the process involving the large scale testing of a Computing Element Software (CE). The examples will be given for the current scaling of the HTCondor CE, however they should be applicable for other CE Software.
+
+This document is intended as a general overview of the process for scalability testing of an OSG CE (Compute Element). All examples are for testing an HTCondor CE, but they should be applicable for other CE software.
+
+The focus of testing a CE is on the number of concurrent running jobs the CE can sustain as well as the ramp-up rate when many jobs are queued.
+
 
 ---++ Sleeper Pool
-==TO BE REVIEWED==
----+++ Objective of a Sleeper Pool
-Be able to run "almost " resourceless (CPU, IO) jobs parallel to real production jobs.
----+++ Why a sleeper pool?
-When large scale testing a CE one of the objectives is to see if new software can fully utilize all resources (cores) behind it or the bottlenecks preventing it. However to this would normally require to use those production slots. However running resourceless jobs in parallel to production jobs allows for the testing without interfering with real work.
----+++ How to setup a sleeper pool?
-A sleeper pool is set up "tricking" a worker node to actually think it has more cores than it physically has. Then a configuration is done so  that jobs marked for a "sleep pool" are routed to those "sleep slots". In HTCondor it is done via tricking the Startd expression, and example of such an expression in a 32 core machien is:
 
-<verbatim>
+With the focus on the CE, actual job payloads can be minimal – simple long sleep jobs are fine. Thus, then can run on nearly any resources, and it is even possible to allow far more of these jobs to run on a single resource than would be sensible for real jobs.
+
+When large-scale testing a CE, one of the objectives is to see if the CE can fully utilize all resources (cores) available to it or if there are bottlenecks preventing that outcome. However to do this would normally require using up production slots, and it is hard to find a site willing to give up so many production slots for so long. Thus, running resourceless jobs in parallel with production jobs allows the testing to proceed without interfering with real work.
+
+---+++ Setting Up a Sleeper Pool
+
+A sleeper pool is created by “tricking” a worker node into thinking it has more cores than physically available. Then, the host is configured so that jobs marked for the sleeper pool are routed to the extra slots. In HTCondor, this is done by changing the START expression on each startd. For example, on a 32-core machine:
+
+<pre class="file">
 START = ( \
           (SlotID >= 1) && \
           (SlotID < 33) && \
@@ -25,42 +30,54 @@ START = ( \
           (CPU_Only == TRUE ) \
           ) || \
           ( (SlotID >= 33) && (distro =?= "RHEL6" ) && (SleepSlot == TRUE) )
-</verbatim>
+</pre>
 
----++ Usual Topology of the tests
-==TO BE REVIEWED==
-A brief introduction to the topology involved in the tests
+
+---++ Usual Topology of the Tests
+
+A brief introduction to the topology involved in the tests.
+
 ---+++ Batch System and Sleeper Pool
-This is normally the batch system of the resources which will be behind the CE to be tested. It is normally set up by a site Admin.
+
+This is normally the batch system of the resources which will be behind the CE to be tested. It is normally set up by a site administrator.
+
 ---+++ CE
-This is the physical hardware where the CE Software will sit, hopefully mimicking real production hardware specifications. 
+
+This is the physical hardware where the CE software runs, hopefully mimicking real production hardware specifications.
+
 ---+++ Submitter
-An HTCondor Schedd. It can be a Virtual machine for most of the condor-g grid test submissions.
+
+An HTCondor submit host. It can be a virtual machine for most test submissions.
+
+
 ---++ Monitoring tools
-==TO BE REVIEWED==
-In order to do the monitoring two pieces are needed (which can be isntalled in the same node): ganglia-gmond and ganglia-gmetad. Once this is set up then some ad-hoc metrics can be created to monitor the CE, for example:
 
-<verbatim>
-condor_q -pool red.unl.edu:9619 -name sleeper@red.unl.edu -const 'JobStatus=?=2'| wc -l
+To monitor tests, two software components are needed (which can be installed on the same node): ganglia-gmond and ganglia-gmetad. Once they are installed, then some ad-hoc metrics can be created to monitor the CE; for example:
+
+<pre class="screen">
+condor_q -pool red.unl.edu:9619 -name sleeper@red.unl.edu -const 'JobStatus=?=2' | wc -l
 gmetric --name RunningJobsCE 
-</verbatim>
----++ Load creator tools
-==TO BE REVIEWED==
+</pre>
+
+
+---++ Generating Load
+
 ---+++ Location
-The load_generators are found in Sourceforge [[http://sourceforge.net/projects/osgscal/][SourceForge OSgscal]] as part of the OSG Scalability repo. The one of interest here is loadtest_condor
+
+The load_generators are found in Sourceforge [[http://sourceforge.net/projects/osgscal/][SourceForge OSgscal]] as part of the OSG Scalability repository. The one of interest here is =loadtest_condor=.
+
 ---+++ Use
-Just untar it or check it out from trunk in the HTCondor Submitter:
-<verbatim>
+
+Just untar it or check it out from trunk on the HTCondor submit node (see above):
+
+<pre class="screen">
 svn checkout svn://svn.code.sf.net/p/osgscal/code/ osgscal-code
-</verbatim>
-Bear in mind you also need a valid proxy for grid submissions.
+</pre>
 
-If for example to keep 1k jobs in the queue and send 6 hours jobs (in average), you can run this command:
+Keep in mind that you also need a valid proxy for grid submissions.
 
-<verbatim>
+For example, if the goal is to keep 1,000 jobs in the queue and run 6-hour sleep jobs (on average), you can run this command:
+
+<pre class="screen">
 ./loadtest_condor/bin/loadtest_condor.sh -type grid condor sleeper@red.unl.edu red.unl.edu:9619 -jobs 40000 -cluster 10 -proxy /home/submituser/.globus/cmspilot01.proxy -end random 21600 -maxidle 1000 -in sandbox 50
-</verbatim>
-
-
-
--- Main.EdgarFajardo - 06 Nov 2014
+</pre>
