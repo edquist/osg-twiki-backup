@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1422916623" format="1.1" version="1.16"}%
+%META:TOPICINFO{author="BrianLin" date="1425509497" format="1.1" reprev="1.17" version="1.17"}%
 <!--
    * Set TODO = <span style="color: white; background-color: #F0F; font-weight: bold; padding: 2px;">TODO:</span>
 -->
@@ -22,51 +22,59 @@ Before continuing with this document, make sure that you are familiar with the f
 
 ---++ What is a Compute Element?
 
-The OSG Compute Element (CE) is the entry point for the OSG to your local resources. At the heart of the CE is the _job gateway_ software, which is responsible for handling incoming jobs, authorizing them, and delegating them to your batch system(s) for execution. Historically, the OSG only had one option for a job gateway solution, Globus Toolkit’s GRAM-based gatekeeper, but now offers the HTCondor CE as an alternative.
+The OSG Compute Element (CE) is the entry point for the OSG to your local resources: a layer of software that you install on a machine that has the ability to submit jobs into your batch system. At the heart of the CE is the _job gateway_ software, which is responsible for handling incoming jobs, authorizing them, and delegating them to your batch system(s) for execution. Historically, the OSG only had one option for a job gateway solution, Globus Toolkit’s GRAM-based gatekeeper, but now offers the HTCondor CE as an alternative.
 
 ---++ What is HTCondor CE?
 
-HTCondor CE is a special configuration of the HTCondor software designed to be the preferred job gateway solution for the OSG. Out of the box, HTCondor supports the job gateway requirements of remote job submission and GSI-based authorization methods. To handle job delegation, HTCondor CE uses the [[http://research.cs.wisc.edu/htcondor/manual/v8.2/5_4HTCondor_Job.html][Job Router daemon]], which has the ability to transform jobs and submit them to the different types of batch systems that are already in use in the OSG (HTCondor, PBS, SLURM, LSF and SGE).
+HTCondor CE is a special configuration of the HTCondor software designed to be the preferred job gateway solution for the OSG. Out of the box, HTCondor supports the remote job submission and GSI-based authorization methods. To handle job delegation, HTCondor CE uses the [[http://research.cs.wisc.edu/htcondor/manual/v8.2/5_4HTCondor_Job.html][Job Router daemon]], which has the ability to transform jobs and submit them to the batch systems supported by the OSG (HTCondor, PBS, SLURM, LSF and SGE).
 
 ---+++ Differences with a GRAM CE
 
-%RED%FIXME needs careful wording%ENDCOLOR%HTCondor CE offers many improvements over the GRAM-based CE:
+Listed below are some of the benefits you will see when switching to HTCondor CE:
 
-   * *Improved Scalability:* HTCondor CE has reached approximately 16k parallel running jobs in [[Sandbox.HTCondorCEScaleTests][testing]]
-   * *Debugging tools:* HTCondor CE offers many job introspection tools to help [[TroubleshootingHTCondorCE][troubleshoot]] issues with jobs
-   * *Upgrades won't overwrite site customizations:* HTCondor&rsquo;s configuration system allows for site customizations to be retained through system upgrades
+   * *Scalability:* HTCondor CE has reached approximately 16k parallel running jobs in [[Sandbox.HTCondorCEScaleTests][testing]]
+   * *Debugging Tools:* HTCondor CE offers many job introspection tools to help [[TroubleshootingHTCondorCE][troubleshoot]] issues with jobs
+   * *Consistency Between Upgrades:* HTCondor&rsquo;s configuration system allows for site customizations to be retained through system upgrades
 
----++ How Jobs Run
+%RED%TODO: job routes vs jobmanager%ENDCOLOR%
 
-In the OSG, most incoming jobs (we refer to these as the _grid job_) will be in the form of pilots submitted from the factories. If these pilot jobs are authorized to run at the site they're submitted to, the job is placed into the job gateway’s scheduler and is transformed (referred to as the _routed job_) before it is submitted to the site’s batch system (referred to as the _batch system job_). The job gateway monitors the status of the batch system job and passes that information back to the routed job, then to the grid job, and eventually to the user until the job completes, whereupon files are transferred back along the chain and the process ends.
+---++ How Jobs Run...
 
----+++ How jobs run on HTCondor batch systems
+In the OSG, most incoming jobs (referred to as the _grid job_) will be in the form of pilots submitted from the factories. Once the grid job is authorized, it is placed into HTCondor CE&rsquo;s scheduler, where the !JobRouter transforms it (referred to as the _routed job_) and submits it to the site’s batch system (referred to as the _batch system job_). HTCondor CE monitors the status of the batch system job and passes that information back to the routed job, then to the grid job, and eventually to the user until the job completes, whereupon files are transferred back along the chain and the process ends.
 
-For a site with a HTCondor batch system, the !JobRouter will transform and mirror the grid job into the routed job in the site's batch system.  The process is illustrated below:
+---+++ On HTCondor batch systems
+
+For a site with an HTCondor batch system, the !JobRouter transforms the grid job directly into the batch system&rsquo;s schedd i.e., the routed and batch system jobs are one and the same. This means that the are three job IDs (illustrated below): the job ID on the submit host, the grid job&rsquo;s ID on the CE, and the routed/batch system job ID.
 
 <img src="%ATTACHURLPATH%/ce_condorbatchsystem.png" alt="condor-ce-condor-schematics.png" width='320' height='306' /> 
 
-Notice the !JobRouter copies the job directly into the site's batch system and does not make use of =condor_submit=. This means that if the HTCondor batch system is setup to add attributes to incoming jobs when they are submitted (i.e. =SUBMIT_EXPRS=), these attributes will not be added to the routed jobs.
+The !JobRouter copies the job directly into the site's batch system and does not make use of =condor_submit=. This means that if the HTCondor batch system is setup to add attributes to incoming jobs when they are submitted (i.e. =SUBMIT_EXPRS=), these attributes will not be added to the routed jobs.
 
----+++ How jobs run on other batch systems
+---+++ On other batch systems
 
-Submission into a non-HTCondor batch system is done slightly differently than with an HTCondor batch system. For example, with a PBS batch system, the routed job stays in the HTCondor CE schedd (as the !JobRouter does not know how to submit directly into the PBS queue), and the routed job is submitted into PBS using the BLAHP, resulting in the batch job. See the illustration below:
+For non-HTCondor batch systems, the !JobRouter transforms the grid job into the routed job on the CE and the routed job submits a job into the batch system via a process called the BLAHP. This means that there are four job IDs (illustrated below): the job ID on the submit host, the grid job&rsquo;s ID on the CE, the routed job&rsquo;s ID on the CE, and the batch system job ID.
 
 <img src="%ATTACHURLPATH%/ce_otherbatchsystem.png" alt="condor-ce-condor-schematics.png" width='320' height='306' /> 
 
 Notice that the BLAHP, not the !JobRouter, submits the job to PBS in this case.
 
----++ How Files are Transferred
-
-HTCondor CE uses HTCondor's internal CEDAR protocol to move a job's files from the submit node to the CE's spool directory. If the job matches a job route, the CE submits the job to the local batch system. If the local batch system is HTCondor, the files are transferred to the batch system's spool directory. For all other batch systems, HTCondor CE's spool directory needs to be mounted on a shared file system such that both the CE and worker nodes can access the job's files.
-
 ---++ How the CE is Customized
+
+%RED%TODO: Rewrite, mention !JobRouter?%ENDCOLOR%
 
 HTCondor CE uses HTCondor's configuration language for its own customization since it is a special configuration of HTCondor. The default configuration should suffice for small sites but if you need to set site-specific attributes or resource limits, you can do this with job routes. For examples of how to edit your job routes, consult [[Documentation/Release3.JobRouterRecipes][this page]].
 
 If you are running HTCondor as your batch system, you will have two HTCondor configurations side-by-side (one residing in =/etc/condor/= and the other in =/etc/condor-ce=) and will need to make sure to differentiate the two when editing any configuration.
 
+---++ How Files are Transferred
+
+%RED%TODO: Drop this section?%ENDCOLOR%
+
+HTCondor CE uses HTCondor's internal CEDAR protocol to move a job's files from the submit node to the CE's spool directory. If the job matches a job route, the CE submits the job to the local batch system. If the local batch system is HTCondor, the files are transferred to the batch system's spool directory. For all other batch systems, HTCondor CE's spool directory needs to be mounted on a shared file system such that both the CE and worker nodes can access the job's files.
+
 ---++ How Security Works
+
+%RED%TODO: Drop this section?%ENDCOLOR%
 
 In the OSG, security depends on a PKI infrastructure involving Certificate Authorities (CAs) where CAs sign and issue certifcates to users and hosts. When these users and hosts wish to communicate with each other, the identities of each party is confirmed by cross-checking their certificates with the signing CA and establishing trust. 
 
@@ -80,6 +88,7 @@ If you're transitioning from a GRAM CE to HTCondor CE, the process is the same a
 
    * [[InstallHTCondorCE][Installing and configuring]] HTCondor CE
    * Setting up [[JobRouterRecipes][job routes]]
+   * [[SubmittingHTCondorCE][Submitting]] jobs to HTCondor CE
    * [[TroubleshootingHTCondorCE][Troubleshooting]] HTCondor CE
    * Register the CE with OIM
    * Register with the OSG !GlideinWMS factories and the ATLAS !AutoPyFactory
