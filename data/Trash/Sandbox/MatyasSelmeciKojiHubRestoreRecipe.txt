@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1421092658" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1426090851" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
 %TOC{depth="2"}%
 
@@ -30,7 +30,7 @@ This is assuming we do no deduplication (hardlinking). Since the reason /mnt/koj
 
 /mnt/koji/repos is a special case: content there is constantly regenerated and cleaned up.
 We would not be able to do much deduplication.
-Its contents are not necessary for a restore, but do speed up the restore time by about 5 hours since we would not have to regenerate the repos.
+Its contents are not necessary for a restore, but do speed up the restore time by several hours since we would not have to regenerate _all_ the repos.
 
 ---++ Setting up your environment
 
@@ -207,11 +207,10 @@ root@newhub# rpm -Uvh \
       * Add <code>includepkg=koji*</code> to the definition for the development repo
    1. Go through the other repo files and make sure that !EPEL and OS priorities are worse than 98.\
       Especially look at =cobbler-config.repo= if it exists.
-   1. Install the koji packages, making sure they come from osg:<pre class="rootscreen">
+   1. Install the koji packages and dependencies, making sure the koji packages themselves come from osg:<pre class="rootscreen">
 root@newhub# yum install koji koji-builder koji-hub koji-plugin-sign \
-   koji-theme-fedora koji-utils koji-web mod_ssl
-</pre>( *Note* : at the time of this writing, _koji-theme-fedora_ was not available for EL6.\
-      It is not required for koji to function, just to look pretty).
+   koji-theme-fedora koji-utils koji-web mod_ssl postgresql
+</pre>
    1. Mount =/mnt/koji= if necessary
    1. Restore the contents of the koji filesystem. On _host-3_:<pre class="rootscreen">
 ## At a minimum, you must restore the /mnt/koji/packages directory
@@ -254,7 +253,7 @@ root@host-3# $RSYNC $DA $HUBBACKUP/rootfs/etc/ $NEWHUB:/mnt/rootfs/etc
 
    1. On _newhub_:<pre class="rootscreen">mkdir -p /root/hubrestore</pre>
    1. On _host-3_:<pre class="rootscreen">
-$RSYNC $HUBBACKUP/rootfs/{root/,home/,etc/,var/} $NEWHUB:/root/hubrestore/</pre>
+$RSYNC $HUBBACKUP/rootfs/{root,home,etc,var} $NEWHUB:/root/hubrestore/</pre>
    1. On _newhub_, install some utils we might need later:<pre class="rootscreen">
 root@newhub# yum install -y dos2unix vim-enhanced</pre> (vim-enhanced is used for vimdiff)
    1. On _newhub_:<pre class="rootscreen">
@@ -265,7 +264,7 @@ done &lt;&lt;__END__
 kojid
 koji-hub
 kojira
-koji-plugin-sign
+koji-sign-plugin
 kojiweb
 mock
 pki/tls/certs
@@ -276,7 +275,7 @@ root@newhub# cp -a /root/hubrestore/etc/koji.conf /etc/
 root@newhub# cp -a /root/hubrestore/etc/sysconfig/{httpd,kojid,kojira} /etc/sysconfig/
 ## If you are migrating from EL 5 to EL6, you will have to merge the
 ## files in /etc/httpd subtree individually. If you're going from EL5
-## to EL6, you can just dirclone it from the hubrestore directory.
+## to EL5, you can just dirclone it from the hubrestore directory.
 </pre>
    1. Restore users and home directories
       * If _newhub_ is on a separate host from _newdb_, then just simply copy over the files:<pre class="rootscreen">
@@ -296,6 +295,7 @@ done
 ## ("set nobackup" in vim), and that shadow and gshadow are owned by
 ## root and have 0400 permissions.
 </pre>
+   1. Ensure a 'koji' user exists
    1. Fix dirs in =/var=:<pre class="rootscreen">
 root@newhub# dirclone /root/hubrestore/var/www/html /var/www/html
 root@newhub# rm -rf /var/lib/mock/*
