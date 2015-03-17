@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1426610761" format="1.1" reprev="1.20" version="1.20"}%
+%META:TOPICINFO{author="TimCartwright" date="1426611637" format="1.1" reprev="1.21" version="1.21"}%
 <!--
    * Set TODO = <span style="color: white; background-color: #F0F; font-weight: bold; padding: 2px;">TODO:</span>
 -->
@@ -9,44 +9,44 @@
 
 ---++ About this Document
 
-This document serves as an introduction to HTCondor CE, how it works, and its differences with a GRAM CE. 
+This document serves as an introduction to HTCondor CE, how it works, and how it differs from a GRAM CE. 
 
 ---++ Document Requirements
 
 Before continuing with this document, make sure that you are familiar with the following concepts:
 
    * An OSG site plan
-      * What is a batch system and which one will you use ([[Documentation/GlossaryOfTerms#DefsCondor][HTCondor]], PBS, LSF, or SGE)
-      * Security in the OSG via [[Documentation/GlossaryOfTerms#DefsGridSecurityInfrastructure][GSI]] (i.e. [[Documentation/GlossaryOfTerms#DefsCA][Certificate authorities]], user and host [[Documentation/GlossaryOfTerms#DefsCertificate][certificates]], proxies)
-   * Pilot jobs, frontends, and factories (i.e. [[Documentation/GlossaryOfTerms#DefsGlideinWMS][GlideinWMS]], !AutoPy)
+      * What is a batch system and which one will you use ([[Documentation/GlossaryOfTerms#DefsCondor][HTCondor]], PBS, LSF, SGE, or SLURM)?
+      * Security in the OSG via [[Documentation/GlossaryOfTerms#DefsGridSecurityInfrastructure][GSI]] (i.e., [[Documentation/GlossaryOfTerms#DefsCA][Certificate authorities]], user and host [[Documentation/GlossaryOfTerms#DefsCertificate][certificates]], proxies)
+   * Pilot jobs, frontends, and factories (i.e., [[Documentation/GlossaryOfTerms#DefsGlideinWMS][GlideinWMS]], !AutoPy)
 
 ---++ What is a Compute Element?
 
 An OSG Compute Element (CE) is the entry point for the OSG to your local resources: a layer of software that you install on a machine that can submit jobs into your local batch system. At the heart of the CE is the _job gateway_ software, which is responsible for handling incoming jobs, authorizing them, and delegating them to your batch system for execution. Historically, the OSG only had one option for a job gateway solution, Globus Toolkit’s GRAM-based gatekeeper, but now offers the HTCondor CE as an alternative.
 
-Keep in mind that most incoming jobs (referred to as _grid jobs_) will be in the form of pilots submitted from factories. If there are OSG user jobs waiting for resources, they are then run within the container of the pilot job. Otherwise, the pilot job will remove itself after a period of time.
+Today in OSG, most jobs that arrive at a CE (called _grid jobs_) are *not* end-user jobs, but rather pilot jobs submitted from factories. Successful pilot jobs create and make available an environment for actual end-user jobs to match and ultimately run within the pilot job container. Eventually pilot jobs remove themselves, typically after a period of inactivity.
 
 ---++ What is HTCondor CE?
 
-HTCondor CE is a special configuration of the HTCondor software designed to be a job gateway solution for the OSG. It is configured to use the [[http://research.cs.wisc.edu/htcondor/manual/v8.2/5_4HTCondor_Job.html][JobRouter daemon]] to delegate jobs by transforming and submitting them to the site&rsquo;s batch system). 
+HTCondor CE is a special configuration of the HTCondor software designed to be a job gateway solution for the OSG. It is configured to use the [[http://research.cs.wisc.edu/htcondor/manual/v8.2/5_4HTCondor_Job.html][JobRouter daemon]] to delegate jobs by transforming and submitting them to the site&rsquo;s batch system. 
 
 ---+++ How is HTCondor CE different from a GRAM CE?
 
-The biggest difference you will see between an HTCondor CE and a GRAM CE is in the way that jobs are submitted to your batch system; HTCondor CE&rsquo;s use the built-in !JobRouter daemon whereas GRAM CE&rsquo;s use jobmanager scripts written in Perl. Customizing your site&rsquo;s CE now requires editing configuration files instead of editing jobmanager scripts.
+The biggest difference you will see between an HTCondor CE and a GRAM CE is in the way that jobs are submitted to your batch system; HTCondor CE uses the built-in !JobRouter daemon whereas GRAM CE uses jobmanager scripts written in Perl. Customizing your site&rsquo;s CE now requires editing configuration files instead of editing jobmanager scripts.
 
 Listed below are some other benefits to switching to HTCondor CE:
 
-   * *Scalability:* HTCondor CE is capable of supporting job workloads of large sites (See scale tests [[Sandbox.HTCondorCEScaleTests][here]])
-   * *Debugging tools:* HTCondor CE offers many tools to help [[TroubleshootingHTCondorCE][troubleshoot]] issues with jobs
-   * *Routing as configuration:* HTCondor CE&rsquo;s mechanism to transform and submit jobs is customized via configuration variables. This means that customizations will survive through upgrades and system administrators will not have to modify software internals to route jobs to their destination.
+   * *Scalability:* HTCondor CE is capable of supporting job workloads of large sites (see [[Sandbox.HTCondorCEScaleTests][scale testing results]])
+   * *Debugging tools:* HTCondor CE offers [[TroubleshootingHTCondorCE][many tools to help troubleshoot]] issues with jobs
+   * *Routing as configuration:* HTCondor CE&rsquo;s mechanism to transform and submit jobs is customized via configuration variables, which means that customizations will persist across upgrades and will not involve modification of software internals to route jobs
 
 ---++ How Jobs Run
 
-Once an incoming grid job is authorized, it is placed into HTCondor CE&rsquo;s scheduler where the !JobRouter creates a transformed copy (referred to as the _routed job_) and submits the copy to the batch system (referred to as the _batch system job_). After submission, HTCondor CE monitors the batch system job and communicates its status to the original grid job, which in turn notifies the original submitter (e.g. job factory) of any updates. When the job completes, files are transferred along the same chain: from the batch system to the CE then from the CE to the original submitter.
+Once an incoming grid job is authorized, it is placed into HTCondor CE&rsquo;s scheduler where the !JobRouter creates a transformed copy (called the _routed job_) and submits the copy to the batch system (called the _batch system job_). After submission, HTCondor CE monitors the batch system job and communicates its status to the original grid job, which in turn notifies the original submitter (e.g., job factory) of any updates. When the job completes, files are transferred along the same chain: from the batch system to the CE, then from the CE to the original submitter.
 
 ---+++ On HTCondor batch systems
 
-For a site with an HTCondor batch system, the !JobRouter can use HTCondor protocols to place a transformed copy of the grid job directly into the batch system&rsquo;s scheduler, meaning that the routed and batch system jobs are one and the same. This means that the are three job IDs (illustrated below): the job ID on the submit host, the grid job&rsquo;s ID on the CE, and the routed job&rsquo;s ID on the batch system.
+For a site with an HTCondor *batch system*, the !JobRouter can use HTCondor protocols to place a transformed copy of the grid job directly into the batch system&rsquo;s scheduler, meaning that the routed and batch system jobs are one and the same. This means that there are three job IDs (illustrated below): the job ID on the submit host, the grid job&rsquo;s ID on the CE, and the routed job&rsquo;s ID on the batch system.
 
 <img src="%ATTACHURLPATH%/ce_condorbatchsystem.png" alt="condor-ce-condor-schematics.png" width='320' height='306' /> 
 
