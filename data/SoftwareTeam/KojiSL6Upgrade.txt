@@ -1,0 +1,165 @@
+%META:TOPICINFO{author="MatyasSelmeci" date="1428960886" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="InternalDocs"}%
+<pre>
+     Upgrade Report for koji-hub.batlab.org from SL5 to SL6
+
+
+1. Wed, 2015-01-28
+
+I started the upgrade at 10:00am by first shutting down the build
+daemons (kojid) on kojibuilder{1,2,3}.  Then I shut down kojira, kojid
+and httpd (in that order) on koji-hub itself, followed by running
+/sbin/poweroff on koji-hub.  Then I shut down the postgresql database on
+db-01 and created a full snapshot of the /var/lib/pgsql directory.
+
+The original plan called for partitioning the disk as follows:
+ * 40G for /var/lib/mock
+ * 20G for /
+ * 20G for /home
+ * Remainder for /mnt/koji
+This resembled the partitioning scheme on the SL5 install of koji-hub.
+Following Moate's advice, we changed that to:
+ * 40G for /var/lib/mock
+ * 30G for /
+ * 30G for /var
+ * Remainder for /mnt/koji
+since we didn't want a runaway logfile from taking down /, and we were
+not worried about /home filling up.
+
+We had some trouble with Cobbler, causing the OS install to not finish
+until 2:45pm.  The rsync did not finish until 6:15pm, primarily due to
+the huge number of small files inside /mnt/koji/work.  In my opinion,
+that directory should get regularly pruned -- the only things there are
+uploaded source RPMs (which get rebuilt and the new ones placed into
+/mnt/koji/packages) and logs for non-build tasks such as createrepo (and
+nobody cares about createrepo logs from three months ago).
+
+While waiting for the rsync to complete, I followed the other parts of
+the Koji-Hub Restore Recipe.  I did the steps out of order (since the
+recipe puts the rsync near the end, not at the beginning -- something
+that ought to be fixed), and therefore missed the step of enabling the
+osg-development repos for specific packages (needed because we don't
+ship the package for the signing plugin, koji-plugin-sign, in
+production).  This caused the web interface to display stack traces
+instead, because koji could not find the signing plugin.
+
+After fixing that, Carl and I performed several tests: regenerating
+repos, making both scratch builds and non-scratch builds, tagging and
+promoting packages, and installing packages from the minefield repo.
+All of this worked fine.
+
+
+2. Thu, 2015-01-29
+
+Carl was reporting consistent build failures on all platforms, with
+roughly the same error: a missing file called pkgorigins.gz.  kojid
+expected this file to be present in the build repositories it uses, but
+repositories that were regenerated after the SL6 update had the file
+with a different name: <some hash>-pkgorigins.gz.  This was most likely
+caused by the version difference in createrepo between SL5 and SL6.
+
+This did not affect yum installs because what yum does is read a file
+called repomd.xml to get the actual filename for pkgorigins.gz and reads
+that; but kojid had pkgorigins.gz hardcoded.  I shut down kojira to keep
+it from creating new unusable repos, and applied a band-aid fix (read: a
+symlink) so that we could keep building temporarily.  I then found the
+line in the kojid source code that referenced pkgorigins.gz, and gave it
+to Carl, who then went through the upstream git for koji to find the
+commit where they fixed this problem, and backported the patch to our
+version.
+
+After Carl built the patches koji, I updated kojid on koji-hub and all
+three build machines, restarted kojid and tested it by making scratch
+builds of osg-build for both 3.2 and 3.1 (to try the buildroots that I
+had not fixed manually).  They were all successful.
+
+
+3. Fri, 2015-01-30
+
+Carl had problems installing from minefield on el5.  Strangely, only the
+VM universe tests were affected -- an install from Fermicloud worked
+fine.  The message was: "[Errno -3] Error performing checksum"
+
+My hypothesis was that createrepo was generating sha256 checksums
+instead of sha1 and that was breaking el5 yum.  Presumably Fermicloud
+machines had a patched or newer yum.  Note that this would not have
+affected the build repos: build repos are composed of multiple repos, so
+after createrepo runs, a process called mergerepos is also runs, and
+mergerepos does force sha1 checksums.
+
+I wrote a patch for kojid and installed it on koji-hub.  The other build
+machines did not need to be upgraded because createrepo tasks only run
+on koji-hub.  I regenerated the 3.2 el5 development repos and asked Carl
+to launch another set of VMU tests using minefield to verify that the
+new repos were usable.  They were.
+
+
+4. Thu, 2015-02-05
+
+We left the old drives in koji-hub (in case we needed the data from them
+later).  That meant there were two different OS installs on the machine
+at the same time, and we wanted to be sure that the next time the
+machine booted, it would boot from the drives containing the SL6
+installation and not the SL5 installation.
+
+Since the old disks were in the first two drive bays, that meant they
+were considered first in the boot order, so unless we changed something,
+SL5 would get booted.  (The way the machine was previously booted into
+SL6 was with the old disks removed, forcing the machine to boot from the
+new disks instead).
+
+One solution that we rejected was to swap which disks were in which
+drive bays, i.e. put the SL6 disks in the first two drive bays and the
+SL5 disks in the next two drive bays.  What complicated that option was
+that the drives were configured differently: while all four drives were
+plugged into the same RAID controller, the SL5 drives were bypassing it
+and using software RAID instead (specifically LVM), whereas the SL6
+drives were set up with hardware RAID.  We did not know how the RAID
+controller would react if swapped the drives and we did not want to risk
+losing the data on the drives, so we rejected this solution.
+
+We also looked at the BIOS settings to see if we could change which
+disks the BIOS would boot from.  Some BIOSes allow that; this one
+didn't.
+
+The solution we went with was to change the bootloader on the SL5
+install to jump to the bootloader on the SL6 install.
+
+Actually testing it required rebooting the machine.  Our plan was: we'd
+start with both sets of drives in.  If our bootloader change worked, the
+machine would boot from SL6.  If the change did not work, we'd take out
+the old drives (which would put the machine back in the state it booted
+successfully from last time), and the machine would boot from SL6.
+
+We scheduled 20 minutes of downtime on for this.  We figured it was
+pessimistic: we'd need one reboot if our change worked, or two reboots
+if it didn't.  At five minutes a reboot, it would take ten minutes,
+tops.
+
+We actually ended up using 50 minutes, because not only did our change
+not work (for some reason it just had not been applied), but our
+fallback new-disks-only setup had also ceased to work, so we had to
+troubleshoot to get everything working again.
+
+The reason why the new-disks-only setup didn't work was because the
+bootloader config on the new disks was messed up: it expected to boot
+from the third drive (which was the first drive of the new set), but
+when the old disks were removed, the third and fourth drives were
+renumbered to be first and second instead.  Once we changed the config
+to boot from the first drive, it worked.
+
+This raises the question of why the new-disks-only setup had ever worked
+in the first place.  My guess is that the bootloader config got updated
+while the old disks were in place, which caused the drive numbers in the
+config to get messed up.
+
+We remade the change to the SL5 bootloader on the old disks to boot from
+the new disks, and we fixed the SL6 bootloader to boot from the correct
+disks.  There's two boot menu entries now: one for booting from the new
+disks when the old disks are present, and one for booting from the new
+disks when the old disks are absent.  The former is the default right
+now; when we get rid of the old disks for good, we'll have to change the
+default to the latter.
+</pre>
+
+   *  Set HTTP_EQUIV_ON_VIEW = <meta name="robots" content="noindex,nofollow">
