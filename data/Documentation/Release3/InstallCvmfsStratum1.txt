@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="DaveDykstra" date="1423071283" format="1.1" reprev="1.9" version="1.9"}%
+%META:TOPICINFO{author="DaveDykstra" date="1429195432" format="1.1" reprev="1.10" version="1.10"}%
 %LINKCSS%
 ---+!! %SPACEOUT{ "Install a CVMFS Stratum 1" }%
 %DOC_STATUS_TABLE%
@@ -11,7 +11,7 @@ This document describes how to install a CVMFS Stratum 1.  There are many differ
 %INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="CommandLine"}%
 
 ---# Applicable versions
-The applicable software versions for this document are cvmfs and cvmfs-server >= 2.1.19-1.
+The applicable software versions for this document are cvmfs and cvmfs-server >= 2.1.20-1.
 
 ---# Requirements
 
@@ -114,13 +114,16 @@ GwIDAQAB
 -----END PUBLIC KEY-----</pre>
 
 ---## Configuring cron
+First, create the log directory: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% mkdir -p /var/log/cvmfs
+</pre>
 
 Put the following in =/etc/cron.d/cvmfs=:<pre class="file">
-0,15,30,45 * * * *    root    (test -d /srv/cvmfs || exit;for r in `cd /srv/cvmfs;echo *.*`; do echo; if [ -f /srv/cvmfs/$r/.cvmfspublished ]; then echo "Starting $r at `date`";if ! cvmfs_server snapshot $r;then echo "ERROR from cvmfs_server!"; fi;echo "Finished $r at `date`";fi;done) >>/var/log/cvmfs 2>&1
+0,15,30,45 * * * *    root    (test -d /srv/cvmfs || exit;for r in `cd /srv/cvmfs;echo *.*`; do echo; if [ -f /srv/cvmfs/$r/.cvmfspublished ]; then echo "Starting $r at `date`";if ! cvmfs_server snapshot $r;then echo "ERROR from cvmfs_server!"; fi;echo "Finished $r at `date`";fi;done) >>/var/log/cvmfs/updates.log 2>&1
 0 9 * * * root   find /srv/cvmfs/*.*/data/txn -name "*.*" -mtime +2 2>/dev/null|xargs rm -f</pre>
 
 Also put the following in =/etc/logrotate.d/cvmfs=:<pre class="file">
-/var/log/cvmfs {
+/var/log/cvmfs/*.log {
     weekly
     missingok
     notifempty
@@ -139,6 +142,7 @@ KeepAlive On</pre>
 If you will be serving opensciencegrid.org repositories, you have to allow for old client configurations that access repositories without the domain name added.  For that reason, you will need to remove each =/etc/httpd/conf.d/cvmfs.&lt;repositoryname&gt;.conf= that adding a replica creates (this is included in the [[http://svn.usatlas.bnl.gov/svn/oasis/oasis-server/trunk/bin/add_osg_repository][add_osg_repository script]]), and instead add the following to =/etc/httpd/conf.d/cvmfs.conf=:<verbatim class="file">
 RewriteEngine On
 RewriteRule ^/cvmfs/([^./]*)/(.*)$ /cvmfs/$1.opensciencegrid.org/$2
+RewriteRule ^/cvmfs/([^/]+)/api/(.*)$ /cvmfs/$1/api/$2 [PT]
 RewriteRule ^/cvmfs/(.*)$ /srv/cvmfs/$1
 <Directory "/srv/cvmfs"> 
     Options -MultiViews FollowSymLinks -Indexes
@@ -158,7 +162,14 @@ RewriteRule ^/cvmfs/(.*)$ /srv/cvmfs/$1
     ExpiresDefault "access plus 3 days" 
     ExpiresByType text/html "access plus 15 minutes" 
     ExpiresByType application/x-cvmfs "access plus 2 minutes"
-</Directory></verbatim>
+</Directory>
+
+WSGIDaemonProcess cvmfs-api processes=2 display-name=%{GROUP} \
+    python-path=/usr/share/cvmfs-server/webapi
+WSGIProcessGroup cvmfs-api
+WSGISocketPrefix /var/run/wsgi
+WSGIScriptAliasMatch /cvmfs/([^/]+)/api /var/www/wsgi-scripts/cvmfs-api.wsgi/$1
+</verbatim>
 
 If you will be serving cern.ch repositories, it has the same problem; replace opensciencegrid.org above with cern.ch.  If you need to serve both opensciencegrid.org and cern.ch contact Dave Dykstra to discuss the options.
 
@@ -171,7 +182,8 @@ Then enable apache:<pre class="rootscreen">
 Put the following in =/etc/squid/customize.sh= after the existing comment header:<pre class="file">
 awk --file `dirname $0`/customhelps.awk --source '{
 
-# turn off caching
+# cache only api calls
+insertline("^http_access deny all", "acl CVMFSAPI urlpath_regex ^/cvmfs/[^/]*/api/")
 insertline("^http_access deny all", "cache deny all")
 
 # port 80 is also supported, through an iptables redirect
@@ -209,7 +221,7 @@ Enable frontier-squid:<pre class="rootscreen">
 
 In order to verify that everything is installed correctly, create a repository replica.  The repository chosen for the instructions below is one from egi.eu because it is very small, but you can use another one if you prefer.  This one requires having the egi.eu.pub key from the [[#Configuring_CVMFS][Configuring CVMFS]] section above.
 
----# Adding an example repository
+---## Adding an example repository
 
 The OSG GOC Stratum 1 should add a repository replica using the =add_osg_repository= script from the oasis-2 rpm.  Instructions for installing that are elsewhere but you can also [[http://svn.usatlas.bnl.gov/svn/oasis/oasis-server/trunk/bin/add_osg_repository][download add_osg_repository]].  This script assumes that the oasis.opensciencegrid.org replica repository was first created, so this instruction creates it but does not download the first snapshot because that would take a lot of space and time.  Use these commands to create the oasis replica and to create and download the example replica:<pre class="rootscreen">
 %UCL_PROMPT_ROOT% cvmfs_server add-replica -o root  http://oasis.opensciencegrid.org:8000/cvmfs/oasis.opensciencegrid.org /etc/cvmfs/keys/opensciencegrid.org.pub
