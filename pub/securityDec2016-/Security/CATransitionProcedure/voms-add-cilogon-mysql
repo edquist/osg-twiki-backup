@@ -1,0 +1,74 @@
+#!/bin/bash
+
+MYHOST="localhost"
+MYUSER="root"
+MYPASS=""
+MYBASE="voms_test1"
+
+usage() {
+	echo >&2 "Usage: [-h mysql_host] [-u mysql_user] [-p mysql_pass] mysql_database"
+	exit 1
+}
+
+[[ -z $1 ]] && usage
+
+while [[ -n $1 ]]
+do
+	case $1 in
+		-h)
+			[[ -z $2 ]] && usage
+			MYHOST=$2
+			shift
+			shift
+			;;
+		-u)
+			[[ -z $2 ]] && usage
+			MYUSER=$2
+			shift
+			shift
+			;;
+		-p)
+			[[ -z $2 ]] && usage
+			MYPASS=$2
+			shift
+			shift
+			;;
+		*)
+			MYBASE=$1
+			shift
+			;;
+	esac
+done
+	
+sql="
+SET @OCA='/DC=com/DC=DigiCert-Grid/O=DigiCert Grid/CN=DigiCert Grid CA-1';
+
+SELECT 'ID of old CA:', @OCID := cid
+FROM ca
+WHERE subject_string = @OCA;
+
+SET @NCA='/DC=org/DC=cilogon/C=US/O=CILogon/CN=CILogon OSG CA 1';
+
+SELECT 'ID of new CA:', @NCID := cid
+FROM ca
+WHERE subject_string = @NCA;
+
+INSERT INTO certificate (usr_id, ca_id, creation_time, subject_string)
+SELECT DISTINCT usr_id,
+		@NCID, 
+		NOW(),
+		REPLACE(subject_string, 
+			'/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=', 
+			'/DC=org/DC=opensciencegrid/O=Open Science Grid/OU=')
+FROM certificate
+WHERE usr_id NOT IN (
+	SELECT usr_id
+	FROM certificate
+	WHERE ca_id = @NCID
+) AND ca_id = @OCID
+AND subject_string LIKE '/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=%';
+
+SELECT 'New certificates added:', ROW_COUNT();"
+
+mysql -h$MYHOST -u$MYUSER -p$MYPASS -D$MYBASE -e"$sql" -BN
+
