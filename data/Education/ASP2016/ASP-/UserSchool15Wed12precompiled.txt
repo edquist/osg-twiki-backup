@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ChristinaKoch" date="1436894304" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="ChristinaKoch" date="1436911914" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="UserSchool15Materials"}%
 <style type="text/css">
 pre em { font-style: normal; background-color: yellow; }
@@ -7,24 +7,37 @@ pre strong { font-style: normal; font-weight: bold; color: #008; }
 
 ---+ Wednesday Exercise 1.2: Using a pre-compiled binary
 
-For our first exercise, we will be using the software portability scenario where there 
-is a single static binary that has been pre-compiled.  This is the case for several 
-scientific softwares; we will be using the BLAST sequencing tool as our example.  
+In the previous exercise, we had to compile the software ourselves in order to prepare it 
+to run in a job.  For this exercise, we will again be using a single compiled executable to 
+run a job, but this time, it has been pre-compiled for us.  In this case, accessing a piece of 
+software and getting it ready to run is 
+as simple as finding the pre-compiled binary online and downloading it.  
+Many well-supported scientific 
+softwares offer binaries that have been pre-compiled on various operating systems.  
+
+The software we will be using for this example is a very common tool for aligning 
+genome and protein sequences against a reference database, the BLAST program.  
 
 ---++ Download the software
 
-How do you find software online?  Try searching for "BLAST software download".    
-Hopefully one of the top hits will be this page: 
+The BLAST website has some general information about the BLAST executables here: 
 
 http://blast.ncbi.nlm.nih.gov/Blast.cgi?PAGE_TYPE=BlastDocs&DOC_TYPE=Download
 
-which in turn, has links to the BLAST downloads page: 
+It also has links to the BLAST downloads page: 
 
 ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/
 
 Based on our operating system, we want to use the pre-built linux binary, which is
-labelled with the x64-linux suffix.  Download the tar.gz file using =wget= and then 
-untar the file. 
+labelled with the =x64-linux= suffix.  While logged into the OSG submit node, =osg-submit.wisc.edu=, 
+create a directory named =blast= and =cd= into it: 
+
+<pre class="screen">
+%UCL_PROMPT_SHORT% mkdir blast
+%UCL_PROMPT_SHORT% cd blast
+</pre>
+
+Then download the BLAST tarball using =wget= and untar the file. 
 
 <pre class="screen">
 %UCL_PROMPT_SHORT% wget ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/ncbi-blast-2.2.31+-x64-linux.tar.gz
@@ -37,27 +50,15 @@ We'll be using the =blastx= binary, located in the =bin= directory.
 
 To run blast, we'll need an input fasta file and reference database.  For 
 this example, we'll use the "pdbaa" database, which contains sequences 
-for the protein structure from the Protein Data Bank.  
+for the protein structure from the Protein Data Bank.  We'll use an abbreviated 
+FASTA file with mouse genome information.  These files are located on the 
+OSG submit node at =/home/ckoch5/OSGdata=, simply copy them to your current location: 
 
-~~~
-wget ftp://ftp.ncbi.nlm.nih.gov/blast/db/pdbaa.tar.gz # download db
-mkdir pdbaa # create a directory for the untarred database
-tar xzf pdbaa.tar.gz --directory pdbaa # extract db into directory
-~~~
+<pre class="screen">
+%UCL_PROMPT_SHORT% cp -r /home/ckoch5/OSGdata/mouse.fa /home/ckoch5/OSGdata/pdbaa ./
+</pre>
 
-For our example fasta file, download and unzip the `est_mouse` file.  For the 
-purposes of this example, we don't need the whole file, so we'll extract the 
-first few reads to a new file.  
-
-<!-- common place for fasta --> 
-
-~~~
-wget ftp://ftp.ncbi.nlm.nih.gov/blast/db/FASTA/est_mouse.gz # download fasta file
-gunzip est_mouse.gz # extract fasta file
-head -39 est_mouse > mouse.fa # create shorter fasta for test purposes
-~~~
-
----++ Fill out submit file
+---++ Submitting the job
 
 Create a file called =blast.submit= with the following lines: 
 
@@ -67,47 +68,36 @@ log = blast_$(Cluster)_$(Process).log
 error = blast_ $(Cluster)_$(Process).err
 output = blast_$(Cluster)_$(Process).out
 
-executable = 
-arguments = 
+# The blastx executable is located in the ncbi-blast-2.2.31+/bin/ directory
+executable = ncbi-blast-2.2.31+/bin/blastx
+
+# A simple blastx command on the command line looks like this: 
+# $> blastx –db database –query fasta_file –out results.txt
+# For us, the database is "pdbaa" and the fasta file will be "mouse.fa".  
+arguments = "–db pdbaa –query mouse.fa –out results.txt"
 
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
-transfer_input_files = 
+
+# The job will need our FASTA input file and protein database
+transfer_input_files = pdbaa/, mouse.fa
+
+# Because we are using a binary that was compiled for use
+# on Linux, we need to make sure we request computers with 
+# Linux as the operating system.  
+requirements = (OpSys == "LINUX")
 
 request_cpus = 1
 request_memory = 4GB
 request_disk = 2GB
 
-queue 1
+queue
 </pre>
 
-The executable will be the precompiled binary, =blastx= in the =bin= directory.  A simple blastx command
-on the command line looks like this: 
-
-<pre class="screen">
-%UCL_PROMPT_SHORT% <strong>blastx –db database –query fasta_file –out results.txt</strong>
-</pre>
-
-So we should fill out the submit file as follows:
-
-<pre class="file">
-executable = ncbi-blast-2.2.31+/bin/blastx
-arguments = "–db pdbaa –query mouse.fa –out results.txt"
-</pre>
-
-The BLAST job will also need our FASTA input file and protein database
-so these files should be transferred using the =transfer_input_files= line: 
-
-<pre class="file">
-transfer_input_files = pdbaa/, mouse.fa
-</pre>
-
----++ Submit the job
-
-Submit the blast job using `condor_submit`.  
+Submit the blast job using =condor_submit=.   
 
 <pre class="screen">
 %UCL_PROMPT_SHORT% <strong>condor_submit blast.submit</strong>
 </pre>
 
-The job should run in just a few minutes.  
+The job should run in just a few minutes and produce a =results.txt= file.  
