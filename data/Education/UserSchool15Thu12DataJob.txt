@@ -1,79 +1,98 @@
-%META:TOPICINFO{author="BalamuruganDesinghu" date="1437997485" format="1.1" reprev="1.11" version="1.11"}%
+%META:TOPICINFO{author="LincolnBryant" date="1438029365" format="1.1" reprev="1.12" version="1.12"}%
 %META:TOPICPARENT{name="UserSchool15Materials"}%
 <style type="text/css">
 pre em { font-style: normal; background-color: yellow; }
 pre strong { font-style: normal; font-weight: bold; color: #008; }
 </style>
 
----+ Using HTCondor file transfer 
+---+ !!HTCondor file transfer
+%TOC%
+
+The objective of this exercise is to refresh yourself on the basic techniques for transferring data on OSG.
+
+Recall that OSG does not have a shared filesystem! With that in mind, we'll show how to transfer input data for a sample application. 
+
+We'll also look at how compression and archival can be used to effectively transfer files.
+
+---++ Setup
 
 <center>
 <img src="%ATTACHURLPATH%/data_tranfer_1.jpg " alt="data_tranfer_1.jpg " width='400' height='150'/>
 </center>
 
-In this example, we focus on how to transfer the input files from the submit node to workers.   A job wrapper file is preferred to execute the program and is transferred along with the job.  For vanilla universe jobs, condor transfers back the output files. So we need to take care of sending the input files to the workers.
+In this tutorial, we'll be working in the =~/namd/namd-ct-local= directory. If you haven't already copied these files over, please refer to the setup instructions in [[UserSchool15Thu30DataJob][Exercise 2.0]]. 
 
-<pre class="screen">
-%UCL_PROMPT_SHORT% <strong>cd ~/namd/namd-ct-local </strong>
-%UCL_PROMPT_SHORT% <strong>ls </strong>
-namd_run.sh    # Job wrapper script to execute NAMD job
-namd_run.submit    # Condor job description file
-par_all27_prot_lipid.inp  #  Parameter file: required by NAMD
-ubq_gbis_eq.conf    # NAMD input configuration file
-ubq.pdb    # Protein structure file: required by NAMD
-ubq.psf     # Protein topology file: required by NAMD
-</pre>
+You should see a number of files, as in the table below:
+| *File* | *Description* |
+| =par_all27_prot_lipid.inp= | NAMD parameter file | 
+| =ubq_gbis_eq.conf= | NAMD input configuration file |
+| =ubq.pdb= | Protein structure file |
+| =ubq.psf= | Protein topology file |
 
-To load the NAMD program, we use the OSG Distributed Environment Modules on login.osgconnect.net. OSG (See https://support.opensciencegrid.org/support/solutions/articles/5000634394-accessing-software-using-distributed-environment-modules for more details)
+For this exercise, the details of the NAMD input files are unimportant. Simply keep in mind that NAMD needs all of the files to run.
 
- Here is our job wrapper script:
+---++ Creating the job wrapper script
+
+To load the NAMD program, we use the OSG Distributed Environment Modules. You should be familiar with them from Tuesday's OSG Connect exercise, but you may refer [[https://support.opensciencegrid.org/support/solutions/articles/5000634394-accessing-software-using-distributed-environment-modules][here]] for additional details. 
+
+With that in mind, our wrapper script for NAMD should look something like this:
 <pre class="file">
 #!/bin/bash
-source /cvmfs/oasis.opensciencegrid.org/osg/modules/lmod/current/init/bash    # sets up the module environment
-module load namd/2.9    # Loads the NAMD module version 2.9
-namd2 ubq_gbis_eq.conf > ubq_gbis_eq.log    # executes NAMD simulation 
+echo "Files in the current directory:" $(ls)
+source /cvmfs/oasis.opensciencegrid.org/osg/modules/lmod/current/init/bash
+module load namd/2.9
+namd2 ubq_gbis_eq.conf > ubq_gbis_eq.log
 </pre> 
 
-In  the job description file (==namd_run.submit==),  the key word  =transfer_input_files= is empty. The input files ==par_all27_prot_lipid.inp==, ==ubq_gbis_eq.conf==, ==ubq.pdb==, and ==ubq.psf== need to be transfered along with the job.
+Save the wrapper as =namd_run.sh= and remember to make it executable with =chmod +x namd_run.sh=.
+
+For reference, here is a line-by-line breakdown of the script:
+| *Line* | *Description* | 
+| =#!/bin/bash= | Invokes the BASH shell |
+| =echo "Files in the current directory:" $(ls)= | List the files in the current directory |
+| =source /cvmfs/oasis.opensciencegrid.org/osg/modules/lmod/current/init/bash= | Loads the module system into the shell's environment |
+| =module load namd/2.9= | Loads the NAMD program, version 2.9 |
+| =namd2 ubq_gbis_eq.conf > ubq_gbis_eq.log= | Runs NAMD, reading =ubq_gbis_eq.conf= for configuration and redirecting output to =ubq_gbis_eq.log= | 
+
+
+
+---++ Create and submit the job
+
+We've started a submit script for you below, but you will need to fill out the =transfer_input_files= section. For NAMD to successfully run, you'll need all four input files.
+
+*HINT*: =transfer_input_files= accepts a comma separated list of files.
 
 <pre class="file">
-Universe = vanilla
-Executable = namd_run.sh
+universe = vanilla
+executable = namd_run.sh
 transfer_input_files = 
 output  = job.out
 error = job.error
 log = job.log
 requirements = (HAS_CVMFS_oasis_opensciencegrid_org =?= TRUE)
-Queue 1
+queue
 </pre>
 
-In condor job description file, we make sure that the distributed environmental modules are available on the remote machine via ==requirements = (HAS_CVMFS_oasis_opensciencegrid_org =?= TRUE)==. 
+Remember to include =HAS_CVMFS_oasis_opensciencegrid_org= to *only* match against worker nodes with the OASIS software repository mounted.
 
-Now submit the job
+Once you have finished creating the submit file, go ahead and submit the job.
 <pre class="screen">
-%UCL_PROMPT_SHORT% <strong>condor_submit namd_run.submit </strong>
-</pre>
-and check the status of the job with JOBID
-<pre class="screen">
-%UCL_PROMPT_SHORT% <strong>condor_q JOBID </strong>
+%UCL_PROMPT_SHORT% condor_submit namd_run.submit
 </pre>
 
-Once the job finished (may take 3-5 minutes  run time) you will see bunch of output files (trajectory, log file with energy, velocity and so on).
-
-After the job has completed, run:
+The job should take around 5 minutes to complete. Once finished, look at the job output (in our case, =job.out=) and look for the line starting with "Files in the current directory".  It may be easiest to use the =grep= tool, like so:
 
 <pre class="screen">
-%UCL_PROMPT_SHORT% <strong> tail -n 1 ubq_gbis_eq.log   </strong>
+%UCL_PROMPT_SHORT% grep "Files in the current directory" job.out
 </pre>
 
-and if you see the following line
-<pre>
-Program finished.
-</pre> 
-your job was successful. 
+Did the files successfully transfer? You should see something like this:
 
+<pre class="screen">
+Files in the current directory: _condor_stderr _condor_stdout condor_exec.exe par_all27_prot_lipid.inp ubq.pdb ubq.psf ubq_gbis_eq.conf
+</pre>
 
----++ Compress input files
+---++ Compressed input files
 
 Sometimes when you have a lot of input files it makes more sense to compress them before sending them with a job. For this exercise, we want to compress our four NAMD input files and send them to the remote worker node. 
 
@@ -83,9 +102,9 @@ For this part of the exercise, you will need to:
    1. Modify =transfer_input_files= in the file =namd_run.submit= to transfer your compressed file
    1. Edit =namd_run.sh= and add a line to decompress the input files.
 
-HINT: Compressing files
+*HINT*: Here's a pattern for the =tar= command:
 <pre class="screen">
-%UCL_PROMPT_SHORT% <strong> tar -cvzf [compressed filename] [list of files] </strong>
+%UCL_PROMPT_SHORT% tar -cvzf [compressed filename] [list of files]
 </pre>
 
 Replace =-c= with =-x= to decompress. Refer to the slides if you get confused.
