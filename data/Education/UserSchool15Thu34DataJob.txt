@@ -1,70 +1,51 @@
-%META:TOPICINFO{author="SuchandraThapa" date="1438092961" format="1.1" reprev="1.5" version="1.5"}%
+%META:TOPICINFO{author="SuchandraThapa" date="1438102187" format="1.1" reprev="1.6" version="1.6"}%
 %META:TOPICPARENT{name="UserSchool15Materials"}%
 <style type="text/css">
 pre em { font-style: normal; background-color: yellow; }
 pre strong { font-style: normal; font-weight: bold; color: #008; }
 </style>
 
-----+  Getting output from your jobs
+----+  Using HTCondor to get job output
 
 %TOC%
 
 ---++ Goals
 
-   * After running jobs, ideally you'd like to get the results back; this tutorial will cover two different ways to do this.
+   * After running jobs, ideally you'd like to get the results back; this tutorial will cover how to do this using HTCondor.
    * In this tutorial we will learn how to specify output files to HTCondor and have HTCondor transfer files for each job.
-   * In addition, this tutorial will show you how to get output from your application as it is running
 
 ---++ Transferring output  using HTCondor
+You've seen HTCondor's file transfer mechanisms being used to transfer input data in the previous exercises, we'll now look at using the HTCondor file transfer mechanism to get output back from your jobs.  By default, if you set =should_transfer_files= to  =YES= in your HTCondor submit file, HTCondor will transfer all the files in the job sandbox back to the submit node.  However, you may not want to transfer all the files back, or to rename files as they get transferred back.  This exercise will go through how to specify files that HTCondor should transfer back.  
 
+Before, we start, there's a little background that needs to be covered.  As the lecture mentioned, jobs running on OSG have a variable called =OSG_WN_TMP= defined in the environment.  This variable points to the location of a scratch directory that your jobs can use as a working area.  This area is usually on a storage system with higher I/O performance although it's typical local to just the compute node and frequently gets wiped after jobs finish.  Typically, it's advantageous to have your job use this space to store temporary files, intermediate results, and to generate final outputs before copying the outputs back to the submit node.
 
----++ Transferring output while your job is running
-The HTCondor file transfer mechanism transfers only transfer files when a job is completed or while it is being evicted.  Sometimes, it's useful to get files from a running job while it's still running (e.g. checkpoint files).  This part of the tutorial will show how to transfer files while your job is still running.
-
-HTCondor integrates with a set of tools called [[www.cse.nd.edu/~ccl/software/parrot/][Parrot and Chirp]] that allows your job to transfer files back to the the submit node while the job is still running.  In order to do this, your submit files need to change slightly and you'll need to do a few more things in your job.  
-
-   1. First, you'll need to add the following to your submit file: \
-\
-<pre class="file">
-+WantIOProxy = True
-</pre>
-   2. Second, you'll need to transfer the =parrot_run=  binary with your file, you can do this by using a transfer_input_files command \
-\
-<pre class="file">
-transfer_input_files = /usr/bin/parrot_run
-</pre>
-   3. Finally, you'll need to make sure that save your file at =/chirp/CONDOR/= followed by the path on the submit node where the file should go.  E.g. if you want the ouput file to go to =/stash/user/username/job1/test=, the path should be =/chirp/CONDOR/stash/user/username/job1/test=. You'll 
-   
- 
-
-Let's try creating a few files in a job and transfer them while the job is running:
-
+Finally, let's move on to the exercise:
    1. First log in to the OSG Connect submit node (login.osgconnect.net)
    2. Create a directory for this tutorial : \
 \
 <pre class="screen">
-%UCL_PROMPT_SHORT% mkdir chirp_tutorial
-%UCL_PROMPT_SHORT% cd chirp_tutorial
+%UCL_PROMPT_SHORT% mkdir output_tutorial
+%UCL_PROMPT_SHORT% cd output_tutorial
 </pre>
    3. Create a file job.sh with the following: \
 \
 <pre class="file">
 #!/bin/bash
-echo "test1" > checkpoint_file
-./parrot_run cp checkpoint_file $1/checkpoint_file1
-sleep 30
-echo "test2" > checkpoint_file
-./parrot_run cp checkpoint_file $1/checkpoint_file2
-sleep 30
-echo "test3" > checkpoint_file
-./parrot_run cp checkpoint_file $1/checkpoint_file2
+mkdir $OSG_WN_TMP/$1/output_directory1
+mkdir $OSG_WN_TMP/$1/output_directory2
+echo "output1" >  $OSG_WN_TMP/$1/output_directory1/output_file1
+echo "dummy" >  $OSG_WN_TMP/$1/output_directory1/intermediate_output
+echo "output2" >  $OSG_WN_TMP/$1/output_directory2/output_file2
+echo "dummy" >  $OSG_WN_TMP/$1/output_directory2/intermediate_output_test
+sleep 60
+cp -a $OSG_WN_TMP/$1/ .
 </pre>
     4. Make the file executable: \
 \
 <pre class="screen">
 %UCL_PROMPT_SHORT% chmod 755 job.sh
 </pre>
-   5. Create a submit file (=chirp.submit=) with the following: \
+   5. Create a submit file (=output.submit=) with the following: \
 \
 <pre class="file">
 output        = job.out.$(Process)
@@ -73,28 +54,23 @@ log           = job.log.$(Process)
 
 universe = vanilla
 executable = job.sh
-transfer_input_files = /usr/bin/parrot_run
-+WantIOProxy = True
-arguments = /chirp/CONDOR/$ENV(PWD)
+transfer_output_files = $(Cluster)/output_directory1/output_file1, $(Cluster)/output_directory2/output_file2
+arguments = $(Cluster)
 queue 1
 </pre>
    5. Submit the job: \
 \
 <pre class="screen">
-%UCL_PROMPT_SHORT% condor_submit chirp.submit
+%UCL_PROMPT_SHORT% condor_submit output.submit
 </pre>
-   5. While your job is running, you should see files named =checkpoint_file1=, =checkpoint_file2=, and =checkpoint_file3= appear in your submit directory.
-   5. You can also run =cat= or view the files to verify that they contain the string =test1=, =test2=, or =test3= 
-  
+   6. When the job is done, you should see =output_file1= and =output_files2= in your submit directory containing the strings =output1= or =output2=
+   7.  One thing to note is that when you specify files use transfer_output_file, HTCondor will only transfer the files that you specify instead of transferring all the files in the job sandbox by default. Also the files are copied directly to the submit directory and the directory structure from the job sandbox is not preserved. 
 
-As an exercise, try modifying the submit file and script so that the checkpoint files are saved in =/stash/user/%RED%username%ENDCOLOR%/checkpoints= where %RED%username%ENDCOLOR% is replaced by your OSG Connect username.
-
+As an exercise, try modifying the submit file to also transfer the intermediate outputs (=intermediate_output= and =intermediate_output_test=) as well.
 
 
 ---++ Further information
    * [[http://research.cs.wisc.edu/htcondor/manual/v8.2/2_5Submitting_Job.html#SECTION00354200000000000000][Specifying files to transfer]]
-   * [[https://htcondor-wiki.cs.wisc.edu/index.cgi/wiki?p=HowToChirpRemoteIo][Using Condor with Parrot/Chirp]]
-   * [[http://research.cs.wisc.edu/htcondor/manual/v8.2/condor_chirp.html#65779][Manual for condor_chirp]]
 
 
 -- Main.BalamuruganDesinghu - 24 Jul 2015
