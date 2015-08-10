@@ -1,0 +1,108 @@
+%META:TOPICINFO{author="JoseCaballero" date="1439235942" format="1.1" reprev="1.1" version="1.1"}%
+<!-- some useful definitions  (need 3 white spaces before * to enable it)
+   * Set UCL_PROMPT_ROOT = [root@factory ~]$
+   * Set VERSION = 2.4.3
+-->
+
+---+!! Questions and Answers related !AutoPyFactory
+<!--
+%DOC_STATUS_TABLE%
+-->
+%TOC{depth="3"}%
+
+---# About this Document
+
+This document is just a somehow free-format list of questions asked about !AutoPyFactory, and some of the answers provided. 
+The answer may be straight forward, or may be just some hints about where to look.
+
+It does not include the complete list of questions, as this documented was started on August 10th, 2015. 
+It is not a FAQ page, therefore.
+
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="Header"}%
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="CommandLine"}%
+
+---# Applicable versions
+This document mostly applies to the version of !AutoPyFactory %VERSION%. Some answer may be valid for older versions too, but that is not guaranteed. 
+
+---# Questions and answers
+
+---## my factory is not submitting pilots anymore for a given queue, why?
+
+First check that queue has no enabled=False set in the configuration file =/etc/autopyfactory/queues.conf=
+If that was not the problem, there are two main reasons why this can happens:
+
+   * The first one is that there are no ready jobs in the WMS system (for example, in !PanDA). Standard factory configuration does not submit pilots when there are no jobs.  
+
+   * The second reason may be data corruption from the CE/gatekeeper. Sometimes it happens the CE/gatekeeper reports back to condor a fake number of IDLE and RUNNING pilots. If the number of IDLE pilots returned is high enough (even if that number is not real), the factory most probably will stop submitting and wait for those pending pilot to start running and finish. 
+
+How to check?
+
+   * for the first case, it is enough to check the !AutoPyFactory log files, with a command like this:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% grep ANALY_BNL_SHORT-gridgk04-htcondor /var/log/autopyfactory/autopyfactory.log | grep schedplugin
+...
+2015-08-10 18:38:20,363 (UTC) [ DEBUG ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] ReadySchedPlugin.py:34 calcSubmitNum(): Starting.
+2015-08-10 18:38:20,364 (UTC) [ DEBUG ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] ReadySchedPlugin.py:60 _calc(): pending = 10 running = 17 offset = 0
+2015-08-10 18:38:20,364 (UTC) [ INFO ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] ReadySchedPlugin.py:68 _calc(): input=0; activated=83; offset=0 pending=10; running=17; Return=73
+2015-08-10 18:38:20,364 (UTC) [ DEBUG ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] ScaleSchedPlugin.py:31 calcSubmitNum(): Starting with n=73
+2015-08-10 18:38:20,364 (UTC) [ INFO ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] ScaleSchedPlugin.py:36 calcSubmitNum(): Return=19
+2015-08-10 18:38:20,364 (UTC) [ DEBUG ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] MaxPerCycleSchedPlugin.py:23 calcSubmitNum(): Starting with n=19
+2015-08-10 18:38:20,365 (UTC) [ INFO ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] MaxPerCycleSchedPlugin.py:35 calcSubmitNum(): input=19; Return=19
+2015-08-10 18:38:20,365 (UTC) [ DEBUG ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] MinPerCycleSchedPlugin.py:24 calcSubmitNum(): Starting with n=19
+2015-08-10 18:38:20,365 (UTC) [ INFO ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] MinPerCycleSchedPlugin.py:34 calcSubmitNum(): Return=19
+2015-08-10 18:38:20,365 (UTC) [ DEBUG ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] StatusTestSchedPlugin.py:26 calcSubmitNum(): Starting.
+2015-08-10 18:38:20,366 (UTC) [ DEBUG ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] StatusTestSchedPlugin.py:37 calcSubmitNum(): site status is online
+2015-08-10 18:38:20,366 (UTC) [ INFO ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] StatusTestSchedPlugin.py:45 calcSubmitNum(): [Queue is not test] input=19; Return=19
+2015-08-10 18:38:20,366 (UTC) [ DEBUG ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] StatusOfflineSchedPlugin.py:29 calcSubmitNum(): Starting.
+2015-08-10 18:38:20,366 (UTC) [ DEBUG ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] StatusOfflineSchedPlugin.py:51 calcSubmitNum(): site status is online
+2015-08-10 18:38:20,367 (UTC) [ INFO ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] StatusOfflineSchedPlugin.py:66 calcSubmitNum(): [Queue is not offline] input=19; Return=19
+2015-08-10 18:38:20,367 (UTC) [ DEBUG ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] MaxPendingSchedPlugin.py:25 calcSubmitNum(): Starting with n=19
+2015-08-10 18:38:20,367 (UTC) [ DEBUG ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] MaxPendingSchedPlugin.py:36 calcSubmitNum(): Pending is 10
+2015-08-10 18:38:20,367 (UTC) [ INFO ] main.schedplugin[ANALY_BNL_SHORT-gridgk04-htcondor] MaxPendingSchedPlugin.py:53 calcSubmitNum(): Return=0 
+</pre>
+
+Pay attention to the messages coming from the !ReadySchedPlugin. Field *Activated* will tell you is there are jobs or not. 
+
+   * For the second scenario, best way is to run condor_q and see how it says. When possible, print the JobStatus information, or equivalent:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% condor_q  -format '%s.' ClusterId -format '%s ' ProcId -format ' MATCH_APF_QUEUE=%s' match_apf_queue -format ' JobStatus=%d\n' JobStatus 
+1230.0 MATCH_APF_QUEUE=BNL_PROD-gridgk01-htcondor JobStatus=1
+1231.0 MATCH_APF_QUEUE=BNL_ATLAS_2-gridgk04-htcondor JobStatus=2
+1232.0 MATCH_APF_QUEUE=ANALY_BNL_LONG-gridgk01-htcondor JobStatus=2
+1233.0 MATCH_APF_QUEUE=BNL_ATLAS_2-gridgk01-htcondor JobStatus=2
+1234.0 MATCH_APF_QUEUE=BNL_ATLAS_2-gridgk07-htcondor JobStatus=2
+1235.0 MATCH_APF_QUEUE=BNL_PROD_MCORE-gridgk07-htcondor JobStatus=1
+</pre>
+
+Also, when it is installed, try running command apf-queue-status
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% apf-queue-status
+Mon Aug 10 15:12:24 2015
+-----------------------------------------------------------------
+ANALY_BNL_LONG-gridgk04-htcondor 	UNSUB = 0	IDLE = 4	RUNNING = 29	COMPLETE = 0	HELD = 0	ERROR = 0	REMOVED = 0	
+ANALY_BNL_LONG-gridgk05      	UNSUB = 0	PENDING = 10	STAGE_IN = 0	ACTIVE = 10	STAGE_OUT = 0	SUSP = 0	DONE = 0	FAILED = 0	
+</pre>
+
+
+You can also check the queue object has actually been created. A grep command like this may help:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% grep "APFQueue: Initializing object..." /var/log/autopyfactory/autopyfactory.log
+...
+2015-08-10 19:31:51,271 (UTC) [ DEBUG ] main.apfqueue[ANALY_BNL_LONG-gridgk02-htcondor] factory.py:870 __init__(): APFQueue: Initializing object...
+2015-08-10 19:31:51,557 (UTC) [ DEBUG ] main.apfqueue[BNL_ATLAS_RCF-gridgk02-htcondor] factory.py:870 __init__(): APFQueue: Initializing object...
+2015-08-10 19:31:51,859 (UTC) [ DEBUG ] main.apfqueue[BNL_ATLAS_RCF-gridgk06-htcondor] factory.py:870 __init__(): APFQueue: Initializing object...
+...
+</pre>
+
+
+---## I do not want my factory to show up in the generic !AutoPyFactory web monitor
+
+Solution currently for this is to remove the config variable =monitorsection= from file =/etc/autopyfactory/queues.conf=
+
+
+
+-- Main.JoseCaballero - 10 Aug 2015
