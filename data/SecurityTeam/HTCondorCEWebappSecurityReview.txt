@@ -1,0 +1,60 @@
+%META:TOPICINFO{author="AnandPadmanabhan" date="1450732997" format="1.1" reprev="1.1" version="1.1"}%
+---++ HTCondor-CE Webapp Security Review
+
+---+++Background
+Brian and Derek have developed a new web-app which queries a HTCondor-CE for information, which they plan to offer this publicly in the HTCondor-CE package. Tim Cartwright asked them to run it by the security team for thoughts on any security concerns.
+
+---+++ Architecture 
+
+The webapp runs on the HTCondor-CE, as a daemon managed by the CE (ie, dropped privileges).  Through json requests, it queries the HTCondor-CE using the HTCondor python bindings.  No shell commands are executed by the webapp to request information.
+
+It should be important to note that the information gathered by the HTCondor-CE is gathered by an unprivileged user, therefore this is all publicly available information usually obtained through condor tools such as condor_status and condor_q.
+
+Derek and Brian have 2 examples of this webapp running in the two modes that it can run as.  Multi-CE and single-CE.  Multi-CE queries GOC’s collector for all reporting HTCondor-CE’s in the OSG, and then further requests information from each CE (periodically).  Single-CE shows the information for only 1 CE at a time.
+
+Multi-CE mode: http://hcc-briantest.unl.edu/
+Single-CE mode: http://red-foreman.unl.edu:4440/
+
+Note, that both of these tests are not actually running on a HTCondor-CE, illustrating how this information can be obtained by an unprivileged public consumer already.
+
+Source of the webapp is located here: https://github.com/bbockelm/htcondor-ce/tree/web_monitor
+
+---+++ Review: Questions Raised and Response
+
+Q: What fundamental need is this Webapp is trying to address? What is the scenario you see this web app being used and are there any existing use-cases that drove its development. 
+
+A: Two use cases:
+a) “Grid-wide mode”: to run at collector.grid.iu.edu and provide a simple web-view of the OSG-wide activity (queries all CEs simultaneously).  Corresponds to the existing command-line view (well, plus historical graphs).
+b) “What’s my CE doing?”: to be run at the local site and pointing at only the local CE.  Many of the views have been driven by questions Miron has asked me about the CEs at GLOW.
+
+The developers expect ~30% of admins to use (b) and a development, ITB, and production instance for (a).  Hence, my estimate of 3-5 webview instances pointing at each CE.
+
+Q: Though all the information published is available through unprivileged condor queries, there is still some worry that the information about Pilot DNs and HTCondor versions on all the sites are being made available through a public website, which will make lower the knowledge required for a potential attacker to collect this information and target sites where publicly known problem have not been patched. Note: This software does not opens up attack vectors but could essentially increase the risk of attack by making the information easily available. 
+
+A: The version information is already on public OSG webpages. If an attacker had a trivial (“script kiddie” level) exploit, then surely they can still write a for-loop over the OIM information.  When there’s < 100 endpoints total, it seems straightforward to try an exploit across all of them (compare this to something like WordPress, where attack every instance would be noticeable and require significant resources). If the attacker had a more difficult exploit, they probably would not be troubled by the difference between reading a webpage and typing ‘condor_ce_status'.
+
+Q. Would large number of deployment of these webapps (say on all the OSG sites) cause substantial load for the HTConder Schedds on OSG? Given any condor_schedd of any flavor it is always possible to slow it down enough by doing enough condor_q's, especially if they are of the -l or -xml variety, does this make the potential of DOS attack more 
+
+Q. Though this information is currently publicly available via HTCondor query, the question is should this necessarily be and does the availability of this information unnecessarily open OSG sites up for attacks such as DOS attack at the least?  
+
+A:  
+For prior versions of HTCondor, these sorts of queries are much more heavy-weight.  The query protocol was recently redesigned; the DDoS threshold is much higher.
+- If sites are concerned about DDoS they have a variety of tools:
+  - Site/Host-level firewalls: unlike running a website, there are 5-10 “clients” worldwide for a CE.  SLAC and FIU do this.
+  - Requiring authentication for reads.  CERN does this.
+  - Requiring authorization for reads.
+  Until the threat profile develops more, we would rather not make these defaults.
+
+Considering the targeted use cases (which would result in <= 3 instances pointed at a CE) versus the number of instances necessary to cause load issues (probably around 100), the developers are not worried about large numbers of deploys.
+
+Since the webapp only allows a single thread at a time, it’s likely not a useful mechanism to launch a DDoS directly
+
+Q: Is there any information that is being collected and presented that requires authentication or some special privileges (e.g a certificate, shared secret, specifically opened firewall for OSG). 
+
+A: There is no information being collected requiring authentication or other special privilege.
+
+
+---+++ Conclusion
+Given the overall information available at the time of review, since the Webapp is neither exposing any additional information that is not already available from other sources, not collecting any information requiring authentication or other special privilege, the security team has no problem with the plan to offer this publicly in the HTCondor-CE package.   
+
+-- Main.AnandPadmanabhan - 21 Dec 2015
