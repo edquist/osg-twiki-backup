@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TimCartwright" date="1453327482" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="TimCartwright" date="1453390919" format="1.1" reprev="1.3" version="1.3"}%
 ---+ Troubleshooting Guide for Yum Repository Scripts
 
 %TOC{depth="3"}%
@@ -12,40 +12,46 @@ The =repo1.grid.iu.edu= and =repo2.grid.iu.edu= hosts contain the OSG Yum softwa
 To monitor the repository hosts for proper =mash= operation, do the following steps on each host:
 
    1. Access the =mash= update log at http://repo1.grid.iu.edu/web/log/ or http://repo2.grid.iu.edu/web/log/
-   1. Examine the “Last modified” timestamp for 
+   1. Examine the “Last modified” timestamp of the =update_all_repos.log= and several other =update_repo.*.log= files\
+       <p><strong>Note:</strong> The timestamps are displayed in UTC, so convert to local time accordingly</p>
+   1. If the timestamps are all less than 2 hours old, life is good and you can skip the remaining steps below
+   1. If the most recent log timestamp is more than 2 hours old, examine the “Last modified” timestamp of the =update_all_repos.err= file
+   1. If all of the timestamps are more than 2 hours old:
+      1. Create a GOC ticket with a subject like “Repo update logs are too old on repo<strong>N</strong>” and with relevant details in the body
+      1. Assign the ticket to “Software Support (Triage)”
+      1. Email Carl Edquist <edquist@cs.wisc.edu> and CC Tim Cartwright <cat@cs.wisc.edu> with the ticket URL
+   1. Otherwise, if the log timestamps are old but the =update_all_repos.err= timestamp is current, there may be a =mash= process that is hung; see the Troubleshooting steps below
 
----+++ Repos not updating
+---++ Troubleshooting and Mitigation
 
-You should see up-to-date timestamps on all the update log files for repo1 and repo2:
+<style type="text/css">
+  em.pgid { color: red; font-weight: bold; }
+  em.start { color: blue; font-weight: bold; }
+</style>
 
-http://repo1.grid.iu.edu/web/log/<br/>
-http://repo2.grid.iu.edu/web/log/
+---+++ Identifying and fixing a hung mash process
 
-If one or both of them show these logs behind more than a couple hours (and more obviously, multiple days), while the =update_all_repos.err= log file has a current timestamp, there is a good chance that a mash process has hung and future runs scheduled in cron can't acquire a lock.
+If a mash update process hangs, all future invocations from cron of the mash scripts will exit without taking action because of the hung process. Thus, it is important to identify and remove any hung processes so that future updates can proceed. Use the procedure below to remove any hung mash processes; doing so is safe in that it will not adversely affect the Yum repositories being served from the host.
 
-In this case the =update_all_repos.err= log may have an error message like:
-
-<pre class="file">
-Wed %RED%Jan 20%ENDCOLOR% 18:10:02 UTC 2016: Can't acquire lock, is update_all_repos.sh already running?
+   1. On the web listing of log files (see above), click on the =update_all_repos.err= link
+   1. In the error log file, look for messages such as:\
+       <pre class="file">Wed Jan 20 18:10:02 UTC 2016: <strong>Can't acquire lock, is update_all_repos.sh already running?</strong></pre>\
+       <p>This message indicates that a cron-initiated update exited early due to the presence of a lock file, most likely from a hung =mash= process.</p>
+   1. Log on to the host as =root= or with your regular user account
+   1. Look for =mash= processes:\
+       <pre class="rootscreen"># <strong>ps -C mash -o pid,ppid,pgid,start,command</strong>
+  PID  PPID  <em class="pgid">PGID</em>  <em class="start">STARTED</em> COMMAND
+24551 24549 <em class="pgid">23455</em>   <em class="start">Jan 15</em> /usr/bin/python /usr/bin/mash osg-3.1-el5-release -o
+24552 24551 <em class="pgid">23455</em>   <em class="start">Jan 15</em> /usr/bin/python /usr/bin/mash osg-3.1-el5-release -o
 </pre>
-
-If =ps= shows a =mash= processes running from (say) a previous day, killing its process group tends to be enough to allow new repo updates to run.
-
-For example:
-
-<pre class="rootscreen">
-[0] 18:53:13 UTC [root@repo2:~]# ps -C %BLUE%mash%ENDCOLOR% -o pid,ppid,pgid,start,command
-  PID  PPID  %GREEN%PGID%ENDCOLOR%  STARTED COMMAND
-24551 24549 %GREEN%23455%ENDCOLOR%   %RED%Jan 15%ENDCOLOR% /usr/bin/python /usr/bin/%BLUE%mash%ENDCOLOR% osg-3.1-el5-release -o
-24552 24551 %GREEN%23455%ENDCOLOR%   %RED%Jan 15%ENDCOLOR% /usr/bin/python /usr/bin/%BLUE%mash%ENDCOLOR% osg-3.1-el5-release -o
-[0] 18:56:51 UTC [root@repo2:~]# kill -TERM -%GREEN%23455%ENDCOLOR%
-[0] 18:57:20 UTC [root@repo2:~]# ps -C %BLUE%mash%ENDCOLOR% -o pid,ppid,pgid,start,command
+   1. If there are =mash= processes that started on a previous date or more than 2 hours ago, it is best to remove their corresponding process groups (PGID, highlighted above):\
+       <p><strong>Note:</strong> You must have =root= privileges or prefix the =kill= command with =sudo=.</p>
+       <pre class="rootscreen"># <strong>kill -TERM -<em class="pgid">23455</em></strong></pre>\
+       <p>Then verify that the old processes are gone using the same =ps= command as above:\
+       <pre class="rootscreen"># <strong>ps -C mash -o pid,ppid,pgid,start,command</strong>
   PID  PPID  PGID  STARTED COMMAND
-[1] 18:57:23 UTC [root@repo2:~]# 
-</pre>
-
----++ Future directions
-
----+++ Timeouts
-
-We hope to add timeouts which will handle and log the case of =mash= processes hanging.
+#</pre>
+   1. If any part of this process does not look or work as expected:
+      1. Create a GOC ticket with a subject like “Problems with mash on repo<strong>N</strong>” and with relevant details in the body
+      1. Assign the ticket to “Software Support (Triage)”
+      1. Email Carl Edquist <edquist@cs.wisc.edu> and CC Tim Cartwright <cat@cs.wisc.edu> with the ticket URL
