@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1456509910" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1456520753" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 %TOC%
 
@@ -237,21 +237,81 @@ cd "/p/condor/workspaces/git/${PROJECT}.git"
 One of the !GitHub migration owners (read: Main.MatyasSelmeci and
 Main.CarlEdquist) will convert the project from SVN to Git.
 
+Some projects already have read-only !GitHub mirrors. For example,
+[[https://vdt.cs.wisc.edu/svn/software/osg-configure/][osg-configure in SVN]]
+has a corresponding
+[[https://github.com/opensciencegrid/osg-configure][osg-configure repo in !GitHub]].
+There are special considerations for those projects.
+
+
+Before doing any conversions, we must contact the software owners and major
+contributors, and work with them to make sure the conversion has a minimal
+impact on their work process.
+
+The outcomes of the conversion that may affect their work are:
+
+   * the corresponding SVN repo will become read-only
+   * the !GitHub read-only mirror, if one exists, will have its history
+     overwritten
+
+*Contributors must commit their work to SVN before the conversion to avoid
+problems.* If necessary, schedule a switchover date with the owners and major
+contributors.
+
+
 Overall steps are:
 
-   1. Schedule a switchover date with the owner.
-   1. Create the !GitHub repo under the "opensciencegrid" organization; do not
-      enable protected branches yet.
-   1. Do the conversion: create a new Git repo based on the data from SVN using the script https://vdt.cs.wisc.edu/svn/software/tools/git-svn-bare-setup.
-      1. <code>./git-svn-bare-setup <em>PROJECT</em></code>
-      1. <code>cd <em>PROJECT</em>.git</code>
-      1. Inspect the repo (eg, with <code>gitk --all</code>) and perform any manual tidying, if appropriate.
-      1. =git push github=
-   1. Enable protected branches for the repo in !GitHub.
+   1. Wait for the switchover date if necessary.
+   1. If there is no read-only !GitHub mirror, create the !GitHub repo under
+      the "opensciencegrid" organization.
+   1. Do the conversion: create a new Git repo based on the data from SVN using
+      the script
+      [[https://vdt.cs.wisc.edu/svn/software/tools/git-svn-bare-setup][git-svn-bare-setup]]:\
+<pre>
+svn checkout https://vdt.cs.wisc.edu/svn/software/tools/
+
+PROJECT=<em>PROJECT</em>
+tools/git-svn-bare-setup $PROJECT
+cd $PROJECT.git
+</pre>
+      1. Prune dead branches:\
+<pre>
+../tools/git-prune-dead-branches
+</pre>
 <!--
-   1. Use =subgit import= (it's nicer than =git-svn=) to create a new Git repo
-      based on the data from SVN.
+      1. Deal with dead branches (i.e. branches that are not present in the most recent SVN revision):
+         1. If the branch has been fully merged into =trunk=, delete the branch:\
+<pre>
+git branch -d <em>BRANCH</em>
+</pre>
+         1. Else, tag the branch first, then delete it.
+            The tag will be named after the branch and the last commit number in the branch.
+            For example, if the branch =test= was last updated
+            on SVN revision =12345=, then the tag would be called =test@12345=.
+            Create the tag, then delete the branch:\
+<pre>
+BRANCH=<em>BRANCH</em>
+SUFFIX=$(git show ${BRANCH} | grep git-svn-id | grep -Eo '@[[:digit:]]+')
+git tag ${BRANCH}${SUFFIX} ${BRANCH}  &&  git branch -D ${BRANCH}
+</pre>
 -->
+      1. Inspect the repo (eg, with <code>gitk --all</code>) and perform any manual tidying, if appropriate.
+      1. Push all branches and tags.\
+<pre>
+git push github
+</pre>
+   1. Enable protected branches for the repo in !GitHub:
+      1. In the !GitHub web interface for the repo, go to "Settings &rarr; Branches".
+      1. Under "Protected branches", select a branch.
+      1. Check "Protect this branch".
+      1. Click "Save changes".
+      1. Repeat for all the other branches.
+   1. Edit !GitHub permissions on the repo:
+      1. In the !GitHub web interface for the repo, go to "Settings &rarr; Collaborators &amp; teams".
+      1. Ensure the team "Core" is added and has Admin privileges.
+      1. Ensure the team "Software" is added and has Admin privileges.
+      1. If the software owner is not on the Software team, add them to the
+         "Collaborators" section and give them Write privileges.
    1. Add the repo to =/p/condor/workspaces/vdt/git/remotes.list=.
    1. Wait for the fetcher script to run.
    1. Make a file in the trunk of the SVN dir called =MOVED-TO-GIT= that
