@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1456537963" format="1.1" reprev="1.10" version="1.10"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1456544914" format="1.1" reprev="1.11" version="1.11"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 %TOC%
 
@@ -9,6 +9,7 @@ This document details the plan for migrating the projects in the VDT SVN
 software area to Git repositories located primarily on !GitHub.  This document
 supersedes [[SoftwareTeam.GitMigrationProposal]].
 
+See also the [[SoftwareTeam.SW025_GitHubMigration][project page]].
 
 
 ---++ Repo characteristics
@@ -250,13 +251,13 @@ impact on their work process.
 
 The outcomes of the conversion that may affect their work are:
 
-   * the corresponding SVN repo will become read-only
-   * the !GitHub read-only mirror, if one exists, will have its history
-     overwritten
+   * The corresponding SVN repo will become read-only.
+   * If a !GitHub read-only mirror exists, it will have its history
+     overwritten.
 
-*Contributors must commit their work to SVN before the conversion to avoid
-problems.* If necessary, schedule a switchover date with the owners and major
-contributors.
+<b>Contributors must commit their work to SVN before the conversion to avoid
+problems.</b> If necessary, schedule a switchover date with the owners and
+major contributors.
 
 
 Overall steps are:
@@ -264,17 +265,17 @@ Overall steps are:
    1. Wait for the switchover date if necessary.
    1. If there is no read-only !GitHub mirror, create the !GitHub repo under
       the "opensciencegrid" organization.
-   1. Do the conversion: create a new Git repo based on the data from SVN using
-      the script
-      [[https://vdt.cs.wisc.edu/svn/software/tools/gitmigrate/git-svn-bare-setup][git-svn-bare-setup]]:\
+   1. Do the conversion -- create a new Git repo based on the data from SVN
+      using the scripts in
+      [[https://vdt.cs.wisc.edu/svn/software/tools/github/git-svn-bare-setup][software/tools/github]]:\
 <pre>
-svn checkout https://vdt.cs.wisc.edu/svn/software/tools/gitmigrate
-
 PROJECT=<em>PROJECT</em>
-./gitmigrate/git-svn-bare-setup $PROJECT
+
+svn checkout https://vdt.cs.wisc.edu/svn/software/tools/github
+./github/git-svn-bare-setup $PROJECT
 cd $PROJECT.git
 </pre>
-   1. Inspect the repo (eg, with <code>gitk --all</code>) and perform any manual tidying, if appropriate.
+   1. Inspect the repo and perform any manual tidying, if appropriate.
       See the [[#ManualTidying][manual tidying suggestions]] section.
    1. Push all branches and tags.\
 <pre>
@@ -289,16 +290,21 @@ git push github
    1. Edit !GitHub permissions on the repo:
       1. In the !GitHub web interface for the repo, go to "Settings &rarr; Collaborators &amp; teams".
       1. Ensure the team "Core" is added and has Admin privileges.
-      1. Ensure the team "Software" is added and has Admin privileges.
+      1. Ensure the team "Software" is added and has Write privileges.
       1. If the software owner is not on the Software team, add them to the
          "Collaborators" section and give them Write privileges.
-   1. Add the repo to =/p/condor/workspaces/vdt/git/remotes.list=.
-   1. Wait for the fetcher script to run.
-   1. Make a file in the trunk of the SVN dir called =MOVED-TO-GIT= that
-      contains the following text:<pre>
-The source code for this project is now contained in GitHub at opensciencegrid/<b>PROJECT</b>
+   1. Set up synchronization for the repo:
+      1. Add the repo to =/p/condor/workspaces/vdt/git/remotes.list=.
+      1. Wait for the fetcher script to run.
+      1. Verify that =/p/condor/workspaces/vdt/git/<em>PROJECT</em>.git= exists
+         and the contents look good.
+   1. Close off the original SVN repo:
+      1. Make a file in the trunk of the SVN dir called =MOVED-TO-GIT= that
+         contains the following text:<pre>
+The source code for this project is now contained in GitHub at
+   https://github.com/opensciencegrid/<em>PROJECT</em>
 Changes committed to SVN will be ignored.</pre>
-   1. =svn lock= the project in SVN.
+      1. =svn lock= the project.
 
 %RED%If anything fails, either debug, _carefully recording all steps_ or just try
 again.%ENDCOLOR%
@@ -321,16 +327,42 @@ After the initial conversion with the =git-svn-bare-setup=, there are a number
 of optional tasks which can be done to create a tidier repository. This is
 mostly a reference for the migration owners.
 
-   1. Run trim script (=trim-deleted-svn-branches=), to see what would be trimmed (don't actually execute commands)
-      1. for any =branch@rev= tags that would be created, see if there's anything *obvious* to you, the one performing the migration, in the chronological vicinity of the =branch@rev= commit that clearly matches the concept of a git merge, and if so, add a git graft for it
-      1.  do any other tidying that you would like, that seems worth doing, that just so happens to come to your attention at the moment while inspecting gitk --all --date-order, for which you feel like expending the effort and eye strain to tidy up
-         1. this may include making what should have been merges look like merges in git, even for commits which are already part of the history for active branches
-         1. feel free to consult carl for help if you are confused
-      1. run "git-filter-branch -- --all && rm -rf refs/original info/grafts" if any grafts have been added and you are satisfied with the result in gitk
-   1. re-run the trim script, and this time run the tag and branch commands it outputs
+Since this task involves a lot of manual steps, it is *strongly* recommended
+that you keep a log of the exact steps you take. Saving shell history is a good
+idea.
 
+A good way to inspect the history of the repo is to run:
+<pre>gitk --branches -tags --date-order</pre>
+You might want to keep this window up and refresh it after making changes.
 
+Two common problems are:
 
+   1. Zombie branches -- branches that have been deleted in SVN but were
+      recreated for some reason during the conversion.
+   1. Unidentified merges -- merges that happened in SVN but do not show up as
+      such in the Git repo.
 
+The script =trim-deleted-svn-branches= helps identify both of these: branches
+are often deleted after merging, so a zombie branch may indicate the presence
+of a merge.
 
--- Main.MatyasSelmeci - 12 Feb 2016
+   1. Run the trim script (=trim-deleted-svn-branches=), to see what would be
+      trimmed (don't actually execute commands). The script returns a set of
+      =git branch= and =git tag= commands.
+      1. For any =branch@rev= tags that would be created, see if there's
+         anything *obvious* to you, the one performing the migration, in the
+         chronological vicinity of the =branch@rev= commit that clearly matches
+         the concept of a git merge, and if so, add a git graft for it.
+      1. Do any other tidying that you would like, that seems worth doing, that
+         just so happens to come to your attention at the moment while
+         inspecting =gitk=, for which you feel like expending the effort and
+         eye strain to tidy up.
+         1. This may include making what should have been merges look like
+            merges in git, even for commits which are already part of the
+            history for active branches.
+         1. Feel free to consult Main.CarlEdquist for help if you are confused.
+      1. If any grafts have been added and you are satisfied with the result in
+         =gitk=, then finalize your changes:
+         <pre>git-filter-branch -- --all  &&  rm -rf refs/original info/grafts</pre>
+   1. Re-run the trim script, and this time run the tag and branch commands
+      that it outputs.
