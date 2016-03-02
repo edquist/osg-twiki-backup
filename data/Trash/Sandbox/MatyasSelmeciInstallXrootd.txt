@@ -1,7 +1,8 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1456537815" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1456878323" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
 %LINKCSS%
----+!! %SPACEOUT{ "Install !XRootD" }%
+<!-- ---+!! %SPACEOUT{ "Install !XRootD" }% -->
+---+!! Install !XRootD
 
 <!-- Prompt rendering changes
 Root's on a server, not a client.
@@ -10,11 +11,11 @@ Root's on a server, not a client.
 
 %TOC{depth="3"}%
 
----+ About this Document
+---+ About This Document
 
 Here we describe how to install the !XRootD redirector as part of a storage element for the Open Science Grid.
 This document is intended for system administrators who wish to install !XRootD as part of a storage element or as part of a global namespace.
-
+<!-- TODO Describe who wants to install xrootd? -->
 
 <!--
 ---+ Introduction to !XRootD
@@ -25,11 +26,11 @@ This document is intended for system administrators who wish to install !XRootD 
 
 ---+ Before Starting
 
-Before starting the installation process, consider the following points
-(consulting [[#ReferenceSection][the Reference section below]] as needed):
+Before starting the installation process, consider the following points:
+<!-- (consulting [[#ReferenceSection][the Reference section below]] as needed): -->
 
    * *User IDs:* If they do not exist already, the installation will create the
-     Linux user ID =xrootd= (UID **TODO**)
+     Linux user ID =xrootd= <!-- no fixed UID -->
    * *Service certificate:* The !XRootD service uses a host certificate at
      =/etc/grid-security/host*.pem=
    * *Networking:* The !XRootD service uses the standard HTTP port (80).
@@ -39,54 +40,81 @@ Before starting the installation process, consider the following points
 As with all OSG software installations, there are some one-time (per host)
 steps to prepare in advance:
 
-   * Ensure the host has [[SupportedOperatingSystems][a supported operating system]]
+   * Ensure the host has [[Documentation.Release3.SupportedOperatingSystems][a supported operating system]]
    * Obtain root access to the host
-   * Prepare [[YumRepositories][the required Yum repositories]]
-   * Install [[InstallCertAuth][CA certificates]]
+   * Prepare [[Documentation.Release3.YumRepositories][the required Yum repositories]]
+   * Install [[Documentation.Release3.InstallCertAuth][CA certificates]]
 
 ---+ Installing !XRootD Server
 
-**TODO** *description*
+An installation of the !XRootD server consists of the server itself and its
+dependencies. Install these with Yum:
 
 <pre class="rootscreen">
 %UCL_PROMPT_ROOT% yum install xrootd
 </pre>
 
----++ Configuring !XRootD server
+---+ Configuring !XRootD server
 
----+++ Minimal configuration
-
-
-!XRootD is configured out-of-the-box to run a standalone server, which just
-serves files from =/tmp= on the local file system. **TODO** *is this true?*
-
-You may want to use this configuration to verify that your clients will be able
-to talk to your server, for example. To do this, start the !XRootD server with
-standalone config as described in the
-[[#ManagingServices][managing services section]], and then validate with the
-[[#ValidatingStandalone][standalone validation instructions]].
+---++ Minimal configuration
 
 
+!XRootD is configured out-of-the-box to run a standalone server, which serves
+files from =/tmp= on the local file system.
+
+This configuration is useful to verify basic connectivity between your clients
+and your server. To do this, start the =xrootd= service with standalone config
+as described in the [[#ManagingServices][managing services section]].
+
+You should be able now to copy a file such as =/bin/sh= using =xrdcp= command
+into =/tmp=. To test, do:
+
+<pre class="rootscreen">
+%UCL_PROMPT_ROOT% yum install xrootd-client
+%UCL_PROMPT_ROOT% xrdcp /bin/sh root://localhost:1094//tmp/first_test
+[xrootd] Total 0.76 MB  |====================| 100.00 % [inf MB/s]
+%UCL_PROMPT_ROOT% ls -l /tmp/first_test
+-rw-r--r-- 1 xrootd xrootd 801512 Apr 11 10:48 /tmp/first_test
+</pre>
 
 
----+ Advanced Configuration
 
----++ Creating Xrootd Cluster
+---++ Advanced configuration
+
+An advanced !XRootD setup has multiple components; it is important to validate
+that each additional component that you set up is working before moving on to
+the next component. We have included validation instructions below.
+
+---+++ Creating an !XRootD cluster
 
      <img src="%ATTACHURLPATH%/rdr.jpg" alt="rdr.jpg" width='736' height='318' />
 
-An !XRootD cluster can make a storage installation much more scalable.  Controlling file access queries to the cluster is the "redirector" node.  This node will serve as a frontend for user requests and redirect their file accesses to the appropriate data node(s) that have the data they are requesting.  To facilitate this, two daemons xrootd (controlling file access and storage) and cmsd (controlling "cluster management services" and communications between nodes) will be started on each node once installation and configuration is completed.  Note that, for large virtual organizations, a site-level redirector may actually also communicate upwards to a regional or global redirector that handles access to a multi-level hierarchy.  This section will only cover handling one level of !XRootD hierarchy.
+For a larger-scale storage installation, <!-- TODO: how large? --> you will
+need to set up an !XRootD _cluster_.  The cluster uses one "redirector" node as
+a frontend for user accesses, and multiple data nodes that have the data that
+users request.  Two daemons will run on each node:
 
-In the below instructions, RDRNODE will refer to the redirector instances and DATANODE will refer to the data node host.  Each instance of this below should be replaced with the FQDN, ie output of 'hostname'.
+   $ =xrootd=: The eXtended Root Daemon controls file access and storage
+   $ =cmsd=: The Cluster Management Services Daemon, controls communication between nodes
 
----+++ Modify =/etc/xrootd/xrootd-clustered.cfg=
+Note that for large virtual organizations, a site-level redirector may actually
+also communicate upwards to a regional or global redirector that handles access
+to a multi-level hierarchy.  This section will only cover handling one level of
+!XRootD hierarchy.
 
-You will need to modify the xrootd-clustered.cfg on both nodes.  The following example should serve as a base configuration for clustering.
-Further customizations are detailed below.
+In the instructions below, %RED%RDRNODE%ENDCOLOR% will refer to the redirector
+host and %RED%DATANODE%ENDCOLOR% will refer to the data node host. These should
+be replaced with the fully-qualified domain name of the host in question.
+
+---++++ Modify /etc/xrootd/xrootd-clustered.cfg
+
+You will need to modify the =xrootd-clustered.cfg= on the redirector node and
+each data node. The following example should serve as a base configuration for
+clustering. Further customizations are detailed below.
 
 <pre class="file">
 all.export /tmp stage
-set xrdr = RDRNODE
+set xrdr = %RED%RDRNODE%ENDCOLOR%
 all.manager $(xrdr):3121
 if $(xrdr)
   all.role manager
@@ -101,35 +129,28 @@ You will need to customize the following lines:
 
 |*Configuration Line*|*Changes Needed*|
 |=all.export /tmp stage=| Change =/tmp= to the directory to allow !XRootD access to|
-|=set xrdr&#61;RDRNODE= | Change to the hostname of the redirector |
-|=cms.space min 2g 5g= | Reserve this amount of free space on the node.  For this example, if space falls below 2GB, xrootd will not store further files on this node until space climbs above 5GB. You can use k, m, g, or t to indicate kilobyte, megabytes, gigabytes, or terabytes, respectively.|
+|=set xrdr&#61;%RED%RDRNODE%ENDCOLOR%= | Change to the hostname of the redirector |
+|=cms.space min 2g 5g= | Reserve this amount of free space on the node.  For this example, if space falls below 2GB, xrootd will not store further files on this node until space climbs above 5GB. You can use =k=, =m=, =g=, or =t= to indicate kilobyte, megabytes, gigabytes, or terabytes, respectively.|
 
 
 Further information can be found at [[http://xrootd.slac.stanford.edu/doc]]
 
 
+---++++ Verifying the clustered config
 
----+++ Starting services
+Start both =xrootd= and =cmsd= on all nodes according to the instructions in
+the [[#ManagingServices][managing services section]].
 
-Both =xrootd= and =cmsd= need to be started on all nodes:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% service xrood start
-%UCL_PROMPT_ROOT% service cmsd start
-</pre>
-
----+++ Verifying cluster
-
-Verify that you can copy file to /tmp on the server data via redirector:
+Verify that you can copy a file such as =/bin/sh= to =/tmp= on the server data via the redirector:
 
 <pre class="rootscreen">
 %UCL_PROMPT_ROOT% xrdcp /bin/sh  root://%RED%RDRNODE%ENDCOLOR%:1094///tmp/second_test
 [xrootd] Total 0.76 MB  |====================| 100.00 % [inf MB/s]
 </pre>
 
-Check that the ==/tmp/second_test== is located on data server DATANODE.
+Check that the =/tmp/second_test= is located on data server %RED%DATANODE%ENDCOLOR%.
 
----++ (Optional) Adding Simple Server Inventory  to your cluster
+---+++ (Optional) Adding Simple Server Inventory to your cluster
 
 The Simple Server Inventory (SSI) provide means to have an inventory for each data server (See details in [[http://xrootd.org/doc/prod/cms_config.htm][XRootD CMS config]]).
 In order to configure it you will need to run a second instance of xrootd daemon as well !XrdCnsd process that should run on every data server. We will configure xrootd cluster that consists of two nodes.  Note, this cnsd process is short for "composite name space" and will handle the inventory.
@@ -208,7 +229,9 @@ xrootd   19156  0.0  0.0  48096  3256 ?        Sl   07:37   0:00 /usr/bin/cmsd -
 xrootd   19880  0.0  0.0  46124  2916 ?        Sl   08:33   0:00 /usr/bin/xrootd -l /var/log/xrootd/xrootd.log -c /etc/xrootd/xrootd-clustered.cfg -b -s /var/run/xrootd/xrootd-default.pid -n default
 xrootd   19894  0.0  0.1  71164  6960 ?        Sl   08:33   0:00 /usr/bin/XrdCnsd -d -D 2 -i 90 -b fermicloud053.fnal.gov:1095:/data/inventory
 </pre>
----+++ Testing Xrootd Cluster with SSI
+
+---++++ Testing an !XRootD cluster with SSI
+
    1. Copy file to redirector node specifying storage path (/data/xrootdfs instead of /tmp): <pre class="rootscreen">
 %UCL_PROMPT_ROOT% xrdcp /bin/sh root://localhost:1094//data/xrootdfs/test1
 [xrootd] Total 0.00 MB  |====================| 100.00 % [inf MB/s]
@@ -221,9 +244,10 @@ cns_ssi: fermicloud054.fnal.gov inventory with 1 directory and 1 file updated wi
 %UCL_PROMPT_ROOT% cns_ssi list /data/inventory
 fermicloud054.fnal.gov complete inventory as of Tue Apr 12 07:38:29 2011
 /data/xrootdfs/test1
-</pre>  _Note_: In this example fernilcould53.fnal.gov is a redirector node and fermicloud054.fnal.gov is a data server
+</pre>
+*Note*: In this example, =fermicloud53.fnal.gov= is a redirector node and =fermicloud054.fnal.gov= is a data node.
 
----++ (Optional) Authorization
+---+++ (Optional) Authorization
 
 There are several authorization options in !XRootD available through the security plugins.
 In this document, we will cover two options for security:
@@ -239,7 +263,7 @@ based on the user that the security plugin authenticates you to (for instance, y
 gums id for option 2), but, internally, the data node files will be owned by the =xrootd= user.
 
 
----+++ Authorization File
+---++++ Authorization file
 
 In order to add security to your cluster you will need to add "auth_file" on the your data server node.
 Create ==/etc/xrootd/auth_file== :<pre class="file">
@@ -274,7 +298,7 @@ templated user options, see [[http://xrootd.org/doc/dev/sec_config.htm#_Toc31770
 |privs|Letter list of privileges: =a - all ; l - lookup ; d - delete ; n - rename ; i - insert ; r - read ; k - lock (not used) ; w - write= |
 
 
----+++ Security Option 1: Adding Simple (Unix) Security
+---++++ Security option 1: adding simple (Unix) security
 
 The first step in adding simple Unix security to validate based on username is to create the =auth_file= as in the previous section.
 
@@ -314,7 +338,7 @@ the data nodes are normally owned by =xrootd= not by the authenticated username.
 
 After making all the changes, please, restart xrootd and cmsd daemons on all nodes.
 
----+++ Testing Xrootd Cluster with simple security enabled
+---++++ Testing an !XRootD cluster with simple security enabled
    1. Login on redirector node as root
    1. Check that user "root" still can read files: <pre class="rootscreen">
 %UCL_PROMPT_ROOT% xrdcp  root://localhost:1094//data/xrootdfs/test1 /tmp/b
@@ -337,7 +361,7 @@ Error accessing path/file for root://localhost:1094//data/xrootdfs/test2
 [xrootd] Total 0.00 MB  |====================| 100.00 % [inf MB/s]
 </pre>
 
----+++ Security Option 2: xrootd-lcmaps Authorization
+---++++ Security option 2: xrootd-lcmaps authorization
 
 The xrootd-lcmaps security plugin uses the =lcmaps= package to access the =GUMS= server to authenticate and authorize users
 based on X509 certificates.
@@ -428,7 +452,7 @@ export LLGT_VOMS_DISABLE_CREDENTIAL_CHECK=1
 
 This feature is evolving, so stay tuned for updates.
 
----+++ Testing Xrootd Cluster with lcmaps security enabled
+---++++ Testing Xrootd Cluster with lcmaps security enabled
 
 From any machine with the =xrootd-client= installed, you can test with xrdcp.
 With a user that has no grid certificate installed, you should get an error:
@@ -459,7 +483,7 @@ On the =xrootd-client= node,
 </pre>
 In the above examples, make sure to change "/tmp" to a directory allowed by the =/etc/xrootd/auth_file= created in a previous section.
 
----++ (Optional) Adding CMS TFC support to !XrootD
+---+++ (Optional) Adding CMS TFC support to !XRootD
 
 For CMS users, there is a package available to integrate rule-based name
 lookup using a storage.xml file.
@@ -479,9 +503,9 @@ Add the orange text only if you are running hadoop (see below).
 
 See CMS twikis for more information: https://twiki.cern.ch/twiki/bin/view/Main/HdfsXrootdInstall
 
----++ (Optional) Adding Hadoop support to !XrootD
+---+++ (Optional) Adding Hadoop support to !XRootD
 
-Users with Hadoop-based storage under their !XrootD installation have extra steps
+Users with Hadoop-based storage under their !XRootD installation have extra steps
 to configure more efficient access to Hadoop Stroage
 
 <pre class="rootscreen">
@@ -494,9 +518,9 @@ xrootd.fslib /usr/lib64/libXrdOfs.so
 ofs.osslib /usr/lib64/libXrdHdfs.so
 </pre>
 
-For more information, see [Storage.HadoopXrootd].
+For more information, see [[Storage.HadoopXrootd]].
 
----++ (Optional) Adding File Residency Manager (FRM) to Xrootd Cluster
+---+++ (Optional) Adding File Residency Manager (FRM) to an Xrootd cluster
 The FRM deals with two major mechanisms:
    * local disk
    * remote servers
@@ -519,15 +543,19 @@ FRMD_INSTANCES="default"
 %UCL_PROMPT_ROOT% service frm_xfrd start
 %UCL_PROMPT_ROOT% service frm_purged start
 </pre>
-%ICON{warning}% Both daemons will use  /var/log/xrootd/frmd.log for logging.
+%ICON{warning}% Both daemons will use =/var/log/xrootd/frmd.log= for logging.
 
 
 
 
+
+<!--
 
 ---+ Using !XRootD
 
 **TODO** *blurb*
+
+-->
 
 
 #ManagingServices
@@ -535,15 +563,35 @@ FRMD_INSTANCES="default"
 
 
 
-You will want to start services on the redirector node before starting any
-services on the data nodes. If you have only installed !XRootD itself, you will
-only need to start the =xrootd= service. However, if you have installed cluster
-management services, you will also need to start =cmsd= on the nodes.
+Start services on the redirector node before starting any services on the data
+nodes. If you have only installed !XRootD itself, you will only need to start
+the =xrootd= service. However, if you have installed cluster management
+services, you will also need to start =cmsd= on the nodes.
 
 
 The instructions for starting and stopping an !XRootD service depend on whether
-the service is installed on an EL 6 or EL 7 machine. You can use the same
-commands, but the names of the services are different.
+the service is installed on an EL 6 or EL 7 machine, and whether you are using
+a standalone or clustered configuration.
+
+On EL 6, which config to use is set in the file =/etc/sysconfig/xrootd=. For
+example, to have =xrootd= use the clustered config, you would have a line such
+as this: <pre class="file">
+XROOTD_DEFAULT_OPTIONS="-l /var/log/xrootd/xrootd.log -c /etc/xrootd/xrootd-%RED%clustered%ENDCOLOR%.cfg -k fifo"
+</pre>
+
+To use the standalone config instead, you would use: <pre class="file">
+XROOTD_DEFAULT_OPTIONS="-l /var/log/xrootd/xrootd.log -c /etc/xrootd/xrootd-%RED%standalone%ENDCOLOR%.cfg -k fifo"
+</pre>
+
+On EL 7, which config to use is determined by the service name given to
+=systemctl=. For example, to have =xrootd= use the clustered config, you would
+start up =xrootd= with this line: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% systemctl start xrootd@%RED%clustered%ENDCOLOR%
+</pre>
+
+To use the standalone config instead, you would use: <pre class="rootscreen">
+%UCL_PROMPT_ROOT% systemctl start xrootd@%RED%standalone%ENDCOLOR%
+</pre>
 
 The services are:
 
@@ -551,41 +599,28 @@ The services are:
 | *Service*                   | *EL 6 service name* | *EL 7 service name* |
 | !XRootD (standalone config) | =xrootd=            | =xrootd@standalone= |
 | !XRootD (clustered config)  | =xrootd=            | =xrootd@clustered=  |
-| !CmsD (standalone config)   | =cmsd=              | =cmsd@standalone=   |
-| !CmsD (clustered config)    | =cmsd=              | =cmsd@clustered=    |
+| !CMSD (clustered config)    | =cmsd=              | =cmsd@clustered=    |
+<!-- you don't run cmsd on standalone configs -->
 
 
 As a reminder, here are common service commands (all run as =root=):
 
 %TABLE{sort="off"}%
-| *To &hellip;* | *Run the command &hellip;* |
-| Start a service | =service <em>SERVICE-NAME</em> start= |
-| Stop a service | =service <em>SERVICE-NAME</em> stop= |
-| Enable a service to start during boot | =chkconfig <em>SERVICE-NAME</em> on= |
-| Disable a service from starting during boot | =chkconfig <em>SERVICE-NAME</em> off= |
+| *To &hellip;* | *Run the command (EL6) &hellip;* | *Run the command (EL7) &hellip;* |
+| Start a service | =service <em>SERVICE-NAME</em> start= | =systemctl start <em>SERVICE-NAME</em>= |
+| Stop a service | =service <em>SERVICE-NAME</em> stop= | =systemctl start <em>SERVICE-NAME</em>= |
+| Enable a service to start during boot | =chkconfig <em>SERVICE-NAME</em> on= | =systemctl enable <em>SERVICE-NAME</em>= |
+| Disable a service from starting during boot | =chkconfig <em>SERVICE-NAME</em> off= | =systemctl disable <em>SERVICE-NAME</em>= |
 
 
 
----+ Validating !XRootD
-
-#ValidatingStandalone
----++ Validating a standalone !XRootD Server
-
-In order to test that xrootd is working as a stand alone data server, start the server using the commands in the previous section.  You should be able now to copy files using xrdcp command into ==/tmp==. To test do:
-
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% yum install xrootd-client
-%UCL_PROMPT_ROOT% xrdcp /bin/sh root://localhost:1094//tmp/first_test
-[xrootd] Total 0.76 MB  |====================| 100.00 % [inf MB/s]
-%UCL_PROMPT_ROOT% ls -l /tmp/first_test
--rw-r--r-- 1 xrootd xrootd 801512 Apr 11 10:48 /tmp/first_test
-</pre>
-
+<!--
 
 ---+ Troubleshooting !XRootD
 
 
 **TODO**
+-->
 
 
 ---+ Getting Help
@@ -594,23 +629,31 @@ To get assistance. please use the [[HelpProcedure][Help Procedure]] page.
 
 ---+ Reference
 
----++ File Locations
+---++ File locations
 
 
 %STARTSECTION{"Locations"}%
 
 | *Service/Process* | *Configuration File* | *Description* |
-| !XRootD | /etc/xrootd/xrootd-clustered.cfg | Main xrootd configuration and settings|
-| | /etc/xrootd/auth_file | Authorized users file |
+| =xrootd= | =/etc/xrootd/xrootd-clustered.cfg= | Main clustered mode !XRootD configuration |
+| ^ | =/etc/xrootd/auth_file= | Authorized users file |
 
 | *Service/Process* | *Log File* | *Description* |
-| !XRootD | /var/log/xrootd/xrootd.log | !Xrootd server daemon log |
-| cmsd | /var/log/xrootd/cmsd.log | Cluster management log |
-| cns | /var/log/xrootd/cns/xrootd.log | Server inventory (composite name space) log |
+| =xrootd= | =/var/log/xrootd/xrootd.log= | !XRootD server daemon log |
+| =cmsd= | =/var/log/xrootd/cmsd.log= | Cluster management log |
+| =cns= | =/var/log/xrootd/cns/xrootd.log= | Server inventory (composite name space) log |
 
 
 %ENDSECTION{"Locations"}%
 
+---+ Links
+
+   * [[http://xrootd.slac.stanford.edu/doc][XRootD documentation]]
+
 ---+ Comments
 
 %COMMENT{type="tableappend"}%
+   * rdr.jpg: <br />
+     <img src="%ATTACHURLPATH%/rdr.jpg" alt="rdr.jpg" width='736' height='318' />    
+
+%META:FILEATTACHMENT{name="rdr.jpg" attachment="rdr.jpg" attr="" comment="" date="1456877762" path="rdr.jpg" size="28782" stream="rdr.jpg" tmpFilename="/usr/tmp/CGItemp24916" user="MatyasSelmeci" version="1"}%
