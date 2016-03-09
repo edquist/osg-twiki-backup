@@ -1,0 +1,131 @@
+The following procedure requires a working copy (not just a bare repo)
+in order to run git merge commands.  Since you start with a bare repo
+(which you got from git-svn-bare-setup), you'll have to clone that to
+get a working copy for this merge-test procedure.
+
+using osg-pki-tools as an example...
+
+ * branch sw2119_refactor still exists, but has it already been merged
+   into trunk?
+
+ - asking the maintainer might not hurt.
+
+ - you can look for commit messages that say 'merge' but aren't git merges:
+   $ git log --no-merges -i --grep merge | less
+
+ - otherwise, look at ``gitk --all'' sorted by commit date
+
+ - a couple commits after sw2119_refactor, on the master branch (trunk),
+   you can see the following commit:
+
+>    Merge refactored tests:  -r22208:22245 ../branches/sw2119_refactor/
+>    
+>    git-svn-id: https://vdt.cs.wisc.edu/svn/software/osg-pki-tools/trunk@22247
+
+ - that looks promising...
+ - let's tag it for referece: 
+     $ git rev-parse --short ':/git-svn-id:.*@22247 '  # look up by svn rev
+     56938fb
+     $ git tag sw2119_refactor.merge-guess 56938fb
+
+ * how can we test if the merge guess matches the concept of a git
+   merge?
+
+ - make a new branch there:
+     $ git checkout -b mtest sw2119_refactor.merge-guess
+
+ - now, try merging in the topic branch:
+     $ git merge origin/sw2119_refactor
+
+ - if the branch was already (effectively) fully merged into master in
+   svn, then this git merge should not have changed anything.  If the
+   git merge succeeded, test to see if anything changed:
+     $ git diff sw2119_refactor.merge-guess mtest
+
+ - if nothing was output, that means our merge guess ought to be safe to
+   use for a real git merge.  we can do this by adding a git graft, to
+   add the topic branch tip as a parent of our merge guess.
+     $ echo $(
+         git rev-parse sw2119_refactor.merge-guess  \
+                       sw2119_refactor.merge-guess^ \
+                       origin/sw2119_refactor
+       ) >> .git/info/grafts
+
+ - clean up our temp branch, and see how it looks in gitk:
+   $ git checkout master
+   $ git branch -D mtest
+   $ gitk --all
+
+ - you should see remotes/origin/sw2119_refactor merge into master at
+   the sw2119_refactor.merge-guess tag
+
+ - if it looks good, drop our guess tag and rewrite all the commits:
+   $ git tag -d sw2119_refactor.merge-guess
+   $ git filter-branch -- --all
+   $ rm .git/info/grafts
+   $ rm -rf .git/refs/original
+
+
+Summary of commands:
+
+TOPIC=sw2119_refactor  # name of the unmerged remote branch
+REMOTE=origin
+MAIN=master
+MERGE_GUESS_TAG=$TOPIC.merge-guess
+MERGE_TEST_BRANCH=$TOPIC.merge-test-branch
+GIT_DIR=.git
+
+# look for a likely merge commit & tag it
+gitk --all  # note svn rev from log message
+SVNREV=22247
+MERGE_GUESS_REV=$(git rev-parse ":/git-svn-id:.*@$SVNREV ")
+git tag $MERGE_GUESS_TAG $MERGE_GUESS_REV  # OR just tag in gitk
+
+# merge test branch
+git checkout -b $MERGE_TEST_BRANCH $MERGE_GUESS_TAG
+git merge $REMOTE/$TOPIC
+
+# test: should return no differences if it was a true full merge
+git diff $MERGE_GUESS_TAG $MERGE_TEST_BRANCH
+
+# add graft if we have decided it's a full merge
+echo $( git rev-parse $MERGE_GUESS_TAG $MERGE_GUESS_TAG^ $REMOTE/$TOPIC
+      ) >> $GIT_DIR/info/grafts
+
+# cleanup & inspect
+git checkout $MAIN
+git branch -D $MERGE_TEST_BRANCH
+gitk --all
+
+# rewrite & cleanup
+git tag -d $MERGE_GUESS_TAG
+git filter-branch -- --all
+rm $GIT_DIR/info/grafts
+rm -rf $GIT_DIR/refs/$REMOTE
+
+######
+
+IF ALL THAT WENT WELL... re-apply everything except the merge-test
+branch stuff to the bare repo that you cloned from.  So:
+
+cd ../project.git  # or whatever the path is to the bare repo
+
+TOPIC=sw2119_refactor  # name of the unmerged branch
+MERGE_GUESS_TAG=$TOPIC.merge-guess
+GIT_DIR=.  # <-- not .git anymore, because you're already in project.git
+
+# same as before
+SVNREV=22247
+MERGE_GUESS_REV=$(git rev-parse ":/git-svn-id:.*@$SVNREV ")
+git tag $MERGE_GUESS_TAG $MERGE_GUESS_REV
+
+# no 'remote' this time
+echo $( git rev-parse $MERGE_GUESS_TAG $MERGE_GUESS_TAG^ $TOPIC
+      ) >> $GIT_DIR/info/grafts
+
+# rewrite & cleanup
+git tag -d $MERGE_GUESS_TAG
+git filter-branch -- --all
+rm $GIT_DIR/info/grafts
+rm -rf $GIT_DIR/refs/$REMOTE
+
