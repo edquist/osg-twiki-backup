@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1458685211" format="1.1" version="1.6"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1459300494" format="1.1" reprev="1.7" version="1.7"}%
 %META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
 %LINKCSS%
 <!-- ---+!! %SPACEOUT{ "Install !XRootD" }% -->
@@ -77,22 +77,26 @@ into =/tmp=. To test, do:
 -rw-r--r-- 1 xrootd xrootd 801512 Apr 11 10:48 /tmp/first_test
 </pre>
 
+Other than for testing, a standalone server is useful when you want to serve
+files off of a single host with lots of large disks. If your storage capacity
+is spread out over multiple hosts, you will need to set up an !XRootD cluster.
 
 
 ---++ Advanced configuration
 
 An advanced !XRootD setup has multiple components; it is important to validate
 that each additional component that you set up is working before moving on to
-the next component. We have included validation instructions below.
+the next component. We have included validation instructions after each
+component below.
 
 ---+++ Creating an !XRootD cluster
 
      <img src="%ATTACHURLPATH%/rdr.jpg" alt="rdr.jpg" width='736' height='318' />
 
-For a larger-scale storage installation, <!-- TODO: how large? --> you will
-need to set up an !XRootD _cluster_.  The cluster uses one "redirector" node as
-a frontend for user accesses, and multiple data nodes that have the data that
-users request.  Two daemons will run on each node:
+If your storage is spread out over multiple hosts, you will need to set up an
+!XRootD _cluster_.  The cluster uses one "redirector" node as a frontend for
+user accesses, and multiple data nodes that have the data that users request.
+Two daemons will run on each node:
 
    $ =xrootd=: The eXtended Root Daemon controls file access and storage
    $ =cmsd=: The Cluster Management Services Daemon, controls communication between nodes
@@ -130,7 +134,12 @@ You will need to customize the following lines:
 |*Configuration Line*|*Changes Needed*|
 |=all.export /tmp stage=| Change =/tmp= to the directory to allow !XRootD access to|
 |=set xrdr&#61;%RED%RDRNODE%ENDCOLOR%= | Change to the hostname of the redirector |
-|=cms.space min 2g 5g= | Reserve this amount of free space on the node.  For this example, if space falls below 2GB, xrootd will not store further files on this node until space climbs above 5GB. You can use =k=, =m=, =g=, or =t= to indicate kilobyte, megabytes, gigabytes, or terabytes, respectively.|
+|=cms.space min 2g 5g= | Reserve this amount of free space on the node. \
+                         For this example, if space falls below 2GB, xrootd \
+                         will not store further files on this node until space \
+                         climbs above 5GB. You can use =k=, =m=, =g=, or =t= \
+                         to indicate kilobyte, megabytes, gigabytes, or \
+                         terabytes, respectively.|
 
 
 Further information can be found at [[http://xrootd.slac.stanford.edu/doc]]
@@ -153,7 +162,13 @@ Check that the =/tmp/second_test= is located on data server %RED%DATANODE%ENDCOL
 ---+++ (Optional) Adding Simple Server Inventory to your cluster
 
 The Simple Server Inventory (SSI) provide means to have an inventory for each data server (See details in [[http://xrootd.org/doc/prod/cms_config.htm][XRootD CMS config]]).
-In order to configure it you will need to run a second instance of xrootd daemon as well !XrdCnsd process that should run on every data server. We will configure xrootd cluster that consists of two nodes.  Note, this cnsd process is short for "composite name space" and will handle the inventory.
+SSI requires:
+
+   * A second instance of the =xrootd= daemon on the redirector
+   * A "composite name space daemon" (=XrdCnsd=) on each data server; this daemon handles the inventory
+
+As an example, we will set up a two-node !XRootD cluster with SSI.
+
 Host A is a redirector node that is running the following daemons:
    1. xrootd redirector
    1. cmsd
@@ -167,16 +182,17 @@ Host B is a data server that is running the following daemons:
 We will need to create a directory on the redirector node for Inventory files.
 <pre class="rootscreen">
 %UCL_PROMPT_ROOT% mkdir -p /data/inventory
-%UCL_PROMPT_ROOT% chown xrootd.xrootd /data/inventory
+%UCL_PROMPT_ROOT% chown xrootd:xrootd /data/inventory
 </pre>
 
 On the data server (host B) let's create the storage cache that will be different from ==/tmp==.
 <pre class="rootscreen">
 %UCL_PROMPT_ROOT% mkdir -p  /local/xrootd
-%UCL_PROMPT_ROOT% chown xrootd.xrootd /local/xrootd
+%UCL_PROMPT_ROOT% chown xrootd:xrootd /local/xrootd
 </pre>
 
-Now, we have to change ==/etc/sysconfig/xrootd== on  redirector node %RED%hostA%ENDCOLOR% to run multiple instances of xrootd. Second instance of xrood will be name "cns" and will be used for SSI<pre class="file">
+Now, we have to change ==/etc/sysconfig/xrootd== on the redirector node (%RED%hostA%ENDCOLOR%) to run multiple instances of xrootd.
+The second instance of xrootd will be named "cns" and will be used for SSI.<pre class="file">
 XROOTD_USER=xrootd
 XROOTD_GROUP=xrootd
 XROOTD_DEFAULT_OPTIONS="%RED%-k 7%ENDCOLOR% -l /var/log/xrootd/xrootd.log -c /etc/xrootd/xrootd-clustered.cfg"
@@ -187,6 +203,7 @@ FRMD_DEFAULT_OPTIONS="%RED%-k 7%ENDCOLOR% -l /var/log/xrootd/frmd.log -c /etc/xr
 CMSD_INSTANCES="default"
 FRMD_INSTANCES="default"
 </pre>
+%RED% *TODO* you probably have to do something completely different on EL 7 %ENDCOLOR%
 
 Now we have to modify ==/etc/xrootd/xrootd-clustered.cfg== on both nodes so it looks like this:<pre class="file">
 all.export /data/xrootdfs
@@ -255,8 +272,6 @@ In this document, we will cover two options for security:
    * Simple Unix Security: Based on user accounts that the client is logged in as.
    * xrootd-lcmaps: Using the lcmaps callout to use GUMS authorization
 
-Note: for both authorization schemes, you will need to provide an authorization file (=auth_file=).  See below.
-
 Note: On the data nodes, the files will actually be owned by unix user =xrootd= (or other daemon user),
 not as the user authenticated to, under most circumstances.  xrootd will verify the permissions and authorization
 based on the user that the security plugin authenticates you to (for instance, your unix user for option 1 or your
@@ -280,7 +295,7 @@ u xrootd %RED%/data/xrootdfs%ENDCOLOR% a
 </pre> Here we assume that your storage path is "/data/xrootdfs" (same as in the previous example).
 
 Change file ownership (if you have created file as root):<pre class="rootscreen">
- $ chown xrootd.xrootd /etc/xrootd/auth_file
+ $ chown xrootd:xrootd /etc/xrootd/auth_file
 </pre>
 
 This file is a flat file of the following form:
