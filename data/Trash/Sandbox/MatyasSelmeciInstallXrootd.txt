@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1460157301" format="1.1" reprev="1.8" version="1.8"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1460416281" format="1.1" reprev="1.9" version="1.9"}%
 %META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
 %LINKCSS%
 <style type="text/css">
@@ -21,7 +21,7 @@ This document is intended for system administrators who wish to install !XRootD 
 <!-- TODO Describe who wants to install xrootd? -->
 
 <!--
----+ Introduction to !XRootD
+ ---+ Introduction to !XRootD
 
 !XRootD is software for a storage element.
 
@@ -196,21 +196,10 @@ On the data server (host B) let's create the storage cache that will be differen
 %UCL_PROMPT_ROOT% chown xrootd:xrootd /local/xrootd
 </pre>
 
-Now, we have to change ==/etc/sysconfig/xrootd== on the redirector node (%RED%hostA%ENDCOLOR%) to run multiple instances of xrootd.
-The second instance of xrootd will be named "cns" and will be used for SSI.<pre class="file">
-XROOTD_USER=xrootd
-XROOTD_GROUP=xrootd
-XROOTD_DEFAULT_OPTIONS="%RED%-k 7%ENDCOLOR% -l /var/log/xrootd/xrootd.log -c /etc/xrootd/xrootd-clustered.cfg"
-%RED%XROOTD_CNS_OPTIONS="-k 7 -l /var/log/xrootd/xrootd.log -c /etc/xrootd/xrootd-clustered.cfg"%ENDCOLOR%
-CMSD_DEFAULT_OPTIONS="%RED%-k 7%ENDCOLOR% -l /var/log/xrootd/cmsd.log -c /etc/xrootd/xrootd-clustered.cfg"
-FRMD_DEFAULT_OPTIONS="%RED%-k 7%ENDCOLOR% -l /var/log/xrootd/frmd.log -c /etc/xrootd/xrootd-clustered.cfg"
-%RED%XROOTD_INSTANCES="default cns"%ENDCOLOR%
-CMSD_INSTANCES="default"
-FRMD_INSTANCES="default"
-</pre>
-%RED% *TODO* you probably have to do something completely different on EL 7 %ENDCOLOR%
-
-Now we have to modify ==/etc/xrootd/xrootd-clustered.cfg== on both nodes so it looks like this:<pre class="file">
+We will be running two instances of !XRootD on %RED%hostA%ENDCOLOR%. Modify
+=/etc/xrootd/xrootd-clustered.cfg= to give the two instances different
+behavior, as such:
+<pre class="file">
 all.export /data/xrootdfs
 set xrdr=%RED%hostA%ENDCOLOR%
 all.manager $(xrdr):3121
@@ -228,6 +217,24 @@ else
       # cms.space options http://xrootd.slac.stanford.edu/doc/dev/cms_config.htm
       cms.space min 2g 5g
 fi
+</pre>
+
+---++++ Starting a second instance of !XRootD on EL 6
+
+The procedure for starting a second instance differs between EL 6 and EL 7.
+This section is the procedure for EL 6.
+
+Now, we have to change ==/etc/sysconfig/xrootd== on the redirector node (%RED%hostA%ENDCOLOR%) to run multiple instances of xrootd.
+The second instance of xrootd will be named "cns" and will be used for SSI.<pre class="file">
+XROOTD_USER=xrootd
+XROOTD_GROUP=xrootd
+XROOTD_DEFAULT_OPTIONS="%RED%-k 7%ENDCOLOR% -l /var/log/xrootd/xrootd.log -c /etc/xrootd/xrootd-clustered.cfg"
+%RED%XROOTD_CNS_OPTIONS="-k 7 -l /var/log/xrootd/xrootd.log -c /etc/xrootd/xrootd-clustered.cfg"%ENDCOLOR%
+CMSD_DEFAULT_OPTIONS="%RED%-k 7%ENDCOLOR% -l /var/log/xrootd/cmsd.log -c /etc/xrootd/xrootd-clustered.cfg"
+FRMD_DEFAULT_OPTIONS="%RED%-k 7%ENDCOLOR% -l /var/log/xrootd/frmd.log -c /etc/xrootd/xrootd-clustered.cfg"
+%RED%XROOTD_INSTANCES="default cns"%ENDCOLOR%
+CMSD_INSTANCES="default"
+FRMD_INSTANCES="default"
 </pre>
 
 Now, we can start xrootd cluster executing the following commands. On redirector you will see:<pre class="rootscreen">
@@ -251,6 +258,21 @@ xrootd   19156  0.0  0.0  48096  3256 ?        Sl   07:37   0:00 /usr/bin/cmsd -
 xrootd   19880  0.0  0.0  46124  2916 ?        Sl   08:33   0:00 /usr/bin/xrootd -l /var/log/xrootd/xrootd.log -c /etc/xrootd/xrootd-clustered.cfg -b -s /var/run/xrootd/xrootd-default.pid -n default
 xrootd   19894  0.0  0.1  71164  6960 ?        Sl   08:33   0:00 /usr/bin/XrdCnsd -d -D 2 -i 90 -b fermicloud053.fnal.gov:1095:/data/inventory
 </pre>
+
+---++++ Starting a second instance of !XRootD on EL 7
+
+The procedure for starting a second instance differs between EL 6 and EL 7.
+This section is the procedure for EL 7.
+
+   1. Create a symlink pointing to =/etc/xrootd/xrootd-clustered.cfg= at
+      =/etc/xrootd/xrootd-cns.cfg=:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% ln -s /etc/xrootd/xrootd-clustered.cfg /etc/xrootd/xrootd-cns.cfg
+</pre>
+   1. Start an instance of the =xrootd= service named =cns= using the syntax in
+      the [[#ManagingServices][managing services section]]:<pre class="rootscreen">
+%UCL_PROMPT_ROOT% systemctl start xrootd@cns
+</pre>
+
 
 ---++++ Testing an !XRootD cluster with SSI
 
@@ -452,19 +474,20 @@ ofs.authorize
 
 <!--
 LINE OF DOOM -- split up into chunks
+Variable names can't contain underscores, so these are a bit less descriptive
+than I'd like.
 -->
-%RED% <strong>TODO Test me. The xrootd config syntax manual says variable
-contents must be a "single nonblank text token" but does not indicate what
-that means.</strong> %ENDCOLOR%
+
 <pre class="file">
 xrootd.seclib /usr/lib64/libXrdSec.so
-set CERTDIR_ARG=-certdir:/etc/grid-security/certificates
-set CERT_ARG=-cert:/etc/grid-security/xrd/xrdcert.pem
-set KEY_ARG=-key:/etc/grid-security/xrd/xrdkey.pem
-set AUTHZFUN_ARG=-authzfun:libXrdLcmaps.so
-set AUTHZFUNPARMS_ARG=-authzfunparms:--osg,--lcmapscfg,/etc/xrootd/lcmaps.cfg,--loglevel,0|useglobals
 
-sec.protocol /usr/lib64 gsi $CERTDIR_ARG $CERT_ARG $KEY_ARG -crl:3 $AUTHZFUN_ARG $AUTHZFUNPARMS_ARG --gmapopt:2 --gmapto:0
+set CERTDIR=-certdir:/etc/grid-security/certificates
+set CERT=-cert:/etc/grid-security/xrd/xrdcert.pem
+set KEY=-key:/etc/grid-security/xrd/xrdkey.pem
+set AUTHZFUN=-authzfun:libXrdLcmaps.so
+set AUTHZFUNPARMS=-authzfunparms:--osg,--lcmapscfg,/etc/xrootd/lcmaps.cfg,--loglevel,0|useglobals
+
+sec.protocol /usr/lib64 gsi $CERTDIR $CERT $KEY -crl:3 $AUTHZFUN $AUTHZFUNPARMS --gmapopt:2 --gmapto:0
 acc.authdb /etc/xrootd/auth_file
 ofs.authorize
 </pre>
@@ -612,13 +635,8 @@ FRMD_INSTANCES="default"
 
 
 
-<!--
 
 ---+ Using !XRootD
-
-**TODO** *blurb*
-
--->
 
 
 #ManagingServices
@@ -679,7 +697,7 @@ As a reminder, here are common service commands (all run as =root=):
 
 <!--
 
----+ Troubleshooting !XRootD
+ ---+ Troubleshooting !XRootD
 
 
 **TODO**
