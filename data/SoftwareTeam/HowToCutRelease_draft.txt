@@ -1,65 +1,65 @@
-%META:TOPICINFO{author="BrianLin" date="1462825910" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="BrianLin" date="1462918261" format="1.1" reprev="1.3" version="1.3"}%
 <!--
-   * Set IN_VERSION = %URLPARAM{"version" default="VERSION"}%
+   * Set VERSIONS = %URLPARAM{"versions" default="VERSIONS"}%
    * Set LATESTRELEASE = 3.3
-   * Set VERSION = %CALC{"$SUBSTITUTE(%IN_VERSION%,[ ]*$,,,r)"}%
-   * Set SHORTVERSION = %CALC{"$SUBSTITUTE(%IN_VERSION%,.,,,)"}%
-   * Set MAJORVERSION = %CALC{"$SUBSTITUTE(%IN_VERSION%,\.[0-9]+[ ]*$,,,r)"}%
+   * Set TOOL_SRC = https://github.com/opensciencegrid/release-tools
+   * Set OSG_VERSION_SRC = https://vdt.cs.wisc.edu/svn/native/redhat/trunk/osg-version/
 -->
 
 ---+ How to Cut a Release
 
-Due to the length of time that this process takes, it is recommended to do the release over two days to allow for errors to be corrected and because some of the koji commands take a long time to run when a large number of rpms are being released.
+%TOC{depth="3"}%
+
+Due to the length of time that this process takes, it is recommended to do the release over three or more days to allow for errors to be corrected and because some of the koji commands take a long time to run when a large number of rpms are being released.
 
 This document doesn't discuss the policy for deciding what goes into a release. [[SoftwareTeam.ReleasePolicy][The release policy is discussed elsewhere]].
 
-%RED% *NOTE* %ENDCOLOR% Interactive scripts can be found at https://vdt.cs.wisc.edu/svn/software/release-tools/ and can be checked out with SVN.
+---++ Requirements
+
+   * User cert registered with OSG's Koji with build and release team privileges 
+   * An account on UW CS machines (e.g. library, ingwe) to access UW's AFS
+   * Convenience scripts from [[%TOOL_SRC%][GitHub]]
+   * =osg-build= scripts in your =PATH= (installed via OSG yum repos or [[https://github.com/opensciencegrid/osg-build][source]])
 
 ---++ Pick the version number
 
-This page will help you get the various commands exactly right. To do this, enter the exact version number (such as %RED%3.0.5%ENDCOLOR%) and click submit. If you do not do this, the commands below will be missing essential text.
+This page will help you get the various commands exactly right. To do this, enter the verions numbers for each OSG version to be released (e.g. =3.3.12 3.2.38 upcoming=) and click submit. If you do not do this, the commands below will be missing essential text.
 
-<form action="https://www.opensciencegrid.org/bin/view/SoftwareTeam/HowToCutRelease">
-Version: <input type="text" name="version" size="10" value="%URLPARAM{"version"}%"/>
-%IF{"$ 'URLPARAM{upcoming}'='true'"
-then='Upcoming: <input type="checkbox" name="upcoming" value="true" checked="checked"/>'
-else='Upcoming: <input type="checkbox" name="upcoming" value="true"/>'}%
+<form action="https://www.opensciencegrid.org/bin/view/SoftwareTeam/HowToCutRelease_draft">
+Versions: <input type="text" name="versions" size="10" value="%URLPARAM{"versions"}%"/>
 <input type="submit"/>
 </form>
 
----++ Day 0
+---++ Day 0: Generate preliminary release list
+
+The release manager often needs a preliminary list of packages slated for the next release a few weeks in advance. This is done by finding the package differences between what's in testing and what's in the current release.
 
 ---+++ Step 1: Update the osg-version RPM
 
-Edit the osg-version RPM's spec file to update the version number to %VERSION%. Build it in koji:
+For each release (excluding upcoming), update the version number in the osg-version RPM's spec file. Build it in Koji:
 
 <pre class="screen">
-%RED%# If building for the latest release out of trunk:%ENDCOLOR%
-osg-build koji osg-version
-%RED%# If building for an older release out of a branch:%ENDCOLOR%
-osg-build koji --repo=%MAJORVERSION% osg-version
+%UCL_PROMPT% osg-build koji osg-version
 </pre>
 
----+++ Step 2: Generate the tentative release list
+---+++ Step 2: Promote osg-version and generate the release list
 
-The release manager often needs a preliminary list of packages slated for the next release a few weeks in advance. This is done by finding the package differences between what's in testing and what's in the current release. It is also informative to find the package differences between what's in development and what's in testing. There is a script in SVN that handles this:
+From a machine that has your user cert registered with Koji:
 
 <pre class="screen">
-%IF{"defined 'upcoming'"
-then='./0-generate-pkg-list -u %VERSION%'
-else='./0-generate-pkg-list %VERSION%'}%
+%UCL_PROMPT% git clone %TOOL_SRC%.git
+%UCL_PROMPT% cd release-tools
+%UCL_PROMPT% 0-generate-pkg-list %VERSIONS%
 </pre>
 
----++ Day 1: Verify Pre-Release and Testing
+---++ Day 1: Verify Pre-Release and Generate Tarballs
 
 ---+++ Step 1: Double check the tentative release list
 
-You will need to make sure that no packages were inadvertently left behind in development. This is done by finding the package differences between what's in development and what's in the testing. There is a script in SVN that handles this:
+You will need to make sure that no packages were inadvertently left behind in development. This is done by finding the package differences between what's in development and what's in testing. There is a script in SVN that handles this:
 
 <pre class="screen">
-%IF{"defined 'upcoming'"
-then='./0-generate-pkg-list -u %VERSION%'
-else='./0-generate-pkg-list %VERSION%'}%
+%UCL_PROMPT% 0-generate-pkg-list %VERSIONS%
 </pre>
 
 ---+++ Step 2: Verify Pre-Release
@@ -67,9 +67,7 @@ else='./0-generate-pkg-list %VERSION%'}%
 You will need to compare the list of packages already in pre-release to the final list for the release put together by the OSG Release Coordinator. You can use the =1-list-prerelease= script from SVN:
 
 <pre class='screen'>
-%IF{"defined 'upcoming'"
-then='./1-list-prerelease -u %VERSION%'
-else='./1-list-prerelease %VERSION%'}%
+%UCL_PROMPT% 1-verify-prerelease %VERSIONS%
 </pre>
 
 If there are any discrepancies you may have to tag or untag packages with the =osg-koji= tool.
@@ -159,40 +157,28 @@ condor_submit_dag master-run.dag
 
 %RED% *NOTE:* %ENDCOLOR% If there are failures, consult the release-manager before proceeding.
 
----+++ Step 4: Create the client tarballs
+---+++ Step 4: Regenerate the build repositories
 
-Create the client tarballs using the scripts in software/tarball-client/trunk from our SVN, and then copy them into the UW's AFS.
+To avoid 404 errors when retrieving packages, it's necessary to regenerate the build repositories:
+
+<pre class="screen">
+%UCL_PROMPT% 1-regen-repos %VERSIONS%
+</pre>
+
+---+++ Step 5: Create the client tarballs
+
+Create the client tarballs using the scripts in software/tarball-client/trunk from our git, and then copy them into the UW's AFS.
 Do this as root on an EL6 fermicloud machine.
-Change the username and machine name as appropriate.
-Note: the prerelease repos must have been populated and regenerated for this to work;
-normally that happens in Step 2.
+
 <pre class="rootscreen">
-ruser=%RED%matyas%ENDCOLOR%
-rmachine=%RED%library.cs.wisc.edu%ENDCOLOR%
-</pre><pre class="rootscreen">
-yum -y install git yum-priorities
-cd /tmp
-git clone --depth 1 https://github.com/opensciencegrid/tarball-client
-tarball-client/make-client-tarball --osgver=%MAJORVERSION% --prerelease --all
-scp -p *.i386.tar.gz $ruser@$rmachine:/p/vdt/public/html/tarball-client/%MAJORVERSION%/i386
-scp -p *.x86_64.tar.gz $ruser@$rmachine:/p/vdt/public/html/tarball-client/%MAJORVERSION%/x86_64
+%UCL_PROMPT_ROOT% git clone %TOOL_SRC%.git
+%UCL_PROMPT_ROOT% cd release-tools
+%UCL_PROMPT_ROOT% 1-client-tarballs %VERSIONS%
 </pre>
 You should get 8 tarballs, 30-55 megs each.
 They should all have %VERSION% in the name.
 
-%RED% *NOTE* %ENDCOLOR% If you are running into 404 errors concerning specific packages, this may be due to stale build repos. To regenerate the build repos, run:
-
-<pre class="screen">
-%UCL_PROMPT% osg-koji regen-repo osg-&lt;osg version&gt;-&lt;distro version&gt;-release-build
-</pre>
-
-For example, run the following command to regenerate the OSG 3.2 EL6 build repo:
-
-<pre class="screen">
-%UCL_PROMPT% osg-koji regen-repo osg-3.2-el6-release-build
-</pre>
-
----+++ Step 5: Briefly test the client tarballs
+---+++ Step 6: Briefly test the client tarballs
 
 As an *unprivileged user*, extract each tarball into a separate directory.
 Make sure osg-post-install works. Make sure 'osgrun osg-version' works.
@@ -246,7 +232,7 @@ If you have time, try some of the binaries, such as grid-proxy-init.
 
 *NOTE:* We need to automate this and have it run on the proper architectures and version of RHEL.
 
----+++ Step 6: Update the UW AFS installation of the tarball client
+---+++ Step 7: Update the UW AFS installation of the tarball client
 
 The UW keeps an install of the tarball client in =/p/vdt/workspace/tarball-client= on the UW's AFS.
 There is a script to update it called =afs-install-tarball-client=. Run it as follows:
@@ -254,7 +240,7 @@ There is a script to update it called =afs-install-tarball-client=. Run it as fo
 /p/vdt/workspace/tarball-client/afs-install-tarball-client %VERSION%
 </pre>
 
----+++ Step 7: Wait
+---+++ Step 8: Wait
 
 Wait for clearance. The OSG Release Coordinator (in consultation with the Software Team and any testers) need to sign off on the update before it is released.  If you are releasing things over two days, this is a good place to stop for the day.
 
@@ -264,7 +250,7 @@ Wait for clearance. The OSG Release Coordinator (in consultation with the Softwa
 
 %RED% *NOTE:* %ENDCOLOR% For the second phase of the release, try to complete it earlier in the day rather than later. The GOC would like to send out the release announcement prior to 3 p.m. their time (Eastern time zone), which means that our procedure needs to be completed before then.
 
----++ Step 1: Push from pre-release to release
+---+++ Step 1: Push from pre-release to release
 
 This script moves the packages into release, clones release into a new %VERSION% specific release repo, locks the new repo and regenerates it. Afterwards, it produces &#42;release-note* files that should be given to whomever's writing the release notes. 
 
