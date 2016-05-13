@@ -1,8 +1,7 @@
-%META:TOPICINFO{author="BrianLin" date="1463089632" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="BrianLin" date="1463164236" format="1.1" reprev="1.8" version="1.8"}%
 <!--
    * Set VERSIONS = %URLPARAM{"versions" default="VERSIONS"}%
    * Set VERSIONS_WITHOUT_UPCOMING = %CALC{$SUBSTITUTE(%VERSIONS%, upcoming,)}%
-   * Set VERSIONS_LIST = %CALC{$SPLIT(, %VERSIONS%)}%
    * Set TOOL_SRC = https://github.com/opensciencegrid/release-tools
    * Set OSG_VERSION_SRC = https://vdt.cs.wisc.edu/svn/native/redhat/trunk/osg-version/
 -->
@@ -17,12 +16,12 @@ Due to the length of time that this process takes, it is recommended to do the r
 
 ---++ Requirements
 
-   * User certificate registered with OSG's Koji with build and release team privileges 
+   * User certificate registered with OSG's koji with build and release team privileges 
    * An account on UW CS machines (e.g. library, ingwe) to access UW's AFS
    * Convenience scripts from [[%TOOL_SRC%][GitHub]]
    * =osg-build= scripts in your =PATH= (installed via OSG yum repos or [[https://github.com/opensciencegrid/osg-build][source]])
 
----++ Pick the version number
+---++ Pick the Version Number
 
 Enter the verions numbers for each OSG version to be released (e.g. =3.3.12 3.2.38 upcoming=) and click submit to 
 
@@ -31,13 +30,13 @@ Versions: <input type="text" name="versions" size="10" value="%URLPARAM{"version
 <input type="submit"/>
 </form>
 
----++ Day 0: Generate preliminary release list
+---++ Day 0: Generate Preliminary Release List
 
 The release manager often needs a tentative list of packages to be released. This is done by finding the package differences between osg-testing and the current release.
 
 ---+++ Step 1: Update the osg-version RPM
 
-For each release (excluding upcoming), update the version number in the osg-version RPM's spec file and build it in Koji:
+For each release (excluding upcoming), update the version number in the osg-version RPM's spec file and build it in koji:
 
 <pre class="screen">
 %UCL_PROMPT% osg-build koji osg-version
@@ -45,7 +44,7 @@ For each release (excluding upcoming), update the version number in the osg-vers
 
 ---+++ Step 2: Promote osg-version and generate the release list
 
-Run =0-generate-pkg-list= from a machine that has your user cert registered with Koji:
+Run =0-generate-pkg-list= from a machine that has your koji-registered user certificate:
 
 <pre class="screen">
 %UCL_PROMPT% git clone %TOOL_SRC%.git
@@ -175,31 +174,13 @@ They should all have %VERSIONS% in the name.
 
 ---+++ Step 5: Briefly test the client tarballs
 
-As an *unprivileged user*, extract each tarball into a separate directory.
-Make sure osg-post-install works. Make sure 'osgrun osg-version' works.
+As an *unprivileged user*, extract each tarball into a separate directory. Make sure osg-post-install works. Make sure 'osgrun osg-version' works by running the following tests, replacing <span style="background-color: #D1CAF2;">highlighted text</span> as necessary:
 
-*For 3.2:*
-<pre class="screen">
-for client in osg-client osg-wn-client; do
-    for rhel in el5 el6; do
-        for arch in i386 x86_64; do
-            file=$client-%VERSION%-1.$rhel.$arch.tar.gz
-            mkdir -p $rhel-$arch
-            pushd $rhel-$arch
-            tar xzf ../$file
-            $client/osg/osg-post-install
-            $client/osgrun osg-version
-            popd
-            rm -rf $rhel-$arch
-        done
-    done
-done
-</pre>
-
-*For 3.3:*
+%IF{"%CALC{$FIND(3.3., %VERSIONS%)}% > 0"
+then='*For 3.3:*
 <pre class="screen">
 dotest () {
-    file=$client-%VERSION%-1.$rhel.$arch.tar.gz
+    file=$client-<span style="background-color: #D1CAF2;">&lt;3.3 version&gt;</span>-1.$rhel.$arch.tar.gz
     mkdir -p $rhel-$arch
     pushd $rhel-$arch
     tar xzf ../$file
@@ -219,9 +200,27 @@ done
 client=osg-wn-client
 arch=i386
 rhel=el6
-dotest
-</pre>
+dotest</pre>'
+}%
 
+%IF{"%CALC{$FIND(3.2., %VERSIONS%)}% > 0"
+then='*For 3.2:*
+<pre class="screen">
+for client in osg-client osg-wn-client; do
+    for rhel in el5 el6; do
+        for arch in i386 x86_64; do
+            file=$client-<span style="background-color: #D1CAF2;">&lt;3.2 version&gt;</span>-1.$rhel.$arch.tar.gz
+            mkdir -p $rhel-$arch
+            pushd $rhel-$arch
+            tar xzf ../$file
+            $client/osg/osg-post-install
+            $client/osgrun osg-version
+            popd
+            rm -rf $rhel-$arch
+        done
+    done
+done</pre>'
+}%
 
 If you have time, try some of the binaries, such as grid-proxy-init.
 
@@ -231,18 +230,12 @@ If you have time, try some of the binaries, such as grid-proxy-init.
 
 The UW keeps an install of the tarball client in =/p/vdt/workspace/tarball-client= on the UW's AFS. To update it, run the following commands:
 
-%VERSIONS%
-%VERSIONS_WITHOUT_UPCOMING%
-%VERSIONS_LIST%
-%CALCULATE{$LISTSIZE(%VERSIONS_LIST%)}%
-
 <pre class="screen">
-%IF{"%CALCULATE{$LISTSIZE(%VERSIONS_LIST%)}% > 1"
-then='for ver in %VERSIONS_WITHOUT_UPCOMING%; do
+for ver in %VERSIONS_WITHOUT_UPCOMING%; do
     /p/vdt/workspace/tarball-client/afs-install-tarball-client %VERSIONS_WITHOUT_UPCOMING%
-done'
-else='/p/vdt/workspace/tarball-client/afs-install-tarball-client %VERSIONS_WITHOUT_UPCOMING%'}%
+done
 </pre>
+
 ---+++ Step 7: Wait
 
 Wait for clearance. The OSG Release Coordinator (in consultation with the Software Team and any testers) need to sign off on the update before it is released.  If you are releasing things over two days, this is a good place to stop for the day.
@@ -256,39 +249,32 @@ Wait for clearance. The OSG Release Coordinator (in consultation with the Softwa
 This script moves the packages into release, clones releases into new version-specific release repos, locks the repos and regenerates them. Afterwards, it produces &#42;release-note* files that should be used to update the TWiki release note pages. Clone it from the github repo and run the script:
 
 <pre class="screen">
-2-create-release %VERSIONS%
+%UCL_PROMPT% 2-create-release %VERSIONS%
 </pre>
 
-*.txt files are also created and it should be verified that they've been moved to /p/vdt/public/html/release-info/ on UW's AFS. There is also a section of the release notes that lists the packages that have been updated. To get this list, run:
-
-<pre class="screen">
-list-package-updates <span style="background-color: #D1CAF2;">single version</span>
-%IF{"%CALC{$FIND(upcoming, %VERSIONS%)}% != 0"
-then='test</br>list-package-updates --upcoming <span style="background-color: #D1CAF2;">single version</span>'
-else=''}% <!--Unfortunately, setting this as a TWiki variable inexplicably breaks IF statements-->
-</pre>
+*.txt files are also created and it should be verified that they've been moved to /p/vdt/public/html/release-info/ on UW's AFS. 
 
 ---+++ Step 2: Get the new CA certificates pushed to software.grid.iu.edu
 
 If this release contains a new version of =osg-ca-certs= or =igtf-ca-certs=, submit a GOC ticket to have them propagate the CA certificates from the recently updated release repositories to =software.grid.iu.edu= and assign this ticket to Scott Teige:
 
-<pre class="screen">
+<pre class="file">
 Please run /opt/bin/install-latest-cache-files-new.sh on software1/2
 </pre>
 
 Once the GOC has run their script, run the following command to update the CA certificates in the tarball installations and verify that the version of  the CA certificates match the version that was promoted to release.
 <pre class="screen">
-/p/vdt/workspace/tarball-client/current/amd64_rhel6/osgrun osg-update-certs
-/p/vdt/workspace/tarball-client/current/amd64_rhel7/osgrun osg-update-certs
+%UCL_PROMPT% /p/vdt/workspace/tarball-client/current/amd64_rhel6/osgrun osg-update-certs
+%UCL_PROMPT% /p/vdt/workspace/tarball-client/current/amd64_rhel7/osgrun osg-update-certs
 </pre>
 
 ---+++ Step 3: Upload the client tarballs
 
-Ask Tim Theisen or Brian Lin or someone with privileges on the grid.iu.edu repo servers to upload the tarballs with the following procedure:
+Ask Tim Theisen, Brian Lin, or someone with privileges on the grid.iu.edu repo servers to upload the tarballs with the following procedure:
 
 ---+++ On a CS machine
 <pre class="screen">
-for ver in %VERSIONS_WITHOUT_UPCOMING%'; do
+for ver in %VERSIONS_WITHOUT_UPCOMING%; do
     major_ver=`sed 's/.[0-9]*$//' <<< $ver`
     cd /p/vdt/public/html/tarball-client
     ssh jump.grid.iu.edu mkdir /tmp/$ver/
@@ -298,7 +284,7 @@ done
 
 ---+++ On jump.grid.iu.edu
 <pre class="screen">
-for ver in %VERSIONS_WITHOUT_UPCOMING%'; do
+for ver in %VERSIONS_WITHOUT_UPCOMING%; do
     rm -f /tmp/$ver/*-afs-*
     scp -pr /tmp/$ver repo1:/tmp/
     scp -pr /tmp/$ver repo2:/tmp/
@@ -310,7 +296,7 @@ done
 You can ssh to repo1 and repo2 from jump.grid.iu.edu; you will need to do this procedure on both systems.
 <pre class="screen">sudo su -</pre>
 <pre class="rootscreen">
-for ver in %VERSIONS_WITHOUT_UPCOMING%'; do
+for ver in %VERSIONS_WITHOUT_UPCOMING%; do
     major_ver=`sed 's/.[0-9]*$//' <<< $ver`
     mv /tmp/$ver /usr/local/repo/tarball-install/$major_ver/
     rm -f /usr/local/repo/tarball-install/$major_ver/*latest*
@@ -321,13 +307,13 @@ done
 
 ---+++ Step 4: Install the tarballs into OASIS
 
-%RED%You must be an OASIS manager of the 'mis' VO to do these steps.%ENDCOLOR%
+%RED%You must be an OASIS manager of the =mis= VO to do these steps.%ENDCOLOR%
 Known managers as of 2014-07-22: Mat, Tim C, Tim T, Brian L.
 Get the uploader script from Git and run it with =osgrun= from the UW AFS install of the tarball client you made earlier.
 On a UW CSL machine:
 <pre class="screen">cd /tmp
 git clone --depth 1 file:///p/vdt/workspace/git/repo/tarball-client.git
-for ver in %VERSIONS_WITHOUT_UPCOMING%'; do
+for ver in %VERSIONS_WITHOUT_UPCOMING%; do
     /p/vdt/workspace/tarball-client/current/sys/osgrun /tmp/tarball-client/upload-tarballs-to-oasis $ver
 done
 </pre>
@@ -345,26 +331,20 @@ find  /p/vdt/workspace/tarball-client  -maxdepth 1  -mtime +60  -name 3\*  -ls
 
 The following instructions are meant for the release manager (or interim release manager). If you are not the release manager, let the release manager know that they can announce the release.
 
-<ol>
-<li>The release manager writes the release announcement and send it out. Here is a sample:
-
-<div style="background: #E0F0E0; border: 1px solid gray; padding-right: 2px; padding-left: 2px; padding-top: .5em; padding-bottom: .5em; margin-bottom: 1ex;">
-<strong>Subject:</strong> Announcing OSG Software version %VERSION%
-</div>
-
-<div style="background: #E0F0E0; border: 1px solid gray; padding-right: 2px; padding-left: 2px; padding-top: .5em; padding-bottom: .5em; margin-bottom: 1ex;">
-We are pleased to announce OSG Software version %VERSION%!
+   1. The release manager writes the release announcement and send it out. Here is a sample, replace <span style="background-color: #FFCCFF;">highlighted text</span> with the appropriate values:\
+   <pre class="file"><strong>Subject:</strong> Announcing OSG Software version <span style="background-color: #FFCCFF;">&lt;VERSION(S)&gt;</span></pre> \
+   <pre class="file">We are pleased to announce OSG Software version <span style="background-color: #FFCCFF;">&lt;VERSION(S)&gt;</span>!
 
 This is the new OSG Software distributed via RPMs for:
 
-* Scientific Linux 5 and 6%BR%
-* !CentOS 5 and 6%BR%
+* Scientific Linux 5 and 6
+* !CentOS 5 and 6
 * Red Hat Enterprise Linux 5 and 6
 
-This release affects the %RED%SET-OF-METAPACKAGES (client, compute element, etc...)%ENDCOLOR%. Changes include:
+This release affects the <span style="background-color: #FFCCFF;">&lt;SET-OF-METAPACKAGES (client, compute element, etc...)&gt;</span>. Changes include:
 
-* Major change 1%BR%
-* Major change 2%BR%
+* Major change 1
+* Major change 2
 * Major change 3
 
 Release notes and pointers to more documentation can be found at:
@@ -375,12 +355,11 @@ Need help? Let us know:
 
 https://www.opensciencegrid.org/bin/view/Documentation/Release3/HelpProcedure
 
-We welcome feedback on this release!</div>
-<li>The release manager emails the announcement to <code>vdt-discuss@opensciencegrid.org</code></li>
-<li>The release manager asks the GOC to distribute the announcement by [[https://ticket.grid.iu.edu/goc/other][opening a ticket]]</li>
-<li>The release manager closes the tickets marked 'Ready for Release' in the release's JIRA filter</li>
-<li>The release manager updates the recent/scheduled release tables on the Software/Release [[SoftwareTeam/WebHome][homepage]]
-</ol>
+We welcome feedback on this release!</pre>
+   1. The release manager emails the announcement to <code>vdt-discuss@opensciencegrid.org</code></li>
+   1. The release manager asks the GOC to distribute the announcement by [[https://ticket.grid.iu.edu/goc/other][opening a ticket]]</li>
+   1. The release manager closes the tickets marked 'Ready for Release' in the release's JIRA filter</li>
+   1. The release manager updates the recent/scheduled release tables on the Software/Release [[SoftwareTeam/WebHome][homepage]]
 
 <!-- vim:ft=twiki
 -->
