@@ -1,0 +1,143 @@
+%META:TOPICINFO{author="JoseCaballero" date="1466540808" format="1.1" reprev="1.1" version="1.1"}%
+*WARNING: THIS DOCUMENTATION IS WORK IN PROGRESS!!*
+
+---+!! !AutoPyFactory: How to write your own plugins
+<!--
+%DOC_STATUS_TABLE%
+-->
+%TOC{depth="3"}%
+
+---# About this Document
+
+This document describes how to write new plugins in AutoPyFactory
+
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="Header"}%
+%INCLUDE{"Documentation/DocumentationTeam/DocConventions" section="CommandLine"}%
+
+%INCLUDE{"Documentation/Release3/AutoPyFactory" section="Version"}%
+
+---# Basics on writing plugins for !AutoPyFactory
+
+There are two basic ideas to keep in mind to write a new plugin for !AutoPyFactory:
+   * plugins have an !API
+   * plugins use mappings to convert information into internal abstract !AutoPyFactory language
+
+therefore, to write a new plugin, one only needs to pay attention to the !API, defined in file =autopyfactory/interfaces.py=, 
+and, when needed, add a new conversion table to file =etc/mappings.conf=
+
+All plugins go into their own directory, depending on the type:
+<pre class="file">
+autopyfactory/plugins/
+    factory/
+    queue/
+        batchstatus/
+        batchsubmit/
+        wmsstatus/
+        monitor/
+        sched/
+</pre>
+
+Then the name of the plugin is also the name of the .py module, and the name of the only class in that module. 
+For example, for the sched plugin =Ready=, there a class =Ready= in module =autopyfactory/plugins/queue/sched/Ready.py=
+
+Finally, plugins are referred by their exact name (case sensitive) in the factory configuration files. 
+However, the convention is that internal parameters to be digested by the plugins are referred using a lower case version of the plugin name.
+For example:
+
+<pre class="file">
+schedplugin = MinPerCycle
+sched.minpercycle.minimum = 1
+</pre>
+
+
+---## Write a new batchsubmit plugin
+
+To write a new batchsubmit plugin, place the new module under directory =autopyfactory/plugins/queue/batchsubmit/=, and create a class inheriting the !API.
+
+<pre class="file">
+...
+from autopyfactory.interfaces import BatchSubmitInterface
+
+class MySubmit(BatchSubmitInterface):
+    def __init__(self, apfqueue, config=None):
+        ...
+    def submit(self, n):
+        ...
+</pre>
+
+The init method receives an object !APFQueue as mandatory input. It is useful, as it contains the queues configuration and the name of the queue being used. That information can be used to read internal plugin parameters.
+For example:
+
+<pre class="file">
+class MySubmit(BatchSubmitInterface):
+    def __init__(self, apfqueue, config=None):
+        qname = apfqueue.apfqname
+        qconf = apfqueue.qcl
+        foo = qconf.get(qname, "batchsubmit.mysubmit.bar")    
+</pre>
+
+The method submit receives the number of pilots to be submitted. This method implements the code to perform the actual submission. 
+
+---## Write a new batchstatus plugin
+
+To write a new batchstatus plugin, place the new module under directory =autopyfactory/plugins/queue/batchstatus/=, and create a class inheriting the !API.
+
+<pre class="file">
+...
+from autopyfactory.interfaces import BatchStatusInterface
+from autopyfactory.info import BatchStatusInfo
+from autopyfactory.info import QueueInfo
+
+class MyStatus(BatchStatusInterface):
+    def __init__(self, apfqueue, **kw):
+        ...
+    def getInfo(self):
+        ...
+</pre>
+
+The init method receives an object !APFQueue as mandatory input. It is useful, as it contains the queues configuration and the name of the queue being used. That information can be used to read internal plugin parameters.
+Also, the !APFQueue object contains a reference to the !Factory main object, which carries the mappings configuration.
+For example:
+
+<pre class="file">
+class MyStatus(BatchStatusInterface):
+    def __init__(self, apfqueue, **kw):
+        qname = apfqueue.apfqname
+        qconf = apfqueue.qcl
+        foo = qconf.get(qname, "batchstatus.mystatus.bar")    
+        mytarget2info_dict = apfqueue.factory.mappingscl.section2dict('MAPPINGS-FOR-MY-TARGET')
+</pre>
+
+An example of mappings is 
+
+<pre class="file">
+[CONDORBATCHSTATUS-APFINFO]
+0 = pending
+1 = pending
+2 = running
+3 = done
+4 = done
+5 = suspended
+6 = running
+</pre>
+
+The current list of internal !AutoPyFactory statuses is 
+
+<pre class="file">
+pending
+running
+suspended
+done
+</pre>
+
+
+Method getInfo returns aggregate statistics about jobs in batch system, indexed by queue.
+It returns an object of class !BatchStatusInfo, defined in =autopyfactory/info.py=, 
+which is a dictionary of !QueueInfo objects, also defined in =autopyfactory/info.py=.
+
+The !BatchStatusInfo dictionary is indexed by !APFQueue name, the !QueueInfo dictionary is filled via its method fill().
+
+
+
+
+-- Main.JoseCaballero - 21 Jun 2016
