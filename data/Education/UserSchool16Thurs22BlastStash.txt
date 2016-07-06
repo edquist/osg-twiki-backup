@@ -1,0 +1,147 @@
+%META:TOPICINFO{author="DerekWeitzel" date="1467843509" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="UserSchool16Materials"}%
+---+ Using !StashCache
+
+---++ About this exercise
+This tutorial will use a [[http://blast.ncbi.nlm.nih.gov/Blast.cgi?CMD=Web&PAGE_TYPE=BlastHome][BLAST]] workflow to demonstrate the functionality of !StashCache for transferring input files to jobs.
+
+We will use the input from [[UserSchool15Thu21BlastSplitProxy][Exercise 2.1]].  But, instead of using the web proxy squid, we will use !StashCache.
+
+!StashCache is a distributed set of caches spread across the U.S.  They are connected with high bandwidth connections to each other, and to the data origin servers.
+
+%ATTACHURL%/Screen_Shot_2016-07-06_at_4.15.32_PM.png
+
+There are two methods to using !StashCache.  We are in the middle of a transition from one to another.  They are:
+
+   1. *stashcp* (old): A command line program to copy files from Stash with ==cp== like syntax.
+   2. *StashCache-over-CVMFS* (new): A much more intuitive and fault tolerant method for accessing stash files.  But not yet available on all resources.
+
+In the below tutorials, we will use *stashcp*, but also demonstrate how the *StashCache-over-CVMFS* works.
+
+---++ Getting Started
+
+   1. Log Into login.osgconnect.net.
+   1. Transfer all of the files from the previous [[UserSchool15Thu21BlastSplitProxy][Exercise 2.1]] to login.osgconnect.net.
+
+---++ New Commands
+
+   1. !StashCache provides a public space for you to store data which can be accessed through the caching servers.  First, you need to move your blast database into this public directory.
+   <pre class="screen">
+$ mkdir ~/public/blastdb
+$ cp [db_files] ~/public/blastdb
+</pre> 
+   1. Next, we can test stash by running stashcp from the login node.
+   <pre class="screen">
+$ module load stashcp
+$ stashcp /user/%RED%username%ENDCOLOR%/public/blastdb/dbfile ./
+</pre>
+   Notice that we had to include the ==/user/== and ==username== in the file path for stashcp.  This is required so that it is unique per user on the system.
+   1. Now, write a wrapper script which will download all of the files in the blast database using ==stashcp==.
+
+%TWISTY{
+showlink="Show hint"
+hidelink="Hide hint"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+Here's an example wrapper script which should work.  Yours could look different:
+<pre class="file">
+#!/bin/sh
+
+module load stashcp
+
+stashcp /user/%RED%username%ENDCOLOR%/public/blastdb/file1 ./
+stashcp /user/%RED%username%ENDCOLOR%/public/blastdb/file2 ./
+stashcp /user/%RED%username%ENDCOLOR%/public/blastdb/file3 ./
+</pre>
+%ENDTWISTY%
+
+---++ New Submit File
+
+In the previous exercise, you put each file in the submit file and used the HTTP plugin built into HTCondor in order to transfer files to remote worker nodes.  In this exercise, we will use the wrapper script that you wrote above to download each of the files.
+
+The submit file also includes new attributes that mandate that stashcp be available.
+
+
+---++ Using StashCache-over-CVMFS
+
+Next, wee n
+
+   1. First log into the OSG Connect submit host (login.osgconnect.net), download the tutorial files using the *tutorial* command, and cd into the newly created directory:
+   <pre class="screen">
+$ tutorial stashcache-blast
+$ cd tutorial-stashcache-blast
+</pre>
+   1. The tutorial-stashcache-blast directory contains a number of files, described below:
+      * HTCondor submit script: *blast.submit*
+      * Job wrapper script: *blast_wrapper.sh*
+      * Query files: *query_0.fa  query_1.fa*
+   2. In addition to these files, the following input files are needed for the jobs:
+      * database file: *nt.fa*
+      * database index files: *nt.fa.nhr  nt.fa.nin  nt.fa.nsq*
+
+   These files are currently being stored in ==/cvmfs/stash.osgstorage.org/user/eharstad/public/blast_database/==.
+
+---++ The CVMFS Submit File
+
+First, let's take a look at the HTCondor job submission script:
+
+<pre class="file">
+universe = vanilla
+
+executable = blast_wrapper.sh
+arguments  = blastn -db /cvmfs/stash.osgstorage.org/user/eharstad/public/blast_database/nt.fa -query $(queryfile)
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files = $(queryfile)
+
++WantsCvmfsStash = true
+requirements = (GLIDEIN_ResourceName == "MWT2" || GLIDEIN_ResourceName == "Nebraska" || GLIDEIN_ResourceName ==  "Sandhills")
+	
+output = job.out.$(Cluster).$(Process)
+error = job.err.$(Cluster).$(Process)
+log = job.log.$(Cluster).$(Process)
+
+# For each file matching query*.fa, submit a job
+queue queryfile matching query*.fa
+</pre>
+
+The executable for this job is a wrapper script, `blast_wrapper.sh`, that takes as arguments the blast command that we want to run on the compute host.  We specify which query file we want transferred (using HTCondor) to each job site with the *transfer_input_files* command.
+
+Note the one additional line that is required in the submit script of any job that uses !StashCache:
+
+<pre class="file">
++WantsCvmfsStash = true
+</pre>
+
+Finally, since there are multiple query files, we submit them with the command `queue queryfile matching query*.fa` command.  Because we have used the $(queryfile) macro in the name of the query input files, only one query file will be transferred to each job.
+
+---++ The Wrapper Script
+
+Now, let's take a look at the job wrapper script which is the job's executable:
+
+<pre class="file">
+#!/bin/bash
+# Load the blast module
+module load blast
+
+"$@"
+</pre>
+
+The wrapper script loads the blast modules so that it can access the Blast software on the compute host.
+
+You are now ready to submit the jobs:
+
+<pre class="screen">
+$ condor_submit blast.submit
+</pre>
+
+ Each job should run for approximately 3-5 minutes.  You can monitor the jobs with the condor_q command:
+
+<pre class="screen">
+$ condor_q <userid>
+</pre>
+
+%META:FILEATTACHMENT{name="Screen_Shot_2016-07-06_at_4.15.32_PM.png" attachment="Screen_Shot_2016-07-06_at_4.15.32_PM.png" attr="" comment="" date="1467839812" path="Screen Shot 2016-07-06 at 4.15.32 PM.png" size="375951" stream="Screen Shot 2016-07-06 at 4.15.32 PM.png" tmpFilename="/usr/tmp/CGItemp55860" user="DerekWeitzel" version="1"}%
+%META:TOPICMOVED{by="DerekWeitzel" date="1467840260" from="Education.UserSchool16Thurs23BlastStash" to="Education.UserSchool16Thurs22BlastStash"}%
