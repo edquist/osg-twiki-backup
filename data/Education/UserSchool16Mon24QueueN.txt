@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ChristinaKoch" date="1468945196" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="ChristinaKoch" date="1468949632" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="UserSchool16Materials"}%
 <style type="text/css">
 pre em { font-style: normal; background-color: yellow; }
@@ -9,45 +9,87 @@ pre strong { font-style: normal; font-weight: bold; color: #008; }
 
 The goal of this exercise is to learn to submit many jobs from a single =queue= statement, and then to control filenames and arguments per job.
 
+---++ Submitting Many Jobs With One Submit File
+
+Suppose you have a program that you want to run many times. The program takes an argument, and you want to change the argument for each run of the program. With what you know so far, you have a couple of choices (assuming that you cannot change the job itself to work this way):
+
+   * Write one submit file; submit one job, change the argument in the submit file, submit another job, change the submit file, …
+   * Write many submit files that are nearly identical except for the program argument
+
+Neither of these options seems very satisfying. Fortunately, we can do better with HTCondor.
 
 ---++ Running Many Jobs With One queue Statement
 
-It turns out, the =queue= statement in an HTCondor submit file takes an optional argument: the number of jobs to queue. You can easily see this version of =queue= in action.
+Here is a simple Python script that calculates the greatest number of [[http://en.wikipedia.org/wiki/Fibonacci_number][the Fibonacci sequence]] up to the given numeric command-line argument:
 
-   1. From earlier this morning, find and copy a submit file that runs the =sleep= command
-   1. In the submit file, change the =queue= statement to run many jobs instead:\
-       <pre class="file">queue 10</pre>\
-       <p>You do not need to change any other statements, although you may wish to leave out the =output= and =error= statements (=sleep= produces no output).</p>
-   1. Submit the file; note the message from =condor_q=
-   1. Look at your jobs in the queue; do you see all 10? Did they appear right away?
-   1. When the jobs have finished, look through the resulting log file
+<pre class="file">
+#!/usr/bin/env python
 
-Easy, right?
+import sys
+if len(sys.argv) != 2:
+    print 'Usage: %s MAXIMUM' % (os.path.basename(sys.argv[0]))
+    sys.exit(1)
+maximum = int(sys.argv[1])
+n1 = n2 = 1
+while n2 &lt;= maximum:
+    n1, n2 = n2, n1 + n2
+print 'The greatest Fibonacci number up to %d is %d' % (maximum, n1)
+</pre>
 
+Now suppose that you want to run this program to find the first three values in the sequence.  It turns out, the =queue= statement in an \
+HTCondor submit file takes an optional argument: the number of jobs to queue. Here is a single HTCondor submit file that will run three jobs: 
+
+<pre class="file">
+universe = vanilla
+executable = fibonacci.py
+log = fibonacci.log
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+
+output = fibonacci.out
+error  = fibonacci.err
+arguments = 1
+
+<em>queue 3</em>
+</pre>
+
+Let’s see exactly what happens when you submit a file with =queue 3=.  
+
+   1. Create a new directory for this exercise. 
+   1. Save the Python program to a file named =fibonacci.py=
+   1. Save the submit file
+   1. Submit the submit file\
+       <p>Note the slightly different message from =condor_submit=:</p>\
+       <pre class="screen"><em>3 job(s)</em> submitted to cluster <i>NNNN</i>.</pre>
+   1. Before the jobs execute, run =condor_q= (or =condor_q <em>userid</em>=) to see your jobs in the queue
+
+Here is some sample =condor_q= output from my test run:
+
+<pre class="file">
+2441<em>.0</em>   cat             6/24 11:57   0+00:00:00 I  0   0.0  fibonacci.py      
+2441<em>.1</em>   cat             6/24 11:57   0+00:00:00 I  0   0.0  fibonacci.py      
+2441<em>.2</em>   cat             6/24 11:57   0+00:00:00 I  0   0.0  fibonacci.py      
+</pre>
+
+In this sample, all three jobs are part of cluster =2441=. The first =queue= statement resulted in process =0=, the second =queue= statement resulting in process =1=, and the third one resulted in process =2=. 
+
+(Historical note: Programmers like to start counting from 0, hence the odd numbering scheme.)
+
+At this time, it is worth reviewing the definition of a __job ID__. It is a job’s cluster number, a dot, and the job’s process number. So in the example above, the job ID that corresponds to the second =queue= statement is =2441.1=.
+
+*Pop Quiz:* Do you remember how to ask HTCondor to list all of the jobs from one cluster? How about a particular job ID?
 
 ---++ Using queue _N_ With Output
 
-What happens if you queue many jobs with a single =queue= statement, and those jobs produce output? There is no way to change the name of the output or error files between =queue= statements. You can probably guess what happens by now, but in case you want to experiment…
+Look at your jobs that just ran and completed.  
 
-Here is a very simple Perl script (just to show another scripting language) that prints out a single random number.
+   1. What happens if you queue many jobs with a single =queue= statement, and those jobs produce output? 
+   1. What is desired? 
 
-<pre class="file">
-#!/usr/bin/env perl
-use strict;
-use warnings;
-print "Random number: " . rand() . "\n";
-</pre>
+We need a way to distinguish between the jobs, both to pass different arguments to the script and to label unique output files.  Luckily, \
+this mechanism is already in place when we use the =queue N= syntax.  
 
-   1. Save the Perl script to a file named =random.pl=
-   1. Create a simple submit file that runs this Perl program once
-   1. Test your submit file to make sure it works — do you get the output?
-   1. Change the submit file to run the program many times, say 10–20
-   1. Submit it again, wait for all jobs to finish, then look at the output file
-
-Not quite what you want, right?
-
-
----++ Using $(Process) to Separate Files
+---++ Using $(Process) to Distinguish Jobs
 
 When processing a submit file, HTCondor defines and uses a special variable for the process number of each job. If you write =$(Process)= in a submit file, HTCondor will replace it with the process number of the job, independently for each job added to the queue. Using this variable allows you, for example, to define an output file per process. For example, suppose the following two lines occur in a submit file:
 
@@ -64,14 +106,16 @@ Even though the =output= is the “same” for each job created by the =queue 10= st
 | ... ||
 | Last (tenth) job | =my-output-file-9.out= |
 
+We can also use this =$(Process)= variable as an argument to our =fibonacci.py= script.  
+
 Let’s try this in a real example.
 
-   1. If not done above, save the Perl script from the previous exercise to a file named =random.pl=
-   1. Create a submit file that runs the Perl script 10 times; use =$(Process)= to name each output and error file uniquely
+   1. Edit your submit file: 
+      1. use =$(Process)= to name each output and error file uniquely
+      1. pass =$(Process)= to the job executable (=fibonacci.py=) using the =arguments= line.  
    1. Submit your jobs, wait for them to finish, then look at the output
 
-Did you get 10 output files, each named differently? Each with a different random number?
-
+Did you get 3 output files, each named differently? Does each one have a different value?  
 
 ---++ Using $(Cluster) to Separate Files Across Runs
 
@@ -104,30 +148,7 @@ But in some situations, the =$(Process)= variable can be very helpful. Common us
    * =transfer_output_files=
    * =arguments=
 
-The first three of those statements define filenames, which we have already seen above. The last possibility, the command =arguments=, is interesting in a different way. If your program accepts arguments, you may want to run it differently for each job. We saw this scenario earlier with the =fibonacci= program. You can use the =$(Process)= variable (or =$(Cluster)=, or both) anywhere in an =arguments= statement: as part of a filename, as a bare number, or for another reason.
-
-Unfortunately, HTCondor does not let you perform math on the =$(Process)= number when using it. So, for example, if you use =$(Process)= as a numeric argument to a command, it will always result in jobs getting the arguments 0, 1, 2, and so on. If you have control over your program and the way in which it uses command-line arguments, then you are fine. Otherwise, you might need to transform the =$(Process)= numbers into something more appropriate using a __wrapper script__, which will be discussed on Thursday.
-
-Let’s change the Perl random-number generator to use a numeric argument. It turns out that Perl can initialize its random number generator with a “seed” integer; given the same initial seed, Perl will produce the same series of random numbers thereafter. Different seeds yield different random number sequences. Here is a version of the Perl script that accepts a command-line argument and uses it to seed the random-number generator:
-
-<pre class="file">
-#!/usr/bin/env perl
-use strict;
-use warnings;
-if (scalar(@ARGV) != 1) {
-    print "Usage: $0 SEED\n";
-    exit 1;
-}
-srand($ARGV[0]);
-print "Random number: " . rand() . "\n";
-</pre>
-
-   1. Save this version of the script to a file named =random-seed.pl=
-   1. Write a submit file to run this script many times (10–20)
-      * Use a separate numeric argument for each job
-      * Write separate output files per job
-      * Leave out the error file, if you like
-
+Unfortunately, HTCondor does not let you perform math on the =$(Process)= number when using it. So, for example, if you use =$(Process)= as a numeric argument to a command, it will always result in jobs getting the arguments 0, 1, 2, and so on. If you have control over your program and the way in which it uses command-line arguments, then you are fine. Otherwise, you might need to transform the =$(Process)= numbers into something more appropriate using a __wrapper script__, which will be discussed on Wednesday.
 
 ---++ (Optional) Defining Extra Attributes for Tracking
 
