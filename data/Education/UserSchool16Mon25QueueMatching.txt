@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="IanRoss" date="1469046944" format="1.1" reprev="1.3" version="1.3"}%
+%META:TOPICINFO{author="IanRoss" date="1469050935" format="1.1" reprev="1.4" version="1.4"}%
 %META:TOPICPARENT{name="UserSchool16Materials"}%
 <style type="text/css">
 pre em { font-style: normal; background-color: yellow; }
@@ -62,4 +62,132 @@ wget http://proxy.chtc.wisc.edu/SQUID/osgschool16/books.zip
 unzip books.zip
 </pre>
 
-Submit file and queue syntax
+To analyze the books, here is a modified version of the earlier word frequency script, \
+which will read in an arbitrarily formatted text file and lists the number of times each word \
+occurs across the entire document (sorted from least to most frequent):
+
+<pre class="file">
+#!/usr/bin/env python
+
+import os
+import sys
+import operator
+
+if len(sys.argv) != 2:
+    print 'Usage: %s DATA' % (os.path.basename(sys.argv[0]))
+    sys.exit(1)
+input_filename = sys.argv[1]
+
+words = {}
+
+my_file = open(input_filename, 'r')
+for line in my_file:
+    line_words = line.split()
+    for word in line_words:
+        if word in words:
+            words[word] += 1
+        else:
+            words[word] = 1
+my_file.close()
+
+sorted_words = sorted(words.items(), key=operator.itemgetter(1))
+for word in sorted_words:
+    print '%s %8d' % (word[0], word[1])
+</pre>
+
+Save this program to a file called =wordcount.py=.
+
+Instead of manually listing each of our books, we can use HTCondor's queue ... matching syntax to create a short, concise submit file:
+
+
+<pre class="file">
+universe                = vanilla
+executable              = sorted_wordcount.py
+log                     = wordcounts.log
+request_memory = 20
+output                  = $(book).out
+error                   = $(book).err
+should_transfer_files   = YES
+transfer_input_files = $(book)
+when_to_transfer_output = ON_EXIT
+arguments         = $(book)
+queue book matching *.txt
+</pre>
+
+Save this submit file as =wordcount_matching.sub=.
+Submit this submit file. Notice that the condor_submit output has changed:
+
+<pre class="screen">
+Submitting job(s)...
+3 job(s) submitted to cluster NNNN.
+</pre>
+
+The use of =queue ... matching= has searched the submit file and looped through \
+the files found that match the specified pattern (=AAiW.txt=, =PandP.txt=, and =TAoSH.txt= in our case) \
+The macro $(book) in our submit file is assigned the value of one of these file names \ 
+for each job queued, so that HTCondor invisibly expands the =queue= command to
+<pre class="file">
+...
+output                  = AAiW.txt.out
+error                   = AAiW.txt.err
+transfer_input_files = AAiW.txt
+arguments         =  AAiW.txt
+queue
+output                  = PandP.txt.out
+error                   = PandP.txt.err
+transfer_input_files = PandP.txt
+arguments         =  PandP.txt
+queue
+output                  = TAoSH.txt.out
+error                   = TAoSH.txt.err
+transfer_input_files = TAoSH.txt
+arguments         =  TAoSH.txt
+queue
+</pre>
+
+Here is some sample codor_q output from a run:
+
+<pre class="file">
+-- Schedd: learn.chtc.wisc.edu : <128.104.100.43:9618?...
+ ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD
+  89.0   iaross          7/20 11:41   0+00:00:00 I  0    0.0 wordcount.py AAiW.txt
+  89.1   iaross          7/20 11:41   0+00:00:00 I  0    0.0 wordcount.py PandP.txt
+  89.2   iaross          7/20 11:41   0+00:00:00 I  0    0.0 wordcount.py TAoSH.txt
+</pre>
+
+All three jobs were submitted as part of cluster 89. The first match in the queue statement resulted \
+in a process ID of 0, the second match has a process ID of 1, and the third has a process ID of 2.\
+ (Historical note: Programmers like to start counting from 0, hence the odd numbering scheme.)
+
+At this time, it is worth reviewing the definition of a job ID. It is a job’s cluster number, a dot, \
+and the job’s process number. So in the example above, the job ID that corresponds to the \
+second queue statement is 89.1.
+
+*Pop Quiz*: Do you remember how to ask HTCondor to list all of the jobs from one cluster? How about a particular job ID?
+
+When the three jobs finish, look at the files that resulted. Do they match your expectations? There should be a single log file, \
+but three separate output files and three separate (and hopefully empty) error files, one for each job.
+
+Take a minute to read the log file. Look carefully at the sequence of events, and the process number for each event.
+
+   * Were all three jobs submitted in numeric order?
+   * Did all three jobs begin executing in numeric order?
+   * Did all three jobs complete in numeric order?
+
+
+Essentially, once a set of jobs have been submitted from a single submit file, they act independently. \
+HTCondor decides when to run each job separately, and so they may run at the same time on separate slots, \
+one after another on the same slot, or in some other order. Depending on how busy the pool is, your priority,\
+ and other factors, some of your jobs may finish quickly, and others may take a long time to get their turn.
+
+---+++ Extra Challenge 1
+
+In the example above, you used a single log file for all three jobs. HTCondor handles this situation with no problem; each job writes its events into the log file without getting in the way of other events and other jobs. But as you may have seen, it can be difficult for a person to understand the events for any particular job in the combined log file.
+
+Create a new submit file that works just like the one above, except that each job writes its own log file.
+
+---+++ Extra Challenge 2
+
+Going back to the original submit file above, it gave different names to the output and error files for each job. What happens if multiple jobs name the same output and error files? Does HTCondor write the output from every job into the same output and error files, or something else?
+
+Create a new submit file that works just like the first one, except that *only* the arguments change for each job. That is, the output and error filenames stay the same for each job. There is more than one way to do this, but one way results in the simplest submit file. Submit the jobs and observe the resulting output. What happened? It may take a few separate submissions, one after the other, to figure out exactly what happened. Also, the sequence information in the log file may be helpful.
