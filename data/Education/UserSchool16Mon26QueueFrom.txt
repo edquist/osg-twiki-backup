@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ChristinaKoch" date="1468949846" format="1.1" version="1.2"}%
+%META:TOPICINFO{author="IanRoss" date="1469053781" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="UserSchool16Materials"}%
 <style type="text/css">
 pre em { font-style: normal; background-color: yellow; }
@@ -11,9 +11,149 @@ The goal of this exercise is to submit many jobs with a single submit file by us
 
 ---++ More job submission alternatives
 
-In last example, used =queue N= and numerical values (using =$(Proces)=) to submit multiple \
-jobs at once. Not all files/arguments are numbered, need alternative. 
+In the previous  exercise, we used a =queue ... matching= submission. It's great for quickly \
+submitting multiple jobs using files/arguments that match a file pattern, but it's not perfect! It assumes \
+ that the data files are well organized and are uniquely identifiable within your submit directory. \
+What would happen if the software came with a README.txt file, explaining how it works? 
+The =queue ... match= statement would have submitted a wordcount job for it as well!
+
+Examine the output from one of the jobs from the previous exercise. The least used words are at the top of the file:
+<pre class="file">
+shouted.        1
+worn,"        1
+corridors,        1
+bleeding        1
+hastily        1
+unpleasantness.        1
+granting        1
+eligible        1
+"that,        1
+Walsall,        1
+indistinguishable.        1
+lord        1
+interesting!"        1
+...
+</pre>
+
+While the most common used are at the bottom:
+<pre class="file">
+...
+his     1096
+was     1360
+that     1559
+in     1702
+I     2533
+a     2575
+to     2700
+of     2720
+and     2798
+the     5404
+</pre>
+
+You may notice that a lot of words are used once -- these may be interesting, but for now we'll \
+ pretend that only the most frequently used words are worth keeping. However, you may also \
+notice that the most common used words are not surprisingly words like "the", "and", and "a". \
+If we want to analyze an author or book's style, we're most interested in words that appear \
+frequently in a particular book, but are also relatively rare in other cases! The fact that the \
+word "the" is the most frequent word in "The Adventures of Sherlock Holmes" tells us nothing \
+ about Sir Arthur Conan Doyle's writing style (except, of course, that he writes in English).
 
 ---++ Queue Jobs From List
 
-Submit file and queue syntax
+Let's modify our analysis slightly so that it only prints out the most common N words \
+of a document. We don't know exactly what values of N will be useful, so we'll \
+want to try it with a few different values to explore our data a bit. We'll modify\
+ wordcount.py slightly, so that it takes as an argument both a text file and a number, n, \
+and prints out the most common n words in that file.
+
+<pre class="file">
+#!/usr/bin/env python
+
+import os
+import sys
+import operator
+
+if len(sys.argv) != 3:
+    print 'Usage: %s DATA NUM_WORDS' % (os.path.basename(sys.argv[0]))
+    sys.exit(1)
+input_filename = sys.argv[1]
+num_words = int(sys.argv[2])
+
+words = {}
+
+my_file = open(input_filename, 'r')
+for line in my_file:
+    line_words = line.split()
+    for word in line_words:
+        if word in words:
+            words[word] += 1
+        else:
+            words[word] = 1
+my_file.close()
+
+sorted_words = sorted(words.items(), key=operator.itemgetter(1))
+for word in sorted_words[-num_words:]:
+    print '%s %8d' % (word[0], word[1])
+</pre>
+
+Save this program as =wordcount_top_n.py=.
+
+You may have realized by now that the submission we used in the previous exercise \
+will need to be updated to accept two variables now: one for the filename and one for the number of words to return.
+
+In lecture, we learned that some of HTCondor's queue statements support multiple variables. \
+Unfortunately, the =queue.. matching= technique from the last exercise isn't one of them, \
+so we'll have to modify our workflow. Let's try the =queue from file= approach.
+
+First, we need to update our submit file to accept multiple variables:
+
+<pre class="file">
+universe                = vanilla
+executable              = wordcount_top_n.py
+log                     = wordcounts_top_n.log
+request_memory = 20
+output                  = $(book)_top_$(n).out
+error                   = $(book)_top_$(n).err
+should_transfer_files   = YES
+transfer_input_files = $(book)
+when_to_transfer_output = ON_EXIT
+arguments         = $(book) $(n)
+queue book, n from books_n.txt
+</pre>
+Save this submit file as =wordcount_from.sub=
+
+Note that we've added a second variable, $(n) which the queue statement will populate during its loop. \
+We've also specified that we're queueing jobs FROM a file, =books_n.txt=. When we submit this file, =queue= \
+ will open this file and create a job for each line in the file, populating the values of the $(book) and $(n) \
+macros as it goes. We now need to create this file in order to specify our values -- \
+let's pretend that we're interested in seeing the top 5 words and top 50 word from each book:
+
+<pre class="file">
+AAiW.txt, 5
+AAiW.txt, 50
+PandP.txt, 5
+PandP.txt, 50
+TAoSH.txt, 5
+TAoSH.txt, 50
+</pre>
+Save this file as =books_n.txt= and submit your jobs:
+
+<pre class="file">
+condor_submit wordcount_from.sub
+</pre>
+
+Do a quick sanity check -- how many jobs were submitted? How many log files were created? out/err files?
+
+---+++ Extra Challenge 1
+We've covered two of the three primary queue statements. How would you use the =queue in ... list= statement to accomplish one (or both!) of the analyses we've covered?
+
+---+++ Extra Challenge 2
+While it doesn't cause any issue, a keen eye may have noticed that the output \
+of these jobs has a messy naming convention. Because our macros resolve \ 
+to the filenames, including their extension, (e.g. =AAiW.txt=), we end up with \
+output with multiple extensions (e.g. =AAiW.txt.err=).
+Adjust your submit file so that the output files don't include the ".txt" extension.
+
+---+++ Extra Challenge 3
+Adjust your =queue...matching= submit file so that those results also don't include the ".txt" extension.
+(*Hint*: You can use function macros to format variables. Check [[https://research.cs.wisc.edu/htcondor/manual/v8.5/2_5Submitting_Job.html][the HTCondor Manual]].)
