@@ -1,70 +1,24 @@
-%META:TOPICINFO{author="TimCartwright" date="1469201515" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="TimCartwright" date="1469214198" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="UserSchool16Materials"}%
 <style type="text/css">
 pre em { font-style: normal; background-color: yellow; }
 pre strong { font-style: normal; font-weight: bold; color: #008; }
 </style>
 
----+ Monday Exercise 2.5: Submit With &ldquo;queue matching&rdquo;
+---+ Monday Exercise 2.6: Submit With &ldquo;queue from&rdquo;
 
-The goal of this exercise is to submit many jobs with a single submit file by using HTCondor's =queue ... matching= syntax. As mentioned in the lecture, there are many ways to approach this goal, and we'll explore another option in the next exercise.
+The goal of this exercise is to submit many jobs from a single submit file by using the =queue ... from= syntax to read variable values from a file.
 
----++ Alternatives to queue N
 
-In last example, used =queue N= and numerical values (using =$(Process)=) to submit multiple \
-jobs at once. However, this is only useful when our files/arguments are all numbered. Often this is not true, \
-so we need to use an alternative approach.
+---++ More Job Submission Alternatives
 
----++ Counting Words in Files
+In the previous exercise, we use the =queue ... matching= syntax, which is primarily useful for collections of files with similar names. But that method has its weaknesses, too. It is less useful when a collection of files does not have a consistent and unique pattern for its names, or when the values for different job conditions are *not* filenames, or both.
 
-Suppose you have a small collection of books, and you're interested in how the usage of words varies \
-from book to book or author to author. As mentioned in the lecture, there are many ways that you \
-could do this in HTCondor. You could create a separate submit file for each book, and submit them one by one. \
-You could be a bit more clever and create one submit file for all of them:
+---++ Queue Jobs From File Contents
 
-<pre class="file">
-universe                = vanilla
-executable              = freq.py
-request_memory = 20
-should_transfer_files   = YES
-when_to_transfer_output = ON_EXIT
+Suppose we want to modify our word-frequency analysis a little bit so that it outputs only the most common _N_ words of a document. Further, we want to experience with different values of _N_. And finally, even though we downloaded it, we no longer want to analyze the Sherlock Holmes stories in the =TAoSH.txt= file. Clearly, =queue ... matching= will not help us in this case.
 
-arguments = "AAiW.txt"
-output                  = AAiW.out
-error                   = AAiW.err
-log                     = AAiW.log
-transfer_input_files = AAiW.txt
-
-arguments = "PandP.txt"
-output                  = PandP.out
-error                   = PandP.err
-log                     = PandP.log
-transfer_input_files = PandP.txt
-
-arguments = "TAoSH.txt"
-output                  = TAoSH.out
-error                   = TAoSH.err
-log                     = TAoSH.log
-transfer_input_files = TAoSH.txt
-</pre>
-
-..but as you can see, this results in a long, repetitive submit file. Additionally, if you \
-get an additional collection of books to analyze, you'd need to edit the submit file, \
-adding many lines for each new file. As a result, this is not the recommended approach to \
-submitting multiple jobs within one submit file. Luckily, HTCondor has many =queue= features \
-to make this kind of job submission process easy!
-
----++ Queue Jobs Matching Filenames
-
-Let's start by downloading a few books, which we've stored locally (from Project Gutenberg):
-<pre class="screen">
-%UCL_PROMPT_SHORT% <strong>wget http://proxy.chtc.wisc.edu/SQUID/osgschool16/books.zip</strong>
-%UCL_PROMPT_SHORT% <strong>unzip books.zip</strong>
-</pre>
-
-To analyze the books, here is a modified version of the earlier word frequency script, \
-which will read in an arbitrarily formatted text file and lists the number of times each word \
-occurs across the entire document (sorted from least to most frequent):
+First, we need a new version of the word counting program so that in accepts an extra number as a command line argument and outputs only that many of the most common words. Here is the new code:
 
 <pre class="file">
 #!/usr/bin/env python
@@ -73,10 +27,11 @@ import os
 import sys
 import operator
 
-if len(sys.argv) != 2:
-    print 'Usage: %s DATA' % (os.path.basename(sys.argv[0]))
+if len(sys.argv) != 3:
+    print 'Usage: %s DATA NUM_WORDS' % (os.path.basename(sys.argv[0]))
     sys.exit(1)
 input_filename = sys.argv[1]
+num_words = int(sys.argv[2])
 
 words = {}
 
@@ -91,96 +46,47 @@ for line in my_file:
 my_file.close()
 
 sorted_words = sorted(words.items(), key=operator.itemgetter(1))
-for word in sorted_words:
+for word in sorted_words[-num_words:]:
     print '%s %8d' % (word[0], word[1])
 </pre>
 
-Save this program to a file called =wordcount.py=.
+To submit this program with a collection of two variables values for each run:
 
-Instead of manually listing each of our books, we can use HTCondor's queue ... matching syntax to create a short, concise submit file:
-
-
-<pre class="file">
-universe                = vanilla
-executable              = wordcount.py
-log                     = wordcount.log
-request_memory = 20
-output                  = $(book).out
-error                   = $(book).err
-should_transfer_files   = YES
+   1. In the same directory as the last exercise, save the script as =wordcount-top-n.py=
+   1. Copy your submit file from the last exercise to a new name (maybe =wordcount-top.sub=)
+   1. Update the =executable= and =log= statements as appropriate
+   1. Update other statements to work with two variables, =book= and =n=:\
+       <pre class="file">
+output = $(book)_top_$(n).out
+error = $(book)_top_$(n).err
 transfer_input_files = $(book)
-when_to_transfer_output = ON_EXIT
-arguments         = $(book)
-queue book matching *.txt
-</pre>
-
-Save this submit file as =wordcount_matching.sub=.
-Submit this submit file. Notice that the condor_submit output has changed:
-
-<pre class="screen">
-Submitting job(s)...
-3 job(s) submitted to cluster NNNN.
-</pre>
-
-The use of =queue ... matching= has searched the submit file and looped through \
-the files found that match the specified pattern (=AAiW.txt=, =PandP.txt=, and =TAoSH.txt= in our case) \
-The macro $(book) in our submit file is assigned the value of one of these file names \ 
-for each job queued, so that HTCondor invisibly expands the =queue= command to
-<pre class="file">
-...
-output                  = AAiW.txt.out
-error                   = AAiW.txt.err
-transfer_input_files = AAiW.txt
-arguments         =  AAiW.txt
-queue
-output                  = PandP.txt.out
-error                   = PandP.txt.err
-transfer_input_files = PandP.txt
-arguments         =  PandP.txt
-queue
-output                  = TAoSH.txt.out
-error                   = TAoSH.txt.err
-transfer_input_files = TAoSH.txt
-arguments         =  TAoSH.txt
-queue
-</pre>
-
-Here is some sample codor_q output from a run:
-
-<pre class="screen">
--- Schedd: learn.chtc.wisc.edu : <128.104.100.43:9618?...
- ID      OWNER            SUBMITTED     RUN_TIME ST PRI SIZE CMD
-  89.0   iaross          7/20 11:41   0+00:00:00 I  0    0.0 wordcount.py AAiW.txt
-  89.1   iaross          7/20 11:41   0+00:00:00 I  0    0.0 wordcount.py PandP.txt
-  89.2   iaross          7/20 11:41   0+00:00:00 I  0    0.0 wordcount.py TAoSH.txt
-</pre>
-
-All three jobs were submitted as part of cluster 89. The first match in the queue statement resulted \
-in a process ID of 0, the second match has a process ID of 1, and the third has a process ID of 2.\
-
-When the three jobs finish, look at the files that resulted. Do they match your expectations? There should be a single log file, \
-but three separate output files and three separate (and hopefully empty) error files, one for each job.
-
-Take a minute to read the log file. Look carefully at the sequence of events, and the process number for each event.
-
-   * Were all three jobs submitted in numeric order?
-   * Did all three jobs begin executing in numeric order?
-   * Did all three jobs complete in numeric order?
+arguments = &quot;$(book) $(n)&quot;
+queue book, n from books_n.txt
+</pre>\
+       <p>Note especially the changes to the =queue= statement; it now tells HTCondor to read a separate text file of __pairs__ of values, which will be assigned to =book= and =n= respectively.</p>
+   1. Create the separate text file of job variable values and save it as =books_n.txt=:
+       <pre class="file">
+AAiW.txt, 10
+AAiW.txt, 25
+AAiW.txt, 50
+PandP.txt, 10
+PandP.txt, 25
+PandP.txt, 50
+</pre>\
+       <p>Note that we used 3 different values for _N_ for each book, and that we dropped the Sherlock Holmes book, =TAoSH.txt=.</p>
+   1. Submit the file
+   1. Do a quick sanity check: How many jobs were submitted? How many log, output, and error files were created?
 
 
-Essentially, once a set of jobs have been submitted from a single submit file, they act independently. \
-HTCondor decides when to run each job separately, and so they may run at the same time on separate slots, \
-one after another on the same slot, or in some other order. Depending on how busy the pool is, your priority,\
- and other factors, some of your jobs may finish quickly, and others may take a long time to get their turn.
+---++ Extra Challenge 1
 
----+++ Extra Challenge 1
+Between this exercise and the previous one, you have explored two of the three primary =queue= statements. How would you use the =queue in ... list= statement to accomplish the same thing(s) as one or both of the exercises?
 
-In the example above, you used a single log file for all three jobs. HTCondor handles this situation with no problem; each job writes its events into the log file without getting in the way of other events and other jobs. But as you may have seen, it can be difficult for a person to understand the events for any particular job in the combined log file.
 
-Create a new submit file that works just like the one above, except that each job writes its own log file.
+---++ Extra Challenge 2
 
----+++ Extra Challenge 2
+You may have noticed that the output of these jobs has a messy naming convention. Because our macros resolve to the filenames, including their extension (e.g., =AAiW.txt=), the output filenames contain with multiple extensions (e.g., =AAiW.txt.err=). Although the extra extension is acceptable, it makes the filenames harder to read and possibly organize. Change your submit file for this exercise so that the output filenames do not include the =.txt= extension.
 
-Going back to the original submit file above, it gave different names to the output and error files for each job. What happens if multiple jobs name the same output and error files? Does HTCondor write the output from every job into the same output and error files, or something else?
+---++ Extra Challenge 3
 
-Create a new submit file that works just like the first one, except that *only* the arguments change for each job. That is, the output and error filenames stay the same for each job. There is more than one way to do this, but one way results in the simplest submit file. Submit the jobs and observe the resulting output. What happened? It may take a few separate submissions, one after the other, to figure out exactly what happened. Also, the sequence information in the log file may be helpful.
+Adjust your =queue...matching= submit file so that those results also don't include the =.txt= extension. (*Hint*: You can use function macros to format variables. Check [[https://research.cs.wisc.edu/htcondor/manual/v8.5/2_5Submitting_Job.html][the HTCondor Manual]].)
