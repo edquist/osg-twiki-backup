@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ChristinaKoch" date="1469195060" format="1.1" version="1.4"}%
+%META:TOPICINFO{author="ChristinaKoch" date="1469201373" format="1.1" version="1.5"}%
 %META:TOPICPARENT{name="UserSchool16Materials"}%
 ---+ Thursday Exercise 4.1: Large Input Data
 
@@ -75,7 +75,7 @@ in the =ffmpeg= command.  Once you've written your script, check it against the 
 #!/bin/bash
 
 cp /mnt/gluster/username/input.mov ./
-./ffmpeg -i input.mov -b:v 400k output.mp4
+./ffmpeg -i input.mov -b:v 400k -s 640x360 output.mp4
 rm input.mov
 </pre>
 
@@ -93,22 +93,98 @@ Create a submit file for this job, based on other submit files from the school. 
 requirements = (Target.HasGluster == true)
 </pre>
 
+---++ Initial Job
 
+With everyone in place, submit the job.  Once it finishes, we should check to make sure everything ran as expected: 
+   1. Check the directory where you submitted the job.  Did the output =.mp4= file return?
+   1. Also in the directory where you submitted the job - did the original =.mov= file return here accidentally?
+   1. Check file sizes.  How big is the returned =.mp4= file? How does that compare to the original =.mov= input?  
 
----++ Follow-Up
+If your job successfully returned the converted =.mp4= file and *not* the =.mov= file to the submit server, and the =.mp4= 
+file was appropriately scaled down, then we can go ahead and convert all of our files.  
 
-We wrote the name of the =.mov= file into our =run_ffmpeg.sh= executable script.  How can you change: 
-   1. the script
-   2. the submit file
-To submit a job for each of the =.mov= files in our Gluster directory?  Once you've thought about it, check your reasoning against \
+---++ Multiple jobs
+
+We wrote the name of the =.mov= file into our =run_ffmpeg.sh= executable script.  To submit a set of jobs for all of our =.mov= \
+files, what will we need to change in: 
+   1. the script? 
+   2. the submit file?
+Once you've thought about it, check your reasoning against \
 the instructions below.  
 
+---+++ Add an argument to your script
 
+   1. Look at your =run_ffmpeg.sh= script.  What values will change for every job?  
+   1. The input file will change with every job - and don't forget that the output file will too!  Let's make them both into arguments.  \ 
+To add arguments to a bash script, we use the notation =$1= for the first argument (our input file) and =$2= for the second argument (our output file name).  \ 
+The final script should look like this: \
+<pre class="file">
+#!/bin/bash
+
+cp /mnt/gluster/username/$1 ./
+./ffmpeg -i $1 -b:v 400k -s 640x360 $2
+rm $1
+</pre> \
+Note that we use the input file name multiple times in our script, so we'll have to use =$1= multiple times as well.  
+
+---+++ Modify your submit file
+
+   1. We now need to tell each job what arguments to use.  We will do this by adding an arguments line to our submit file.  Because we'll only have \
+the input file name, we'll use the input file name with the =mp4= extension as the output argument.  That should look like this: \
+<pre class="file">
+arguments = $(infile) $(infile).mp4
+</pre>
+   2. To set these arguments, we will use the =queue .. from= syntax that we learned on [[UserSchool16Mon26QueueFrom][Monday]]. To \
+do so, we need to create a list of our input files.  We can do this by moving to our Gluster directory, running an =ls= command \
+that redirects our list of =.mov= files into a list, and then copy that list back to the submit server.  Altogether, that will look like this: 
+<pre class="screen">
+%UCL_PROMPT_SHORT% <strong>cd /mnt/gluster/username</strong>
+%UCL_PROMPT_SHORT% <strong>ls *.mov > list.txt</strong>
+%UCL_PROMPT_SHORT% <strong>mv list.txt /home/username/movie_dir</strong>
+%UCL_PROMPT_SHORT% <strong>cd</strong>
+</pre>
+   3. In our submit file, we can then change our queue statement to: \
+<pre class="file">
+queue infile from list.txt
+</pre>
+
+Once you've made these changes, try submitting all the jobs!  
 
 ---++ Bonus
 
-If you wanted to set a different bitrate and size for each original movie, how could you modify: 
+If you wanted to set a different output file, bitrate and/or size for each original movie, how could you modify: 
    1. =list.txt=
    2. =run_ffmpeg.sh=
    3. Your submit file
 to do so?  
+
+
+%TWISTY{
+showlink="Show hint"
+hidelink="Hide hint"
+mode="div"
+showimgleft="%ICONURLPATH{toggleopen-small}%"
+hideimgleft="%ICONURLPATH{toggleclose-small}%"
+}%
+Here's the changes you can make to the various files: 
+   1. =list.txt= \
+<pre class="file">
+ducks.MOV ducks.mp4 500k 1280x720
+teaching.MOV teaching.mp4 400k 320x180
+test_open_terminal.mov terminal.mp4 600k 640x360
+</pre>
+   2. Submit file\
+<pre class="file">
+arguments = $(infile) $(outfile) $(bitrate) $(size)
+
+queue infile,outfile,bitrate,size from list.txt
+</pre>
+   3. =run_ffmpeg.sh=\
+<pre class="file">
+#!/bin/bash
+
+cp /mnt/gluster/username/$1 ./
+./ffmpeg -i $1 -b:v $3 -s $4 $2
+rm $1
+</pre>
+%ENDTWISTY%
