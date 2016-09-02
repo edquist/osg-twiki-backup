@@ -1,16 +1,4 @@
-%META:TOPICINFO{author="EdgarMauricioFajardoHernandez" date="1472772260" format="1.1" reprev="1.5" version="1.5"}%
-*TODO:*
-   * <strike>Write useful comments in /etc/rsv/metrics/org.osg.local-gfactory-site-querying-local.conf</strike>
-   * How often will the probes run?
-      * The main probe that queries the factory runs every 30 min
-      * The probes will run every hour (although this can be modified)
-   * <strike>How to view results?</strike>
-   * What to do if results are not perfect? Contact Edgar of course :)
-      * Contact Factory Ops (osg-gfactory-support@physics.ucsd.edu) about the non working site
-
-
-
-
+%META:TOPICINFO{author="TimCartwright" date="1472836384" format="1.1" reprev="1.6" version="1.6"}%
 <style type="text/css">
 code strong, pre strong { color: red; font-weight: normal; font-style: normal; }
 pre[class="rootscreen"] em { background-color: #FFFF00; font-weight: normal; font-style: normal; }
@@ -35,7 +23,7 @@ Use this page to learn how to install, configure, and use the Tester for your VO
 Before starting the installation process, consider the following points (consulting [[#ReferenceSection][the Reference section below]] as needed):
 
    * *Software:* You must have [[InstallGlideinWMSFrontend][a GlideinWMS Front-end]] installed
-   * *Configuration:* The !GlideinWMS Front-end must be configured to have at least one group that matches pilots to sites using DESIRED_SITES, and to support the is_itb user job attribute
+   * *Configuration:* The !GlideinWMS Front-end must be configured (a) to have at least one group that matches pilots to sites using DESIRED_SITES, and (b) to support the is_itb user job attribute
    * *Host choice:* The Tester should be installed on its own host; a small Virtual Machine (VM) is ideal
    * *Service certificate:* The Tester requires a host certificate at =/etc/grid-security/host*.pem=
    * *Network ports:* Test jobs must be able to contact HTCondor on ports 9615 (TCP), and you must be able to contact a web server on port 80 (TCP) to view test results
@@ -50,7 +38,7 @@ As with all OSG software installations, there are some one-time (per host) steps
 
 ---++ Installing the Tester
 
-The Tester software takes advantage of several other OSG software components, so the installation will add OSG&rsquo;s site validation system (RSV) and the !GlideinWMS pilot submission software if not present already.
+The Tester software takes advantage of several other OSG software components, so the installation will also include OSG&rsquo;s site validation system (RSV), HTCondor, and the !GlideinWMS pilot submission software.
 
 <ol>
   <li>
@@ -71,18 +59,20 @@ Before you use the Tester, there are some one-time configuration steps to comple
       <p>For two VOs named =Foo= and =Bar=, the line would be:</p>\
       <pre class="file">constraint = stringListMember("Foo", GLIDEIN_Supported_VOs) || stringListMember("Bar", GLIDEIN_Supported_VOs)</pre>\
       <p>Do not change the other settings in this file, unless you have clear and specific reasons to do so.</p>
-   1. <p>Authorize your central manager to connect to this scheduler:\
-      <pre class="rootscreen">%UCL_PROMPT_ROOT% glidecondor_addDN -allow-others -daemon '<em>your_comment</em>' '<em>/the/central/manager/DN</em>' condor</pre> for example:  <pre class="rootscreen">%UCL_PROMPT_ROOT% glidecondor_addDN -allow-others -daemon 'The central manager DN at UCSD' '/DC=org/DC=opensciencegrid/O=Open Science Grid/OU=Services/CN=osg-ligo-1.t2.ucsd.edu' condor </pre>
+   1. <p>Authorize your central manager to connect to this scheduler:</p>\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% glidecondor_addDN -allow-others -daemon <em>COMMENT</em> <em>CENTRAL_MGR</em> condor</pre>\
+      <p>Where =COMMENT= is a human-readable identifier for the Central Manager, and =CENTRAL_MGR= is the Distinguished Name (DN) of the host certificate of your !GlideinWMS Front-end&rsquo;s Central Manager host. Most likely, you will need to quote both of these values to protect them from the shell. For example:</p>\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% glidecondor_addDN -allow-others -daemon 'UCSD central manager DN' '/DC=org/DC=opensciencegrid/O=Open Science Grid/OU=Services/CN=osg-ligo-1.t2.ucsd.edu' condor</pre>
    1. <p>Configure the special HTCondor-RSV instance with your host IP address</p>\
-      <p>Create the new file =/etc/condor-cron/config.d/98_public_interface.config= with this content:</p>\
+      <p>Create the file =/etc/condor-cron/config.d/98_public_interface.config= with this content:</p>\
       <pre class="file">NETWORK_INTERFACE = <em>ADDRESS</em>
-CONDOR_HOST = <em>your_glidein_pool_central_manager</em>
+CONDOR_HOST = <em>CENTRAL_MGR</em>
 </pre>\
-      <p>Where =ADDRESS= is the IP address of your Tester host</p>
+      <p>Where =ADDRESS= is the IP address of your Tester host, and =CENTRAL_MGR= is the hostname of your !GlideinWMS Front-end Central Manager.</p>
    1. <p>Enable and activate the Tester&rsquo;s RSV probe:</p>\
       <pre class="rootscreen">%UCL_PROMPT_ROOT% rsv-control --enable org.osg.local-gfactory-site-querying-local --host <em>ADDRESS</em>
 %UCL_PROMPT_ROOT% rsv-control --on org.osg.local-gfactory-site-querying-local --host <em>ADDRESS</em></pre>\
-      <p>Where =ADDRESS= is the IP address of your Tester host</p>
+      <p>Where =ADDRESS= is the IP address of your Tester host.</p>
 
 
 ---++ Using the Tester
@@ -111,70 +101,37 @@ Start the services in the order listed and stop them in reverse order. As a remi
 | Enable a service to start during boot | =chkconfig <em>SERVICE-NAME</em> on= |
 | Disable a service from starting during boot | =chkconfig <em>SERVICE-NAME</em> off= |
 
----+++ Viewing Results
+---+++ Viewing Tester results
 
-Connect to =https://<em>HOSTNAME</em>/rsv/= to see the results of the probes.
+Once the Tester RSV probe is enabled and active, and the services listed above have been started, there are two kinds of RSV probes that run periodically:
+   * One probe asks the !GlideinWMS factory for the up-to-date list of sites supported by your VO(s)&nbsp;&mdash; runs every 30 minutes
+   * One probe submits and monitors one test job to each site supported by your VO(s)&nbsp;&mdash; run every 60 minutes
 
+You can view the latest results of both probe types on an RSV results web page, or you can manually run the first probe to see the full list of sites.
 
-Once the installation and configuration are finished. Results can be seen in two ways. First connect to =https://<em>HOSTNAME</em>/rsv/= to see the results of the probes. And a similar output as this one should be encountered:
+---++++ Viewing RSV results online
 
-* RSV-GWMS-tester web page output: <br />
-     <img src="%ATTACHURLPATH%/Screen_Shot_2016-09-01_at_3.46.19_PM.png" alt="Screen_Shot_2016-09-01_at_3.46.19_PM.png" width='1225' height='664' />    
+To see the latest results, access =https://<em>HOSTNAME</em>/rsv/= (where =HOSTNAME= is the name of your Tester host).
 
+   * There should be one result row per site supported by your VO(s), using the “org.osg.general.dummy-vanilla-probe” probe (aka _metric_)
+   * There should be exactly one result row for the probe that fetches the list of sites, which is the “org.osg.local-gfactory-site-querying-local” probe (aka _metric_)
+   * There is a legend for the background colors at the end of the page
 
+Ideally, each site supported by your VO(s) should be shown with a green background, which indicates that a Tester job ran at that site recently and successfully. Of course, there can be transient failures for many reasons. However, if you notice that a site has failed for a while, contact OSG Factory Operations (osg-gfactory-support@physics.ucsd.edu) about the failing site; it may be helpful to include a link to your Tester RSV results page, so that the support staff can see the detailed failure information.
 
-Second to check the main probe is working this command can be run:
-<pre class="rootscreen">%UCL_PROMPT_ROOT% rsv-control --run org.osg.local-gfactory-site-querying-local --host ADDRESS</pre>
-And a similar output as this should be seen:
+To see detailed information from each probe, click on the probe name in the Metric column. In particular, it may be interesting to see the list of sites that are supported by your VO(s) and are being tested; to do so, click the &ldquo;org.osg.local-gfactory-site-querying-local&rdquo; link at the bottom of the list of probes. For the latter information, you can also run the probe manually, as described next.
 
-<verbatim>
+---+++ Listing supported sites manually
 
-Running metric org.osg.local-gfactory-site-querying-local:
+To manually run the probe that fetches the list of sites supported by your VO(s), run the following command on your Tester host:
 
-metricName: org.osg.local-gfactory-site-querying-local
-metricType: status
-timestamp: 2016-09-01 15:41:39 PDT
-metricStatus: OK
-serviceType: Local-Gfactory
-serviceURI: cabinet-10-10-4.t2.ucsd.edu
-gatheredAt: cabinet-10-10-4.t2.ucsd.edu
-summaryData: OK
-detailsData: OK: Everything OK
-2016-09-01T22:41:39Z
-MSG: constraint for factory querying: MyType=?="glidefactory" && stringListMember("LIGO",GLIDEIN_Supported_VOs) || stringListMember("VIRGO",GLIDEIN_Supported_VOs)
-MSG: Gfactory queried: glidein-itb.grid.iu.edu
-MSG: Proccesing metric: org.osg.general.dummy-vanilla-probe
-MSG: Getting list of enabled nodes
-MSG: Calculating list of enabled and disabled nodes
-MSG: Enabling nodes [] 
-MSG: Disabling nodes [] 
-MSG: Updating configuration for host CCIN2P3
-MSG: Updating configuration for host CA-SCINET-T2
-MSG: Updating configuration for host MIT
-MSG: Updating configuration for host LIGO-LA
-MSG: Updating configuration for host Wisconsin
-MSG: Updating configuration for host Michigan
-MSG: Updating configuration for host NIKHEF
-MSG: Updating configuration for host GATech
-MSG: Updating configuration for host FNAL
-MSG: Updating configuration for host MWT2
-MSG: Updating configuration for host CNAF
-MSG: Updating configuration for host Omaha
-MSG: Updating configuration for host Purdue
-MSG: Updating configuration for host Stampede
-MSG: Updating configuration for host Nebraska
-MSG: Updating configuration for host BNL
-MSG: Updating configuration for host SU-OG
-MSG: Updating configuration for host FNAL_GPGrid
-MSG: Updating configuration for host PL_CAMK-CYFRONET
-MSG: Updating configuration for host HOSTED_BOSCO_CE
-MSG: Updating configuration for host UCSD
-MSG: Updating configuration for host UChicago
+<pre class="rootscreen">%UCL_PROMPT_ROOT% rsv-control --run org.osg.local-gfactory-site-querying-local --host localhost</pre>
 
-EOT
+The probe produces many lines of output, some of which are just about the probe execution itself. But look for lines like this:
 
-</verbatim>
+<pre class="rootscreen">MSG: Updating configuration for host <em>UCSD</em></pre>
 
+The highlighted name is the site name, and there should be one such line per site supported by your VO(s).
 
 
 ---++ Getting Help
