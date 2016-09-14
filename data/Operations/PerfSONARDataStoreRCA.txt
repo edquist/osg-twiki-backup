@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TomLee" date="1473872860" format="1.1" reprev="1.12" version="1.12"}%
+%META:TOPICINFO{author="TomLee" date="1473884210" format="1.1" reprev="1.13" version="1.13"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+ Root Cause Analysis of Reported Sno+ Issue
 
@@ -63,9 +63,27 @@ After the 23-Aug-2016 Maintenance Window the !PerfSONAR datastore at psds failed
 ---++ Analysis 
       The analysis is ongoing.
 
-   * Hypothesis: stompclt was not authorized to write to the CERN broker, so it cached its messages in memory, causing greater and greater memory usage until the VM went deep into swap and the kernel's oom-killer killed it. On 12 Sep, a configuration change was made to the CERN broker that fixed the issue; however, stompclt on psds0 had already been killed by oom-killer. When psds0 was rebooted, however, data began to flow normally and the problem did not recur. (As part of this hypothesis, state.pickle and the out-of-date RPMs were actually unrelated.)
-      * Advantages of this hypothesis: It explains why restarting stompclt/simplevisor restored service, but each time it only lasted for an hour or somewhat more before it stopped again. It explains the memory usage issue as well. Also, it explains why the reboot of 12 Sep restored service and why the memory issues did not then rematerialize, despite the fact that psds0 hadn't been changed.
-      * Problems with this hypothesis: It does not explain how the problem originally began. There was supposedly a change to the configuration on the CERN broker in July, but it doesn't make sense that this would have no effect on the production datastore master until its reboot of 23 Aug. Also, shouldn't simplevisor automatically restart stompclt if oom-killer stops it? The hypothesis needs revision or replacement.
+   * Tom's current hypothesis, and he admits that it has holes in it:
+      * stompclt was not authorized to write "packet-loss-rate-bidir" messages to the CERN broker from a config change in July until 12 Sep. (This is true, from what we know.)
+      * Upon restarting, stompclt published data to the CERN broker until some sort of latching behavior stopped it. Perhaps it took some time before there was a "packet-loss-rate-bidir" message, but once there was one, it caused stompclt to become confused and unable to continue to send. (I do not know whether this is actually how stompclt behaves, however.)
+      * Since it was unable to publish, stompclt cached its outgoing data in memory, causing greater and greater memory usage. (Stompctl does this if it is unable to publish, according to Lionel.)
+      * The 12 Sep configuration change on the CERN broker did not immediately fix the problem because stompclt had already latched. However, the reboot of psds0 resulted in normal flow of data from that point onward. (The issue has not recurred yet, though it is uncertain why.)
+      * According to this hypothesis, at least, the state.pickle file and the out-of-date RPMs were actually unrelated to the issue. (It is still a good idea to make sure the production instance's RPMs match those of the ITB instance, however.)
+   * Strengths of this hypothesis:
+      * It explains why restarting stompclt/simplevisor restored service, but each time it only lasted for an hour or somewhat more before it stopped again.
+      * It explains the memory usage issue as well.
+      * Also, it explains why the reboot of 12 Sep restored service and why the memory issues did not then rematerialize, despite the fact that psds0 hadn't been changed.
+   * Problems with this hypothesis:
+      * It does not explain how the problem originally began. There was supposedly a change to the configuration on the CERN broker in July, but if this caused the issue, why didn't it affect the production datastore master until its reboot of 23 Aug?
+      * It is not clear that stompclt actually has the described latching behavior.
+      * It is not known how often "packet-loss-rate-bidir" messages occur.
+      * It doesn't explain why the problem didn't affect the ITB instance.
+
+   * Any complete hypothesis must explain:
+      * Why the issue began to manifest with the reboot of 23 Aug
+      * Why stompclt would work for 1-4 hours after being restarted, then cease to publish data and instead begin to fill up memory
+      * Why the reboot of 12 Sep made the issue cease to occur despite no changes to psds0
+      * Why the problem didn't affect the ITB instance
 
 ---++ Follow Up Actions
 
