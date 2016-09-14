@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="EdgarMauricioFajardoHernandez" date="1473868310" format="1.1" reprev="1.11" version="1.11"}%
+%META:TOPICINFO{author="TomLee" date="1473872860" format="1.1" reprev="1.12" version="1.12"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+ Root Cause Analysis of Reported Sno+ Issue
 
@@ -53,11 +53,8 @@ After the 23-Aug-2016 Maintenance Window the !PerfSONAR datastore at psds failed
       * Memory usage visualization in attachments.
       * Memory usage continues to rise and is associated with the "stompclt" process that is supposed to send data to the ActiveMQ at CERN
    * 12 Sep 10:00 CEST Marian reports that the CERN broker was re-configured to accept topic "packet-loss-bidir" following Tom's earlier report on stompclt run from command line. In July the CERN broker was re-configured "to introduce new topics and have per-topic authorisation"; this predates the appearance of the issue but cannot have caused it, as it was working until late August.
-<del>   * 12 Sep 20:56 CEST Scott reboots psds0; stompclt starts publishing data to CERN and doesn't stop this time
-</del><ins><del>   * 12 Sep 20:56 CEST Scott reboots psds0; stompclt starts publishing data to CERN and doesn't stop this time
-</ins><del>   * 12 Sep 21:31 CEST After that reboot, Tom reports the following stompclt errors in syslog (times are UTC; CEST = UTC + 2):
-</del><ins></del><ins>   * 13 Sep 20:56 CEST Scott reboots psds0; stompclt starts publishing data to CERN and doesn't stop this time
-</ins></ins>   * 12 Sep 21:31 CEST After that reboot, Tom reports the following stompclt errors in syslog (times are UTC; CEST = UTC + 2):
+   * 12 Sep 20:56 CEST Scott reboots psds0; stompclt starts publishing data to CERN and doesn't stop this time
+   * 12 Sep 21:31 CEST After that reboot, Tom reports the following stompclt errors in syslog (times are UTC; CEST = UTC + 2):
       * =Sep 12 18:38:21 psds0 stompclt[2911029]: [ERROR] failed to flush outgoing buffer (13469824136 bytes)!=
       * =Sep 12 19:02:08 psds0 stompclt[2589]: [WARNING] removing too old volatile file: /usr/local/rsv-perfsonar//57d6f9c8/57d6f9ef92b9eb.tmp=
    * 13 Sep 10:00 CEST Lionel points out that outgoing buffer in stompclt should be normally empty as it's only used to buffer data before sending them to a socket. Buffer this big (13469824136 bytes) suggests communication with socket is not working (possible cause might be a network problem on psds0). Lionel suggests to re-configure stompclt to limit the maximum size of this buffer (by adding window=100 in its configuration) and also suggests "reliable = true" setting
@@ -65,6 +62,10 @@ After the 23-Aug-2016 Maintenance Window the !PerfSONAR datastore at psds failed
 
 ---++ Analysis 
       The analysis is ongoing.
+
+   * Hypothesis: stompclt was not authorized to write to the CERN broker, so it cached its messages in memory, causing greater and greater memory usage until the VM went deep into swap and the kernel's oom-killer killed it. On 12 Sep, a configuration change was made to the CERN broker that fixed the issue; however, stompclt on psds0 had already been killed by oom-killer. When psds0 was rebooted, however, data began to flow normally and the problem did not recur. (As part of this hypothesis, state.pickle and the out-of-date RPMs were actually unrelated.)
+      * Advantages of this hypothesis: It explains why restarting stompclt/simplevisor restored service, but each time it only lasted for an hour or somewhat more before it stopped again. It explains the memory usage issue as well. Also, it explains why the reboot of 12 Sep restored service and why the memory issues did not then rematerialize, despite the fact that psds0 hadn't been changed.
+      * Problems with this hypothesis: It does not explain how the problem originally began. There was supposedly a change to the configuration on the CERN broker in July, but it doesn't make sense that this would have no effect on the production datastore master until its reboot of 23 Aug. Also, shouldn't simplevisor automatically restart stompclt if oom-killer stops it? The hypothesis needs revision or replacement.
 
 ---++ Follow Up Actions
 
