@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TomLee" date="1473950425" format="1.1" version="1.14"}%
+%META:TOPICINFO{author="TomLee" date="1474044561" format="1.1" version="1.15"}%
 %META:TOPICPARENT{name="WebHome"}%
 ---+ Root Cause Analysis of Reported Sno+ Issue
 
@@ -63,28 +63,12 @@ After the 23-Aug-2016 Maintenance Window the !PerfSONAR datastore at psds failed
 ---++ Analysis 
       The analysis is ongoing.
 
-   * Tom's current hypothesis, and he admits that it has holes in it:
-      * stompclt was not authorized to write "packet-loss-rate-bidir" messages to the CERN broker from a config change in July until 12 Sep. (This is true, from what we know.)
-      * Upon restarting, stompclt published data to the CERN broker until some sort of latching behavior stopped it. Perhaps it took some time before there was a "packet-loss-rate-bidir" message, but once there was one, it caused stompclt to become confused and unable to continue to send. (I do not know whether this is actually how stompclt behaves, however.)
-      * Somehow stompclt was caching its outgoing data in memory rather than sending it or leaving it on disk. (Lionel states that stompclt can only do this in the case of a full or otherwise stuck TCP buffer.)
-      * The 12 Sep configuration change on the CERN broker did not immediately fix the problem because stompclt had already latched. However, the reboot of psds0 resulted in normal flow of data from that point onward. (The issue has not recurred yet, though it is uncertain why.)
-      * According to this hypothesis, at least, the state.pickle file and the out-of-date RPMs were actually unrelated to the issue. (It is still a good idea to make sure the production instance's RPMs match those of the ITB instance, however.)
-   * Strengths of this hypothesis:
-      * It explains why restarting stompclt/simplevisor restored service, but each time it only lasted for an hour or somewhat more before it stopped again.
-      * It explains the memory usage issue as well.
-      * Also, it explains why the reboot of 12 Sep restored service and why the memory issues did not then rematerialize, despite the fact that psds0 hadn't been changed.
-   * Problems with this hypothesis:
-      * It does not explain how the problem originally began. There was supposedly a change to the configuration on the CERN broker in July, but if this caused the issue, why didn't it affect the production datastore master until its reboot of 23 Aug?
-      * It is not clear that stompclt actually has the described latching behavior.
-      * It is not known how often "packet-loss-rate-bidir" messages occur.
-      * It does not even attempt to explain the network issue that must exist in order for stompclt's memory usage to expand as it was observed to
-      * It doesn't explain why the problem didn't affect the ITB instance.
-
-   * Tom's incomplete hypothesis, revision 2.0:
-      * Some sort of configuration change was done between 26 July and 23 Aug that did not take effect until the reboot of 23 Aug.
+   * Tom's current but quite incomplete hypothesis:
+      * Some sort of configuration change of unknown nature was done between 26 July and 23 Aug that did not take effect until the reboot of 23 Aug.
       * This configuration change's known properties:
          * It noticeably affected only stompclt's data publishing to the CERN broker and nothing else.
-         * It caused the TCP socket to allow traffic for a few hours, then somehow become stuck. Perhaps a buffer filled up, perhaps some sort of kernel/driver bug occurred.
+         * It caused the TCP socket to allow traffic for a few hours, then somehow become latched. Perhaps a buffer filled up, perhaps some sort of kernel/driver bug occurred. (Perhaps something else.)
+         * This socket latching did not behave like a full buffer, which would still send some data and then accept new data from stompclt as space became available. It simply stopped sending.
          * It seems to be related to the TCP socket stompclt was using, and not the network interface in general, because networking continued to function overall, and restarting stompctl (causing the old socket to close and a new one to open) would temporarily alleviate the problem.
          * It did not affect the ITB instance, either because the change was not made to the ITB instance, other changes were also made to the ITB instance (but not the production instance) that negated the problem, or the circumstances that activated the problem did not arise on ITB (higher traffic levels on the production instance, for example).
       * Once the TCP socket latched, stompclt was unable to transmit and began to expand in memory usage.
