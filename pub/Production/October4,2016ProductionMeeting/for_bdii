@@ -1,0 +1,30 @@
+#!/bin/bash
+
+{
+for ce_endpoint in `condor_status -wide -pool collector.opensciencegrid.org:9619 -schedd | awk '{print $1}' | grep -v ^T | grep -v ^N` ; do
+   condor_status -pool collector1.opensciencegrid.org:9619 -any -long -constraints 'MyType == "Scheduler"' -constraints 'CollectorHost == "'$ce_endpoint':9619"' -attributes OSG_ResourceCatalog | grep -v MyType | grep -v Current | colrm 1 22 | grep $1 | sed 's/\]/\n/g' | sed 's/\}/\}\n/g' | grep -v Transform | grep -v Requirements | colrm 1 2 | sed 's/ //' | sed 's/\[//' > /tmp/condor_result
+   ce_port=` condor_status -long -wide -pool collector.opensciencegrid.org:9619 -any -constraints 'MyType == "Scheduler"' -constraints 'Machine == "'$ce_endpoint'"' | grep port= | awk -F\" '{print $6}' | colrm 1 2 | colrm 10 100 | awk -F= '{print $2}'` 
+
+   ce_batchsys=`condor_status -long -wide -pool collector.opensciencegrid.org:9619 -any -constraints 'MyType == "Scheduler"' -constraints 'Machine == "'$ce_endpoint'"' | grep OSG_Batch | colrm 1 20 | sed 's/"//g'`
+
+   if [ -s /tmp/condor_result ] ; then
+      echo "CE Endpoint&$ce_endpoint:$ce_port "
+      echo "CE Type&HTCondorCE "
+      echo "CE LRMS Type&$ce_batchsys "
+      IOLD=$IFS
+      IFS=$'\n'
+      for line in `cat "/tmp/condor_result"` ; do 
+#	  echo "******* $line"
+         wall_string=`echo $line | awk '{print $4":"$6}' | colrm 17 17`
+         cpu_string=`echo $line | awk '{print $6}' | colrm 5 5`
+         queue_name=`echo $line | awk '{print $9}' | sed 's/"//g' `
+         echo "Queue Name&$queue_name $wall_string; MaxCPUTime:$cpu_string" 
+      done
+      unset IFS
+#      cat /tmp/condor_result
+      echo
+   fi
+done
+} > /net/nas01/Public/tmp/$1_interop_information
+rm /tmp/condor_result 1>/dev/null 2>/dev/null
+
