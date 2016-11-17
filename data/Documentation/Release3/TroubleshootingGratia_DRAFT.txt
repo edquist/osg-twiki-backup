@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1479413722" format="1.1" version="1.4"}%
+%META:TOPICINFO{author="BrianLin" date="1479424985" format="1.1" version="1.5"}%
 ---+ Troubleshooting Gratia Accounting Guide
 
 %TOC{depth="3"}%
@@ -7,7 +7,51 @@
 
 In this document, you will find troubleshooting solutions for common problems with collecting and reporting Gratia accounting information.
 
----++ Common Gratia Problems
+---++ General Troubleshooting Items
+
+Before continuing with Gratia-specific troubleshooting, ensure that your packages are up to date and unmodified.
+
+---+++ Making sure packages are up-to-date
+
+It is important to make sure that the Gratia probe RPMs are up-to-date:
+
+<pre class="screen">yum update <em>"gratia-probe-*</em></pre>\
+
+If you just want to see the packages to update, but do not want to perform the update now, answer <code>N</code> at the prompt.
+
+---+++ Verify package contents
+
+If the contents of your Gratia probe packages have been changed, the probes may cease to function properly. To verify the contents of your packages (ignoring changes to configuration files):
+
+<pre class="screen">
+%UCL_PROMPT% rpm -qa | grep ^gratia-probe | xargs rpm -q --verify | awk '$2 != "c"'
+</pre>
+
+If the verification command returns output, this means that your packages have been changed. To fix this, you can reinstall the packages:
+
+<pre class="screen">
+%UCL_PROMPT% yum reinstall "gratia-probe-*"
+</pre>
+
+%NOTE% The reinstall command may place original versions of configuration files alongside the versions that you have modified. If this is the case, the reinstall command will notify you that the original versions will have an =.rpmnew= suffix. Further inspection of these files may be required as to whether or not you need to merge them into your current configuration.
+
+---++ Gratia Troubleshooting Items
+
+This section contains common issues you may encounter using Gratia and next actions to take when you do. Before continuing to the sections below, verify your Gratia configuration and increase the log level:
+
+   1. Ensure that the =gratia-probes-cron= service is running:\
+   <pre class="rootscreen">%UCL_PROMPT_ROOT% /sbin/service gratia-probes-cron status
+gratia probes cron is enabled.</pre>
+   1. Verify that Gratia has run recently:\
+   <pre class="rootscreen">%UCL_PROMPT_ROOT%tail -n 1 /var/log/gratia/`date +%F`.log
+16:38:37 CST Gratia: End-of-execution disconnect ...</pre>
+   1. Ensure that =EnableProbe="1"= in each of your =ProbeConfig= files:\
+   <pre class="rootscreen">%UCL_PROMPT_ROOT% grep EnableProbe /etc/gratia/*/ProbeConfig
+/etc/gratia/condor/ProbeConfig:    EnableProbe="1"
+/etc/gratia/gridftp-transfer/ProbeConfig:    EnableProbe="1"
+/etc/gratia/metric/ProbeConfig:    EnableProbe="1"</pre>
+   1. Increase the log level in each of your =/etc/gratia/%RED%PROBE-NAME%ENDCOLOR%/ProbeConfig= files:\
+   <pre class="file">LogLevel="<span style="background-color: #FFCCFF;">5</span>"</pre>
 
 ---+++ Are the Gratia cron jobs running?
 You should make sure the Gratia cron jobs are running. The simplest way is with the =service= command:
@@ -19,7 +63,7 @@ gratia probes cron is enabled.
 
 If it is not enabled, enable it as described above.
 
-A future release of Gratia will provide status on each of the individual probes, but right now this only ensures that the basic cron job is running. In the meantime, you can check if the individual Gratia probes are enabled. To do this, look at the =EnableProbe= option in the =ProbeConfig= file, as described above. A quick command to do this is shown here. Note that the Condor and !GridFTP Transfer probes are enabled while the glexec probe is disabled:
+A future release of Gratia will provide status on each of the individual probes, but right now this only ensures that the basic cron job is running. In the meantime, you can check if the individual Gratia probes are enabled. To do this, look at the =EnableProbe= option in the =ProbeConfig= file, as described above. A quick command to do this is shown here. Note that the HTCondor and !GridFTP Transfer probes are enabled while the glexec probe is disabled:
 
 <pre class="rootscreen">
 %UCL_PROMPT_ROOT% cd /etc/gratia
@@ -83,11 +127,13 @@ You can see if the OSG Gratia Server is getting data from a site by going to [[h
    1. Specify the site name in Facility under Data Filter.
    1. Click "Refine".
 
----+++ Not collecting Condor accounting data
+---+++ Not collecting HTCondor accounting data
 
-Condor must be configured to put information about each job into a special directory. Gratia will read and remove the files in order to collect the accounting information. 
+HTCondor must be configured to put information about each job into a special directory. Gratia will read and remove the files in order to collect the accounting information. 
 
-The configuration variable is called =PER_JOB_HISTORY_DIR=. If you install the OSG RPM for Condor, the Gratia probe will extend its configuration by adding a file to =/etc/condor/config.d=, and will set this variable to =/var/lib/gratia/data=. If you are using a different installation method, you probably need to set the variable yourself. You can check if it's set by using =condor_config_val=, like this:
+The configuration variable is called =PER_JOB_HISTORY_DIR=. If you install the OSG RPM for HTCondor, the Gratia probe will extend its configuration by adding a file to =/etc/condor/config.d=, and will set this variable to =/var/lib/gratia/data=. If you are using a different installation method, you will need to set the variable yourself.
+
+Either way, you can check if it's set by using =condor_config_val=, like this:
 
 <pre class="screen">
 %UCL_PROMPT% condor_config_val -v PER_JOB_HISTORY_DIR
@@ -102,11 +148,13 @@ If you set this value, you need to restart condor:
 Sent "Restart" command to local master
 </pre>
 
-Unlike many Condor settings, a *condor_reconfig* is not sufficient - you must restart!
+Unlike many HTCondor settings, a *condor_reconfig* is not sufficient - you must restart!
 
----+++ Reporting old Condor data
+---+++ Reporting old HTCondor data
 
-If you accidentally did not set =PER_JOB_HISTORY_DIR= (see above), Gratia will not publish accounting information about jobs. You can have Gratia read the Condor history file and publish data that way.  If you know the time period of the missing data, you should specify a start and end times. This reduces the load on the Gratia collector.  To do so:
+If you accidentally did not set =PER_JOB_HISTORY_DIR= (see above), Gratia will not publish accounting information about jobs. You can have Gratia read the HTCondor history file and publish data that way.  If you know the time period of the missing data, you should specify a start and end times. This reduces the load on the Gratia collector.  To do so:
+
+%NOTE% turn off the _gratia_probes_cron_ service until this is complete.  Remember to turn it back on when finished.
 
 <pre class="screen">
 %BLUE%Preferred method using start and end times%ENDCOLOR%
@@ -126,9 +174,9 @@ If you accidentally did not set =PER_JOB_HISTORY_DIR= (see above), Gratia will n
 2014-06-03 10:11:38 CDT Gratia: RUNNING condor_meter MANUALLY Finished
 </pre>
 
-Not much is printed to the screen, but you can see progress in the Gratia log file:
+Not much is printed to the screen, but you can see progress in the [[Documentation.Release3/InstallGratia_DRAFT#FilesAndDirs][Gratia log file]]:
 
-%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Click to show a log file processing the Condor history file..."}%
+%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Click to show a log file processing the HTCondor history file..."}%
 <pre class="file">
 13:35:28 CDT Gratia: Initializing Gratia with /etc/gratia/condor/ProbeConfig
 13:35:28 CDT Gratia: Creating a ProbeDetails record 2012-04-04T18:35:28Z
@@ -154,9 +202,7 @@ Not much is printed to the screen, but you can see progress in the Gratia log fi
 </pre>
 %ENDTWISTY%
 
-__Note__  that Condor rotates history files, so you can only report what Condor has kept. Controlling the Condor history is documented in the Condor manual. In particular, see the options for [[http://research.cs.wisc.edu/condor/manual/v7.6/3_3Configuration.html#param:MaxHistoryLog][MAX_HISTORY_LOG]] and [[http://research.cs.wisc.edu/condor/manual/v7.6/3_3Configuration.html#param:MaxHistoryRotations][MAX_HISTORY_ROTATIONS]].
-
-__Also Note__ that it is a very good idea to turn off the _gratia_probes_cron_ service until this is complete.  Remember to turn it back on when finished.
+__Note__  that HTCondor rotates history files, so you can only report what HTCondor has kept. Controlling the HTCondor history is documented in the [[http://research.cs.wisc.edu/htcondor/manual/v8.4/4_5Logging_in.html#51346][HTCondor manual]]. In particular, see the options for [[http://research.cs.wisc.edu/htcondor/manual/v8.4/3_3Configuration.html#20361][MAX_HISTORY_LOG]] and [[http://research.cs.wisc.edu/htcondor/manual/v8.4/3_3Configuration.html#20366][MAX_HISTORY_ROTATIONS]].
 
 ---+++ Gratia log files: bad Gratia hostname
 
@@ -169,7 +215,7 @@ This is an example problem where the configuration was bad: there was an incorre
 %RED%You can see that Gratia is using the correct configuration file:%ENDCOLOR%
 15:06:55 CDT Gratia: Using config file: /etc/gratia/condor/ProbeConfig
 
-%RED%Here Gratia is removing a file from the Condor PER_JOB_HISTORY_DIR and creating a Gratia accounting record for it%ENDCOLOR%
+%RED%Here Gratia is removing a file from the HTCondor PER_JOB_HISTORY_DIR and creating a Gratia accounting record for it%ENDCOLOR%
 15:06:55 CDT Gratia: Creating a UsageRecord 2012-04-03T20:06:55Z
 15:06:55 CDT Gratia: Registering transient input file: /var/lib/gratia/data/history.37.0
 15:06:55 CDT Gratia: ***********************************************************
@@ -262,9 +308,9 @@ When you've done this, you can re-run the Gratia probe by hand, or wait for it t
 
 If you are still experiencing issues after using this document, please let us know!
 
-   1. <p>Gather basic Gratia and related information (versions, relevant configuration, problem description, etc.)</p>
+   1. <p>Gather basic Gratia and related information (relevant configuration, problem description, etc.)</p>
    1. <p>Gather system information:</p>\
-       <pre class="screen">osg-system-profiler &gt; ~/osg-system-profiler-<span style="background-color: #D1CAF2;">YYYYMMDD</span>.txt</pre>
+       <pre class="screen">osg-system-profiler</pre>
    1. <p>Start a support request using [[https://ticket.grid.iu.edu/submit][a web interface]] or by email to [[mailto:goc@opensciencegrid.org][goc@opensciencegrid.org]]</p>
       * Describe issue and expected or desired behavior
       * Include basic Gratia and related information
@@ -284,14 +330,3 @@ Here are some other Gratia documents that might be helpful:
    * You can get daily emails with OSG accounting reports in them. Join the [[Accounting.ContactUs][osg-accounting-info]] mailing list. 
    * [[Accounting.WebHome][The Gratia group's web page]]
    * [[Documentation/Release3.NavTechGratia][Gratia's technical documentation index]]
-
----+++ Gratia files and directories
-
-Here are a list of Gratia files and directories that can be useful in troubleshooting:
-
-| *File* | *Purpose* |
-| =/var/log/gratia/%RED%DATE%ENDCOLOR%.log= | Log file that records information about processing and uploading of Gratia accounting data |
-| =/var/log/gratia/gridftpTransfer.log= | Log file specific to the Gratia !GridFTP probe |
-| =/var/lib/gratia/data= | Location for job data before being processed by Gratia |
-| =/var/lib/gratia/tmp/gratiafiles= | Location for temporary Gratia data as it is being processed (usually empty). |
-| =/etc/gratia/%RED%PROBE-NAME%ENDCOLOR%/ProbeConfig= | Configuration for Gratia probes, one per probe type |
