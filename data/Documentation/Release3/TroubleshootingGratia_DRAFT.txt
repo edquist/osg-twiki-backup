@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1479424985" format="1.1" version="1.5"}%
+%META:TOPICINFO{author="BrianLin" date="1479510981" format="1.1" reprev="1.6" version="1.6"}%
 ---+ Troubleshooting Gratia Accounting Guide
 
 %TOC{depth="3"}%
@@ -37,80 +37,54 @@ If the verification command returns output, this means that your packages have b
 
 ---++ Gratia Troubleshooting Items
 
-This section contains common issues you may encounter using Gratia and next actions to take when you do. Before continuing to the sections below, verify your Gratia configuration and increase the log level:
+This section contains common issues you may encounter using Gratia and next actions to take when you do. Before continuing to the sections below, increase the log level in each of your =/etc/gratia/%RED%PROBE-NAME%ENDCOLOR%/ProbeConfig= files:
+
+<pre class="file">LogLevel="<span style="background-color: #FFCCFF;">5</span>"</pre>
+
+After troubleshooting, make sure to reset the log level:
+
+<pre class="file">LogLevel="<span style="background-color: #FFCCFF;">2</span>"</pre>
+
+---+++ Are the Gratia cron jobs running?
+
+To verify that Gratia is running, check =/var/log/gratia/=:
+
+<pre class="rootscreen">%UCL_PROMPT_ROOT% find /var/log/gratia -name `date +%F`.log</pre>
+
+*If there is no output*, Gratia has not run recently and you need to verify that it is enabled:
 
    1. Ensure that the =gratia-probes-cron= service is running:\
    <pre class="rootscreen">%UCL_PROMPT_ROOT% /sbin/service gratia-probes-cron status
 gratia probes cron is enabled.</pre>
-   1. Verify that Gratia has run recently:\
-   <pre class="rootscreen">%UCL_PROMPT_ROOT%tail -n 1 /var/log/gratia/`date +%F`.log
-16:38:37 CST Gratia: End-of-execution disconnect ...</pre>
    1. Ensure that =EnableProbe="1"= in each of your =ProbeConfig= files:\
    <pre class="rootscreen">%UCL_PROMPT_ROOT% grep EnableProbe /etc/gratia/*/ProbeConfig
-/etc/gratia/condor/ProbeConfig:    EnableProbe="1"
-/etc/gratia/gridftp-transfer/ProbeConfig:    EnableProbe="1"
-/etc/gratia/metric/ProbeConfig:    EnableProbe="1"</pre>
-   1. Increase the log level in each of your =/etc/gratia/%RED%PROBE-NAME%ENDCOLOR%/ProbeConfig= files:\
-   <pre class="file">LogLevel="<span style="background-color: #FFCCFF;">5</span>"</pre>
+/etc/gratia/condor/ProbeConfig:    EnableProbe="1"</pre>
 
----+++ Are the Gratia cron jobs running?
-You should make sure the Gratia cron jobs are running. The simplest way is with the =service= command:
+*If Gratia is enabled*, running the command specified in =/etc/cron.d/gratia-probe*.cron= may provide insight into the failures. The following steps use =gratia-probe-condor= as an example but apply to all Gratia probes:
 
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% /sbin/service gratia-probes-cron status
-gratia probes cron is enabled.
-</pre>
+   1. Here are the contents of =/etc/cron.d/gratia-probe-condor.cron=, with the relevant command highlighted (dropping the =-s= option):\
+   <pre class="file">0,15,30,45 * * * * root <span style="background-color: #FFCCFF;">/usr/share/gratia/common/cron_check  /etc/gratia/condor/ProbeConfig && /usr/share/gratia/condor/condor_meter</span> -s 900</pre>
+   1. Run the command from the previous step:\
+   <pre class="rootscreen">%UCL_PROMPT_ROOT% /usr/share/gratia/common/cron_check  /etc/gratia/condor/ProbeConfig && /usr/share/gratia/condor/condor_meter</pre>
 
-If it is not enabled, enable it as described above.
+The output of the above command determines your next actions:
 
-A future release of Gratia will provide status on each of the individual probes, but right now this only ensures that the basic cron job is running. In the meantime, you can check if the individual Gratia probes are enabled. To do this, look at the =EnableProbe= option in the =ProbeConfig= file, as described above. A quick command to do this is shown here. Note that the HTCondor and !GridFTP Transfer probes are enabled while the glexec probe is disabled:
+   * *If you don't see any output and a log file is created*, check if that solved your original problem. If not, continue with the rest of the troubleshooting document.
+   * *If you see a =Parse error in /etc/gratia/condor/ProbeConfig...= message,* there is an error in your configuration and you will need to verify the correctness of its XML syntax.
+   * *If you see other errors,* continue with the rest of the troubleshooting document.
+   * *If you don't see any output and a log file is NOT created*, [[#OsgSupport][contact us for help]]
 
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% cd /etc/gratia
-%UCL_PROMPT_ROOT% grep -r EnableProbe *
-condor/ProbeConfig:    EnableProbe="1"
-glexec/ProbeConfig:    EnableProbe="0"
-gridftp-transfer/ProbeConfig:    EnableProbe="1"
-</pre>
+---+++ Does the !SiteName name match the resource in OIM?
 
-If you see no log files in =/var/log/gratia= you may have an error in the probe configuration file. Run manually the test for your probe (check =/etc/cron.d/gratia-probe-condor.cron=), e.g. =/usr/share/gratia/common/cron_check  /etc/gratia/condor/ProbeConfig=. If there is an error you may get a suggestion on where it is, e.g.:
-<pre class="rootscreen">
-%UCL_PROMPT_ROOT% /usr/share/gratia/common/cron_check  /etc/gratia/condor/ProbeConfig
-Parse error in /etc/gratia/condor/ProbeConfig: not well-formed (invalid token): line 21, column 4
-</pre>
-Correct the error and restart gratia.
+The value of =SiteName= in your [[Documentation.Release3/InstallGratia_DRAFT#FilesAndDirs][ProbeConfig]] must match the resource in OIM. Here is an example of a site topology from [[http://oim.opensciencegrid.org][OIM]]:
 
----+++ Have you configured the resource names correctly?
-Do the names of your resources match the names in OIM? 
+<img src="%ATTACHURLPATH%/oim_topology.png"/> 
 
-For example, from the SE portion of the =/etc/osg/config.d/30-gip.ini=:
+In the above example, =WIPAC= is the site, =IceCube= is the resource group, =NPX= is the CE's resource name. To set =SiteName= properly, choose one of the following options:
 
-<pre class="file">
-;===================================================================
-;                             SE
-;===================================================================
-
-; For each storage element, add a new SE section.
-; Each SE name must be unique for the entire grid, so make sure to not
-; pick anything generic like "MAIN".  Each SE section must start with
-; the words "SE", and cannot be named "CHANGEME".
-
-; There are two main configuration types; one for dCache, one for BestMan
-
-; Don't forget to change the section name!  One section per SE at the site.
-[%RED%YOUR_SE_NAME%ENDCOLOR%]
-
-; The first part of this section shows options which are mandatory for all SEs.
-; dCache and BestMan-specific portions are shown afterward.
-
-; Set to False to turn off this SE
-enabled = True
-
-; Name of the SE; set to be the same as the OIM registered name
-name = %RED%YOUR_SE_NAME%ENDCOLOR%
-</pre>
-
-Do those names match the names that you registered with OIM? If not, edit the names, and rerun "osg-configure -c". 
+   * *If you are configuring a CE,* edit the value of =resource= in =/etc/osg/config.d/40-siteinfo.ini= and run =osg-configure=:\
+   <pre class="rootscreen">%UCL_PROMPT_ROOT% osg-configure -c</pre>
+   * *If you are configuring any other type of node,* edit the value of =SiteName= in your =/etc/gratia/%RED%PROBE-NAME%ENDCOLOR%/ProbeConfig= to match the resource name in OIM corresponding to your host.
 
 ---+++ Did the site name change?
 Was the site previously reporting data, but the site name (not host name, but site name) changed? When the site name changes, you need to ask the Gratia operations team to update the name of your site at the Gratia collector. To do this:
@@ -129,7 +103,7 @@ You can see if the OSG Gratia Server is getting data from a site by going to [[h
 
 ---+++ Not collecting HTCondor accounting data
 
-HTCondor must be configured to put information about each job into a special directory. Gratia will read and remove the files in order to collect the accounting information. 
+HTCondor must be configured to put information about each job into a special directory. Gratia will read and remove the files in order to collect the accounting information. If left unconfigured, Gratia will not publish accounting information about jobs. 
 
 The configuration variable is called =PER_JOB_HISTORY_DIR=. If you install the OSG RPM for HTCondor, the Gratia probe will extend its configuration by adding a file to =/etc/condor/config.d=, and will set this variable to =/var/lib/gratia/data=. If you are using a different installation method, you will need to set the variable yourself.
 
@@ -141,107 +115,45 @@ PER_JOB_HISTORY_DIR: /var/lib/gratia/data
   Defined in '/etc/condor/config.d/99_gratia.conf', line 5.
 </pre>
 
-If you set this value, you need to restart condor:
+*If the above command returns =Not defined: PER_JOB_HISTORY_DIR=,* you will need to set it and report any old HTCondor data using the following commands:
 
-<pre class="screen">
-%UCL_PROMPT_ROOT% condor_restart
-Sent "Restart" command to local master
-</pre>
+   1. Set =PER_JOB_HISTORY_DIR = /var/lib/gratia/data= in any file in =/etc/condor/config.d/=.
+   1. Restart condor so that your configuration changes take effect (=condor_reconfigure= is insufficient in this case):\
+   <pre class="rootscreen">%UCL_PROMPT_ROOT% condor_restart</pre>
+   1. Turn off the =gratia-probes-cron= service:
+      * On EL6:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% service gratia-probes-cron stop</pre>
+      * On EL7:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% systemctl stop gratia-probes-cron</pre>
+   1. Report the old HTCondor data:
+      * *If you know the time period of the missing data*, run the following command, specifying start and end times in =YYYY-MM-DD= format:\
+<pre class="rootscreen">%UCL_PROMPT_ROOT% /usr/share/gratia/condor/condor_meter --history --start-time="&lt;START DATE&gt;</span>" --end-time="&lt;END DATE&gt;</span>" --verbose</pre>
+      * *If you do not know the time period of missing data,* run the following command:\
+   <pre class="rootscreen">%UCL_PROMPT_ROOT% /usr/share/gratia/condor/condor_meter --history --verbose</pre>
+   1. Not much is printed to the screen, but you can see progress in the [[Documentation.Release3/InstallGratia_DRAFT#FilesAndDirs][Gratia log file]].
+   1. Start the =gratia-probes-cron= service:
+      * On EL6:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% service gratia-probes-cron start</pre>
+      * On EL7:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% systemctl start gratia-probes-cron</pre>
 
-Unlike many HTCondor settings, a *condor_reconfig* is not sufficient - you must restart!
-
----+++ Reporting old HTCondor data
-
-If you accidentally did not set =PER_JOB_HISTORY_DIR= (see above), Gratia will not publish accounting information about jobs. You can have Gratia read the HTCondor history file and publish data that way.  If you know the time period of the missing data, you should specify a start and end times. This reduces the load on the Gratia collector.  To do so:
-
-%NOTE% turn off the _gratia_probes_cron_ service until this is complete.  Remember to turn it back on when finished.
-
-<pre class="screen">
-%BLUE%Preferred method using start and end times%ENDCOLOR%
-%UCL_PROMPT_ROOT% /usr/share/gratia/condor/condor_meter --history --start-time="2014-06-01" --end-time="2014-06-02" --verbose
-2014-06-03 10:00:36 CDT Gratia: RUNNING condor_meter MANUALLY using HTCondor history from 2014-06-01 to 2014-06-02
-2014-06-03 10:00:36 CDT Gratia: RUNNING: condor_history -l -constraint '((JobCurrentStartDate > 1401598800) && (JobCurrentStartDate < 1401685200))'
-2014-06-03 10:00:49 CDT Gratia: condor_meter --history: Usage records submitted: 399
-2014-06-03 10:00:49 CDT Gratia: condor_meter --history: Usage records found: 400
-2014-06-03 10:00:49 CDT Gratia: RUNNING condor_meter MANUALLY Finished
-
- %BLUE% or if you need to go back to the beginning of time%ENDCOLOR%
-%UCL_PROMPT_ROOT% /usr/share/gratia/condor/condor_meter --history --verbose
-2014-06-03 10:06:19 CDT Gratia: RUNNING condor_meter MANUALLY using all HTCondor history
-2014-06-03 10:06:19 CDT Gratia: RUNNING: condor_history -l
-2014-06-03 10:11:38 CDT Gratia: condor_meter --history: Usage records submitted: 13026
-2014-06-03 10:11:38 CDT Gratia: condor_meter --history: Usage records found: 13027
-2014-06-03 10:11:38 CDT Gratia: RUNNING condor_meter MANUALLY Finished
-</pre>
-
-Not much is printed to the screen, but you can see progress in the [[Documentation.Release3/InstallGratia_DRAFT#FilesAndDirs][Gratia log file]]:
-
-%TWISTY{%TWISTY_OPTS_OUTPUT% showlink="Click to show a log file processing the HTCondor history file..."}%
-<pre class="file">
-13:35:28 CDT Gratia: Initializing Gratia with /etc/gratia/condor/ProbeConfig
-13:35:28 CDT Gratia: Creating a ProbeDetails record 2012-04-04T18:35:28Z
-13:35:28 CDT Gratia: ***********************************************************
-13:35:28 CDT Gratia: OK - Handshake added to bundle (1/100)
-13:35:28 CDT Gratia: ***********************************************************
-13:35:28 CDT Gratia: List of backup directories: [u'/var/lib/gratia/tmp']
-13:35:28 CDT Gratia: Reprocessing response: OK - Reprocessing 0 record(s) uploaded, 0 bundled, 0 failed
-13:35:28 CDT Gratia: After reprocessing: 0 in outbox 0 in staged outbox 0 tar files
-13:35:28 CDT Gratia: Creating a UsageRecord 2012-04-04T18:35:28Z
-...
-13:35:29 CDT Gratia: Processing bundle file: 
-13:35:29 CDT Gratia: Processing bundle file: /var/lib/gratia/tmp/gratiafiles/
-    subdir.condor_fermicloud084.fnal.gov_gratia-osg-itb.opensciencegrid.org_80/
-    outbox/r.18425.condor_fermicloud084.fnal.gov_gratia-osg-itb.opensciencegrid.org_80.gratia.xml__BSuXo18428
-...
-13:35:29 CDT Gratia: ***********************************************************
-13:35:29 CDT Gratia: Removing log files older than 31 days from /var/log/gratia
-13:35:29 CDT Gratia: /var/log/gratia uses 0.035% and there is 73% free
-13:35:29 CDT Gratia: Removing incomplete data files older than 31 days from /var/lib/gratia/data/
-13:35:29 CDT Gratia: /var/lib/gratia/data uses 0% and there is 73% free
-13:35:29 CDT Gratia: End of execution summary: new records sent successfully: 37
-</pre>
-%ENDTWISTY%
-
-__Note__  that HTCondor rotates history files, so you can only report what HTCondor has kept. Controlling the HTCondor history is documented in the [[http://research.cs.wisc.edu/htcondor/manual/v8.4/4_5Logging_in.html#51346][HTCondor manual]]. In particular, see the options for [[http://research.cs.wisc.edu/htcondor/manual/v8.4/3_3Configuration.html#20361][MAX_HISTORY_LOG]] and [[http://research.cs.wisc.edu/htcondor/manual/v8.4/3_3Configuration.html#20366][MAX_HISTORY_ROTATIONS]].
+%NOTE% HTCondor rotates history files, so you can only report what HTCondor has kept. Controlling the HTCondor history is documented in the [[http://research.cs.wisc.edu/htcondor/manual/v8.4/4_5Logging_in.html#51346][HTCondor manual]]. In particular, see the options for [[http://research.cs.wisc.edu/htcondor/manual/v8.4/3_3Configuration.html#20361][MAX_HISTORY_LOG]] and [[http://research.cs.wisc.edu/htcondor/manual/v8.4/3_3Configuration.html#20366][MAX_HISTORY_ROTATIONS]].
 
 ---+++ Gratia log files: bad Gratia hostname
 
-This is an example problem where the configuration was bad: there was an incorrect hostname for the Gratia server. The problem is clearly visible in the Gratia log file, which is located in =cd /var/log/gratia/=. There is one log file per day, labeled by the date:
+This is an example problem where the configuration was bad: there was an incorrect hostname for the Gratia server. You can check if this problem occurred in the past month with the following command:
 
-<pre class="file">
-%UCL_PROMPT_ROOT% cd /var/log/gratia/
-%UCL_PROMPT_ROOT% cat 2012-04-03.log 
-...
-%RED%You can see that Gratia is using the correct configuration file:%ENDCOLOR%
-15:06:55 CDT Gratia: Using config file: /etc/gratia/condor/ProbeConfig
+<pre class="rootscreen">grep socket.gaierror /var/log/gratia/`date +%Y-%m`*.log</pre>
 
-%RED%Here Gratia is removing a file from the HTCondor PER_JOB_HISTORY_DIR and creating a Gratia accounting record for it%ENDCOLOR%
-15:06:55 CDT Gratia: Creating a UsageRecord 2012-04-03T20:06:55Z
-15:06:55 CDT Gratia: Registering transient input file: /var/lib/gratia/data/history.37.0
-15:06:55 CDT Gratia: ***********************************************************
-15:06:55 CDT Gratia: Saved record to /var/lib/gratia/tmp/gratiafiles/
-    subdir.condor_fermicloud084.fnal.gov_ggratia-osg-itb.opensciencegrid.org_80/
-    outbox/r.30604.condor_fermicloud084.fnal.gov_ggratia-osg-itb.opensciencegrid.org_80.gratia.xml__wfIgi30606
-15:06:55 CDT Gratia: Deleting transient input file: /var/lib/gratia/data/history.37.0
-
-%RED%Later, Gratia failed to connect to the server due to a bad hostname%ENDCOLOR%
-15:06:55 CDT Gratia: Failed to send xml to web service due to an error of type "socket.gaierror": (-2, 'Name or service not known')
-...
-15:06:55 CDT Gratia: Response indicates failure, the following files will not be deleted:
-15:06:55 CDT Gratia:    /var/lib/gratia/tmp/gratiafiles/
-    subdir.condor_fermicloud084.fnal.gov_ggratia-osg-itb.opensciencegrid.org_80/
-    outbox/r.30604.condor_fermicloud084.fnal.gov_ggratia-osg-itb.opensciencegrid.org_80.gratia.xml__wfIgi30606
-</pre>
-
----+++ Recovering from bad Gratia hostname
+---++++ Recovering from bad Gratia hostname
 
 If you accidentally had a bad Gratia hostname, you probably want to recover your Gratia data. This can be done, though it's not simple. There are a few things you need to do. But first, you need to understand exactly where Gratia stores files. 
 
 When a Gratia extracts accounting information, it creates one file per record and stores it in a directory. The directory is a long name that contains the type of the probe (such as =condor=), the name of the host you're running on, and the name of the Gratia host you're sending the information to. For simplicity, lets call that name _probe-records_, but you'll see what it really looks like below. Within this directory, you'll see some subdirectories:
 
 | * Directory * | *Purpose* |
-| /var/lib/gratia/tmp/grataifiles/%RED%probe-records%ENDCOLOR%/outbox | The usual location for the accounting records |
-| /var/lib/gratia/tmp/grataifiles/%RED%probe-records%ENDCOLOR%/staged/store | An overflow location when there are problems |
+| /var/lib/gratia/tmp/gratiafiles/%RED%probe-records%ENDCOLOR%/outbox | The usual location for the accounting records |
+| /var/lib/gratia/tmp/gratiafiles/%RED%probe-records%ENDCOLOR%/staged/store | An overflow location when there are problems |
 
 When you recover old records, you need to:
    1. Before trying to transfer any old records, check if they are more than three months old. If they are, the server will not accept them. This is a policy that is enforced strictly by the admins.
@@ -250,21 +162,31 @@ When you recover old records, you need to:
 
 In the examples below, the hostname for gratia was "accidentally" spelled backwards. Instead of =gratia-osg-itb.opensciencegrid.org=, it was =aitarg-osg-itb.opensciencegrid.org=. 
 
----++++ Correct the hostname
+---+++++ Correct the hostname
 First you need to fix the hostname. For a CE, you can edit =/etc/osg/config.d/30-gratia.ini= and rerun =osg-configure -c=. In other installations, you have to edit the appropriate =ProbeConfig= file. 
 
----++++ Run one job
-Next, submit a job via Globus to your batch system, then run the appropriate Gratia probe (or wait for it to run via cron). This will create the properly named directories on your disk. For example:
+---+++++ Run one job
 
-As a user: <pre class="screen">
-%UCL_PROMPT% globus-job-run fermicloud084.fnal.gov/jobmanager-condor /bin/hostname
-</pre>
+Next, submit a job via HTCondor-CE to your batch system, then run the appropriate Gratia probe. This will create the properly named directories in =/var/lib/gratia/tmp/gratiafiles/=:
 
-As root (adjust for your batch system): <pre class="rootscreen">
-%UCL_PROMPT_ROOT% /share/gratia/condor/condor_meter 
-</pre>
+<ol>
+   <li>
+      <p>Submit the job:</p>
+      <pre class="screen">%UCL_PROMPT% condor_ce_trace -d `hostname`</pre>
+   </li>
+   <li>
+      <p>Run the Gratia probe for your batch system manually:</p>
+      %TABLE{sort="off"}%
+      | *If your batch system is...* | *Then run the following command...* |
+      | HTCondor | =/usr/share/gratia/condor/condor_meter= |
+      | Slurm | =/usr/share/gratia/slurm/slurm_meter= |
+      | PBS/Torque | =/usr/share/gratia/pbs-lsf/pbs-lsf_meter.cron.sh= |
+      | LSF | =/usr/share/gratia/pbs-lsf/pbs-lsf_meter.cron.sh= |
+      | SGE| =/usr/share/gratia/sge/sge_meter.cron.sh= |
+   </li>
+</ol>
 
----++++ Restore the individual Gratia records
+---+++++ Restore the individual Gratia records
 First, find the Gratia records that can be easily uploaded. They are located in a a directory with an unwieldly name that includes your hostname and the incorrect name of the Gratia host. You can see the directory name in the Gratia log: the misspelled name is noted in red below, but _it will be different on your computer_. 
 
 <pre class="file">
@@ -285,7 +207,7 @@ You can simply copy these to the correct directory. Wait for the Gratia cron job
 %UCL_PROMPT_ROOT% mv * /var/lib/gratia/tmp/gratiafiles/subdir.condor_fermicloud084.fnal.gov_%RED%gratia%ENDCOLOR%-osg-itb.opensciencegrid.org_80/outbox/.
 </pre>
 
----++++ Restore compressed Gratia records
+---+++++ Restore compressed Gratia records
 If this has been a persistent problem, you might have many records. After a while, they are put into a compressed files in another directory. You can move those files, then uncompress them. This is a long name: note that the path ends in "staged/store" instead of "outbox" as above:
 
 <pre class="rootscreen">
@@ -324,9 +246,8 @@ Here are some other Gratia documents that might be helpful:
    * [[Documentation.Release3/GratiaIntroduction_DRAFT][Gratia Probe Introduction]]
    * [[Documentation.Release3/InstallGratia_DRAFT][Installing and Maintaining Gratia Probes]]
    * [[Documentation.Release3/GratiaReference_DRAFT][Gratia Probe Reference]]
-   * [[http://gratia-osg-prod-reports.opensciencegrid.org/gratia-reporting/][Gratia Job Accounting Data]] (Production)
-   * [[http://gratia-osg-itb-reports.opensciencegrid.org/gratia-reporting/][Gratia Job Accounting Data]] (ITB)
-   * [[http://gratia-osg-transfer-reports.opensciencegrid.org/gratia-reporting/][Gratia Transfer Accounting Data]]
    * You can get daily emails with OSG accounting reports in them. Join the [[Accounting.ContactUs][osg-accounting-info]] mailing list. 
    * [[Accounting.WebHome][The Gratia group's web page]]
    * [[Documentation/Release3.NavTechGratia][Gratia's technical documentation index]]
+
+%META:FILEATTACHMENT{name="oim_topology.png" attachment="oim_topology.png" attr="h" comment="OIM topology example for a site to point out proper resource and resource_group values" date="1479507852" path="oim_topology.png" size="14867" stream="oim_topology.png" tmpFilename="/usr/tmp/CGItemp45937" user="BrianLin" version="1"}%
