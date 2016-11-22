@@ -1,63 +1,75 @@
-%META:TOPICINFO{author="BrianLin" date="1479510981" format="1.1" reprev="1.6" version="1.6"}%
----+ Troubleshooting Gratia Accounting Guide
+%META:TOPICINFO{author="TimCartwright" date="1479834628" format="1.1" reprev="1.7" version="1.7"}%
+---+ Gratia Troubleshooting Guide
 
 %TOC{depth="3"}%
 
+
 ---++ About This Guide
 
-In this document, you will find troubleshooting solutions for common problems with collecting and reporting Gratia accounting information.
+Gratia is OSG software that gathers resource usage data (e.g., number and duration of jobs run, number and size of file transfers) from a site and ultimately transmits it to a central OSG storage system for reporting. The individual software tools that gather data are called _Gratia probes_, and the most common type of problem with Gratia at a site is that one or more probes stop sending data&nbsp;&mdash; either because they fail to run, fail to collect data properly, or fail to send collected data. If you are running an optional _Gratia Collector_ at your site to collect site probe data and forward it to the central OSG system, it may have problems, too.
+
+Use this document to troubleshoot common problems with Gratia at your site, especially Gratia probes that have stopped sending data.
+
 
 ---++ General Troubleshooting Items
 
-Before continuing with Gratia-specific troubleshooting, ensure that your packages are up to date and unmodified.
+Before continuing with Gratia-specific troubleshooting, ensure that your Gratia packages are up-to-date and unmodified.
 
 ---+++ Making sure packages are up-to-date
 
-It is important to make sure that the Gratia probe RPMs are up-to-date:
+A common source of software problems is out-of-date software. Make sure that your Gratia RPMs are up-to-date:
 
-<pre class="screen">yum update <em>"gratia-probe-*</em></pre>\
+<pre class="rootscreen">%UCL_PROMPT_ROOT% yum update "gratia-*"</pre>
 
-If you just want to see the packages to update, but do not want to perform the update now, answer <code>N</code> at the prompt.
+If you just want to see the packages to update, but do not want to perform the update now, answer =N= at the prompt.
 
----+++ Verify package contents
+---+++ Verifying package contents
 
-If the contents of your Gratia probe packages have been changed, the probes may cease to function properly. To verify the contents of your packages (ignoring changes to configuration files):
+If the contents of your Gratia packages have changed since they were installed, the software may not work properly. Verify the contents of your packages (ignoring changes to configuration files):
 
-<pre class="screen">
-%UCL_PROMPT% rpm -qa | grep ^gratia-probe | xargs rpm -q --verify | awk '$2 != "c"'
-</pre>
+<pre class="screen">%UCL_PROMPT% rpm -qa | grep ^gratia | xargs rpm -q --verify | awk '$2 != "c"'</pre>
 
-If the verification command returns output, this means that your packages have been changed. To fix this, you can reinstall the packages:
+If the verification command returns output, this means that your package contents have changed. To fix this, you can reinstall the packages:
 
-<pre class="screen">
-%UCL_PROMPT% yum reinstall "gratia-probe-*"
-</pre>
+<pre class="rootscreen">%UCL_PROMPT_ROOT% yum reinstall "gratia-*"</pre>
 
-%NOTE% The reinstall command may place original versions of configuration files alongside the versions that you have modified. If this is the case, the reinstall command will notify you that the original versions will have an =.rpmnew= suffix. Further inspection of these files may be required as to whether or not you need to merge them into your current configuration.
+%NOTE% The =reinstall= command may place original versions of configuration files alongside the versions that you have modified. If this is the case, the reinstall command will notify you that the original versions will have an =.rpmnew= suffix. Compare any =.rpmnew= files to their corresponding configuration files and decide whether to merge contents.
+
 
 ---++ Gratia Troubleshooting Items
 
-This section contains common issues you may encounter using Gratia and next actions to take when you do. Before continuing to the sections below, increase the log level in each of your =/etc/gratia/%RED%PROBE-NAME%ENDCOLOR%/ProbeConfig= files:
+Use this section to identify and try to fix common Gratia software problems at your site.
+
+First, it may be helpful to increase the logging level in your =/etc/gratia/%RED%PROBE-NAME%ENDCOLOR%/ProbeConfig= files (either specific ones that have problems, or all of them to catch a broad range of problems):
 
 <pre class="file">LogLevel="<span style="background-color: #FFCCFF;">5</span>"</pre>
 
-After troubleshooting, make sure to reset the log level:
+After troubleshooting, be sure to reset the log level:
 
 <pre class="file">LogLevel="<span style="background-color: #FFCCFF;">2</span>"</pre>
 
----+++ Are the Gratia cron jobs running?
+---+++ One or more Gratia probes are not sending data
 
-To verify that Gratia is running, check =/var/log/gratia/=:
+By far, the most commonly observed problem with Gratia at a site is that one or more probes stop sending data. There are several possible root causes for this problem, so check through all of the following subsections as needed.
 
-<pre class="rootscreen">%UCL_PROMPT_ROOT% find /var/log/gratia -name `date +%F`.log</pre>
+---++++ Stopped probes #1: Are the Gratia cron jobs running?
 
-*If there is no output*, Gratia has not run recently and you need to verify that it is enabled:
+Each Gratia probe runs periodically from a =cron= entry. There is a convenient service to manage the status of the Gratia probe entries, so that you do not need to modify the =cron= entries directly. It is possible that one or more Gratia probes were disabled inadvertently, so it is good to check whether probes have been running lately. Use the following process to check on the status of Gratia probes.
 
-   1. Ensure that the =gratia-probes-cron= service is running:\
-   <pre class="rootscreen">%UCL_PROMPT_ROOT% /sbin/service gratia-probes-cron status
-gratia probes cron is enabled.</pre>
-   1. Ensure that =EnableProbe="1"= in each of your =ProbeConfig= files:\
-   <pre class="rootscreen">%UCL_PROMPT_ROOT% grep EnableProbe /etc/gratia/*/ProbeConfig
+   1. See if Gratia has run recently:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% find /var/log/gratia -mtime -2</pre>\
+      <p>If this command lists one or more log files (in =YYYY-MM-DD.log= format), then Gratia has run recently. Skip the rest of this procedure and move to the next subsection.</p>
+   1. Verify that Gratia probes are enabled to run in general:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% /sbin/service gratia-probes-cron status</pre>\
+      <p>The output shows whether =gratia probes cron= is =enabled= or =disabled=.</p>
+   1. If =gratia probes cron is disabled=, then enable the Gratia probes =cron= system in general:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% /sbin/service gratia-probes-cron start</pre>
+   1. Ensure that one or more Gratia probes are enabled:\
+      <pre class="rootscreen">%UCL_PROMPT_ROOT% grep EnableProbe /etc/gratia/*/ProbeConfig</pre>\
+      <p>For each probe path, =EnableProbe="1"= means that the probe is enabled and =EnableProbe="0"= means that it is disabled.</p>
+
+Ensure that =EnableProbe="1"= in each of your =ProbeConfig= files:\
+       <pre class="rootscreen">%UCL_PROMPT_ROOT% grep EnableProbe /etc/gratia/*/ProbeConfig
 /etc/gratia/condor/ProbeConfig:    EnableProbe="1"</pre>
 
 *If Gratia is enabled*, running the command specified in =/etc/cron.d/gratia-probe*.cron= may provide insight into the failures. The following steps use =gratia-probe-condor= as an example but apply to all Gratia probes:
