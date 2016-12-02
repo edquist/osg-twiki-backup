@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1480711470" format="1.1" reprev="1.9" version="1.9"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1480717023" format="1.1" reprev="1.10" version="1.10"}%
 %META:TOPICPARENT{name="MatyasSelmeciSandbox"}%
 %TOC{depth="2"}%
 
@@ -37,7 +37,7 @@ Its contents are not necessary for a restore, but do speed up the restore time b
 For all of these steps, you will need a root shell on _host-3.chtc.wisc.edu_
 and have the following environment variables defined:<pre class="rootscreen">
 NEWDB=<em>FQDN of new database server</em>
-NEWHUB=<em>FQDN of new koji-hub</em>
+NEWKOJI=<em>FQDN of new koji host</em>
 DATE=<em>YYYY-MM-DD date of most recent good backup</em>
 DBBACKUP=/export/backup/$DATE/db-01.batlab.org
 HUBBACKUP=/export/backup/$DATE/koji.chtc.wisc.edu
@@ -136,7 +136,7 @@ host    koji        koji        128.104.100.41/32     md5</pre>\
 ## On newdb:
 root@newdb# chown -R postgres:postgres /var/lib/pgsql/*
 root@newdb# service postgresql start
-root@newdb# gunzip -c /root/dbrestore/var/lib/pgsql-backup/postgres-db-01.sql.gz | psql postgres
+root@newdb# gunzip -c /root/dbrestore/var/lib/pgsql-backup/postgres-db-01.sql.gz | psql -U postgres postgres
 ## (Ignore the error 'role "postgres" already exists' if you see it)
 </pre>
 
@@ -154,19 +154,19 @@ root@newdb# psql -U koji -h newdb koji
 </pre>\
       (you must use the FQDN of _newdb_, not _localhost_).\
       Be sure you get prompted for a password, and the password from =/etc/koji-hub/hub.conf= works.
-   1. Go to [[#RestoringKojiHub][Restoring koji-hub]] if needed; otherwise go to [[#PostRestore][Post-restore steps]]
+   1. Go to [[#RestoringKoji][Restoring koji]] if needed; otherwise go to [[#PostRestore][Post-restore steps]]
 
-#RestoringKojiHub
----++ II. Restoring koji-hub
+#RestoringKoji
+---++ II. Restoring koji
 
-Both the root filesystem of _koji-hub_ and =/mnt/koji= are backed up.
+Both the root filesystem of _koji.chtc_ and =/mnt/koji= are backed up.
 The root filesystem backups are in the =rootfs= subdirectory of =/export/backup/$DATE/koji.chtc.wisc.edu=
 and the backups of =/mnt/koji= are in the =kojifs= subdirectory.
 
 The following instructions show how to restore the critical components of
 Koji onto o new machine.
 
-In the instructions, the new host will be named _newhub_.
+In the instructions, the new host will be named _newkoji_.
 <!--
 We might be able to get away with a full rsync restore of the filesystem (option A);
 if not, then we can reinstall (option B).
@@ -176,61 +176,61 @@ Either way, since =/mnt/koji= is on a separate filesystem, it will be restored s
 <!--
  ---+++ II.A. Restoring all from rsync (UNTESTED)
 
-   1. Boot _newhub_ from a !LiveCD
+   1. Boot _newkoji_ from a !LiveCD
    1. Partition the hard drive; create seperate partitions for =/= and =/mnt/koji=
    1. Mount the root partition as =/mnt/rootfs= and mount the koji partition as =/mnt/kojifs=
    1. Start =sshd=
    1. On _host-3_:<pre class="rootscreen">
-root@host-3# $RSYNC $HUBBACKUP/rootfs $NEWHUB:/mnt/rootfs
-root@host-3# $RSYNC $HUBBACKUP/kojifs $NEWHUB:/mnt/kojifs
+root@host-3# $RSYNC $HUBBACKUP/rootfs $NEWKOJI:/mnt/rootfs
+root@host-3# $RSYNC $HUBBACKUP/kojifs $NEWKOJI:/mnt/kojifs
 </pre>
-   1. Reboot _newhub_ and boot from the local drive
+   1. Reboot _newkoji_ and boot from the local drive
    1. Go to [[#PostRestore][Post-restore steps]]
 
 -->
 
 ---+++ II.1. Installing the OS
 
-Prerequisites for _newhub_: an EL 5+ host with an SSH server set up and accessible (as root) from _host-3.chtc.wisc.edu_
+Prerequisites for _newkoji_: an EL 5+ host with an SSH server set up and accessible (as root) from _host-3.chtc.wisc.edu_
 (This recipe was tested for EL 6, on the same machine as _newdb_).
    1. Install !EPEL and OSG repos.
       * On EL 5:<pre class="rootscreen">
-root@newhub# rpm -Uvh \
+root@newkoji# rpm -Uvh \
    http://dl.fedoraproject.org/pub/epel/5/i386/epel-release-5-4.noarch.rpm \
    http://repo.grid.iu.edu/osg/3.2/osg-3.2-el5-release-latest.rpm</pre>
       * On EL 6:<pre class="rootscreen">
-root@newhub# rpm -Uvh \
+root@newkoji# rpm -Uvh \
    http://dl.fedoraproject.org/pub/epel/6/i386/epel-release-6-8.noarch.rpm \
    http://repo.grid.iu.edu/osg/3.2/osg-3.2-el6-release-latest.rpm</pre>
-      * On both:<pre class="rootscreen">root@newhub# yum install -y yum-priorities</pre>
+      * On both:<pre class="rootscreen">root@newkoji# yum install -y yum-priorities</pre>
    1. Edit =/etc/yum.repos.d/osg-*development.repo=:
       * Enable the development repo
       * Add <code>includepkg=koji*</code> to the definition for the development repo
    1. Go through the other repo files and make sure that !EPEL and OS priorities are worse than 98.\
       Especially look at =cobbler-config.repo= if it exists.
    1. Install the koji packages and dependencies, making sure the koji packages themselves come from osg:<pre class="rootscreen">
-root@newhub# yum install koji koji-builder koji-hub koji-plugin-sign \
+root@newkoji# yum install koji koji-builder koji-hub koji-plugin-sign \
    koji-theme-fedora koji-utils koji-web mod_ssl postgresql
 </pre>
    1. Mount =/mnt/koji= if necessary
    1. Restore the contents of the koji filesystem. On _host-3_:<pre class="rootscreen">
 ## At a minimum, you must restore the /mnt/koji/packages directory
-root@host-3# $RSYNC $HUBBACKUP/kojifs/packages/ $NEWHUB:/mnt/koji/packages
+root@host-3# $RSYNC $HUBBACKUP/kojifs/packages/ $newkoji:/mnt/koji/packages
 ## The other directories are optional, though it saves a lot of time to restore /mnt/koji/repos
-root@host-3# $RSYNC $HUBBACKUP/kojifs/repos/ $NEWHUB:/mnt/koji/repos
-root@host-3# $RSYNC $HUBBACKUP/kojifs/work/ $NEWHUB:/mnt/koji/work
-root@host-3# $RSYNC $HUBBACKUP/kojifs/scratch/ $NEWHUB:/mnt/koji/scratch
+root@host-3# $RSYNC $HUBBACKUP/kojifs/repos/ $NEWKOJI:/mnt/koji/repos
+root@host-3# $RSYNC $HUBBACKUP/kojifs/work/ $NEWKOJI:/mnt/koji/work
+root@host-3# $RSYNC $HUBBACKUP/kojifs/scratch/ $NEWKOJI:/mnt/koji/scratch
 ## Any dirs you did not restore should be created.
 </pre>
-   1. Fix permissions if needed. On _newhub_:<pre class="rootscreen">
-root@newhub# chown -R apache:apache /mnt/koji/{packages,repos,work,scratch}
-root@newhub# chmod 0755             /mnt/koji/{packages,repos,work,scratch}
+   1. Fix permissions if needed. On _newkoji_:<pre class="rootscreen">
+root@newkoji# chown -R apache:apache /mnt/koji/{packages,repos,work,scratch}
+root@newkoji# chmod 0755             /mnt/koji/{packages,repos,work,scratch}
 </pre>
    1. Continue on to the next section
 
 ---+++ II.2. Restoring Configuration
 
-On _newhub_, define the shell function =dirclone=, listed below:
+On _newkoji_, define the shell function =dirclone=, listed below:
 
 <pre class="rootscreen">
 dirclone () {
@@ -243,23 +243,23 @@ dirclone () {
 <!--
  ---+++++ II.B.2.a. Restoring all of /etc using rsync (UNTESTED)
 
-   1. Boot _newhub_ from a !LiveCD and mount the root partition as =/mnt/rootfs=
+   1. Boot _newkoji_ from a !LiveCD and mount the root partition as =/mnt/rootfs=
    1. On _host-3_:<pre class="rootscreen">
-root@host-3# $RSYNC $DA $HUBBACKUP/rootfs/etc/ $NEWHUB:/mnt/rootfs/etc
+root@host-3# $RSYNC $DA $HUBBACKUP/rootfs/etc/ $NEWKOJI:/mnt/rootfs/etc
 </pre>
-   1. Reboot _newhub_ and boot from the local drive
+   1. Reboot _newkoji_ and boot from the local drive
    1. Continue to [[#RestoringHome][Restoring home directories]]
 
 -->
 
-   1. On _newhub_:<pre class="rootscreen">mkdir -p /root/hubrestore</pre>
+   1. On _newkoji_:<pre class="rootscreen">mkdir -p /root/hubrestore</pre>
    1. On _host-3_:<pre class="rootscreen">
-$RSYNC $HUBBACKUP/rootfs/{root,home,etc,var} $NEWHUB:/root/hubrestore/</pre>
-   1. On _newhub_, install some utils we might need later:<pre class="rootscreen">
-root@newhub# yum install -y dos2unix vim-enhanced</pre> (vim-enhanced is used for vimdiff)
-   1. On _newhub_:<pre class="rootscreen">
+$RSYNC $HUBBACKUP/rootfs/{root,home,etc,var} $NEWKOJI:/root/hubrestore/</pre>
+   1. On _newkoji_, install some utils we might need later:<pre class="rootscreen">
+root@newkoji# yum install -y dos2unix vim-enhanced</pre> (vim-enhanced is used for vimdiff)
+   1. On _newkoji_:<pre class="rootscreen">
 ## Restore some of the directories in /etc:
-root@newhub# while read subtree; do
+root@newkoji# while read subtree; do
    dirclone /root/hubrestore/etc/$subtree /etc/$subtree
 done &lt;&lt;__END__
 kojid
@@ -272,20 +272,20 @@ pki/tls/certs
 pki/tls/private
 __END__
 ## Restore some of the files:
-root@newhub# cp -a /root/hubrestore/etc/koji.conf /etc/
-root@newhub# cp -a /root/hubrestore/etc/sysconfig/{httpd,kojid,kojira} /etc/sysconfig/
+root@newkoji# cp -a /root/hubrestore/etc/koji.conf /etc/
+root@newkoji# cp -a /root/hubrestore/etc/sysconfig/{httpd,kojid,kojira} /etc/sysconfig/
 ## If you are migrating from EL 5 to EL6, you will have to merge the
 ## files in /etc/httpd subtree individually. If you're going from EL5
 ## to EL5, you can just dirclone it from the hubrestore directory.
 </pre>
    1. Restore users and home directories
-      * If _newhub_ is on a separate host from _newdb_, then just simply copy over the files:<pre class="rootscreen">
-root@newhub# dirclone /root/hubrestore/home /home
-root@newhub# cp -a /root/hubrestore/etc/{passwd,shadow,group,gshadow} /etc
+      * If _newkoji_ is on a separate host from _newdb_, then just simply copy over the files:<pre class="rootscreen">
+root@newkoji# dirclone /root/hubrestore/home /home
+root@newkoji# cp -a /root/hubrestore/etc/{passwd,shadow,group,gshadow} /etc
 </pre>
-      * If _newhub_ is on the same host as _newdb_, then you will have to be more careful:<pre class="rootscreen">
+      * If _newkoji_ is on the same host as _newdb_, then you will have to be more careful:<pre class="rootscreen">
 ## Skip home directories for the special users
-root@newhub# for dir in /root/hubrestore/home/*; do
+root@newkoji# for dir in /root/hubrestore/home/*; do
    bndir=$(basename "$dir")
    if &#91;&#91; $bndir != koji &amp;&amp; $bndir != postgres &#93;&#93; ; then
       dirclone "$dir" /home/"$bndir"
@@ -298,17 +298,17 @@ done
 </pre>
    1. Ensure a 'koji' user exists
    1. Fix dirs in =/var=:<pre class="rootscreen">
-root@newhub# dirclone /root/hubrestore/var/www/html /var/www/html
-root@newhub# rm -rf /var/lib/mock/*
-root@newhub# chown root:mock /var/lib/mock
-root@newhub# chmod 2775 /var/lib/mock
+root@newkoji# dirclone /root/hubrestore/var/www/html /var/www/html
+root@newkoji# rm -rf /var/lib/mock/*
+root@newkoji# chown root:mock /var/lib/mock
+root@newkoji# chmod 2775 /var/lib/mock
 </pre>
 
 ---+++ II.3. Fixing Names
 
-This section should be done if _newdb_ or _newhub_ do not have the same as
+This section should be done if _newdb_ or _newkoji_ do not have the same as
 the previous db server and hub (i.e. _db-01.batlab.org_ and _koji.chtc.wisc.edu_).
-This section should be completed on _newhub_.
+This section should be completed on _newkoji_.
 
 ---++++ Fixing config files if _newdb_ was renamed
 
@@ -316,7 +316,7 @@ The only change that's needed if _newdb_ was renamed is to =/etc/koji-hub/hub.co
 Edit that file and change the !DBHost line to point to the new hostname.
 After editing, make sure =hub.conf= is owned by =root:apache= and chmodded 0640.
 
----++++ Installing new cert/key pairs for _newhub_
+---++++ Installing new cert/key pairs for _newkoji_
 
 You will need two cert/key pairs: one for the host, and one for the kojira service.
 Define the shell function =makepem=, listed below.
@@ -375,7 +375,7 @@ You will need to find and fix entries that contain the hostname in the following
 ---++++ Fixing hostname elsewhere
 
 These steps are only necessary if you cannot get a DNS Canonical Name (CN) record
-such that _koji.chtc.wisc.edu_ resolves to _newhub_.
+such that _koji.chtc.wisc.edu_ resolves to _newkoji_.
 
    1. Update the repo definitions in the _osg-release_ package
    1. Update the mash script(s) at the GOC
@@ -394,17 +394,17 @@ Now you will start up Koji services and verify that they function.
 Prerequisite: previous restore steps have been completed and =postgresql= is
 running on the database host.
 
-All steps will be run on _newhub_.
+All steps will be run on _newkoji_.
 
    1. Start the main koji daemon: <pre class="rootscreen">
-root@newhub# service httpd start</pre>
+root@newkoji# service httpd start</pre>
    1. Use =ps= to verify that it came up
    1. Connect to the web interface in your browser.\
       Make sure you can use https and you can log in.
    1. As yourself, run the =koji= command-line tool and make a few queries\
       (e.g. list-tags)
    1. Start the koji build daemon: <pre class="rootscreen">
-root@newhub# service kojid start</pre>
+root@newkoji# service kojid start</pre>
    1. Use =ps= to verify that it came up
 
 If you did not restore the =/mnt/koji= directory, you will now need to
@@ -417,7 +417,7 @@ to the right hosts.
 
    1. Try a scratch build
    1. Start =kojira=: <pre class="rootscreen">
-root@newhub# service kojira start</pre>
+root@newkoji# service kojira start</pre>
    1. Use =ps= to verify that it came up
    1. Wait half a minute and use =ps= to verify that =kojid= is still up;
       the two processes can kick each other off if they are both using the
@@ -442,7 +442,7 @@ Tasks needed to minimize the amount of manual work:
 
 ---+++++ Create patches for config files
 
-Currently, several steps for setting up _newhub_ and _newdb_
+Currently, several steps for setting up _newkoji_ and _newdb_
 require changes to configuration files. Some of these changes
 are manual, especially if going from RHEL 5 to RHEL 6. We might
 be able to express these as patches to the standard config files
