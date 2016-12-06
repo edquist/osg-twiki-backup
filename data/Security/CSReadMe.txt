@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="KyleGross" date="1480625566" format="1.1" reprev="1.22" version="1.22"}%
+%META:TOPICINFO{author="KyleGross" date="1481047945" format="1.1" version="1.23"}%
 %META:TOPICPARENT{name="ReleaseDocumentation.CertScriptsPackage"}%
 %DOC_STATUS_TABLE%
 
@@ -209,7 +209,7 @@ cert-scripts/dev/M2Crypto/m2crypto-0.17.
    * Local OWNER          = JamesBarlow
 
    Please define the document area, choose one of the defined areas from the next line
-   DOC_AREA = (ComputeElement|Storage|VO|SecurityTeamTeamTeamTeamTeamTeam|User|Monitoring|General|Trash/Trash/Integration|Operations|Tier3)
+   DOC_AREA = (ComputeElement|Storage|VO|SecurityTeamTeamTeamTeamTeam|User|Monitoring|General|Trash/Trash/Integration|Operations|Tier3)
    * Local DOC_AREA       = Security
 
    define the primary role the document serves, choose one of the defined roles from the next line
