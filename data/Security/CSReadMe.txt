@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="KyleGross" date="1481047945" format="1.1" version="1.23"}%
+%META:TOPICINFO{author="DaveDykstra" date="1481061589" format="1.1" reprev="1.24" version="1.24"}%
 %META:TOPICPARENT{name="ReleaseDocumentation.CertScriptsPackage"}%
 %DOC_STATUS_TABLE%
 
@@ -209,7 +209,7 @@ cert-scripts/dev/M2Crypto/m2crypto-0.17.
    * Local OWNER          = JamesBarlow
 
    Please define the document area, choose one of the defined areas from the next line
-   DOC_AREA = (ComputeElement|Storage|VO|SecurityTeamTeamTeamTeamTeam|User|Monitoring|General|Trash/Trash/Integration|Operations|Tier3)
+   DOC_AREA = (ComputeElement|Storage|VO|Security|User|Monitoring|General|Trash/Trash/Integration|Operations|Tier3)
    * Local DOC_AREA       = Security
 
    define the primary role the document serves, choose one of the defined roles from the next line
@@ -271,3 +271,4 @@ cert-scripts/dev/M2Crypto/m2crypto-0.17.
 %META:FILEATTACHMENT{name="cert-request.txt" attachment="cert-request.txt" attr="" comment="V2-7 cert-request help" date="1242684851" path="cert-request.txt" size="3923" stream="cert-request.txt" tmpFilename="/usr/tmp/CGItemp64523" user="DougOlson" version="1"}%
 %META:FILEATTACHMENT{name="cert-retrieve.txt" attachment="cert-retrieve.txt" attr="" comment="V2-7 cert-retrieve help" date="1242684919" path="cert-retrieve.txt" size="2756" stream="cert-retrieve.txt" tmpFilename="/usr/tmp/CGItemp64511" user="DougOlson" version="1"}%
 %META:FILEATTACHMENT{name="cert-renew.txt" attachment="cert-renew.txt" attr="" comment="V2-7 cert-renew help" date="1242684994" path="cert-renew.txt" size="1988" stream="cert-renew.txt" tmpFilename="/usr/tmp/CGItemp64461" user="DougOlson" version="1"}%
+%META:TOPICMOVED{by="DaveDykstra" date="1481059559" from="SecurityTeam.CSReadMe" to="Security.CSReadMe"}%
