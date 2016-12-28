@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1465915012" format="1.1" version="1.45"}%
+%META:TOPICINFO{author="BrianLin" date="1482954540" format="1.1" reprev="1.46" version="1.46"}%
 %META:TOPICPARENT{name="TestingHome"}%
 ---+ Running Tests as VM Jobs
 
@@ -33,7 +33,16 @@ The procedure explained in this section replaces [[https://twiki.opensciencegrid
    1. If there are test failures that shouldn't be marked as failures in the reporting, edit =test-exceptions.yaml=; you can add test failures to ignore with the following format:\
        <pre class="file"># - [test_function, test_module, start date, end date]. 
 %RED%- [test_04_trace, test_55_condorce, 2014-12-01, 2015-01-14]%ENDCOLOR%</pre>
-   1. If you want to change test run parameters, edit =parameters.d/osg32.yaml=, =parameters.d/osg33-el6.yaml=, or =parameters.d/osg33-el7.yaml=;  or you can add/remove yaml files with the same format. Each file in =paramaters.d= generates an osg-test run for every possible combination of the =platforms=, =sources=, and =packages= parameters in that file.
+   1. If you want to change test run parameters, edit =parameters.d/osg32.yaml=, =parameters.d/osg33-el6.yaml=, or =parameters.d/osg33-el7.yaml=;  or you can add/remove yaml files with the same format. Each file in =paramaters.d= generates an osg-test run for every possible combination of the =platforms=, =sources=, and =package_sets= parameters in that file.
+      i. To change the distribution, modify the =platforms= section. Accepted values are listed below:\
+      <pre class="file">platforms:
+  - centos_6_x86_64
+  - rhel_6_x86_64
+  - sl_6_x86_64
+  - centos_7_x86_64
+  - rhel_7_x86_64
+  - sl_7_x86_64
+</pre>
       i. To change the repos that packages are installed from, edit the sources section, which has the following format:\
        <pre class="file">[&lt;Github account&gt;:&lt;branch of osg-test&gt;;] &lt;Initial OSG Version&gt;; &lt;Intial yum repo&gt; [&gt;] [&lt;Update OSG Version&gt;/][&lt;Update yum repo&gt;]
 %RED%# Run osg-test with packages from 3.1-release%ENDCOLOR%
@@ -44,25 +53,79 @@ The procedure explained in this section replaces [[https://twiki.opensciencegrid
 3.2; osg, osg-testing &gt; 3.3/osg-testing, osg-upcoming-testing
 %RED%# Run osg-test from the 'opensciencegrid' github account using the 'master' branch (https://github.com/opensciencegrid/osg-test.git) with packages from 3.2-testing%ENDCOLOR%
 opensciencegrid:master; 3.2; osg-testing</pre> \
-<p>If you are testing any java components, you should pre-install the necessary java packages by prepending any package lists with the java packages from the [[Documentation/Release3.InstallSoftwareWithOpenJDK7][install instructions]]. For example, the following will test =osg-tested-internal= with the approved java packages:</p> \
-<pre class="file">All: [java-1.7.0-openjdk-devel, osg-java7-compat, osg-tested-internal]</pre>
-      i. Package sets can take labels that will be reflected in the test result reporting. This can be specified with the followign format =Label: [Package Set]=: \
-      <pre class="file">All: [java-1.7.0-openjdk-devel, osg-java7-compat, osg-java7-devel-compat, osg-tested-internal]</pre>
-      i. The test infrastructure can read multiple yaml files in =parameters.d=, which allows you to run different, mutually exclusive tests. For example, if you wanted to test EL7 on 3.3 in addition to the standard tests, you could add the following to a file in =paramaters.d=:\
+      i. The =package_sets= section controls the packages that are installed, the label used for reporting, whether or not SELinux is enabled (default: disabled), and whether or not to pre-install the OSG Java packages (default: enabled): \
+      <pre class="file">package_sets:
+  #### Required ####
+  # label - used for reporting, should be consistent across param files
+  # packages - list of packages to install in the test run
+  #### Optional ####
+  # selinux - enable SELinux for the package set, otherwise Permissive mode (default: False)
+  # osg_java - Pre-install OSG java packages (default: True)
+  ##################
+  - label: All
+    selinux: False
+    osg_java: True
+    packages:
+      - osg-tested-internal
+  - label: HTCondor
+    selinux: False
+    osg_java: True
+    packages:
+      - condor.x86_64
+      - osg-ce-condor
+      - rsv</pre>
+      i. The test infrastructure can read multiple yaml files in =parameters.d=, which allows you to run different, mutually exclusive tests. For example, if you wanted to test 3.3 development on EL7 in addition to the standard tests, you could add the following to a file in =paramaters.d=:\
        <pre class="file">platform:
   - centos_7_x86_64
   - sl_7_x86_64
 
 sources:
-  - 3.2; osg-development
+  - 3.3; osg-development
 
-packages:
-  - All: [java-1.7.0-openjdk-devel, osg-java7-compat, osg-java7-devel-compat, osg-tested-internal]
-  - HTCondor: [java-1.7.0-openjdk-devel, osg-java7-compat, osg-java7-devel-compat, condor.x86_64, osg-ce-condor, rsv]
-  - GridFTP: [java-1.7.0-openjdk-devel, osg-java7-compat, osg-java7-devel-compat, osg-gridftp, edg-mkgridmap, rsv]
-  - BeStMan: [java-1.7.0-openjdk-devel, osg-java7-compat, osg-java7-devel-compat, osg-se-bestman, rsv]
-  - VOMS: [java-1.7.0-openjdk-devel, osg-java7-compat, osg-java7-devel-compat, osg-voms, rsv]
-  - GUMS: [java-1.7.0-openjdk-devel, osg-java7-compat, osg-java7-devel-compat, osg-gums, rsv]
+package_sets:
+  - label: All
+    selinux: False
+    osg_java: True
+    packages:
+      - osg-tested-internal
+  # Explicitly add GRAM packages since they were dropped from osg-ce (SOFTWARE-2278, SOFTWARE-2291)
+  - label: All + GRAM (3.2)
+    selinux: False
+    osg_java: True
+    packages:
+      - osg-tested-internal-gram
+  - label: HTCondor
+    selinux: False
+    osg_java: True
+    packages:
+      - condor.x86_64
+      - osg-ce-condor
+      - rsv
+  - label: GridFTP
+    selinux: True
+    osg_java: True
+    packages:
+      - osg-gridftp
+      - edg-mkgridmap
+      - rsv
+  - label: BeStMan
+    selinux: False
+    osg_java: True
+    packages:
+      - osg-se-bestman
+      - rsv
+  - label: VOMS
+    selinux: False
+    osg_java: True
+    packages:
+      - osg-voms
+      - rsv
+  - label: GUMS
+    selinux: False
+    osg_java: True
+    packages:
+      - osg-gums
+      - rsv
 </pre>
    1. Submit the test run (you must submit the DAG from the run directory):\
    <pre class="screen">%UCL_PROMPT% ./master-run.dag</pre>
