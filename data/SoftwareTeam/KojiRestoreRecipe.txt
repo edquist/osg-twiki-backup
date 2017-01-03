@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1483472995" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1483483089" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 %TOC{depth="2"}%
 
@@ -115,7 +115,8 @@ root@newdb# mkdir -p /root/dbrestore
 root@host-3# $RSYNC $DBBACKUP/homefs/      $NEWDB:/root/dbrestore/home
 root@host-3# for dir in root etc var; do \
    $RSYNC $DBBACKUP/rootfs/$dir/ \
-      $NEWDB:/root/dbrestore/$dir
+      $NEWDB:/root/dbrestore/$dir \
+   done
 </pre>
    1. Continue on to the next section
 
@@ -164,7 +165,7 @@ The root filesystem backups are in the =rootfs= subdirectory of =/export/backup/
 and the backups of =/mnt/koji= are in the =kojifs= subdirectory.
 
 The following instructions show how to restore the critical components of
-Koji onto o new machine.
+Koji onto a new machine.
 
 In the instructions, the new host will be named _newkoji_.
 <!--
@@ -191,17 +192,13 @@ root@host-3# $RSYNC $KOJIBACKUP/kojifs $NEWKOJI:/mnt/kojifs
 
 ---+++ II.1. Installing the OS
 
-Prerequisites for _newkoji_: an EL 5+ host with an SSH server set up and accessible (as root) from _host-3.chtc.wisc.edu_
+Prerequisites for _newkoji_: an EL 6+ host with an SSH server set up and accessible (as root) from _host-3.chtc.wisc.edu_
 (This recipe was tested for EL 6, on the same machine as _newdb_).
    1. Install !EPEL and OSG repos.
-      * On EL 5:<pre class="rootscreen">
-root@newkoji# rpm -Uvh \
-   http://dl.fedoraproject.org/pub/epel/5/i386/epel-release-5-4.noarch.rpm \
-   http://repo.grid.iu.edu/osg/3.2/osg-3.2-el5-release-latest.rpm</pre>
       * On EL 6:<pre class="rootscreen">
 root@newkoji# rpm -Uvh \
    http://dl.fedoraproject.org/pub/epel/6/i386/epel-release-6-8.noarch.rpm \
-   http://repo.grid.iu.edu/osg/3.2/osg-3.2-el6-release-latest.rpm</pre>
+   http://repo.grid.iu.edu/osg/3.3/osg-3.3-el6-release-latest.rpm</pre>
       * On both:<pre class="rootscreen">root@newkoji# yum install -y yum-priorities</pre>
    1. Edit =/etc/yum.repos.d/osg-*development.repo=:
       * Enable the development repo
@@ -215,7 +212,7 @@ root@newkoji# yum install koji koji-builder koji-hub koji-plugin-sign \
    1. Mount =/mnt/koji= if necessary
    1. Restore the contents of the koji filesystem. On _host-3_:<pre class="rootscreen">
 ## At a minimum, you must restore the /mnt/koji/packages directory
-root@host-3# $RSYNC $KOJIBACKUP/kojifs/packages/ $newkoji:/mnt/koji/packages
+root@host-3# $RSYNC $KOJIBACKUP/kojifs/packages/ $NEWKOJI:/mnt/koji/packages
 ## The other directories are optional, though it saves a lot of time to restore /mnt/koji/repos
 root@host-3# $RSYNC $KOJIBACKUP/kojifs/repos/ $NEWKOJI:/mnt/koji/repos
 root@host-3# $RSYNC $KOJIBACKUP/kojifs/work/ $NEWKOJI:/mnt/koji/work
@@ -255,7 +252,7 @@ root@host-3# $RSYNC $DA $KOJIBACKUP/rootfs/etc/ $NEWKOJI:/mnt/rootfs/etc
    1. On _newkoji_:<pre class="rootscreen">mkdir -p /root/hubrestore</pre>
    1. On _host-3_:<pre class="rootscreen">
 $RSYNC $KOJIBACKUP/rootfs/{root,home,etc,var} $NEWKOJI:/root/hubrestore/</pre>
-   1. On _newkoji_, install some utils we might need later:<pre class="rootscreen">
+   1. On _newkoji_, install some utils we will need later:<pre class="rootscreen">
 root@newkoji# yum install -y dos2unix vim-enhanced</pre> (vim-enhanced is used for vimdiff)
    1. On _newkoji_:<pre class="rootscreen">
 ## Restore some of the directories in /etc:
@@ -327,25 +324,25 @@ makepem () {
    keyfile=$1
    certfile=$2
    outputfile=$3
-   set -e
+   (set -e
    keymodulus=$(openssl rsa -noout -modulus -in "$keyfile")
    certmodulus=$(openssl x509 -noout -modulus -in "$certfile")
-   if &#91;&#91; $(echo "$keymodulus" | md5sum) != $(echo "$certmodulus" | md5sum) &#93;&#93; ; then
+   if &#91;&#91; $keymodulus != $certmodulus &#93;&#93; ; then
       echo 'keyfile and certfile do not match!'; return 1
    fi
    if &#91;&#91; -f $outputfile &#93;&#93; ; then
       mv -f "$outputfile"{,.bak}
    fi
    (dos2unix &lt; "$certfile"; echo; dos2unix &lt; "$keyfile") &gt; "$outputfile"
-   chmod 0600 "$outputfile"
+   chmod 0600 "$outputfile")
 }</pre>
 
 Certs go into =/etc/pki/tls/certs/=.
 The host cert goes into =digicert_hostcert.crt= and the kojira cert into =kojira.crt=.
-Run =dos2unix= on them if you need to.
+Run =dos2unix= on the cert files before copying them.
 
 Keys and .pem files (that you make with =makepem=) go into =/etc/pki/tls/private/=.
-Run =dos2unix= on them if you need to.
+Run =dos2unix= on the key files before copying them.
 
 The host key goes into =digicert_hostkey.key= and the kojira key into =kojira.key=.
 Use =makepem= to combine =digicert_hostcert.crt= and =digicert_hostkey.key= into =kojiweb.pem=,
