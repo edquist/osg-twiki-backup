@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1483483089" format="1.1" reprev="1.2" version="1.2"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1483573256" format="1.1" reprev="1.3" version="1.3"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 %TOC{depth="2"}%
 
@@ -14,23 +14,9 @@ In case both the database and the hub need to be restored, the database should b
 ---++ Background information
 
 Backups of _koji.chtc.wisc.edu_ and _db-01.batlab.org_ are on _host-3.chtc.wisc.edu_ in <code>/export/backup/<em>$DATE</em></code>.
-That machine is in WID. (Same room as _koji.chtc_ -- this means we need to get offsite backups going).
+That machine is in WID. (Same room as _koji.chtc_ itself, which is why we have offsite backups).
 It's a homebrew rsync-based backup system. (Not our home -- Nate told me it was written for Midwest Tier 2).
-They go back up to a week but I have created a ticket about creating a monthly snapshot for a year -- =[htcondor-inf #32956]=.
-
----+++ Current disk usage on koji.chtc
-
-   * /var: 1.6G (without logfiles)
-   * /mnt/koji/packages: 79G (currently growing at 35G / year)
-   * /mnt/koji/repos: 15G to 55G (periodically grows and shrinks)
-   * /etc: 2M to 95M (depending on how much we take)
-Total for a backup once a month for a year (skipping /mnt/koji/repos): 1.1T
-
-This is assuming we do no deduplication (hardlinking). Since the reason /mnt/koji/packages is so huge is because _everything_ is kept, so if we were to do deduplication (which Nate currently does for the nightlies), we'd cut that down to under 120G.
-
-/mnt/koji/repos is a special case: content there is constantly regenerated and cleaned up.
-We would not be able to do much deduplication.
-Its contents are not necessary for a restore, but do speed up the restore time by several hours since we would not have to regenerate _all_ the repos.
+They go back up to a week, with a monthly snapshot for a year.
 
 ---++ Setting up your environment
 
@@ -42,7 +28,6 @@ DATE=<em>YYYY-MM-DD date of most recent good backup</em>
 DBBACKUP=/export/backup/$DATE/db-01.batlab.org
 KOJIBACKUP=/export/backup/$DATE/koji.chtc.wisc.edu
 RSYNC="rsync --archive --hard-links --verbose"
-DA="--delete-after"
 </pre>
 
 ---++ I. Restoring the database
@@ -60,42 +45,6 @@ fresh install was tested.
 
 The new database server is called _newdb_ in these instructions.
 
-<!--
- ---+++ I.1. Restore the OS
-
-There are two alternatives to restoring the OS.
-
-The first (restoring from rsync) is more risky but we would get firewall
-rules, puppet configs, anything we customized and should give us a machine
-in the same state the original was in.
-
-The second (performing a brand new install) is more likely to work,
-but will require additional configuration to get the machine to the state
-that the original was in.
-
--->
-<!--
- ---++++ I.1.A. Restoring all from rsync (UNTESTED)
-
-   1. Boot _newdb_ from a !LiveCD
-   1. Partition its hard drive and mount it as =/mnt/rootfs=
-   1. Start =sshd=
-   1. On _host-3_:<pre class="rootscreen">
-root@host-3# $RSYNC $DBBACKUP/rootfs $NEWDB:/mnt/rootfs
-</pre>
-   1. On _newdb_ (still booting from a !LiveCD):<pre class="rootscreen">
-root@livecd# rm -rf /mnt/rootfs/var/lib/pgsql
-</pre>
-   1. Boot _newdb_ from the local drive and reinstall postgres so files in =/var/lib/pgsql= get recreated:<pre class="rootscreen">
-root@newdb# yum erase -y postgresql-server
-root@newdb# yum install -y postgresql-server
-</pre>
-   1. Continue to [[#RestoringFromDumps][Restoring from dumps]]
-
-
- ---++++ I.1.B. Performing a brand new install
-
--->
 
 ---+++ I.1. Restoring Services
 
@@ -112,9 +61,9 @@ root@newdb# useradd -r -m koji
 root@newdb# mkdir -p /root/dbrestore
 
 ## On host-3:
-root@host-3# $RSYNC $DBBACKUP/homefs/      $NEWDB:/root/dbrestore/home
-root@host-3# for dir in root etc var; do \
-   $RSYNC $DBBACKUP/rootfs/$dir/ \
+you@host-3$ sudo $RSYNC $DBBACKUP/homefs/  $NEWDB:/root/dbrestore/home
+you@host-3$ for dir in root etc var; do \
+   sudo $RSYNC $DBBACKUP/rootfs/$dir/ \
       $NEWDB:/root/dbrestore/$dir \
    done
 </pre>
@@ -168,38 +117,17 @@ The following instructions show how to restore the critical components of
 Koji onto a new machine.
 
 In the instructions, the new host will be named _newkoji_.
-<!--
-We might be able to get away with a full rsync restore of the filesystem (option A);
-if not, then we can reinstall (option B).
-Either way, since =/mnt/koji= is on a separate filesystem, it will be restored separately.
--->
-
-<!--
- ---+++ II.A. Restoring all from rsync (UNTESTED)
-
-   1. Boot _newkoji_ from a !LiveCD
-   1. Partition the hard drive; create seperate partitions for =/= and =/mnt/koji=
-   1. Mount the root partition as =/mnt/rootfs= and mount the koji partition as =/mnt/kojifs=
-   1. Start =sshd=
-   1. On _host-3_:<pre class="rootscreen">
-root@host-3# $RSYNC $KOJIBACKUP/rootfs $NEWKOJI:/mnt/rootfs
-root@host-3# $RSYNC $KOJIBACKUP/kojifs $NEWKOJI:/mnt/kojifs
-</pre>
-   1. Reboot _newkoji_ and boot from the local drive
-   1. Go to [[#PostRestore][Post-restore steps]]
-
--->
 
 ---+++ II.1. Installing the OS
 
 Prerequisites for _newkoji_: an EL 6+ host with an SSH server set up and accessible (as root) from _host-3.chtc.wisc.edu_
 (This recipe was tested for EL 6, on the same machine as _newdb_).
    1. Install !EPEL and OSG repos.
-      * On EL 6:<pre class="rootscreen">
+      <pre class="rootscreen">
 root@newkoji# rpm -Uvh \
    http://dl.fedoraproject.org/pub/epel/6/i386/epel-release-6-8.noarch.rpm \
-   http://repo.grid.iu.edu/osg/3.3/osg-3.3-el6-release-latest.rpm</pre>
-      * On both:<pre class="rootscreen">root@newkoji# yum install -y yum-priorities</pre>
+   http://repo.grid.iu.edu/osg/3.3/osg-3.3-el6-release-latest.rpm
+root@newkoji# yum install -y yum-plugin-priorities</pre>
    1. Edit =/etc/yum.repos.d/osg-*development.repo=:
       * Enable the development repo
       * Add <code>includepkg=koji*</code> to the definition for the development repo
@@ -210,13 +138,13 @@ root@newkoji# yum install koji koji-builder koji-hub koji-plugin-sign \
    koji-theme-fedora koji-utils koji-web mod_ssl postgresql
 </pre>
    1. Mount =/mnt/koji= if necessary
-   1. Restore the contents of the koji filesystem. On _host-3_:<pre class="rootscreen">
+   1. Restore the contents of the koji filesystem. On _host-3_:<pre class="screen">
 ## At a minimum, you must restore the /mnt/koji/packages directory
-root@host-3# $RSYNC $KOJIBACKUP/kojifs/packages/ $NEWKOJI:/mnt/koji/packages
+you@host-3$ sudo $RSYNC $KOJIBACKUP/kojifs/packages/ $NEWKOJI:/mnt/koji/packages
 ## The other directories are optional, though it saves a lot of time to restore /mnt/koji/repos
-root@host-3# $RSYNC $KOJIBACKUP/kojifs/repos/ $NEWKOJI:/mnt/koji/repos
-root@host-3# $RSYNC $KOJIBACKUP/kojifs/work/ $NEWKOJI:/mnt/koji/work
-root@host-3# $RSYNC $KOJIBACKUP/kojifs/scratch/ $NEWKOJI:/mnt/koji/scratch
+you@host-3$ sudo $RSYNC $KOJIBACKUP/kojifs/repos/ $NEWKOJI:/mnt/koji/repos
+you@host-3$ sudo $RSYNC $KOJIBACKUP/kojifs/work/ $NEWKOJI:/mnt/koji/work
+you@host-3$ sudo $RSYNC $KOJIBACKUP/kojifs/scratch/ $NEWKOJI:/mnt/koji/scratch
 ## Any dirs you did not restore should be created.
 </pre>
    1. Fix permissions if needed. On _newkoji_:<pre class="rootscreen">
@@ -237,21 +165,11 @@ dirclone () {
    rsync --archive --delete-after --acls --xattrs --partial --partial-dir=.rsync-partial "$srcdir/" "$destdir"
 }
 </pre>
-<!--
- ---+++++ II.B.2.a. Restoring all of /etc using rsync (UNTESTED)
-
-   1. Boot _newkoji_ from a !LiveCD and mount the root partition as =/mnt/rootfs=
-   1. On _host-3_:<pre class="rootscreen">
-root@host-3# $RSYNC $DA $KOJIBACKUP/rootfs/etc/ $NEWKOJI:/mnt/rootfs/etc
-</pre>
-   1. Reboot _newkoji_ and boot from the local drive
-   1. Continue to [[#RestoringHome][Restoring home directories]]
-
--->
 
    1. On _newkoji_:<pre class="rootscreen">mkdir -p /root/hubrestore</pre>
-   1. On _host-3_:<pre class="rootscreen">
-$RSYNC $KOJIBACKUP/rootfs/{root,home,etc,var} $NEWKOJI:/root/hubrestore/</pre>
+   1. On _host-3_:<pre class="screen">
+sudo $RSYNC $KOJIBACKUP/rootfs/{root,home,etc} $NEWKOJI:/root/hubrestore/
+sudo $RSYNC $KOJIBACKUP/varfs/ $NEWKOJI:/root/hubrestore/var</pre>
    1. On _newkoji_, install some utils we will need later:<pre class="rootscreen">
 root@newkoji# yum install -y dos2unix vim-enhanced</pre> (vim-enhanced is used for vimdiff)
    1. On _newkoji_:<pre class="rootscreen">
@@ -259,6 +177,7 @@ root@newkoji# yum install -y dos2unix vim-enhanced</pre> (vim-enhanced is used f
 root@newkoji# while read subtree; do
    dirclone /root/hubrestore/etc/$subtree /etc/$subtree
 done &lt;&lt;__END__
+httpd
 kojid
 koji-hub
 kojira
@@ -271,9 +190,6 @@ __END__
 ## Restore some of the files:
 root@newkoji# cp -a /root/hubrestore/etc/koji.conf /etc/
 root@newkoji# cp -a /root/hubrestore/etc/sysconfig/{httpd,kojid,kojira} /etc/sysconfig/
-## If you are migrating from EL 5 to EL6, you will have to merge the
-## files in /etc/httpd subtree individually. If you're going from EL5
-## to EL5, you can just dirclone it from the hubrestore directory.
 </pre>
    1. Restore users and home directories
       * If _newkoji_ is on a separate host from _newdb_, then just simply copy over the files:<pre class="rootscreen">
@@ -295,11 +211,11 @@ done
 </pre>
    1. Ensure a 'koji' user exists
    1. Fix dirs in =/var=:<pre class="rootscreen">
-root@newkoji# dirclone /root/hubrestore/var/www/html /var/www/html
 root@newkoji# rm -rf /var/lib/mock/*
 root@newkoji# chown root:mock /var/lib/mock
 root@newkoji# chmod 2775 /var/lib/mock
 </pre>
+   1. Restore =/var/www/html= and =/var/spool/cron= (TODO)
 
 ---+++ II.3. Fixing Names
 
@@ -316,13 +232,14 @@ After editing, make sure =hub.conf= is owned by =root:apache= and chmodded 0640.
 ---++++ Installing new cert/key pairs for _newkoji_
 
 You will need two cert/key pairs: one for the host, and one for the kojira service.
+Run =dos2unix= on all cert and key files before using them.
 Define the shell function =makepem=, listed below.
 =makepem= combines a public and private keypair to make a .pem file that the koji services use.
 
-Usage: <code>makepem <em>keyfile</em> <em>certfile</em> <em>output_file</em></code><pre class="rootscreen">
+Usage: <code>makepem <em>certfile</em> <em>keyfile</em> <em>output_file</em></code><pre class="rootscreen">
 makepem () {
-   keyfile=$1
-   certfile=$2
+   certfile=$1
+   keyfile=$2
    outputfile=$3
    (set -e
    keymodulus=$(openssl rsa -noout -modulus -in "$keyfile")
@@ -337,19 +254,28 @@ makepem () {
    chmod 0600 "$outputfile")
 }</pre>
 
-Certs go into =/etc/pki/tls/certs/=.
-The host cert goes into =digicert_hostcert.crt= and the kojira cert into =kojira.crt=.
-Run =dos2unix= on the cert files before copying them.
+Place cert and key files into the following paths:
 
-Keys and .pem files (that you make with =makepem=) go into =/etc/pki/tls/private/=.
-Run =dos2unix= on the key files before copying them.
+| host cert | =/root/hostcert.pem= |
+| host key | =/root/hostkey.pem= |
+| kojira cert | =/root/kojiracert.pem= |
+| kojira key | =/root/kojirakey.pem= |
 
-The host key goes into =digicert_hostkey.key= and the kojira key into =kojira.key=.
-Use =makepem= to combine =digicert_hostcert.crt= and =digicert_hostkey.key= into =kojiweb.pem=,
-and =kojira.crt= and =kojira.key= into =kojira.pem=.
-=digicert_hostkey.key= must be owned by =root=.
-=kojiweb.pem= must be owned by =apache:apache=.
-=kojira.key= and =kojira.pem= must be owned by =kojira:kojira=.
+Then use =makepem= to combine the certs and put them in the proper locations.
+<pre class="rootscreen">
+root@newkoji# makepem /root/hostcert.pem /root/hostkey.pem \
+   /etc/pki/tls/private/kojiweb.pem
+root@newkoji# makepem /root/kojiracert.pem /root/kojirakey.pem \
+   /etc/pki/tls/private/kojira.pem
+root@newkoji# chown apache:apache /etc/pki/tls/private/kojiweb.pem
+root@newkoji# chown root:root /etc/pki/tls/private/kojira.pem</pre>
+
+In addition, copy the host cert and key into the locations HTTPD expects it them.
+<pre class="rootscreen">
+root@newkoji# cp -a /root/hostcert.pem /etc/pki/tls/certs/hostcert.pem
+root@newkoji# cp -a /root/hostkey.pem /etc/pki/tls/private/hostkey.pem
+</pre>
+
 
 ---++++ Fixing hostname in config files
 
@@ -361,13 +287,13 @@ Use sed to replace the hostname in the following config files in /etc:
    * =/etc/httpd/conf/httpd.conf=
    * =/etc/kojid/kojid.conf=
 You will need to fix =/etc/kojid/kojid.conf= on all builder machines as well
-(e.g. _kojibuilder1.batlab.org_).
+(e.g. _kojibuilder2.chtc.wisc.edu_).
 
 ---++++ Fixing hostname in database
 
 You will need to find and fix entries that contain the hostname in the following tables:
-   * =host=
-   * =user=
+   * =host= (should be 1 entry)
+   * =users= (should be 2 entries, one for the host, and one for the kojira user)
 
 ---++++ Fixing hostname elsewhere
 
@@ -404,7 +330,7 @@ root@newkoji# service httpd start</pre>
 root@newkoji# service kojid start</pre>
    1. Use =ps= to verify that it came up
 
-If you did not restore the =/mnt/koji= directory, you will now need to
+If you did not restore the =/mnt/koji/repos= directory, you will now need to
 regenerate the build repos. Use =koji list-tags= to get a list of tags
 and run =koji regen-repo= on all of the ones with =-build= in the name.
 This *will* take several hours. You will also need to regen the
@@ -430,51 +356,6 @@ now.
 
 
 
----+ Future Work
-
-This recipe currently requires a lot of manual work.
-Many parts of this can be automated, especially if we were to use
-Puppet to help.
-Tasks needed to minimize the amount of manual work:
-
----+++++ Create patches for config files
-
-Currently, several steps for setting up _newkoji_ and _newdb_
-require changes to configuration files. Some of these changes
-are manual, especially if going from RHEL 5 to RHEL 6. We might
-be able to express these as patches to the standard config files
-that come with distro packages.
-
-Effort required: 4 to 8 hours.
-
----+++++ Puppetize database server
-
-For the most part, setting up the database server is just a question
-of installing postgres, tweaking some database configs, creating a
-user, and importing the backup dump. Except for the last step,
-all of that can be easily done with Puppet. Care will have to be
-taken so that the config works whether the database is on the same
-host as the koji hub or not.
-
-Effort required: 1 to 2 days.
-
----+++++ Puppetize the koji-hub services
-
-Puppetizing all of the services that run on koji-hub is a more
-complicated task, but still something that Puppet should be able to
-do. Care will have to be taken with sensitive information (keys,
-passwords, etc). The config must also work wherther the hub shares a
-host with the database or not.
-
-Effort required: 1 week. Most of this will come from testing.
-
----+++++ Script rsyncs and copies
-
-Copying over the backup data is a manual process, but large chunks can
-probably be scripted. Write a set of scripts that will automate that
-part of the restore process.
-
-Effort required: 1 to 2 days. Again, most of this will come from testing.
 
 -- Main.MatyasSelmeci - 07 Feb 2014
 
