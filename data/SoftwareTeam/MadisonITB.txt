@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TimCartwright" date="1483544356" format="1.1" reprev="1.27" version="1.27"}%
+%META:TOPICINFO{author="TimCartwright" date="1484248790" format="1.1" reprev="1.28" version="1.28"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 <style type="text/css">pre em { color: red; font-weight: normal; font-style: normal; }</style>
 
@@ -116,6 +116,88 @@ Configuration is managed by Puppet using the UW Center for High-Throughput Compu
       * Manage firewall rules
       * Install a basic set of common tools (nominations: vi, emacs)
    * In the meantime, we will write, maintain, and apply documentation to make these changes manually
+
+---++ Making a New Virtual Machine on itb-host-1
+
+For this procedure, you will need login access to the CHTC Cobbler website, which is separate from other CHTC logins. If you do not have an account, request one from the CHTC system administrators.
+
+   1. If this is a new host (combination of MAC address, IP address, and hostname), set up host with CHTC Infrastructure
+      1. Pick a MAC address, starting with =00:16:3e:= followed by three random octets (e.g., =00:16:3e:f7:29:ee=)
+      1. Email htcondor-inf@cs.wisc.edu with a request for a new OSG ITB VM, including the chosen MAC address
+      1. Wait to receive the associated IP address for the new host
+   1. Create or edit the Cobbler system object for the host
+      1. Access https://cobbler-widmir.chtc.wisc.edu/cobbler_web
+      1. In the left navigation area, under “Configuration”, click the “Systems” link
+      1. For a new host, click the “Create New System” button; for an existing host, filter by “Name” for the fully qualified hostname then click “Edit” to the right of the entry
+      1. In the *first* “General” section, select a “Profile” of “Scientific_6_rolling_osg_vm” or “Scientific_7_rolling_osg_vm”
+      1. In the *second* “General” section, check the “Netboot Enabled” checkbox
+      1. In the “Networking” section, select the “eth0” interface to edit, and set the “MAC Address”, “IP Address”, and “DNS Name” fields for the host
+      1. Click the “Save” button
+      1. In the left navigation area, under “Actions”, click the “Sync” link
+   1. Log in to =itb-host-1= and become =root=
+   1. Create the libvirt definition file
+      1. Create a new XML file named after the desired hostname (e.g., =itb-ce2.xml=) and copy in the template below
+      1. Replace ={{ HOSTNAME }}= with the fully qualified hostname of the new virtual host
+      1. Replace ={{ MAC_ADDRESS }}= with the MAC address of the new virtual host (from above)
+      1. If desired, edit other values in the XML definition file; ask CHTC Infrastructure for help, if needed
+      1. Save the XML file
+      1. Create a new, empty disk image for the virtual host, in its correct location (as specified in the XML file):<pre class="screen">truncate -s 192G /var/lib/libvirt/images/<em>HOSTNAME</em>.dd
+chown qemu:qemu /var/lib/libvirt/images/<em>HOSTNAME</em>.dd</pre>
+      1. Load the new host definition into libvirt:<pre class="screen">virsh define XML-FILE</pre>
+   1. Install the new machine
+      1. Start the virtual machine:<pre class="screen">virsh start HOSTNAME</pre>\
+       <p>At this time, the machine will boot over the network, and Cobbler will install and minimally configure the OS, then reboot the now-installed machine. This whole process takes 15–20 typically. You may be able to ssh into the machine during the install process, but there is no need to monitor or interfere.</p>
+      1. Once the machine is available (which you can only guess at), ssh in and verify that the machine basically works
+      1. Immediately run Ansible on the machine, first with the =secure.yml= playbook, then the =site.yml= one (see above)
+      1. Log in to the machine and look around to make sure it seems OK
+      1. When things look good, tell virsh to start the virtual machine when the host itself starts:<pre class="screen">virsh autostart HOSTNAME</pre>
+
+---+++ Libvirt VM Template
+
+<pre class="file">
+&lt;domain type='kvm'&gt;
+
+  &lt;name&gt;{{ HOSTNAME }}&lt;/name&gt;
+
+  &lt;memory unit='GiB'&gt;6&lt;/memory&gt;
+  &lt;vcpu&gt;4&lt;/vcpu&gt;
+  &lt;os&gt;
+    &lt;type&gt;hvm&lt;/type&gt;
+    &lt;boot dev='network'/&gt;
+  &lt;/os&gt;
+  &lt;features&gt;
+    &lt;acpi/&gt;
+    &lt;apic/&gt;
+    &lt;pae/&gt;
+  &lt;/features&gt;
+
+  &lt;devices&gt;
+
+    &lt;emulator&gt;/usr/libexec/qemu-kvm&lt;/emulator&gt;
+
+    &lt;disk type='file' device='disk'&gt;
+      &lt;source file='/var/lib/libvirt/images/{{ HOSTNAME }}.dd'/&gt;
+      &lt;target dev='vda' bus='virtio'/&gt;
+    &lt;/disk&gt;
+
+    &lt;interface type='bridge'&gt;
+      &lt;mac address='{{ MAC_ADDRESS }}'/&gt;
+      &lt;source bridge='br0'/&gt;
+      &lt;model type='virtio'/&gt;
+    &lt;/interface&gt;
+
+    &lt;serial type='pty'&gt;
+      &lt;target port='0'/&gt;
+    &lt;/serial&gt;
+    &lt;console type='pty'&gt;
+      &lt;target type='serial' port='0'/&gt;
+    &lt;/console&gt;
+
+    &lt;graphics type='vnc' autoport='yes' listen='127.0.0.1'/&gt;
+
+  &lt;/devices&gt;
+&lt;/domain&gt;
+</pre>
 
 ---++ Archive
 
