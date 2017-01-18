@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="TimCartwright" date="1484258787" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="BrianLin" date="1484774059" format="1.1" reprev="1.2" version="1.2"}%
 <style type="text/css">
 code em, pre em { color: red; font-weight: normal; font-style: normal; }
 </style>
@@ -102,13 +102,15 @@ The following configuration steps are optional and will likely not be required f
 
 If you need to add backup load balancers, copy =/etc/keepalived/keepalived.conf= from your primary load balancer and change the =state= and priority attributes under your =vrrp_instance VI_gridftp= section:
 
+%NOTE% Priority specifies the order of preferred load balancer fall back where larger values corresponds to a higher preference.
+
 <pre class="file">vrrp_instance VI_gridftp {
-    state <span style="background-color: #FFCCFF;">BACKUP</span>
-    interface <span style="background-color: #FFCCFF;">&lt;Interface (e.g. eth0)&gt;</span>
-    virtual_router_id <span style="background-color: #FFCCFF;">&lt;Arbitrary # between 0 and 255&gt;</span>
-    priority <span style="background-color: #FFCCFF;">&lt;50&gt;</span>
+    state BACKUP
+    interface <span style="background-color: #FFCCFF;">INTERFACE (e.g. eth0)</span>
+    virtual_router_id <span style="background-color: #FFCCFF;">SAME ID AS MASTER LOAD BALANCER</span>
+    priority <span style="background-color: #FFCCFF;">PRIORITY INTEGER</span>
     virtual_ipaddress {
-        <span style="background-color: #FFCCFF;">&lt;Virtual IP Address&gt;</span>/<span style="background-color: #FFCCFF;">&lt;Subnet Mask&gt;</span> dev <span style="background-color: #FFCCFF;">&lt;Interface (e.g. eth0)&gt;</span>
+        <span style="background-color: #FFCCFF;">VIRTUAL IP ADDRESS</span>/<span style="background-color: #FFCCFF;">SUBNET MASK</span> dev <span style="background-color: #FFCCFF;">INTERFACE (e.g., eth0)</span>
     }
 }
 </pre>
@@ -120,14 +122,14 @@ To receive e-mails when the state of your LVS cluster changes, update the =globa
 
 <pre class="file">
 notification_email {
-<span style="background-color: #FFCCFF;">admin@example.com</span>
-<span style="background-color: #FFCCFF;">admin2@example.com</span>
+<span style="background-color: #FFCCFF;">NOTIFY EMAIL ADDRESS #1</span>
+<span style="background-color: #FFCCFF;">NOTIFY EMAIL ADDRESS #2</span>
 <span style="background-color: #FFCCFF;">...</span>
 }
-notification_email_from <span style="background-color: #FFCCFF;">noreply@example.com</span>
-smtp_server <span style="background-color: #FFCCFF;">127.0.0.1</span>
+notification_email_from <span style="background-color: #FFCCFF;">FROM EMAIL ADDRESS</span>
+smtp_server <span style="background-color: #FFCCFF;">SMTP SERVER IP ADDRESS</span>
 smtp_connect_timeout 60
-router_id <span style="background-color: #FFCCFF;">&lt;Machine identifying string&gt;</span>
+router_id <span style="background-color: #FFCCFF;">STRING IDENTIFYING MACHINE</span>
 </pre>
 
 #ConfigureReal
@@ -136,30 +138,45 @@ router_id <span style="background-color: #FFCCFF;">&lt;Machine identifying strin
 Each real server requires changes to its IP configuration and potentially its arptables: 
 
    * [[#AddingVIP][Adding your virtual IP address]]
-   * [[#DisableArp][Disabling ARP]] &minus; if your real servers are on the same network as the virtual IP
+   * [[#DisableArp][Disabling ARP]] &minus; if your real servers are on the same network segment as the virtual IP
 
 #AddingVIP
 ---+++ Adding your virtual IP address
 
 Use the same virtual IP address as your load balancers as the secondary IP on your real servers. Add it using the =ip= tool:
 
-<pre class="rootscreen">%UCL_PROMPT_ROOT% ip addr add <span style="background-color: #D1CAF2;">&lt;Virtual IP Address&gt;</span>/<span style="background-color: #D1CAF2;">&lt;Subnet Mask&gt;</span> dev <span style="background-color: #D1CAF2;">&lt;Interface (e.g. eth0)&gt;</span></pre>
+<pre class="rootscreen">%UCL_PROMPT_ROOT% ip addr add <span style="background-color: #D1CAF2;">VIRTUAL IP ADDRESS</span>/<span style="background-color: #D1CAF2;">SUBNET MASK</span> dev <span style="background-color: #D1CAF2;">INTERFACE (e.g. eth0)</span></pre>
 
 TODO: How to persist across reboots?
 
 #DisableArp
 ---+++ Disabling ARP
 
-If your real servers are only listening on the same network as your virtual IP address, skip to [[#UsingKeepalived][the section on using keepalived]]. If your real servers and load balancer(s) are on the same public network, you will have to disable ARP on the real servers to avoid [[http://kb.linuxvirtualserver.org/wiki/ARP_Issues_in_LVS/DR_and_LVS/TUN_Clusters][ARP race conditions]]:
+If your real servers are only listening on the same network as your virtual IP address, skip to [[#UsingKeepalived][the section on using keepalived]]. If your real servers and load balancer(s) are on the same network segment, you will have to disable ARP on the real servers to avoid [[http://kb.linuxvirtualserver.org/wiki/ARP_Issues_in_LVS/DR_and_LVS/TUN_Clusters][ARP race conditions]]:
 
-   1. Install =arptables= package: \
-<pre class="rootscreen">%UCL_PROMPT_ROOT% yum install arptables_nf</pre>
-   1. Disable ARP: \
-<pre class="rootscreen">%UCL_PROMPT_ROOT% arptables -F
-%UCL_PROMPT_ROOT% arptables -A IN -d <span style="background-color: #D1CAF2;">&lt;Virtual IP Address&gt;</span> -j DROP
-%UCL_PROMPT_ROOT% arptables -A OUT -s <span style="background-color: #D1CAF2;">&lt;$VIP&gt;</span> -j mangle --mangle-ip-s <span style="background-color: #D1CAF2;">&lt;Real IP address&gt;</span></pre>
-   1. Save ARP tables to survive reboots:\
-<pre class="rootscreen">%UCL_PROMPT_ROOT% arptables-save > /etc/sysconfig/arptables</pre>
+<ol>
+  <li>
+    <p>Select the appropriate RPM:</p>
+%TABLE{sort="off"}%
+| *If your operating system version is…* | *Then use the following package(s)…* |
+| Enterprise Linux 6 | =arptables_jf= |
+| Enterprise Linux 7 | =arptables= |    
+  </li>
+  <li>
+    <p>Install the arptables software:</p>
+    <pre class="rootscreen">%UCL_PROMPT_ROOT% yum install arptables_jf</pre>
+  </li>
+  <li>
+    <p>Disable ARP:</p>
+    <pre class="rootscreen">%UCL_PROMPT_ROOT% arptables -F
+%UCL_PROMPT_ROOT% arptables -A IN -d <span style="background-color: #D1CAF2;">VIRTUAL IP ADDRESS</span> -j DROP
+%UCL_PROMPT_ROOT% arptables -A OUT -s <span style="background-color: #D1CAF2;">VIRTUAL IP ADDRESS</span> -j mangle --mangle-ip-s <span style="background-color: #D1CAF2;">REAL IP ADDRESS</span></pre>  </li>
+  </li>
+  <li>
+    <p>Save ARP tables to survive reboots:</p>
+    <pre class="rootscreen">%UCL_PROMPT_ROOT% arptables-save > /etc/sysconfig/arptables</pre>    
+  </li>
+</ol>
 
 #UsingKeepalived
 ---++ Using Keepalived
@@ -167,10 +184,15 @@ If your real servers are only listening on the same network as your virtual IP a
 ---+++ Managing keepalived and associated services
 
 %TABLE{sort="off"}%
-| *Software* | *Service name* | *Notes* |
-| Keepalived | =keepalived= | |
 
-%INCLUDE{"Documentation/Release3.DocumentationSnippets" section="ServiceManagement"}%
+On the load balancer nodes, =keepalived= is the only additional service required for running an LVS. As a reminder, here are common service commands (all run as =root=):
+
+%TABLE{sort="off"}%
+| *To &hellip;* | *On EL&nbsp;6, run the command&hellip;* | *On EL&nbsp;7, run the command&hellip;* |
+| Start a service | =service keepalived start= | =systemctl start keepalived= |
+| Stop a service | =service keepalived stop= | =systemctl start keepalived= |
+| Enable a service to start during boot | =chkconfig keepalived on= | =systemctl enable keepalived= |
+| Disable a service from starting during boot | =chkconfig keepalived off= | =systemctl disable keepalived= |
 
 ---++ Getting Help
 
