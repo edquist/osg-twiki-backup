@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="BrianLin" date="1484928315" format="1.1" version="1.3"}%
+%META:TOPICINFO{author="BrianLin" date="1484954238" format="1.1" reprev="1.4" version="1.4"}%
 <style type="text/css">
 code em, pre em { color: red; font-weight: normal; font-style: normal; }
 </style>
@@ -25,16 +25,116 @@ One general-purpose technology for implementing a load balancer on Linux is [[ht
 
 This guide explains how to install, configure, run, test, and troubleshoot the =keepalived= service on a load balancing host for a set of [[Documentation.Release3/InstallOSGGridFTP][GridFTP]] servers.
 
+---++ Linux Virtual Server Overview
 
+%RED%<b>TODO:</b>%ENDCOLOR% Content would be good
+
+#BeforeStarting
 ---++ Before Starting
+
+Before starting the installation process, consider the following points:
+
+%RED%<b>TODO:</b>%ENDCOLOR%
+
+   * DNS setup LVS, hostname -> virtual IP
+   * Shared service certificate among real servers
+   * Real server and load balancer general HW requirements
+   * Networking requirements
 
 As with all OSG software installations, there are some one-time (per host) steps to prepare in advance:
 
    * Ensure the host has [[SupportedOperatingSystems][a supported operating system]]
    * Obtain root access to the host
-   * TODO: DNS setup LVS, hostname -> virtual IP
 
----++ Installing Keepalived on Load Balancers
+---++ Preparing !GridFTP Real Servers
+
+If you already have !GridFTP installed on your real servers, skip the installation section and continue to the [[#ConfigureReal][the LVS-specific configuration]].
+
+---+++ Installing !GridFTP
+
+Whether you are starting from scratch or adding more !GridFTP servers to your LVS, follow the documentation for [[Documentation.Release3.InstallOSGGridFTP][installing a standalone !GridFTP server]] for each of your real servers (skip section 2.2, requesting a certificate).
+
+%NOTE% Validation of services, this can be ignored.
+
+#ConfigureReal
+---+++ Configuring your real servers
+
+Each real server requires a service certificate, changes to its IP configuration, and potentially its arptables: 
+
+   * [[#ConfigureCert][Install shared service certificate]]
+   * [[#AddingVIP][Adding your virtual IP address]]
+   * [[#DisableArp][Disabling ARP]] &minus; if your real servers are on the same network segment as the virtual IP
+
+#ConfigureCert
+---++++ Install shared service certificate
+
+When communicating with a !GridFTP server, clients verify that the host certificate matches the hostname of the server. In the case of an LVS, clients will contact the server via the hostname associated with the virtual IP address, so the server will have to present the shared service certificate ([[#BeforeStarting][instructions for acquiring the shared service certificate]]). Place the certificate key-pair on each real server and configure !GridFTP to use it:
+
+<ol>
+  <li>
+     <p>Create a directory to contain the shared service certificate:</p>
+     <pre class="rootscreen">%UCL_PROMPT_ROOT% mkdir /etc/grid-security/gridftp</pre>
+   </li>
+   <li>
+     <p>Place the shared service certifificate-key pair in the newly created directory:</p>
+     <pre class="rootscreen">%UCL_PROMPT_ROOT% mv <span style="background-color: #D1CAF2;">PATH TO SERVICE CERT</span> /etc/grid-security/gridftp/gridftp-hostcert.pem
+%UCL_PROMPT_ROOT% mv <span style="background-color: #D1CAF2;">PATH TO SERVICE KEY</span> /etc/grid-security/gridftp/gridftp-hostkey.pem</pre>
+     
+   </li>
+   <li>
+     <p>Configure =/etc/sysconfig/globus-gridftp-server= to use the shared service certificate-key pair</p>
+     <pre class="file">export X509_USER_CERT=/etc/grid-security/gridftp/gridftp-hostcert.pem
+export X509_USER_KEY=/etc/grid-security/gridftp/gridftp-hostkey.pem</pre>
+   </li>
+   <li>
+     <p>Restart the =globus-gridftp-server= service:</p>
+%TABLE{sort="off"}%
+| *On EL&nbsp;6, run the command&hellip;* | *On EL&nbsp;7, run the command&hellip;* |
+| =service globus-gridftp-server restart= | =systemctl restart globus-gridftp-server= |     
+   </li>
+</ol>   
+
+#AddingVIP
+---++++ Adding your virtual IP address
+
+Use the same virtual IP address as your load balancers as the secondary IP on your real servers. Add it using the =ip= tool:
+
+<pre class="rootscreen">%UCL_PROMPT_ROOT% ip addr add <span style="background-color: #D1CAF2;">VIRTUAL IP ADDRESS</span>/<span style="background-color: #D1CAF2;">SUBNET MASK</span> dev <span style="background-color: #D1CAF2;">INTERFACE (e.g. eth0)</span></pre>
+
+%RED%<b>TODO:</b>%ENDCOLOR% How to persist across reboots?
+
+#DisableArp
+---++++ Disabling ARP
+
+If your real servers are only listening on the same network as your virtual IP address, skip to [[#UsingKeepalived][the section on using keepalived]]. If your real servers and load balancer(s) are on the same network segment, you will have to disable ARP on the real servers to avoid [[http://kb.linuxvirtualserver.org/wiki/ARP_Issues_in_LVS/DR_and_LVS/TUN_Clusters][ARP race conditions]]:
+
+<ol>
+  <li>
+    <p>Select the appropriate RPM:</p>
+%TABLE{sort="off"}%
+| *If your operating system version is…* | *Then use the following package(s)…* |
+| Enterprise Linux 6 | =arptables_jf= |
+| Enterprise Linux 7 | =arptables= |    
+  </li>
+  <li>
+    <p>Install the arptables software:</p>
+    <pre class="rootscreen">%UCL_PROMPT_ROOT% yum install arptables_jf</pre>
+  </li>
+  <li>
+    <p>Disable ARP:</p>
+    <pre class="rootscreen">%UCL_PROMPT_ROOT% arptables -F
+%UCL_PROMPT_ROOT% arptables -A IN -d <span style="background-color: #D1CAF2;">VIRTUAL IP ADDRESS</span> -j DROP
+%UCL_PROMPT_ROOT% arptables -A OUT -s <span style="background-color: #D1CAF2;">VIRTUAL IP ADDRESS</span> -j mangle --mangle-ip-s <span style="background-color: #D1CAF2;">REAL IP ADDRESS</span></pre>  </li>
+  </li>
+  <li>
+    <p>Save ARP tables to survive reboots:</p>
+    <pre class="rootscreen">%UCL_PROMPT_ROOT% arptables-save > /etc/sysconfig/arptables</pre>    
+  </li>
+</ol>
+
+---++ Preparing Keepalived Load Balancers
+
+---+++ Installing Keepalived
 
 Whether you run a single load balancer, or have one active load balancer and some inactive backups, each load balancer host must have the =keepalived= software installed, configured, and running.
 
@@ -50,11 +150,7 @@ The =keepalived= package is available from the operating system repositories. In
   </li>
 </ol>
 
----++ Installing !GridFTP on Real Servers
-
-Follow the documentation [[Documentation.Release3.InstallOSGGridFTP][here]].
-
----++ Configuring the Load Balancer(s)
+---+++ Required configuration
 
 On the primary load balancer, edit =/etc/keepalived/keepalived.conf=:
 
@@ -96,9 +192,9 @@ virtual_server <span style="background-color: #FFCCFF;">VIRTUAL IP ADDRESS</span
 %NOTE% In the =virtual_server= section, write one =real_server= subsection per !GridFTP server behind the load balancer.
 
 #OptionalConfig
----+++ Optional Configuration
+---+++ Optional configuration
 
-The following configuration steps are optional and will likely not be required for setting up a small cluster of !GridFTP hosts. If you do not need any of the following special configurations, skip to [[#ConfigureReal][the section on configuring your real servers]].
+The following configuration steps are optional and will likely not be required for setting up a small cluster of !GridFTP hosts. If you do not need any of the following special configurations, skip to [[#UsingKeepalived][the section on using keepalived]].
 
    * [[#BackupLoadBalancers][Adding backup load balancers]]
    * [[#EmailNotifications][Enabling e-mail notifications]]
@@ -138,56 +234,8 @@ smtp_connect_timeout 60
 router_id <span style="background-color: #FFCCFF;">STRING IDENTIFYING MACHINE</span>
 </pre>
 
-#ConfigureReal
----++ Configuring Your Real Servers
-
-Each real server requires changes to its IP configuration and potentially its arptables: 
-
-   * [[#AddingVIP][Adding your virtual IP address]]
-   * [[#DisableArp][Disabling ARP]] &minus; if your real servers are on the same network segment as the virtual IP
-
-#AddingVIP
----+++ Adding your virtual IP address
-
-Use the same virtual IP address as your load balancers as the secondary IP on your real servers. Add it using the =ip= tool:
-
-<pre class="rootscreen">%UCL_PROMPT_ROOT% ip addr add <span style="background-color: #D1CAF2;">VIRTUAL IP ADDRESS</span>/<span style="background-color: #D1CAF2;">SUBNET MASK</span> dev <span style="background-color: #D1CAF2;">INTERFACE (e.g. eth0)</span></pre>
-
-TODO: How to persist across reboots?
-
-#DisableArp
----+++ Disabling ARP
-
-If your real servers are only listening on the same network as your virtual IP address, skip to [[#UsingKeepalived][the section on using keepalived]]. If your real servers and load balancer(s) are on the same network segment, you will have to disable ARP on the real servers to avoid [[http://kb.linuxvirtualserver.org/wiki/ARP_Issues_in_LVS/DR_and_LVS/TUN_Clusters][ARP race conditions]]:
-
-<ol>
-  <li>
-    <p>Select the appropriate RPM:</p>
-%TABLE{sort="off"}%
-| *If your operating system version is…* | *Then use the following package(s)…* |
-| Enterprise Linux 6 | =arptables_jf= |
-| Enterprise Linux 7 | =arptables= |    
-  </li>
-  <li>
-    <p>Install the arptables software:</p>
-    <pre class="rootscreen">%UCL_PROMPT_ROOT% yum install arptables_jf</pre>
-  </li>
-  <li>
-    <p>Disable ARP:</p>
-    <pre class="rootscreen">%UCL_PROMPT_ROOT% arptables -F
-%UCL_PROMPT_ROOT% arptables -A IN -d <span style="background-color: #D1CAF2;">VIRTUAL IP ADDRESS</span> -j DROP
-%UCL_PROMPT_ROOT% arptables -A OUT -s <span style="background-color: #D1CAF2;">VIRTUAL IP ADDRESS</span> -j mangle --mangle-ip-s <span style="background-color: #D1CAF2;">REAL IP ADDRESS</span></pre>  </li>
-  </li>
-  <li>
-    <p>Save ARP tables to survive reboots:</p>
-    <pre class="rootscreen">%UCL_PROMPT_ROOT% arptables-save > /etc/sysconfig/arptables</pre>    
-  </li>
-</ol>
-
 #UsingKeepalived
----++ Using Keepalived
-
----+++ Managing the keepalived service
+---+++ Using Keepalived
 
 %TABLE{sort="off"}%
 
@@ -199,6 +247,10 @@ On the load balancer nodes, =keepalived= is the only additional service required
 | Stop a service | =service keepalived stop= | =systemctl start keepalived= |
 | Enable a service to start during boot | =chkconfig keepalived on= | =systemctl enable keepalived= |
 | Disable a service from starting during boot | =chkconfig keepalived off= | =systemctl disable keepalived= |
+
+---++ Verifying your Linux Virtual Server
+
+%RED%<b>TODO:</b>%ENDCOLOR% Content waiting on replies from Garhan/John
 
 ---++ Getting Help
 
