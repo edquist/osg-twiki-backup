@@ -1,0 +1,173 @@
+%META:TOPICINFO{author="MatyasSelmeci" date="1493678895" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICPARENT{name="WebHome"}%
+%LINKCSS%
+---+!! %SPACEOUT{ "Authorization with the LCMAPS VOMS plugin" }%
+%TOC%
+
+(IN PROGRESS)
+
+
+---# About this Document
+
+This document describes how you can configure the LCMAPS VOMS plugin to authorize users to access your resources on a per-VO basis. This will be the recommended authorization method for OSG 3.4.
+
+LCMAPS is a software library for examining the grid credentials of an incoming user, and mapping that user to a specific Unix account. The VOMS plugin enables LCMAPS to make mapping decisions based on the VOMS attributes of user proxies.
+
+An example of a VOMS attribute is <code>/cms/Role=production/Capability=NULL</code>. A user's proxy is given a VOMS attribute when the user contacts a VOMS server, generally by running =voms-proxy-init=.
+
+The OSG provides a default set of mappings from VOMS attributes to Unix accounts. By configuring LCMAPS, you can override these mappings, including changing the Unix account that a VO is mapped to, banning a VO, banning a specific user, or adding a VO that is not in the OSG's set of mappings.
+
+
+---# Requirements
+
+   * OS is %SUPPORTED_OS%
+   * [[http://fedoraproject.org/wiki/EPEL][EPEL]] repos enabled
+   * Root access
+
+
+---# RPMs to install
+
+All RPMs are available from the OSG 3.3 or greater repositories.
+
+   * =lcmaps= version 1.6.6-1.3 or greater
+   * =vo-client-lcmaps-voms= (recommended)
+
+In addition, on a CE, you will need:
+
+   * =htcondor-ce= version 2.1.5-1 or greater
+
+
+---# Enabling the plugin
+
+You can enable the plugin either by hand, or by using OSG-Configure; pick one of the sections below.
+
+%NOTE%On an OSG 3.3 CE, you will also need to add the following line to =/etc/sysconfig/condor-ce=:<pre class="file">export LLGT_VOMS_ENABLE_CREDENTIAL_CHECK=1</pre>
+
+---## Using OSG-Configure
+
+%WARNING%%RED%TODO I've tested this on a CE, but not on e.g. a !GridFTP node with just the minimum software installed. -matyas%ENDCOLOR%
+
+The easiest way to enable the LCMAPS VOMS plugin is to use OSG-Configure. You will need the following RPMs:
+
+   * =osg-configure= version 1.7.0 or greater
+   * =osg-configure-misc= version 1.7.0 or greater
+
+Edit =/etc/osg/config.d/10-misc.ini= and set the following options:
+
+   * =glexec_location= should be =UNAVAILABLE= because OSG does not support glExec with the LCMAPS VOMS plugin
+   * =edit_lcmaps_db= should be =True=
+   * =authorization_method= should be =vomsmap=
+
+Then, run =osg-configure -c= and your system should be configured.
+
+See [[IniConfigurationOptions]] for more information on OSG-Configure settings.
+
+---## Manual method
+
+LCMAPS is configured in =/etc/lcmaps.db=. Since the VOMS plugin is a new component, configuration for it may not be present in the existing =/etc/lcmaps.db= file.
+
+You will need to make sure the following lines are present in the "Module definitions" section (the top section, before =authorize_only=) of =/etc/lcmaps.db=:
+
+<pre class="file">
+gridmapfile = "lcmaps_localaccount.mod"
+              "-gridmap /etc/grid-security/grid-mapfile"
+banfile = "lcmaps_ban_dn.mod"
+          "-banmapfile /etc/grid-security/ban-mapfile"
+banvomsfile = "lcmaps_ban_fqan.mod"
+              "-banmapfile /etc/grid-security/ban-voms-mapfile"
+vomsmapfile = "lcmaps_voms_localaccount.mod"
+              "-gridmap /etc/grid-security/voms-mapfile"
+defaultmapfile = "lcmaps_voms_localaccount2.mod"
+                 "-gridmap /usr/share/osg/voms-mapfile-default"
+
+verifyproxy = "lcmaps_verify_proxy.mod"
+          "--allow-limited-proxy"
+          " -certdir /etc/grid-security/certificates"
+
+verifyproxynokey = "lcmaps_verify_proxy2.mod"
+          "--allow-limited-proxy"
+          "--discard_private_key_absence"
+          " -certdir /etc/grid-security/certificates"
+</pre>
+
+Then, you will need to make sure that the =authorize_only= section contains only the following uncommented lines:
+<pre class="file">
+verifyproxynokey -&gt; banfile
+banfile -&gt; banvomsfile | bad
+banvomsfile -&gt; gridmapfile | bad
+gridmapfile -&gt; good | vomsmapfile
+vomsmapfile -&gt; good | defaultmapfile
+defaultmapfile -&gt; good | bad
+</pre>
+
+In addition, you will need to edit =/etc/grid-security/gsi-authz.conf= and ensure it contains the following uncommented line:<pre class="file">
+globus_mapping liblcas_lcmaps_gt4_mapping.so lcmaps_callout
+</pre>
+
+
+---# Configuring mappings
+
+You can map or ban users by their certificates' Distinguished Names (DNs) or by their proxies' VOMS attributes. The configurations for these are contained in multiple files, which are described below. The files are evaluated in the following order, with earlier files taking precedence over later ones:
+
+| *File*                                | *Provider* | *Purpose*         |
+| =/etc/grid-security/ban-mapfile=      | Admin      | Ban DNs           |
+| =/etc/grid-security/ban-voms-mapfile= | Admin      | Ban VOs           |
+| =/etc/grid-security/grid-mapfile=     | Admin      | Map DNs           |
+| =/etc/grid-security/voms-mapfile=     | Admin      | Map VOs           |
+| =/usr/share/osg/voms-mapfile-default= | OSG        | Map VOs (default) |
+
+---## Mapping VOs
+
+=/etc/grid-security/voms-mapfile= is used to map VOs to Unix accounts based on their VOMS attributes.
+
+An example of a =voms-mapfile= is:<pre class="file">
+# map GLOW jobs to the 'glow' Unix account.
+"/GLOW/*" glow
+</pre>
+Each non-commented line is a shell-style pattern which is compared against the user's VOMS attributes, and a Unix account that the user will be mapped to if the pattern matches.
+
+%NOTE%The Unix account must exist for the user to be mapped. If a VO's Unix account is missing, that VO will not be able to access your resources.
+
+---## Mapping specific users
+
+=/etc/grid-security/grid-mapfile= is used to map specific users to Unix accounts based on their certificates' DNs.
+
+An example of a =grid-mapfile= is:<pre class="file">
+# map Matyas's FNAL DN to the 'matyas' Unix account
+"/DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Matyas Selmeci/CN=UID:matyas" matyas
+</pre>
+
+%NOTE%The Unix account must exist for the user to be mapped. If a user's Unix account is missing, that user will not be able to access your resources.
+
+---## Banning a VO
+
+=/etc/grid-security/ban-voms-mapfile= is used to ban an entire VO or a role withing a VO from accessing resources on your machine.
+
+An example of a =ban-voms-mapfile= is:<pre class="file">
+# ban CMS production jobs
+"/cms/Role=production/*"
+</pre>
+Each non-commented line is a shell-style pattern which is compared against a user's VOMS attributes. If the pattern matches, that user will be unable to access your resources.
+
+%WARNING%=/etc/grid-security/ban-voms-mapfile= _must_ exist, even if you are not banning any VOs. In that case, the file should be blank. If the file does not exist, LCMAPS will ban every user.
+
+---## Banning a user
+
+=/etc/grid-security/ban-mapfile= is used to ban specific users from accessing your resources based on their certificates' DNs.
+
+An example of a =ban-mapfile= is:<pre class="file">
+# ban Matyas's FNAL DN
+"/DC=gov/DC=fnal/O=Fermilab/OU=People/CN=Matyas Selmeci/CN=UID:matyas"
+</pre>
+
+%WARNING%=/etc/grid-security/ban-mapfile= _must_ exist, even if you are not banning any users. In that case, the file should be blank. If the file does not exist, LCMAPS will ban every user.
+
+---## Default mappings
+
+=/usr/share/osg/voms-mapfile-default= contains default mappings, provided by OSG in the =vo-client-lcmaps-voms= RPM.
+The file is of the same format as =/etc/grid-security/voms-mapfile=. If a user's DN or VOMS attributes do not match anything in the other files, mappings based on VOMS attributes in =voms-mapfile-default= will be used.
+
+%NOTE%The Unix account must exist for the user to be mapped. If a VO's Unix account is missing, that VO will not be able to access your resources.
+
+
+-- Main.MatyasSelmeci - 01 May 2017
