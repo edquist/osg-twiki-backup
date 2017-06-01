@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1496347417" format="1.1" version="1.7"}%
+%META:TOPICINFO{author="BrianLin" date="1496351248" format="1.1" reprev="1.8" version="1.8"}%
 %META:TOPICPARENT{name="WebHome"}%
 <style type="text/css">
 code em, pre em { color: red; font-weight: normal; font-style: normal; }
@@ -16,9 +16,9 @@ Consider this document to be a late draft: The technical content has been review
 
 ---++ About This Guide
 
-LCMAPS is a software library for using grid credentials of incoming jobs to map jobs to specific Unix accounts. The LCMAPS VOMS plugin enables LCMAPS to make mapping decisions based on the VOMS attributes of grid credentials, e.g., <code>/cms/Role=production/Capability=NULL</code>.
+LCMAPS is a software library for using grid certificates of incoming jobs to map the jobs to specific Unix accounts. The LCMAPS VOMS plugin enables LCMAPS to make mapping decisions based on the VOMS attributes of grid certificates, e.g., <code>/cms/Role=production/Capability=NULL</code>. Starting in OSG 3.4, the LCMAPS VOMS plugin will replace GUMS and edg-mkgridmap as the authentication method at OSG sites.
 
-The OSG provides a default set of mappings from VOMS attributes to Unix accounts. By configuring LCMAPS, you can override these mappings, including changing the Unix account that a VO is mapped to, banning a VO, banning a specific user, or adding a VO that is not in the OSG's set of mappings.
+The OSG provides a default set of mappings from VOMS attributes to Unix accounts. By configuring LCMAPS, you can override these mappings, including changing the Unix account that a VO is mapped to, banning based on VOMS attributes, banning a specific user, or adding a VO, VO group, VO role, and/or user that is not in the OSG's set of mappings.
 
 Use this page to learn how to install and configure the LCMAPS VOMS plugin to authorize users to access your resources on a per-VO basis.
 
@@ -53,21 +53,22 @@ authorization_method = vomsmap</pre>
 #UnixAccounts
 ---+++ Supporting mapped VOs and users 
 
-Unix accounts must exist for each VO or user you choose to support in the [[#RefConfigFiles][mapfiles]]:
+Unix accounts must exist for each VO, VO role, VO group, or user you choose to support in the [[#RefConfigFiles][mapfiles]]:
 
    1. Consult the default VO mappings in =/usr/share/osg/voms-mapfile-default= to determine the mapped Unix account names. Each of the mapfiles has the following format:\
 <pre class="file">
-"&lt;VO or user&gt;" &lt;Unix account&gt;
+"&lt;VO, VO role, VO group or user&gt;" &lt;Unix account&gt;
 </pre>
-   1. Create Unix accounts for each VO and user that you wish to support
+   1. Create Unix accounts for each VO, VO role, VO group, and user that you wish to support
    1. Edit =/etc/osg/config.d/40-siteinfo.ini= and specify the supported VOs per [[Documentation.Release3/IniConfigurationOptions#Subcluster_Resource_Entry_Config][Subcluster or ResourceEntry section]]:\
 <pre class="file">
 allowed_vos="VO1,VO2..."
 </pre>
 
+#ApplyConfig
 ---+++ Applying configuration settings
 
-Making changes to the OSG configuration files in the =/etc/osg/config.d= directory does not apply those settings to software automatically. For the OSG settings, use the [[IniConfigurationOptions][osg-configure]] tool to validate (to a limited extent) and apply the settings to the relevant software components. The =osg-configure= software is included automatically in an HTCondor-CE installation.
+Making changes to the OSG configuration files in the =/etc/osg/config.d= directory does not apply those settings to software automatically. For the OSG settings, use the [[IniConfigurationOptions][osg-configure]] tool to validate (to a limited extent) and apply the settings to the relevant software components. If instead you wish to manage the LCMAPS VOMS plugin configuration yourself, skip to the [[#RefManConfig][manual configuration section]].
 
    1. <p>Make all changes to =.ini= files in the =/etc/osg/config.d= directory</p>\
        <p><strong>Note:</strong> This document describes the critical settings for the LCMAPS VOMS plugin and related software. You may need to configure other software that is installed on your host, too.</p>
@@ -89,11 +90,15 @@ You can map or ban users by their certificates' Distinguished Names (DNs) or by 
 #OptionalMapVos
 ---++++ Mapping VOs
 
-=/etc/grid-security/voms-mapfile= is used to map VOs to Unix accounts based on their VOMS attributes. An example of the format of a =voms-mapfile= follows:
+=/etc/grid-security/voms-mapfile= is used to map VOs, VO roles, or VO groups to Unix accounts based on their VOMS attributes. An example of the format of a =voms-mapfile= follows:
 
 <pre class="file">
 # map GLOW jobs to the 'glow' Unix account.
 "/GLOW/*" glow
+# map GLOW jobs in the chtc group to the 'glow1' Unix account.
+"/GLOW/chtc/*" glow1
+# map GLOW jobs with the htpc role to the 'glow2' Unix account.
+"/GLOW/Role=htpc/*" glow2
 </pre>
 
 Each non-commented line is a shell-style pattern which is compared against the user's VOMS attributes, and a Unix account that the user will be mapped to if the pattern matches.
@@ -159,10 +164,11 @@ The files are evaluated in the following order, with earlier files taking preced
 #RefManConfig
 ---+++ Manual Configuration
 
-LCMAPS is configured in =/etc/lcmaps.db=. Since the VOMS plugin is a new component, configuration for it may not be present in the existing =/etc/lcmaps.db= file.
+This section is intended for use as reference if you choose to forego configuring the LCMAPS VOMS plugin via osg-configure (i.e., if you prefer a configuration management system like [[https://www.ansible.com/][Ansible]] or [[https://puppet.com/][Puppet]]). Therefore, the following instructions serve as a replacement for [[#ApplyConfig][this section]].
 
-You will need to make sure the following lines are present in the "Module definitions" section (the top section, before =authorize_only=) of =/etc/lcmaps.db=:
+LCMAPS is configured in =/etc/lcmaps.db=. and since the VOMS plugin is a newer component, configuration for it may not be present in your existing =/etc/lcmaps.db= file.
 
+   1. Ensure the following lines are present in the "Module definitions" section (the top section, before =authorize_only=) of =/etc/lcmaps.db=: \
 <pre class="file">
 gridmapfile = "lcmaps_localaccount.mod"
               "-gridmap /etc/grid-security/grid-mapfile"
@@ -180,8 +186,7 @@ verifyproxynokey = "lcmaps_verify_proxy2.mod"
           "--discard_private_key_absence"
           " -certdir /etc/grid-security/certificates"
 </pre>
-
-Then, you will need to make sure that the =authorize_only= section contains only the following uncommented lines:
+   1. Edit the =authorize_only= section so that it contains only the following uncommented lines:\
 <pre class="file">
 verifyproxynokey -&gt; banfile
 banfile -&gt; banvomsfile | bad
@@ -190,8 +195,8 @@ gridmapfile -&gt; good | vomsmapfile
 vomsmapfile -&gt; good | defaultmapfile
 defaultmapfile -&gt; good | bad
 </pre>
-
-In addition, you will need to edit =/etc/grid-security/gsi-authz.conf= and ensure it contains the following uncommented line:<pre class="file">
+   1. Edit =/etc/grid-security/gsi-authz.conf= and ensure that it contains the following uncommented line:\
+<pre class="file">
 globus_mapping liblcas_lcmaps_gt4_mapping.so lcmaps_callout
 </pre>
 
