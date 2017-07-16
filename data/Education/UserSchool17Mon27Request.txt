@@ -1,34 +1,33 @@
-%META:TOPICINFO{author="TimCartwright" date="1500067309" format="1.1" version="1.1"}%
+%META:TOPICINFO{author="LaurenMichael" date="1500217966" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="UserSchool17Materials"}%
 <style type="text/css">
 pre em { font-style: normal; background-color: yellow; }
 pre strong { font-style: normal; font-weight: bold; color: #008; }
 </style>
 
----+ Monday Bonus Exercise 2.7: Declare Resource Needs
+---+ Monday Exercise 1.5: Declare Resource Needs
 
-The goal of this exercise is to demonstrate the use of the =request_<i>X</i>= statements in a submit file, for when you know what resources your job needs.
-
-This is an optional exercise, so do it if you have time and interest.
-
-
----++ Determining Resource Needs
+The goal of this exercise is to demonstrate how to test and tune the =request_<i>X</i>= statements in a submit file for when you don't know what resources your job needs.
 
 There are three special resource request statements that you can use (optionally) in an HTCondor submit file:
 
-   * =request_memory= for the maximum amount of run-time memory your job uses
-   * =request_disk= for the maximum amount of disk space your job uses in the sandbox directory (including your executable, input, and output files)
-   * =request_cpus= for the number of CPUs your job takes (useful mostly for MPI jobs)
+  * =request_cpus= for the number of CPUs your job will use (most softwares will take an argument to control this number, and it's usually otherwise "1")
+  * =request_memory= for the maximum amount of run-time memory your job may use
+  * =request_disk= for the maximum amount of disk space your job may use (including the executable, all input, the =error=/=output= files listed in the submit file, and any other output files produced during the job)
 
-HTCondor defaults to certain reasonable values for these request settings, so you do not need to use them to get your job to run. So why care at all? Well, on some pools, if your job goes over the request values, it may be removed from the execute machine and either held (awaiting action on your part) or rerun later. So it can be a disadvantage to you if you do not declare your resource needs. Further, if you tell HTCondor accurate request needs, it can better match your job to an execute slot that will be able to run it effectively. In the long run, it works better for all users of the pool if you declare what you really need. Finally, on some advanced pools, HTCondor can actually join together single slots on an execute machine to create a slot just for your job with the resources it needs. Pretty cool, huh?
+HTCondor defaults to certain reasonable values for these request settings, so you do not need to use them to get _small_ jobs to run. However, on some HTCondor pools, if your job goes over the request values, it may be removed from the execute machine and either held (awaiting action on your part) or rerun later. So it can be a disadvantage to you if you do not declare your resource needs or if you underestimate them. If you overestimate them, your jobs will match to fewer slots (and with a longer average wait time) _and_ you'll be hogging up resources that you don't need, but that could be used for the jobs of other users. In the long run, it works better for all users of the pool if you declare what you really need.
 
-But how do you know what to request? In particular, we are concerned with memory and disk here; requesting multiple CPUs and using them effectively is beyond the scope of the School.
+But how do you know what to request? In particular, we are concerned with memory and disk here; requesting multiple CPUs and using them is covered a bit in later school materials, but true HTC splits work up into jobs that each use as few CPU cores as possible (one CPU core is always best to have the most jobs running soonest!).
 
----+++ Determining Memory Needs
+---++ Determining Resource Needs Before Running Any Jobs
 
-It can be very difficult to determine the memory needs of your running program. Typically, the memory size of a job changes over time, making the task even trickier. If you have knowledge ahead of time about your job’s memory needs, use them! If not, probably the best you can do is run your program locally (i.e., not with HTCondor) and observe its behavior over time.
+It can be very difficult to determine the memory needs of your running program. Typically, the memory size of a job changes over time, making the task even trickier. If you have knowledge ahead of time about your job’s maximum memory needs, use that, or a maybe a number that's just a bit higher, to be safe. If not, then it's best to run your program in a single test job, first, and let HTCondor tell you in the log file (or in the =condor_q -nobatch= output, if you're able to watch it), which is covered in the next section on "Determining Resource Needs by Running Test Jobs".
 
-On a Linux system, you can use the =ps= command or the =top= command to watch a running program and see (roughly) how much memory it is using. Full coverage of these tools is beyond the scope of this exercise, but here are two quick examples:
+---+++ Running a Job Locally 
+On our shared submit server =learn.chtc.wisc.edu=, you should not run computationally-intensive work because it can use resources needed by HTCondor to manage the queue for all uses. However, you may have access to other computers where you can observe the memory usage of a program. The downside is that you'll have to watch a program run for essentially the entire time, to make sure you catch the maximum memory usage.
+
+For Memory:
+On Mac and Windows, for example, the "Activity Monitor" and "Task Manager" applications may be useful. On a Mac or Linux system, you can use the =ps= command or the =top= command in the Terminal to watch a running program and see (roughly) how much memory it is using. Full coverage of these tools is beyond the scope of this exercise, but here are two quick examples:
 
 Using =ps=:
 
@@ -64,18 +63,19 @@ Swap:  4194296k total,      148k used,  4194148k free,  2960760k cached
 
 The =top= command (shown here with an option to limit the output to a single user ID) also shows information about running processes, but updates periodically by itself. Type the letter =q= to quit the interactive display. Again, the highlighted =RES= column shows an approximation of memory usage.
 
----+++ Determining Disk Needs
 
+For Disk:
 Determining disk needs may be a bit simpler, because you can check on the size of files that a program is using while it runs. However, it is important to count all files that HTCondor counts to get an accurate size. HTCondor counts *everything* in your job sandbox toward your job’s disk usage:
 
    * The executable itself
-   * All input files
-   * All output files, including the captured standard output and error
-   * All temporary files created in the sandbox
+   * All "input" files (anything else that gets transferred TO the job, even if you don't think of it as "input")
+   * All files created during the job (broadly defined as "output"), including the captured standard output and error files that you list in the submit file.
+   * All temporary files created in the sandbox, even if they get deleted by the executable before it's done.
 
-If you can run your program within a single directory on your local system (i.e., not via HTCondor), you should be able to view files and their sizes with the =ls= command.
+If you can run your program within a single directory on a local computer (not on the submit server), you should be able to view files and their sizes with the =ls= command.
 
----+++ Running a Test Job
+
+---++ Determining Resource Needs By Running Test Jobs (BEST)
 
 Despite the techniques mentioned above, by far the easiest approach to measuring your job’s resource needs is to run one or a small number of sample jobs and have HTCondor itself tell you about the resources used during the runs.
 
@@ -95,26 +95,26 @@ time.sleep(60)
 os.remove('temp')
 </pre>
 
-Without trying to figure out what this code does or how many resources it uses, just create a submit file for it, and run it once with HTCondor. When it is done, examine the log file. In particular, we care about these lines:
+Without trying to figure out what this code does or how many resources it uses, just create a submit file for it, and run it once with HTCondor, starting with somewhat high memory requests ("1GB" for memory and disk is a good starting point, unless you think the job will use far more, and will still match quickly). When it is done, examine the log file. In particular, we care about these lines:
 
 <pre class="file">
 	Partitionable Resources :    <em>Usage</em>  Request Allocated
 	   Cpus                 :                 1         1
-	   Disk (<em>KB</em>)            :     <em>6739</em>        1   8022934
-	   Memory (<em>MB</em>)          :        <em>3</em>        1         1
+	   Disk (<em>KB</em>)            :     <em>6739</em>  1048576   8022934
+	   Memory (<em>MB</em>)          :        <em>3</em>     1024      1024
 </pre>
 
-So, now we know that the job used 6,739 KB of disk (= about 6.5 MB) and 3 MB of memory!
+So, now we know that the job used 6,739 KB of disk (= about 6.5 MB) and 3 MB of memory! 
 
 This is a great technique for determining the real resource needs of your job. If you think resource needs vary from run to run, submit a few sample jobs and look at all the results. And it never hurts to round up your resource requests a little, just in case your job occasionally uses more resources.
 
 
 ---++ Setting Resource Requirements
 
-Once you know your job’s resource requirements, it is easy to declare them in your submit file. For example, taking our results above as an example:
+Once you know your job’s resource requirements, it is easy to declare them in your submit file. For example, taking our results above as an example, we might slightly increase our requests above what was used, just to be safe:
 
 <pre class="file">
-request_memory = 3MB
+request_memory = 4MB  <span style="font-style: italic; color: blue;"># rounded up from 3 MB</span>
 request_disk = 7MB   <span style="font-style: italic; color: blue;"># rounded up from 6.5 MB</span>
 </pre>
 
