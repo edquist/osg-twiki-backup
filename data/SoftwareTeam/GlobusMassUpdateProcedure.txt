@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="MatyasSelmeci" date="1474663601" format="1.1" reprev="1.1" version="1.1"}%
+%META:TOPICINFO{author="MatyasSelmeci" date="1503522422" format="1.1" reprev="1.2" version="1.2"}%
 %META:TOPICPARENT{name="InternalDocs"}%
 ---+ Globus mass update procedure
 
@@ -30,11 +30,11 @@ or to split up N and V-R in a comma-separated way (which you can feed into a Goo
 Create a separate SVN branch and populate it with all the packages you will update. (Get the list from the doc created above).
 
 <pre class="screen">
-svn mkdir file:///p/vdt/workspace/svn/native/redhat/branches/globus
+[you@uw]$ svn mkdir file:///p/vdt/workspace/svn/native/redhat/branches/globus
 ### From a checkout, in native/redhat
-for x in trunk/globus* trunk/myproxy; do
-  svn copy $x branches/globus/${x#trunk/}
-done
+[you@uw]$ for x in %RED<PACKAGES>%ENDCOLOR%; do
+     svn copy $x branches/globus/${x#trunk/}
+   done
 </pre>
 
 
@@ -43,35 +43,36 @@ done
 This requires a Koji administrator. Current Koji admins are Main.MatyasSelmeci
 and Main.CarlEdquist.
 
-Create new Koji tags: a destination tag, and a build tag, one for each dver, e.g.:
+Ensure Koji tags exist: a destination tag, and a build tag, one for each dver, e.g.:
 
    * el6-globus
    * el6-globus-build
    * el7-globus
    * el7-globus-build
 
-Set up tag inheritence: base the destination tags off of the corresponding
-development repo tag, and base the build tags off of the corresponding
+Set up tag inheritence: base the build tags off of the corresponding
 =dist-el?-build= tag. This is because we don't want old osg packages
-interfering with the new versions we're building.
+interfering with the new versions we're building.  These may already exist --
+check the =el?-globus-build= tags in the web interface.
 
 <pre class="screen">
-osg-koji add-tag --parent=osg-3.3-el6-development --arches='i386 x86_64' el6-globus
-osg-koji add-tag --parent=osg-3.3-el7-development --arches=x86_64 el7-globus
-osg-koji add-tag --parent=dist-el6-build --arches='i386 x86_64' el6-globus-build
-osg-koji add-tag --parent=dist-el7-build --arches=x86_64 el7-globus-build
+[you@client]$ for el in el6 el7; do
+        osg-koji add-tag --parent=dist-$el-build \
+            --arches=x86_64 $el-globus-build
+    done
 </pre>
 
 Tag =buildsys-macros= for the OSG release into the build tags:
 
 <pre class="screen">
-for el in el6 el7; do
-    buildsys_macros_nvr=$(osg-koji -q list-tagged osg-3.3-$el-development buildsys-macros --latest | awk '{print $1}')
-    osg-koji tag-pkg $el-globus-build $buildsys_macros_nvr
-done
+[you@client]$ for el in el6 el7; do
+       buildsys_macros_nvr=$(osg-koji -q list-tagged osg-3.4-$el-development
+         buildsys-macros --latest | awk '{print $1}')
+       osg-koji tag-pkg $el-globus-build $buildsys_macros_nvr
+   done
 </pre>
 
-Create new Koji targets, one for each dver, e.g.:
+Ensure Koji targets exist, one for each dver, e.g.:
 
    * el6-globus (el6-globus-build &rarr; el6-globus)
    * el7-globus (el7-globus-build &rarr; el7-globus)
@@ -79,10 +80,10 @@ Create new Koji targets, one for each dver, e.g.:
    * kojira-fake-el7-globus (el7-globus &rarr; kojira-fake)
 
 <pre class="screen">
-for el in el6 el7; do
-    osg-koji add-target $el-globus $el-globus-build $el-globus
-    osg-koji add-target kojira-fake-$el-globus $el-globus kojira-fake
-done
+[you@client]$ for el in el6 el7; do
+       osg-koji add-target $el-globus $el-globus-build $el-globus
+       osg-koji add-target kojira-fake-$el-globus $el-globus kojira-fake
+   done
 </pre>
 
 If basing the packages off of the Globus repos, add the Globus repos as
@@ -106,8 +107,8 @@ A useful alias:
 ---+++ Strict pass-through (no osg/ directory)
 
    1. <pre class="screen">
-osg-import-srpm "$url"
-osg-build-globus --scratch $pkg
+[you@uw]$ osg-import-srpm "$url"
+[you@uw]$ osg-build-globus --scratch $pkg
 </pre>
    1. Commit - use a message like:<pre>
 Update to 3.12-1 from EPEL (SOFTWARE-2197)
@@ -117,12 +118,12 @@ Update to 3.12-1 from EPEL (SOFTWARE-2197)
 
 ---+++ Non-strict pass-through
 
-   1. <pre class="screen">osg-import-srpm --diff3 "$url"</pre>
+   1. <pre class="screen">[you@uw]$ osg-import-srpm --diff3 "$url"</pre>
    1. Fix merge conflicts in the spec file. If not already there, put a .1
       after the Release number to mark the changes as ours.
-   1. <pre class="screen">osg-build quilt $pkg</pre>
+   1. <pre class="screen">[you@uw]$ osg-build quilt $pkg</pre>
    1. Fix patches if necessary.
-   1. <pre class="screen">osg-build-globus --scratch $pkg</pre>
+   1. <pre class="screen">[you@uw]$ osg-build-globus --scratch $pkg</pre>
    1. Commit - use a message like:<pre>
 Update to 8.29-1 from EPEL and merge OSG changes (SOFTWARE-2197)
 </pre>
@@ -133,7 +134,7 @@ Update to 8.29-1 from EPEL and merge OSG changes (SOFTWARE-2197)
 ---++ Testing
 
 Create a yum =.repo= file similar to =osg-minefield= that installs from the
-=el?-globus= repos.
+=el?-globus= repos.  Enable this and =osg-minefield=.
 
 EL7 example:
 
@@ -143,7 +144,7 @@ name=globus
 baseurl=http://koji.chtc.wisc.edu/mnt/koji/repos/el7-globus/latest/$basearch/
 failovermethod=priority
 priority=98
-enabled=0
+enabled=1
 gpgcheck=0
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-OSG
 consider_as_osg=yes
@@ -160,13 +161,13 @@ and Main.CarlEdquist.
 
    1. Untag broken versions that we don't want to ship.
    1. Use =move-pkg=:<pre class="screen">
-for el in el6 el7; do
-    osg-koji -q list-tagged ${el}-globus | awk '{print $1}' &gt; ${el}-tagged.txt
-done
+[you@client]$ for el in el6 el7; do
+       osg-koji -q list-tagged ${el}-globus | awk '{print $1}' &gt; ${el}-tagged.txt
+   done
 ### Check the txts if they look sane
-for el in el6 el7; do
-    xargs -a ${el}-tagged.txt  osg-koji move-pkg ${el}-globus osg-3.3-${el}-development
-done
+[you@client]$ for el in el6 el7; do
+       xargs -a ${el}-tagged.txt  osg-koji move-pkg ${el}-globus osg-3.3-${el}-development
+   done
 </pre>
 
 
