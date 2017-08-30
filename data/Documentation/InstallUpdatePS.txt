@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ShawnMcKee" date="1501069114" format="1.1" reprev="1.34" version="1.34"}%
+%META:TOPICINFO{author="ShawnMcKee" date="1504105214" format="1.1" reprev="1.35" version="1.35"}%
 %META:TOPICPARENT{name="DeployperfSONAR"}%
 b%LINKCSS%
 
@@ -66,6 +66,8 @@ All perfSONAR instances for use in OSG and WLCG should be registered either in O
 Please ensure you have added or updated your administrative information: http://docs.perfsonar.net/manage_admin_info.html
       * Adding communities is optional, but we recommend putting in WLCG as well as your VO: =ATLAS=, =CMS=, etc.   This just helps others from the community lookup your instances in the lookup service.  As noted in the documentation you can select from already registered communities as appropriate.
 
+Assuming your registration is for a *new* node or if you have changed the nodes FQDN, you will need to email =wlcg-perfsonar-support 'at' cern.ch= or open GGUS ticket for [[https://wiki.egi.eu/wiki/GGUS:WLCG_perfSONAR_FAQ][WLCG perfSONAR support unit]] so that your node can be added to one or more meshes.  Please indicate if you have preferences for which meshes your node should be included in.
+
 You will need to configure your instance(s) to use the OSG/WLCG mesh-configuration.   OSG provides MCA (Mesh Configuration  Adminstrator) GUI (see http://docs.perfsonar.net/mca.html for details) to centrally define the network tests that need to be run.  Each perfSONAR toolkit installation for OSG/WLCG should add the "auto" mesh URL in their =/etc/perfsonar/meshconfig-agent.conf= file:
       * Set this to =http://meshconfig.grid.iu.edu/pub/auto/&lt;FQDN&gt;=    Replace =&lt;FQDN&gt;= with the fully qualified domain name of your host, e.g., =psum01.aglt2.org=.  
       * <verbatim>
@@ -80,6 +82,8 @@ admin_email    smckee@umich.edu
 skip_redundant_tests   1
 </verbatim>
 
+*NOTE*: Until your host is added to one or more meshes, the automesh configuration above won't be returning any tests (See above).
+
 We *strongly recommend* configuring perfSONAR in *dual-stack mode* (both IPv4 and IPv6) 
       * In case your site has IPv6 support, the only necessary step is to get both A and AAAA records for your perfSONAR DNS names (as well as ensuring the reverse is in place).
       * All existing meshes will support both IPv4 and IPv6 testing.  Sites with both IPv4 and IPv6 addresses testing to sites that also have both will run *two* tests.   A side effect of this is that as more sites provide IPv6 addresses, the amount of testing will increase.  
@@ -88,22 +92,16 @@ We *strongly recommend* configuring perfSONAR in *dual-stack mode* (both IPv4 an
 
 ---++++ Security Considerations
 
+*NOTE:   As of the release of perfSONAR 4.0 ALL perfSONAR instances need to have port 443 access to all other perfSONAR instances.* This change is because of the new requirements introduced by pScheduler.    If sites are unable to reach your instance on port 443, tests may not run and results may not be available.
+
 The perfSONAR toolkit is reviewed both internally and externally for security flaws.   The toolkit's purpose is to allow us to measure and diagnose network problems and we therefore need to be cautious about blocking needed functionality by site or host firewalls.     
 
-Some sites are concerned about having port 80 and/or 443 open.  The working group would like to emphasize that these ports provide access to the perfSONAR web interface and are very useful to users and network administrators.   *Our recommendation is to keep them open*, but for sites with strong concerns we have some rules documented below to customize  iptables to block ports 80 and 443.  It is *required* that either port 80 *or* port 443 be accessible from the  OSG and WLCG monitoring subnets shown below:
+Some sites are concerned about having port 80 and/or 443 open.  The working group would like to emphasize that these ports provide access to the perfSONAR web interface and are very useful to users and network administrators.   *Our recommendation is to keep them open*, but for sites with strong concerns we have some rules documented below to customize  iptables to block ports 80 and 443.  It is *required* that either port 80 *or* port 443 be accessible from the  OSG and WLCG monitoring subnets shown below.  In addition port 443 *must* be accessible to all other perfSONAR instances that your node will test to.  This is a new requirement as of the release of perfSONAR 4.0.
       <verbatim>
-# Allow HTTP/HTTPS only from our monitoring subnets and your site's subnets 
-# Replace <LOCAL_SUBNET> with your site subnet/netmask, e.g. 193.87.10.0/255.255.255.0 or 193.87.10.0/24
-# OSG monitoring subnet
-iptables -I INPUT 4 -p tcp --dport 443 -s 129.79.53.0/24 -j ACCEPT
-# CERN subnet
-iptables -I INPUT 4 -p tcp --dport 443 -s 137.138.0.0/17 -j ACCEPT
-# Infrastructure monitoring (hosted at AGLT2)
-iptables -I INPUT 4 -p tcp --dport 443 -s 192.41.231.110/32 -j ACCEPT
-# Replace <LOCAL_SUBNET> appropriately to allow access from your local systems
-iptables -I INPUT 4 -p tcp --dport 443 -s <LOCAL_SUBNET> -j ACCEPT
-iptables -I INPUT 5 -p tcp --dport 443 -j REJECT
+#  Port 443 must be open
+iptables -I INPUT 4 -p tcp --dport 443 -j ACCEPT
 
+# Allow port 80 for specific monitoring subnets AT A MINIMUM (we recommend opening port 80 so others can view/access your perfSONAR Toolkit web GUI)
 #OSG monitoring subnet
 iptables -I INPUT 4 -p tcp --dport 80 -s 129.79.53.0/24 -j ACCEPT
 # CERN subnet
@@ -112,7 +110,8 @@ iptables -I INPUT 4 -p tcp --dport 80 -s 137.138.0.0/17 -j ACCEPT
 iptables -I INPUT 4 -p tcp --dport 80 -s 192.41.231.110/32 -j ACCEPT
 # Replace <LOCAL_SUBNET> appropriately to allow access from your local systems
 iptables -I INPUT 4 -p tcp --dport 80 -s <LOCAL_SUBNET> -j ACCEPT
-iptables -I INPUT 5 -p tcp --dport 80 -j REJECT
+# Reject ONLY if your site policy requires this
+#iptables -I INPUT 5 -p tcp --dport 80 -j REJECT
 
 /sbin/service iptables save
    </verbatim>
@@ -128,9 +127,11 @@ BWCTL TCP ports: 4823, 6001-6200, 5000-5900  UDP ports: 6001-6200, 5000-5900
 
 # HTTP and/or HTTPS ports are needed to access your perfSONAR web interface 
 # and the measurement archive and to check availability of your instances by the infrastructure monitoring
-# At a minimum either port 80 or 443 *must* be open to the WLCG monitoring subnets.  
-# Our recommendation is to have either HTTP or HTTPS open to allow users and network admins access to the perfSONAR web.
-HTTP/HTTPS ports 80,443 - open to ALL or at least for the following
+# As of the release of perfSONAR 4.0 port 443 *must* be accessible to all other perfSONAR instances and the WLCG monitoring subnets
+HTTPS port 443 open to ALL
+# At a minimum either port 80  *must* be open to the WLCG monitoring subnets.  
+# Our recommendation is to have HTTP open to allow users and network admins access to the perfSONAR web.
+HTTP port 80 - open to ALL or at least for the following
 source subnets OSG_NET (129.79.53.0/24), AGLT2_NET (192.41.231.110/32) and CERN_NET (137.138.0.0/17)
    </verbatim>
 
